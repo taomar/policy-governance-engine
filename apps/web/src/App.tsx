@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Input, Layout, Menu, Popover, Select, Space, Tag, Typography } from "antd";
+import { Button, Input, Layout, Menu, Popover, Select, Space, Tag, Typography } from "antd";
 import {
   DesktopOutlined,
   FolderOutlined,
@@ -25,13 +25,74 @@ const { Text } = Typography;
 
 type Page = "dashboard" | "projects" | "document-inbox" | "evaluate" | "my-attestations";
 
-const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
-  { id: "dashboard", label: "Dashboard", icon: <HomeOutlined /> },
-  { id: "projects", label: "Projects", icon: <FolderOutlined /> },
-  { id: "document-inbox", label: "Document Inbox", icon: <InboxOutlined /> },
-  { id: "evaluate", label: "Evaluate", icon: <PlayCircleOutlined /> },
-  { id: "my-attestations", label: "My Attestations", icon: <SolutionOutlined /> },
+/**
+ * Nav items grouped by what the user is trying to do, with a one-line
+ * explanation each. A flat five-item list gave a newcomer no sense of which
+ * destinations belong to authoring policy versus running them, and no
+ * indication of whether anything was waiting for them behind a link.
+ */
+const NAV_ITEMS: {
+  id: Page;
+  label: string;
+  icon: React.ReactNode;
+  group: "overview" | "author" | "runtime";
+  hint: string;
+}[] = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: <HomeOutlined />,
+    group: "overview",
+    hint: "Activity and health across every project.",
+  },
+  {
+    id: "projects",
+    label: "Projects",
+    icon: <FolderOutlined />,
+    group: "author",
+    hint: "Each project holds its own documents, rules and versions.",
+  },
+  {
+    id: "document-inbox",
+    label: "Document Inbox",
+    icon: <InboxOutlined />,
+    group: "author",
+    hint: "Files that have arrived but are not yet filed into a project.",
+  },
+  {
+    id: "evaluate",
+    label: "Evaluate",
+    icon: <PlayCircleOutlined />,
+    group: "runtime",
+    hint: "Run facts against a published version and see the decision.",
+  },
+  {
+    id: "my-attestations",
+    label: "My Attestations",
+    icon: <SolutionOutlined />,
+    group: "runtime",
+    hint: "Policies awaiting your sign-off.",
+  },
 ];
+
+const NAV_GROUP_LABELS: Record<"overview" | "author" | "runtime", string> = {
+  overview: "Overview",
+  author: "Author",
+  runtime: "Runtime",
+};
+
+/**
+ * Attestations are out of scope for this phase. Hidden rather than deleted: the
+ * page, its routes and its data are untouched, so restoring it means removing a
+ * key from this list. Declared once and applied to both the rendered menu and
+ * the navigation guard, so a hidden page cannot be reached by any other route
+ * and render as a blank shell.
+ */
+const HIDDEN_NAV_IDS: Page[] = ["my-attestations"];
+const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter((item) => !HIDDEN_NAV_IDS.includes(item.id));
+
+/** Namespaces project keys in the menu so they cannot collide with a `Page` id. */
+const PROJECT_NAV_PREFIX = "project:";
 
 function ActorSwitcher() {
   const { actor, setActor } = useActor();
@@ -97,6 +158,7 @@ function App() {
   const [askAiOpen, setAskAiOpen] = useState(false);
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [activeProject, setActiveProject] = useState<PolicySet | null>(null);
+  const [projectOpenRequest, setProjectOpenRequest] = useState<{ key: string; nonce: number }>();
 
   useEffect(() => {
     api
@@ -119,6 +181,14 @@ function App() {
   // "Ask AI" drawer to whatever project the user is currently inside) in sync whenever the
   // user leaves the Projects page via any route — top nav, Dashboard quick links, etc.
   const handleNavigate = (target: string) => {
+    // Project entries in the sider carry the project key, so a project is one
+    // click away instead of three (Projects → find card → open).
+    if (target.startsWith(PROJECT_NAV_PREFIX)) {
+      setPage("projects");
+      setProjectOpenRequest({ key: target.slice(PROJECT_NAV_PREFIX.length), nonce: Date.now() });
+      return;
+    }
+    if (HIDDEN_NAV_IDS.includes(target as Page)) return;
     setPage(target as Page);
     if (target !== "projects") setActiveProject(null);
   };
@@ -136,9 +206,59 @@ function App() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[page]}
+          selectedKeys={[
+            // Reflect the open project rather than just the Projects page, so the
+            // sider always shows where the user actually is.
+            page === "projects" && activeProject ? `${PROJECT_NAV_PREFIX}${activeProject.key}` : page,
+          ]}
+
           className="app-menu"
-          items={NAV_ITEMS.map((item) => ({ key: item.id, icon: item.icon, label: item.label }))}
+          items={(["overview", "author", "runtime"] as const).flatMap((group) => {
+            const groupItems = VISIBLE_NAV_ITEMS.filter((item) => item.group === group);
+            if (groupItems.length === 0) return [];
+            return [
+              {
+                key: `grp-${group}`,
+                type: "group" as const,
+                label: NAV_GROUP_LABELS[group],
+                children: groupItems.flatMap((item) => {
+                  const entry = {
+                    key: item.id,
+                    icon: item.icon,
+                    label: (
+                      <span className="nav-item">
+                        <span className="nav-item-label">{item.label}</span>
+                        {/* Only badge a destination when there is genuinely
+                            something behind it — a "0" pill is noise, and an
+                            always-present badge stops meaning anything. */}
+                        {item.id === "projects" && policySets.length > 0 && (
+                          <span className="nav-item-count">{policySets.length}</span>
+                        )}
+                      </span>
+                    ),
+                    title: item.hint,
+                  };
+                  if (item.id !== "projects") return [entry];
+                  // The projects themselves are the sider's most-used
+                  // destinations, so they are listed rather than buried behind
+                  // the list page. This also makes the sider reflect what this
+                  // instance actually contains instead of a fixed four links.
+                  return [
+                    entry,
+                    ...policySets.map((ps) => ({
+                      key: `${PROJECT_NAV_PREFIX}${ps.key}`,
+                      label: (
+                        <span className="nav-item nav-item--child">
+                          <span className="nav-item-label">{ps.name}</span>
+                        </span>
+                      ),
+                      title: `Open ${ps.name}`,
+                    })),
+                  ];
+                }),
+              },
+            ];
+          })}
           onClick={({ key }) => handleNavigate(key)}
         />
         <div className="sider-footer">
@@ -151,11 +271,8 @@ function App() {
       <Layout>
         <Header className="app-header">
           <Space size={8} className="breadcrumb">
-            <Text type="secondary">Policy Platform</Text>
-            <Text type="secondary">/</Text>
-            <Text strong>
-              {currentNavItem?.icon} {currentNavItem?.label}
-            </Text>
+            <span className="crumb-icon">{currentNavItem?.icon}</span>
+            <Text strong>{currentNavItem?.label}</Text>
             {page === "projects" && activeProject && (
               <>
                 <Text type="secondary">/</Text>
@@ -164,18 +281,15 @@ function App() {
             )}
           </Space>
           <Space size={10} className="header-actions">
-            <Badge status={apiHealthy === "ok" ? "success" : apiHealthy === "down" ? "error" : "default"} />
-            <Text type="secondary" className="status-text">
+            <span className={`status-pill status-pill--${apiHealthy === "ok" ? "ok" : apiHealthy === "down" ? "bad" : "idle"}`}>
+              <span className="status-dot" />
               API {apiHealthy === "ok" ? "connected" : apiHealthy === "down" ? "unreachable" : "checking…"}
-            </Text>
+            </span>
             {aiStatus && (
-              <>
-                <span className="header-divider" />
-                <Badge status={aiStatus.ai_enabled ? "success" : "default"} />
-                <Text type="secondary" className="status-text">
-                  AI {aiStatus.ai_enabled ? "enabled" : "disabled"}
-                </Text>
-              </>
+              <span className={`status-pill status-pill--${aiStatus.ai_enabled ? "ok" : "idle"}`}>
+                <span className="status-dot" />
+                AI {aiStatus.ai_enabled ? "enabled" : "disabled"}
+              </span>
             )}
             {aiStatus?.ai_enabled && (
               <Button
@@ -204,6 +318,7 @@ function App() {
               <ProjectsPage
                 onActiveProjectChange={setActiveProject}
                 onOpenAskAi={aiStatus?.ai_enabled ? () => setAskAiOpen(true) : undefined}
+                openRequest={projectOpenRequest}
               />
             )}
             {page === "document-inbox" && <DocumentsPage onNavigate={handleNavigate} />}

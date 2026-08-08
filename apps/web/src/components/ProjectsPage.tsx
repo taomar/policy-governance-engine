@@ -22,10 +22,19 @@ interface ProjectStats {
 export function ProjectsPage({
   onActiveProjectChange,
   onOpenAskAi,
+  openRequest,
 }: {
   /** Reports which project (if any) is currently open, so the app can scope Ask AI to it. */
   onActiveProjectChange?: (ps: PolicySet | null) => void;
   onOpenAskAi?: () => void;
+  /**
+   * A request from elsewhere in the shell (the sider) to open one project.
+   * Deliberately an intent rather than a controlled value: selection stays owned
+   * by this page, which is the only place that knows whether the project list has
+   * loaded yet. The nonce lets the same project be re-opened after the user has
+   * navigated back to the list.
+   */
+  openRequest?: { key: string; nonce: number };
 }) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [stats, setStats] = useState<Record<string, ProjectStats>>({});
@@ -80,6 +89,17 @@ export function ProjectsPage({
     setSelected(ps);
     onActiveProjectChange?.(ps);
   };
+
+  // Resolves an open request once the list is available, so a request that
+  // arrives during the initial load is honoured rather than dropped.
+  const requestedKey = openRequest?.key;
+  const requestedNonce = openRequest?.nonce;
+  useEffect(() => {
+    if (!requestedKey) return;
+    const match = policySets.find((ps) => ps.key === requestedKey);
+    if (match) openProject(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedKey, requestedNonce, policySets]);
 
   const backToList = () => {
     setSelected(null);

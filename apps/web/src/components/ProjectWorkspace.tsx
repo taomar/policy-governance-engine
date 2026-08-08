@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   AutoComplete,
@@ -12,11 +12,34 @@ import {
   Space,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
-import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, ThunderboltOutlined, WarningOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  AuditOutlined,
+  CheckCircleOutlined,
+  ControlOutlined,
+  DashboardOutlined,
+  DiffOutlined,
+  EditOutlined,
+  ExperimentOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  NodeIndexOutlined,
+  SafetyCertificateOutlined,
+  SolutionOutlined,
+  ThunderboltOutlined,
+  WarningOutlined,
+} from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { api, PolicyPlatformApiError, type PolicySet, type UpdatePolicySetRequest } from "../api";
+import {
+  api,
+  PolicyPlatformApiError,
+  type PolicySet,
+  type UpdatePolicySetRequest,
+  type WorkspaceCounts,
+} from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { DocumentsPage } from "./DocumentsPage";
@@ -36,9 +59,9 @@ const { Title, Text, Paragraph } = Typography;
 type WorkspaceTabKey =
   | "overview"
   | "documents"
+  | "review"
   | "policies"
   | "limits"
-  | "review"
   | "compare"
   | "quality"
   | "correlation"
@@ -47,20 +70,188 @@ type WorkspaceTabKey =
   | "attestations"
   | "decision-log";
 
-const TAB_KEYS: WorkspaceTabKey[] = [
-  "overview",
-  "documents",
-  "policies",
-  "limits",
-  "review",
-  "compare",
-  "quality",
-  "correlation",
-  "tests",
-  "exceptions",
-  "attestations",
-  "decision-log",
+/**
+ * The lifecycle stage each tab belongs to. Eleven peer tabs in one flat strip
+ * gave no clue which of them belong together or which order they are meant to
+ be used in; grouping them into the stages of the actual workflow (get text in →
+ * publish rules → prove they behave → run them) makes the strip readable at a
+ * glance and gives a newcomer a route through the product.
+ */
+type TabGroup = "author" | "publish" | "assure" | "operate";
+
+const TAB_GROUP_LABELS: Record<TabGroup, string> = {
+  author: "Author",
+  publish: "Publish",
+  assure: "Assure",
+  operate: "Operate",
+};
+
+interface TabMeta {
+  key: WorkspaceTabKey;
+  label: string;
+  group: TabGroup;
+  icon: React.ReactNode;
+  /** One line explaining what the tab is for, shown on hover. */
+  hint: string;
+  /** Which count to badge the tab with, if any. */
+  count?: keyof WorkspaceCounts;
+  /** Render the badge as "needs attention" (amber) rather than neutral. */
+  attention?: boolean;
+}
+
+/**
+ * Declared in workflow order, which is also render order. `TAB_META` is the one
+ * place a tab's identity lives — label, grouping, icon, explanation and which
+ * count belongs on it — so a new tab cannot be added to the strip while
+ * forgetting one of them.
+ */
+const TAB_META: TabMeta[] = [
+  {
+    key: "overview",
+    label: "Overview",
+    group: "author",
+    icon: <DashboardOutlined />,
+    hint: "Where this project stands right now, and what to do next.",
+  },
+  {
+    key: "documents",
+    label: "Documents",
+    group: "author",
+    icon: <FileTextOutlined />,
+    hint: "Source policy documents, their versions, and AI extraction runs.",
+    count: "documents",
+  },
+  {
+    key: "review",
+    label: "Review",
+    group: "author",
+    icon: <AuditOutlined />,
+    hint: "Candidate rules the AI drafted, waiting for a human decision.",
+    count: "review_pending",
+    attention: true,
+  },
+  {
+    key: "policies",
+    label: "Policies",
+    group: "publish",
+    icon: <SafetyCertificateOutlined />,
+    hint: "Rules in the currently active published version.",
+    count: "policies",
+  },
+  {
+    key: "limits",
+    label: "Aggregate Limits",
+    group: "publish",
+    icon: <ControlOutlined />,
+    hint: "Caps that combine several rules into one shared ceiling.",
+    count: "limits",
+  },
+  {
+    key: "compare",
+    label: "Compare",
+    group: "publish",
+    icon: <DiffOutlined />,
+    hint: "Diff two published versions to see exactly what changed.",
+    count: "versions",
+  },
+  {
+    key: "quality",
+    label: "Quality",
+    group: "assure",
+    icon: <CheckCircleOutlined />,
+    hint: "Automated checks for gaps, conflicts and unusable rules.",
+  },
+  {
+    key: "correlation",
+    label: "Correlation",
+    group: "assure",
+    icon: <NodeIndexOutlined />,
+    hint: "Rules that overlap, contradict or duplicate each other.",
+    count: "correlation_findings",
+  },
+  {
+    key: "tests",
+    label: "Tests",
+    group: "assure",
+    icon: <ExperimentOutlined />,
+    hint: "Worked examples pinned as regression tests against the evaluator.",
+    count: "tests",
+  },
+  {
+    key: "exceptions",
+    label: "Exceptions",
+    group: "operate",
+    icon: <WarningOutlined />,
+    hint: "Requests to waive a rule for a specific case.",
+    count: "exceptions_open",
+    attention: true,
+  },
+  {
+    key: "attestations",
+    label: "Attestations",
+    group: "operate",
+    icon: <SolutionOutlined />,
+    hint: "Sign-off that a person has read and accepted a policy.",
+  },
+  {
+    key: "decision-log",
+    label: "Decision Log",
+    group: "operate",
+    icon: <HistoryOutlined />,
+    hint: "Every evaluation this project has served, with its inputs and result.",
+    count: "decisions",
+  },
 ];
+
+const TAB_KEYS: WorkspaceTabKey[] = TAB_META.map((t) => t.key);
+
+/**
+ * Tabs built but deliberately out of scope for the current phase. They are hidden
+ * rather than deleted so the feature and its API stay intact, and re-enabling is a
+ * one-line change. Hiding is expressed once here and applied to both the rendered
+ * tab strip and the `onNavigate` guard, so a hidden tab can never become the active
+ * tab and render a blank panel.
+ */
+const HIDDEN_TAB_KEYS: readonly WorkspaceTabKey[] = ["attestations", "correlation", "exceptions"];
+
+const VISIBLE_TAB_META = TAB_META.filter((t) => !HIDDEN_TAB_KEYS.includes(t.key));
+const VISIBLE_TAB_KEYS = TAB_KEYS.filter((k) => !HIDDEN_TAB_KEYS.includes(k));
+
+/**
+ * First visible tab of each group *except the first* — i.e. exactly the points
+ * where one lifecycle stage hands over to the next, so the tab bar can draw a
+ * divider there. Derived rather than hand-listed: hiding the tab that happens to
+ * start a group would otherwise leave a divider in the wrong place.
+ *
+ * The first visible tab is excluded because a divider before it would sit at the
+ * very start of the strip, separating the tabs from nothing.
+ */
+const GROUP_DIVIDER_KEYS = Object.keys(TAB_GROUP_LABELS)
+  .flatMap((g) => {
+    const first = VISIBLE_TAB_META.find((t) => t.group === (g as TabGroup));
+    return first ? [first.key] : [];
+  })
+  .filter((k) => k !== VISIBLE_TAB_META[0]?.key);
+
+/**
+ * Grouping is drawn as space + a hairline between stages rather than as inline
+ * caption text.
+ *
+ * The captions were tried first and were wrong twice over: rc-tabs renders a
+ * label *inside* the tab button, so an active tab drew its white pill around the
+ * caption as though "AUTHOR" were part of the word "Overview"; and four captions
+ * cost roughly 250px of a strip that was already overflowing and clipping the
+ * last tab. Space and a rule carry the same grouping at no width cost and cannot
+ * be captured by a tab's own background. The stage name still reaches the user
+ * through each tab's tooltip.
+ *
+ * Emitted from `GROUP_DIVIDER_KEYS` instead of being written out in App.css so
+ * the grouping stays defined in exactly one place; rc-tabs puts `data-node-key`
+ * on every tab, which is what makes this addressable.
+ */
+const GROUP_DIVIDER_CSS = GROUP_DIVIDER_KEYS.map(
+  (key) => `.workspace-tabs > .ant-tabs-nav .ant-tabs-tab[data-node-key="${key}"]`,
+).join(",\n");
 
 /**
  * The single home for working on one project end to end: bring files in, see them
@@ -84,6 +275,27 @@ export function ProjectWorkspace({
   onUpdated?: (ps: PolicySet) => void;
 }) {
   const [activeTab, setActiveTab] = useState<WorkspaceTabKey>("overview");
+  const [counts, setCounts] = useState<WorkspaceCounts | null>(null);
+
+  // Re-fetched whenever the user switches tab, because switching tab is exactly
+  // when the previous tab's work (approving a candidate, publishing a version,
+  // saving a test) has finished and the badges would otherwise be stale. Counts
+  // are one cheap aggregate query, so this is far less traffic than the list
+  // endpoints the badges would otherwise have to call. Failures are swallowed:
+  // a missing badge is a cosmetic loss and must never block the workspace.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getWorkspaceCounts(policySet.key)
+      .then((c) => {
+        if (!cancelled) setCounts(c);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [policySet.key, activeTab]);
+
   const [editOpen, setEditOpen] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -95,7 +307,7 @@ export function ProjectWorkspace({
   const [reviewForm] = Form.useForm();
 
   const handleNavigate = (page: string) => {
-    if ((TAB_KEYS as string[]).includes(page)) setActiveTab(page as WorkspaceTabKey);
+    if ((VISIBLE_TAB_KEYS as string[]).includes(page)) setActiveTab(page as WorkspaceTabKey);
   };
 
   const openEdit = () => {
@@ -182,6 +394,26 @@ export function ProjectWorkspace({
     }
   };
 
+  /* Tab bodies, keyed by tab id. Declared here — after the handlers it closes
+     over — so the map is built at render time without a temporal-dead-zone
+     reference to `openEdit`/`handleNavigate`. */
+  const TAB_CONTENT: Record<WorkspaceTabKey, ReactNode> = {
+    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={openEdit} />,
+    documents: (
+      <DocumentsPage policySetKey={policySet.key} policySetName={policySet.name} onNavigate={handleNavigate} />
+    ),
+    review: <ReviewQueue policySetKey={policySet.key} />,
+    policies: <PoliciesTab policySetKey={policySet.key} onNavigate={handleNavigate} />,
+    limits: <AggregateLimitsPage policySetKey={policySet.key} />,
+    compare: <ComparePage policySetKey={policySet.key} />,
+    quality: <QualityPage policySetKey={policySet.key} />,
+    correlation: <CorrelationPage policySetKey={policySet.key} />,
+    tests: <PolicyTestsPage policySetKey={policySet.key} />,
+    exceptions: <PolicyExceptionsPage policySetKey={policySet.key} />,
+    attestations: <PolicyAttestationsPage policySetKey={policySet.key} />,
+    "decision-log": <DecisionLogPage policySetKey={policySet.key} />,
+  };
+
   return (
     <>
       <Button icon={<ArrowLeftOutlined />} onClick={onBack} className="back-btn">
@@ -251,74 +483,40 @@ export function ProjectWorkspace({
       </div>
       {policySet.description && <Paragraph type="secondary">{policySet.description}</Paragraph>}
 
+      {/* Group dividers, derived from TAB_META so hiding a tab cannot strand one.
+          Drawn as a pseudo-element in the gap *between* two tabs, so unlike the
+          caption text this replaces it can never be enclosed by the active tab's
+          white pill. */}
+      <style>{`${GROUP_DIVIDER_CSS} { margin-left: 13px !important; }
+${GROUP_DIVIDER_CSS.split(",\n")
+  .map((s) => `${s}::after`)
+  .join(",\n")} { content: ""; position: absolute; left: -7px; top: 50%; transform: translateY(-50%); width: 1px; height: 15px; background: rgba(15,23,42,0.15); }`}</style>
+
       <Tabs
         className="workspace-tabs"
         activeKey={activeTab}
         onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
-        items={[
-          {
-            key: "overview",
-            label: "Overview",
-            children: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={openEdit} />,
-          },
-          {
-            key: "documents",
-            label: "Documents",
-            children: (
-              <DocumentsPage policySetKey={policySet.key} policySetName={policySet.name} onNavigate={handleNavigate} />
+        items={VISIBLE_TAB_META.map((meta) => {
+          const value = meta.count ? counts?.[meta.count] : undefined;
+          return {
+            key: meta.key,
+            label: (
+              <Tooltip title={`${TAB_GROUP_LABELS[meta.group]} · ${meta.hint}`} mouseEnterDelay={0.5}>
+                <span className="ws-tab">
+                  <span className="ws-tab-icon">{meta.icon}</span>
+                  <span className="ws-tab-label">{meta.label}</span>
+                  {/* Zero is deliberately not badged: a row of "0" pills reads as
+                      clutter, and "nothing here" is already conveyed by the empty
+                      state inside the tab. */}
+                  {!!value && (
+                    <span className={`ws-tab-count${meta.attention ? " ws-tab-count-attn" : ""}`}>{value}</span>
+                  )}
+                </span>
+              </Tooltip>
             ),
-          },
-          {
-            key: "policies",
-            label: "Policies",
-            children: <PoliciesTab policySetKey={policySet.key} onNavigate={handleNavigate} />,
-          },
-          {
-            key: "limits",
-            label: "Aggregate Limits",
-            children: <AggregateLimitsPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "review",
-            label: "Review",
-            children: <ReviewQueue policySetKey={policySet.key} />,
-          },
-          {
-            key: "compare",
-            label: "Compare",
-            children: <ComparePage policySetKey={policySet.key} />,
-          },
-          {
-            key: "quality",
-            label: "Quality",
-            children: <QualityPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "correlation",
-            label: "Correlation",
-            children: <CorrelationPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "tests",
-            label: "Tests",
-            children: <PolicyTestsPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "exceptions",
-            label: "Exceptions",
-            children: <PolicyExceptionsPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "attestations",
-            label: "Attestations",
-            children: <PolicyAttestationsPage policySetKey={policySet.key} />,
-          },
-          {
-            key: "decision-log",
-            label: "Decision Log",
-            children: <DecisionLogPage policySetKey={policySet.key} />,
-          },
-        ]}
+            children: TAB_CONTENT[meta.key],
+          };
+        })}
       />
 
       <Modal
