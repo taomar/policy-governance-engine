@@ -282,8 +282,23 @@ class CanonicalPolicy(_OmitEmptyModel):
         discarding an entire formulation over a recoverable shape variance
         would lose real extraction work over a detail the enrichment adds, not
         removes. Only the code is contractual here, so only it is kept.
+
+        The enrichment also appears one level up, wrapping the whole list in an
+        object with a plural key plus commentary — observed as
+        `{"codes": [...], "evidence": "the following:"}`. That is the same
+        gesture applied to the collection rather than the entry, so it is
+        unwrapped the same way and for the same reason.
         """
 
+        if isinstance(value, dict):
+            for key in ("codes", "code", "values", "items"):
+                inner = value.get(key)
+                if isinstance(inner, list):
+                    value = inner
+                    break
+                if isinstance(inner, str):
+                    value = [inner]
+                    break
         if not isinstance(value, list):
             return value
         coerced = []

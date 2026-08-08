@@ -3,7 +3,11 @@
 These cover the two places the pipeline can silently go wrong:
 
 1. **Transport tolerance** — the agent's reply must survive the three shapes it
-   realistically arrives in, and must fail loudly (not partially) otherwise.
+   realistically arrives in, and must fail loudly when nothing is recoverable.
+   Where individual canonical policies are malformed, the valid ones beside
+   them must survive: the batch is the parsing boundary but the policy is the
+   unit of value, and one entry's shape variance is not evidence against its
+   siblings.
 2. **Refusal to guess** — the FEEL translator and the rule mapper must decline
    anything they do not fully understand, because a wrong condition is worse
    than an absent one.
@@ -585,3 +589,148 @@ def test_rule_carries_its_formulation_for_audit():
     assert rule.lineage.prompt_version == "dmn-formulator-v1"
     # The whole rule must stay round-trippable, since it is persisted as JSONB.
     assert json.loads(json.dumps(rule.model_dump(mode="json")))["formulation"]["source_index"] == 0
+
+
+class TestPartialBatchRecovery:
+    """A malformed canonical policy must not take its valid siblings with it.
+
+    Observed in production: a 30-policy extraction window was discarded whole
+    because three entries wrapped `ambiguity` in an object instead of a list.
+    """
+
+    @staticmethod
+    def _policy(text: str, ambiguity: object = None) -> dict:
+        entry: dict = {
+            "source_text": text,
+            "extraction_status": "complete",
+            "rule": {
+                "rule_type": "obligation",
+                "subject": "employer",
+                "modality": "must",
+                "predicate": "pay wages",
+            },
+        }
+        if ambiguity is not None:
+            entry["ambiguity"] = ambiguity
+        return entry
+
+    def _reply(self, policies: list[dict], decisions: list[dict] | None = None) -> str:
+        return json.dumps(
+            {
+                "CANONICAL_JSON": {"canonical_policies": policies},
+                "DMN_JSON": {"dmn_projection": {"decisions": decisions or []}},
+            }
+        )
+
+    def test_valid_policies_survive_a_malformed_sibling(self) -> None:
+        raw = self._reply(
+            [
+                self._policy("first"),
+                self._policy("second", ambiguity=12345),
+                self._policy("third"),
+            ]
+        )
+
+        result = parse_formulation(raw)
+
+        assert [p.source_text for p in result.canonical_policies] == ["first", "third"]
+
+    def test_decision_indexes_follow_the_surviving_policies(self) -> None:
+        """The bug that would replace the one being fixed.
+
+        `source_rule_indexes` are positional, so compacting the list without
+        remapping re-points a decision at a different rule than the agent
+        named — a silent mislink, worse than the loud loss it replaced.
+        """
+
+        raw = self._reply(
+            [
+                self._policy("first"),
+                self._policy("second", ambiguity=12345),
+                self._policy("third"),
+            ],
+            decisions=[
+                {"source_rule_indexes": [0], "dmn_mapping_status": "not_applicable"},
+                {"source_rule_indexes": [2], "dmn_mapping_status": "not_applicable"},
+            ],
+        )
+
+        result = parse_formulation(raw)
+
+        assert result.decisions_for(0)
+        assert result.decisions_for(1)
+        assert [d.source_rule_indexes for d in result.dmn_projection.decisions] == [[0], [1]]
+
+    def test_a_decision_left_with_no_source_rule_is_dropped(self) -> None:
+        """Section 86 traceability: a decision that cannot name where it came
+        from is not evidence a reviewer should be shown."""
+
+        raw = self._reply(
+            [self._policy("kept"), self._policy("bad", ambiguity=12345)],
+            decisions=[
+                {"source_rule_indexes": [1], "dmn_mapping_status": "not_applicable"}
+            ],
+        )
+
+        result = parse_formulation(raw)
+
+        assert len(result.canonical_policies) == 1
+        assert result.dmn_projection.decisions == []
+
+
+    def test_a_bad_projection_stays_loud_even_when_a_policy_was_salvaged(self) -> None:
+        """Recovery must not widen what counts as an acceptable projection.
+
+        Whether a sibling policy was malformed says nothing about whether the
+        projection is valid, so an unknown `dmn_mapping_status` (Section 45)
+        has to raise on this path exactly as it does on the ordinary one.
+        """
+
+        raw = self._reply(
+            [self._policy("good"), self._policy("bad", ambiguity=12345)],
+            decisions=[
+                {"source_rule_indexes": [0], "dmn_mapping_status": "probably_fine"}
+            ],
+        )
+
+        with pytest.raises(PolicyFormulationError):
+            parse_formulation(raw)
+
+    def test_a_wholly_malformed_batch_still_fails_loudly(self) -> None:
+        """Recovery must not turn a total agent failure into an empty success."""
+
+        raw = self._reply([self._policy("only", ambiguity=12345)])
+
+        with pytest.raises(PolicyFormulationError):
+            parse_formulation(raw)
+
+    def test_a_well_formed_batch_is_untouched_by_recovery(self) -> None:
+        raw = self._reply([self._policy("a"), self._policy("b")])
+
+        result = parse_formulation(raw)
+
+        assert len(result.canonical_policies) == 2
+
+
+class TestAmbiguityCollectionShape:
+    """The exact shape that lost a production window."""
+
+    def test_an_object_wrapping_the_codes_list_is_unwrapped(self) -> None:
+        policy = CanonicalPolicy.model_validate(
+            {
+                "source_text": "Such contract",
+                "ambiguity": {
+                    "codes": ["AMBIGUOUS_REFERENCE"],
+                    "evidence": "the following:",
+                },
+            }
+        )
+
+        assert [code.value for code in policy.ambiguity] == ["AMBIGUOUS_REFERENCE"]
+
+    def test_a_plain_list_of_codes_is_unaffected(self) -> None:
+        policy = CanonicalPolicy.model_validate(
+            {"source_text": "x", "ambiguity": ["AMBIGUOUS_REFERENCE"]}
+        )
+
+        assert [code.value for code in policy.ambiguity] == ["AMBIGUOUS_REFERENCE"]

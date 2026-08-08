@@ -43,7 +43,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from policy_platform.contracts.formulation import PolicyFormulation
+from policy_platform.contracts.formulation import (
+    CanonicalPolicy,
+    DmnProjection,
+    PolicyFormulation,
+)
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.settings import Settings
 
@@ -188,6 +192,115 @@ def parse_formulation(raw: str) -> PolicyFormulation:
 
     try:
         return PolicyFormulation.model_validate(merged)
+    except ValidationError as exc:
+        return _salvage_valid_policies(merged, exc)
+
+
+def _salvage_valid_policies(
+    merged: dict[str, Any], batch_error: ValidationError
+) -> PolicyFormulation:
+    """Keep the canonical policies that validate when a sibling one does not.
+
+    Whole-batch validation makes the failure boundary the batch while the unit
+    of value is the single policy. One policy arriving in a shape the contract
+    does not anticipate then discards every correctly-formed policy beside it —
+    observed in production as a 30-policy window lost because three entries
+    wrapped `ambiguity` in an object. Nothing about a shape variance in one
+    policy is evidence that the others are wrong.
+
+    This is also why the field coercions in `contracts.formulation` each justify
+    themselves with "discarding the whole formulation would lose real extraction
+    work": they were carrying the weight of the wrong failure boundary. With
+    recovery here, an unanticipated shape costs one policy instead of thirty,
+    and each coercion only has to protect its own entry.
+
+    Raises if nothing survives, because a batch where every policy is malformed
+    is a genuine agent failure and must not be reported as an empty success.
+    """
+
+    raw_policies = merged.get("canonical_policies")
+    if not isinstance(raw_policies, list) or not raw_policies:
+        raise PolicyFormulationError(
+            f"formulator agent output failed contract validation: {batch_error}"
+        )
+
+    kept: list[CanonicalPolicy] = []
+    dropped: list[tuple[int, str]] = []
+    # Old position -> new position. `DmnDecision.source_rule_indexes` are
+    # positional into `canonical_policies` (Section 86), so compacting the list
+    # without remapping would silently re-point every later decision at the
+    # wrong rule — a quieter and worse failure than the one being fixed.
+    index_map: dict[int, int] = {}
+
+    for position, entry in enumerate(raw_policies):
+        try:
+            kept.append(CanonicalPolicy.model_validate(entry))
+        except ValidationError as item_error:
+            dropped.append((position, _first_error_summary(item_error)))
+        else:
+            index_map[position] = len(kept) - 1
+
+    if not kept:
+        raise PolicyFormulationError(
+            f"formulator agent output failed contract validation: {batch_error}"
+        )
+
+    projection = _remap_projection(merged.get("dmn_projection"), index_map)
+
+    logger.warning(
+        "formulator: kept %d of %d canonical policies; dropped %s",
+        len(kept),
+        len(raw_policies),
+        ", ".join(f"#{position} ({reason})" for position, reason in dropped),
+    )
+
+    return PolicyFormulation(canonical_policies=kept, dmn_projection=projection)
+
+
+def _first_error_summary(error: ValidationError) -> str:
+    """One short reason, so a drop is diagnosable without dumping a full trace."""
+
+    errors = error.errors()
+    if not errors:
+        return "invalid"
+    first = errors[0]
+    location = ".".join(str(part) for part in first.get("loc", ())) or "?"
+    return f"{location}: {first.get('msg', 'invalid')}"
+
+
+def _remap_projection(raw: Any, index_map: dict[int, int]) -> DmnProjection:
+    """Re-point surviving decisions at the compacted canonical list.
+
+    A decision whose source rules were all dropped is dropped too: Section 86
+    makes `source_rule_indexes` the link that keeps a projection traceable back
+    to the canonical record, and a decision that can no longer name where it
+    came from is not something a reviewer should be shown as evidence.
+
+    A projection that fails validation for any *other* reason still raises. Its
+    validity has nothing to do with whether a sibling policy was malformed, so
+    recovering from a bad policy must not quietly widen what counts as an
+    acceptable projection — an unknown `dmn_mapping_status` means something
+    broke (Section 45) and has to stay loud whichever path reaches it.
+    """
+
+    if not isinstance(raw, dict):
+        return DmnProjection()
+
+    remapped_decisions = []
+    for decision in raw.get("decisions") or []:
+        if not isinstance(decision, dict):
+            continue
+        source_indexes = [
+            index_map[old]
+            for old in decision.get("source_rule_indexes") or []
+            if isinstance(old, int) and old in index_map
+        ]
+        if not source_indexes:
+            continue
+        remapped_decisions.append({**decision, "source_rule_indexes": source_indexes})
+
+    try:
+        return DmnProjection.model_validate({**raw, "decisions": remapped_decisions})
     except ValidationError as exc:
         raise PolicyFormulationError(
             f"formulator agent output failed contract validation: {exc}"
