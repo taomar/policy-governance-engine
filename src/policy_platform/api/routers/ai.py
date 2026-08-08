@@ -454,6 +454,7 @@ async def correlation_runs(
             "rules_analyzed": r.rules_analyzed,
             "groups_analyzed": r.groups_analyzed,
             "rules_uncompared": r.rules_uncompared,
+            "rules_budget_skipped": r.rules_budget_skipped,
             "prompt_version": r.prompt_version,
             "error_message": r.error_message,
             "created_at": r.created_at.isoformat() if r.created_at else None,

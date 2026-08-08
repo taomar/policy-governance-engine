@@ -36,6 +36,7 @@ from policy_platform.infrastructure.correlation_agent import (
     CorrelationError,
     finding_key,
     group_rules_for_comparison,
+    groupable_rule_ids,
 )
 from policy_platform.infrastructure.repositories import PolicySetRepository
 from policy_platform.infrastructure.settings import get_settings
@@ -150,6 +151,12 @@ async def run_correlation_analysis(
 
     grouped_ids = {rule_id for group in groups for rule_id, _ in group}
     uncompared = len(rules) - len(grouped_ids)
+    # Split the uncompared total by cause. A rule that shares no signal with any
+    # other rule was never comparable and is nothing to act on; a rule that was
+    # comparable but fell outside the group budget means this run is truncated.
+    # Reporting only the total lets a reviewer read a budget-limited run as a
+    # clean one, which is the more dangerous of the two misreadings.
+    budget_skipped = len(groupable_rule_ids(rules) - grouped_ids)
 
     run = CorrelationRun(
         policy_set_id=policy_set.id,
@@ -159,16 +166,18 @@ async def run_correlation_analysis(
         rules_analyzed=len(rules),
         groups_analyzed=len(groups),
         rules_uncompared=uncompared,
+        rules_budget_skipped=budget_skipped,
     )
     session.add(run)
     await session.flush()
 
     logger.info(
-        "correlation: set=%s rules=%d groups=%d uncompared=%d",
+        "correlation: set=%s rules=%d groups=%d uncompared=%d (budget_skipped=%d)",
         policy_set_key,
         len(rules),
         len(groups),
         uncompared,
+        budget_skipped,
     )
 
     agent = CorrelationAgent(AzureOpenAIClient(settings), settings)
@@ -244,6 +253,7 @@ async def run_correlation_analysis(
         "rules_analyzed": len(rules),
         "groups_analyzed": len(groups),
         "rules_uncompared": uncompared,
+        "rules_budget_skipped": budget_skipped,
         "findings_stored": stored,
         "duplicates_suppressed": suppressed,
         "findings_examined": sum(examined_by_classification.values()),

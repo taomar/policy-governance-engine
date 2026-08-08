@@ -282,6 +282,39 @@ def rule_signals(payload: dict) -> set[str]:
     return signals
 
 
+def groupable_rule_ids(
+    rules: list[tuple[str, dict]],
+    *,
+    max_rules_per_signal: int = _MAX_RULES_PER_SIGNAL,
+) -> set[str]:
+    """Rules that share a usable comparison signal with at least one other rule.
+
+    This answers "could this rule ever be compared?", which is a different
+    question from "was it compared on this run?" — the latter also depends on
+    the group budget. Keeping them apart matters because the two causes call for
+    opposite responses from a reviewer: a rule that genuinely stands alone is
+    nothing to act on, while a rule dropped by the budget means the analysis was
+    truncated and re-running with a larger budget would cover more.
+
+    Computed from the signal buckets directly rather than from the returned
+    groups, so it is unaffected by the budget by construction.
+    """
+
+    by_signal: dict[str, list[str]] = defaultdict(list)
+    for rule_id, payload in rules:
+        for signal in rule_signals(payload):
+            by_signal[signal].append(rule_id)
+
+    groupable: set[str] = set()
+    for members in by_signal.values():
+        # A signal shared by only one rule compares against nothing; one shared
+        # by more rules than the per-signal ceiling is too vague to be useful and
+        # is skipped by the grouper, so neither makes a rule groupable.
+        if 2 <= len(members) <= max_rules_per_signal:
+            groupable.update(members)
+    return groupable
+
+
 def group_rules_for_comparison(
     rules: list[tuple[str, dict]],
     *,

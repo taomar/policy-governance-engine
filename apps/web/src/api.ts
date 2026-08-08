@@ -55,6 +55,9 @@ export interface PolicySet {
   description: string;
   category: string;
   tags: string[];
+  review_due_date: string | null;
+  last_reviewed_at: string | null;
+  is_review_overdue: boolean;
 }
 
 export interface CreatePolicySetRequest {
@@ -71,6 +74,12 @@ export interface UpdatePolicySetRequest {
   description?: string;
   category?: string;
   tags?: string[];
+  review_due_date?: string | null;
+  clear_review_due_date?: boolean;
+}
+
+export interface MarkPolicySetReviewedRequest {
+  next_due_date?: string | null;
 }
 
 export interface ApprovedPolicyVersion {
@@ -923,10 +932,16 @@ export interface CorrelationRunSummary {
   status: string;
   rules_analyzed: number;
   groups_analyzed: number;
-  /** Rules that shared no comparison signal with any other and so were never
-   * examined. Surfaced because a coverage gap the reviewer cannot see is one
-   * they will assume does not exist. */
+  /** Rules this run never examined, for any reason. Surfaced because a coverage
+   * gap the reviewer cannot see is one they will assume does not exist. See
+   * `rules_budget_skipped` for the part of it that means the run was truncated
+   * rather than the rules genuinely standing alone. */
   rules_uncompared: number;
+  /** The subset of `rules_uncompared` that could have been compared but fell
+   * outside the group budget. Non-zero means re-running with a larger budget
+   * would examine more. Null for runs recorded before this was tracked — the
+   * honest answer there is "unknown", not "none". */
+  rules_budget_skipped: number | null;
   prompt_version: string | null;
   error_message: string | null;
   created_at: string | null;
@@ -939,6 +954,7 @@ export interface CorrelationRunResult {
   rules_analyzed: number;
   groups_analyzed: number;
   rules_uncompared: number;
+  rules_budget_skipped: number;
   findings_stored: number;
   duplicates_suppressed: number;
   findings_examined: number;
@@ -1128,6 +1144,12 @@ export const api = {
   updatePolicySet: (key: string, body: UpdatePolicySetRequest) =>
     request<PolicySet>(`/api/policy-sets/${encodeURIComponent(key)}`, {
       method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  markPolicySetReviewed: (key: string, body: MarkPolicySetReviewedRequest = {}) =>
+    request<PolicySet>(`/api/policy-sets/${encodeURIComponent(key)}/review`, {
+      method: "POST",
       body: JSON.stringify(body),
     }),
 

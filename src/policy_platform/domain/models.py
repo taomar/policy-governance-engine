@@ -49,6 +49,15 @@ class PolicySet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # string rather than a DB enum so new domains never require a migration.
     category: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     tags_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    # Periodic review / recertification (ISO 37301 §9.3, ISO 27001) — ADR-0009.
+    # `review_due_date` is set by a Policy Manager (directly, or via `.../review`
+    # bumping it to a next cycle); "overdue" is computed at API-response time
+    # (today > review_due_date), the same pattern already used for
+    # `PolicyException.is_expired`, since this codebase has no background
+    # scheduler to flip a stored status. `last_reviewed_at` is a pure audit
+    # trail of when a human last attested the policy set was reviewed.
+    review_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     approved_versions: Mapped[list["ApprovedPolicyVersion"]] = relationship(
         back_populates="policy_set", order_by="ApprovedPolicyVersion.created_at"
@@ -234,11 +243,20 @@ class CorrelationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     rules_analyzed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     groups_analyzed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    #: Rules that shared no comparison signal with any other rule and were
-    #: therefore never examined. Recorded because Section 86 grouping trades
-    #: completeness for tractability, and a coverage figure the reviewer cannot
-    #: see is a coverage figure they will assume is 100%.
+    #: Rules never examined by this run, for any reason. Recorded because
+    #: Section 86 grouping trades completeness for tractability, and a coverage
+    #: figure the reviewer cannot see is a coverage figure they will assume is
+    #: 100%. This is the total; `rules_budget_skipped` says how much of it was
+    #: the group budget rather than the rule genuinely standing alone, which are
+    #: very different facts for a reviewer deciding whether to trust the result.
     rules_uncompared: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    #: The subset of `rules_uncompared` that *could* have been compared — the
+    #: rule shared a usable signal with another rule — but whose groups fell
+    #: outside the group budget. A non-zero value means the analysis was
+    #: truncated and re-running with a larger budget would examine more.
+    #: Nullable so runs recorded before this was tracked read as "unknown"
+    #: rather than falsely claiming zero truncation.
+    rules_budget_skipped: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

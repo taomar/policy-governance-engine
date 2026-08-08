@@ -149,6 +149,15 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
           ? `Analysed ${result.rules_analyzed} rules in ${result.groups_analyzed} groups — ${result.findings_stored} findings need a decision`
           : `Analysed ${result.rules_analyzed} rules in ${result.groups_analyzed} groups — examined ${result.findings_examined} relationships, none need a decision`
       );
+      // A truncated run reporting "none need a decision" is the one case where a
+      // reassuring result is actively misleading, so it gets its own warning
+      // rather than being buried in the success line.
+      if (result.rules_budget_skipped > 0) {
+        message.warning(
+          `${result.rules_budget_skipped} comparable rules fell outside the group budget and were not examined — raise the budget to cover them`,
+          6
+        );
+      }
       await loadRuns();
       await loadFindings(result.correlation_run_id);
     } catch (e) {
@@ -201,6 +210,30 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
 
   const openCount = findings.filter((f) => f.disposition === "open").length;
   const selectedRun = runs.find((r) => r.id === selectedRunId);
+
+  // "Not compared" has two causes that call for opposite responses, so the
+  // explanation has to name the one that actually applies. A rule that shares
+  // no signal with any other was never comparable and is nothing to act on; a
+  // rule dropped by the group budget means this run is partial and a larger
+  // budget would cover more. Presenting the total under the first explanation —
+  // which is what this did — lets a truncated run read as a clean one.
+  const budgetSkipped = selectedRun?.rules_budget_skipped ?? null;
+  const truncated = budgetSkipped !== null && budgetSkipped > 0;
+  const comparedCount = selectedRun
+    ? Math.max(selectedRun.rules_analyzed - selectedRun.rules_uncompared, 0)
+    : 0;
+  const standAlone =
+    selectedRun && budgetSkipped !== null
+      ? Math.max(selectedRun.rules_uncompared - budgetSkipped, 0)
+      : null;
+
+  const uncomparedExplanation = !selectedRun
+    ? ""
+    : budgetSkipped === null
+      ? "Rules this run never compared. This run predates the breakdown, so how much of it was the group budget rather than rules genuinely standing alone is not recorded — re-run to find out."
+      : truncated
+        ? `Rules this run never compared. ${budgetSkipped} of them could have been compared but fell outside the group budget, so this analysis is partial — re-run with a larger budget to cover them. The other ${standAlone} shared no signal with any rule and were never comparable.`
+        : "Rules this run never compared. All of them shared no comparison signal with any other rule, so there was nothing to compare them against — the group budget did not cut anything short.";
 
   return (
     <>
@@ -262,11 +295,18 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
           </Col>
           <Col xs={12} lg={6}>
             <Card>
-              <Tooltip title="Rules that shared no comparison signal with any other rule, and so were never compared. Not a defect — most rules genuinely stand alone — but worth knowing the analysis did not cover them.">
+              <Tooltip title={uncomparedExplanation}>
                 <Statistic
                   title="Not compared"
                   value={selectedRun.rules_uncompared}
-                  valueStyle={{ color: "#57606a" }}
+                  valueStyle={{ color: truncated ? "#9a6700" : "#57606a" }}
+                  suffix={
+                    truncated ? (
+                      <Text type="warning" style={{ fontSize: 12, fontWeight: 500 }}>
+                        run truncated
+                      </Text>
+                    ) : undefined
+                  }
                 />
               </Tooltip>
             </Card>
@@ -312,9 +352,15 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
             runs.length === 0
               ? "No correlation analysis has been run for this policy set yet."
               : findings.length === 0
-                ? `The last analysis compared ${selectedRun?.rules_analyzed ?? 0} rules in ${
+                ? `The last analysis examined ${comparedCount} of ${
+                    selectedRun?.rules_analyzed ?? 0
+                  } rules in ${
                     selectedRun?.groups_analyzed ?? 0
-                  } groups and found nothing that needs a decision. Benign relationships — rules that are simply compatible, or that overlap without conflicting — are examined but not listed here.`
+                  } groups and found nothing that needs a decision. Benign relationships — rules that are simply compatible, or that overlap without conflicting — are examined but not listed here.${
+                    truncated
+                      ? ` Note that ${budgetSkipped} comparable rules fell outside the group budget and were never examined, so this is not a clean bill of health for the whole set — re-run with a larger budget to cover them.`
+                      : ""
+                  }`
                 : "No findings match the current filters."
           }
         />

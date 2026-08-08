@@ -22,6 +22,7 @@ from policy_platform.infrastructure.correlation_agent import (
     _render_rule,
     finding_key,
     group_rules_for_comparison,
+    groupable_rule_ids,
     parse_analysis,
     resolve_indexes,
     rule_signals,
@@ -431,3 +432,72 @@ class TestActionableClassifications:
     def test_is_actionable_agrees_with_the_set(self) -> None:
         assert CorrelationFinding(classification="DIRECT_CONTRADICTION").is_actionable
         assert not CorrelationFinding(classification="INDEPENDENT").is_actionable
+
+
+# --------------------------------------------------------------------------
+# groupable_rule_ids
+# --------------------------------------------------------------------------
+
+
+class TestGroupableRuleIds:
+    """Coverage must be attributable to a cause.
+
+    "Not compared" has two causes that call for opposite responses: a rule that
+    shares no signal with any other was never comparable and is nothing to act
+    on, while a rule dropped by the group budget means the run was truncated and
+    a larger budget would cover more. Reporting only the total let a truncated
+    run read as a clean one, which is the more dangerous misreading.
+    """
+
+    def test_a_lone_rule_is_not_groupable(self) -> None:
+        rules = [rule("R1", action="approve", tags=["unique-to-r1"])]
+
+        assert groupable_rule_ids(rules) == set()
+
+    def test_rules_sharing_a_signal_are_groupable(self) -> None:
+        rules = [
+            rule("R1", action="approve", tags=["expense"]),
+            rule("R2", action="deny", tags=["expense"]),
+        ]
+
+        assert groupable_rule_ids(rules) == {"R1", "R2"}
+
+    def test_result_is_independent_of_the_group_budget(self) -> None:
+        """This is the whole point: the budget must not change the coverage
+        denominator, or the two causes collapse back into one number."""
+
+        rules = [
+            rule("R1", tags=["alpha"]),
+            rule("R2", tags=["alpha"]),
+            rule("R3", tags=["beta"]),
+            rule("R4", tags=["beta"]),
+            rule("R5", tags=["gamma"]),
+            rule("R6", tags=["gamma"]),
+        ]
+
+        groupable = groupable_rule_ids(rules)
+        starved = group_rules_for_comparison(rules, max_groups=1)
+        grouped = {rid for group in starved for rid, _ in group}
+
+        assert groupable == {"R1", "R2", "R3", "R4", "R5", "R6"}
+        assert len(grouped) < len(groupable)
+        # The difference is precisely what the run should report as truncation.
+        assert len(groupable - grouped) == 4
+
+    def test_an_overly_common_signal_does_not_make_a_rule_groupable(self) -> None:
+        """A signal shared by more rules than the per-signal ceiling is too vague
+        for the grouper to use, so counting it as coverage would overstate what
+        could ever be compared."""
+
+        rules = [rule(f"R{i}", tags=["everything"]) for i in range(40)]
+
+        assert groupable_rule_ids(rules, max_rules_per_signal=5) == set()
+
+    def test_uncomparable_rules_are_excluded_but_comparable_ones_kept(self) -> None:
+        rules = [
+            rule("R1", tags=["shared"]),
+            rule("R2", tags=["shared"]),
+            rule("R3", tags=["alone"]),
+        ]
+
+        assert groupable_rule_ids(rules) == {"R1", "R2"}
