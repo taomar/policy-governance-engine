@@ -276,7 +276,23 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} lg={6}>
             <Card>
-              <Statistic title="Rules analysed" value={selectedRun.rules_analyzed} />
+              {/* Titled "Rules analysed" over the corpus size, this asserted the
+                  run examined every rule while the card two along said 79 of them
+                  were never compared. Show what was actually compared, with the
+                  corpus as context, so the two cards agree. */}
+              <Tooltip
+                title={`This run compared ${comparedCount} of the ${selectedRun.rules_analyzed} rules in scope. The rest are accounted for under "Not compared".`}
+              >
+                <Statistic
+                  title="Rules compared"
+                  value={comparedCount}
+                  suffix={
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      of {selectedRun.rules_analyzed}
+                    </Text>
+                  }
+                />
+              </Tooltip>
             </Card>
           </Col>
           <Col xs={12} lg={6}>
