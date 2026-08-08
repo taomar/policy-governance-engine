@@ -20,6 +20,14 @@ Two deliberate constraints:
   record of something that never happened.
 * `actor` is required and must be non-empty. An unattributed approval is not an
   audit record; it is a rumour.
+* `policy_set_key` is an explicit parameter rather than a free-form entry in
+  `details`. The audit table is polymorphic and keyed by entity, so the policy
+  set is the only thing that lets an event be shown alongside the rest of a
+  project's governance history. Leaving it to each caller to remember a dict
+  key produced exactly the failure it invites — one of the five call sites
+  omitted it, and its events were invisible in the project timeline. Making it
+  a named argument means a caller must still decide, but can no longer omit it
+  by accident.
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ def record_audit_event(
     entity_type: str,
     entity_id: uuid.UUID | None,
     actor: str,
+    policy_set_key: str | None,
     details: dict | None = None,
 ) -> AuditEvent:
     """Stage an audit record in the caller's transaction.
@@ -54,17 +63,25 @@ def record_audit_event(
     Raises ValueError for a blank actor rather than storing an anonymous
     record, because a governance trail that cannot say who acted answers none
     of the questions it is kept to answer.
+
+    `policy_set_key` is folded into the stored details so consumers have one
+    place to look regardless of which entity the event hangs off. It is
+    permitted to be None for an event that genuinely belongs to no project, but
+    the caller has to say so.
     """
 
     if not actor or not actor.strip():
         raise ValueError(f"audit event '{event_type}' requires an actor")
+
+    payload = dict(details or {})
+    payload["policy_set_key"] = policy_set_key
 
     event = AuditEvent(
         event_type=event_type,
         entity_type=entity_type,
         entity_id=entity_id,
         actor=actor.strip(),
-        details_json=details or {},
+        details_json=payload,
     )
     session.add(event)
     return event

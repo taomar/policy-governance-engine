@@ -31,7 +31,7 @@ from policy_platform.infrastructure import (
     ai_summary,
     correlation_service,
 )
-from policy_platform.domain.models import CorrelationFindingRow, CorrelationRun
+from policy_platform.domain.models import CorrelationFindingRow, CorrelationRun, PolicySet
 from policy_platform.infrastructure.audit import FINDING_DISPOSED, record_audit_event
 from policy_platform.infrastructure.db import get_session
 from policy_platform.infrastructure.repositories import (
@@ -552,12 +552,17 @@ async def set_finding_disposition(
     row.disposition_by = body.disposition_by or None
     row.disposition_at = datetime.now(UTC)
     row.disposition_notes = body.notes or None
+    # The audit table is keyed by entity, not by project, so every event has to
+    # carry the policy set it belongs to or it cannot be shown alongside the
+    # rest of that project's governance history.
+    owning_set = await session.get(PolicySet, row.policy_set_id)
     record_audit_event(
         session,
         event_type=FINDING_DISPOSED,
         entity_type="correlation_finding",
         entity_id=row.id,
         actor=body.disposition_by,
+        policy_set_key=owning_set.key if owning_set else None,
         details={
             "disposition": body.disposition,
             "classification": row.classification,

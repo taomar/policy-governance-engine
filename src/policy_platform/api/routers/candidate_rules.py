@@ -215,11 +215,11 @@ async def review_candidate_rule(
         entity_type="candidate_rule",
         entity_id=candidate.id,
         actor=body.reviewer,
+        policy_set_key=key,
         details={
             "decision": body.decision,
             "from_status": previous_status,
             "to_status": new_status,
-            "policy_set_key": key,
             "notes": body.notes or "",
         },
     )
@@ -385,10 +385,10 @@ async def override_review(
         entity_type="candidate_rule",
         entity_id=candidate.id,
         actor=body.manager,
+        policy_set_key=key,
         details={
             "decision": body.decision,
             "to_status": new_status,
-            "policy_set_key": key,
             "actor_role": body.actor_role,
             "reason": body.reason,
         },
@@ -444,10 +444,10 @@ async def bulk_review_candidate_rules(
             entity_type="policy_set",
             entity_id=policy_set.id,
             actor=body.reviewer,
+            policy_set_key=key,
             details={
                 "decision": body.decision,
                 "to_status": new_status,
-                "policy_set_key": key,
                 "reviewed_count": reviewed,
                 "skipped_count": len(skipped),
                 "candidate_ids": [str(c.id) for c in targets if str(c.id) not in skipped],
@@ -553,8 +553,8 @@ async def publish_approved_candidates(
         entity_type="approved_policy_version",
         entity_id=version.id,
         actor=body.approved_by,
+        policy_set_key=key,
         details={
-            "policy_set_key": key,
             "version_number": version_number,
             "effective_from": body.effective_from.isoformat(),
             "effective_to": body.effective_to.isoformat() if body.effective_to else None,
