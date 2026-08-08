@@ -1086,44 +1086,54 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         </div>
 
         <aside className="tests-side-column">
-          <Card className="tests-guide-card">
-            <div className="section-eyebrow">What counts as a test?</div>
-            <Title level={4}>A named policy scenario with expected evaluator output</Title>
-            <Paragraph type="secondary">
-              Each test stores input facts and the status you expect. Running it compares the server evaluator's actual
-              response with that expectation.
-            </Paragraph>
-            <div className="tests-status-list">
-              {STATUS_OPTIONS.map((status) => (
-                <div key={status}>
-                  <Tag color="blue">{status}</Tag>
-                  <Text type="secondary">{STATUS_HELP[status]}</Text>
+          {/* These two panels are reference material — what a test is, and the
+              lifecycle it moves through. They were permanently resident, which
+              on an empty policy set meant ~940px of documentation sat beside a
+              screen that had nothing to show yet. Reference should be available
+              on demand; <details> gives that without state or a library. */}
+          <details className="tests-guide-disclosure">
+            <summary>How tests work — what counts as a test, and the lifecycle</summary>
+            <div className="tests-guide-disclosure__body">
+              <Card className="tests-guide-card">
+                <div className="section-eyebrow">What counts as a test?</div>
+                <Title level={4}>A named policy scenario with expected evaluator output</Title>
+                <Paragraph type="secondary">
+                  Each test stores input facts and the status you expect. Running it compares the server evaluator's
+                  actual response with that expectation.
+                </Paragraph>
+                <div className="tests-status-list">
+                  {STATUS_OPTIONS.map((status) => (
+                    <div key={status}>
+                      <Tag color="blue">{status}</Tag>
+                      <Text type="secondary">{STATUS_HELP[status]}</Text>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </Card>
+              </Card>
 
-          <Card className="tests-guide-card">
-            <div className="section-eyebrow">Lifecycle</div>
-            <div className="tests-lifecycle">
-              <div>
-                <strong>1. Draft</strong>
-                <Text type="secondary"> Add manually or ask AI to propose candidates.</Text>
-              </div>
-              <div>
-                <strong>2. Review</strong>
-                <Text type="secondary"> Check each prediction against the evaluator, then accept or reject it.</Text>
-              </div>
-              <div>
-                <strong>3. Guard</strong>
-                <Text type="secondary"> Active tests run manually and automatically on publish.</Text>
-              </div>
-              <div>
-                <strong>4. Triage</strong>
-                <Text type="secondary"> Failed active tests are shown in the Quality tab.</Text>
-              </div>
+              <Card className="tests-guide-card">
+                <div className="section-eyebrow">Lifecycle</div>
+                <div className="tests-lifecycle">
+                  <div>
+                    <strong>1. Draft</strong>
+                    <Text type="secondary"> Add manually or ask AI to propose candidates.</Text>
+                  </div>
+                  <div>
+                    <strong>2. Review</strong>
+                    <Text type="secondary"> Check each prediction against the evaluator, then accept or reject it.</Text>
+                  </div>
+                  <div>
+                    <strong>3. Guard</strong>
+                    <Text type="secondary"> Active tests run manually and automatically on publish.</Text>
+                  </div>
+                  <div>
+                    <strong>4. Triage</strong>
+                    <Text type="secondary"> Failed active tests are shown in the Quality tab.</Text>
+                  </div>
+                </div>
+              </Card>
             </div>
-          </Card>
+          </details>
         </aside>
       </div>
 

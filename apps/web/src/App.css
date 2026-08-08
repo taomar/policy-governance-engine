@@ -5,41 +5,31 @@
    ========================================================================== */
 
 /* ---------- Design tokens ----------
-   There were none, which is why every page had drifted to its own spacing,
-   radius and heading size: with nothing to be consistent *with*, each new
-   screen re-invented the rhythm and the sum read as amateur. One 4px scale,
-   one border colour, two shadows. Prefer these over literals in new work. */
+   The palette, radii and shadows are defined once in index.css. What was
+   missing there — and the reason every page had drifted to its own rhythm —
+   is a spacing scale, so that is what lives there now too. The entries below
+   are deliberately *aliases*, not new values: defining a colour here as well
+   would give the app two sources of truth for the same idea. Never redefine an
+   index.css token in this file — doing so silently changes every existing use
+   of it, which is exactly what an earlier pass did to --border-strong. */
 
 :root {
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 20px;
-  --sp-6: 28px;
+  --surface: var(--bg-surface);
+  --surface-sunken: var(--slate-50);
+  --surface-inset: var(--slate-100);
 
-  --surface: #ffffff;
-  --surface-sunken: #f6f7fb;
-  --surface-inset: #f1f3f9;
+  --border: var(--border-subtle);
 
-  --border: rgba(15, 23, 42, 0.09);
-  --border-strong: rgba(15, 23, 42, 0.16);
+  --text: var(--text-primary);
+  --text-muted: var(--text-secondary);
+  --text-faint: var(--text-tertiary);
 
-  --text: #0f172a;
-  --text-muted: #5b6779;
-  --text-faint: #8b97a8;
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
 
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
-  --shadow-pop: 0 8px 28px rgba(15, 23, 42, 0.11);
-
-  /* Density. This is a review tool where people work through hundreds of
-     rules, so it should read like a workbench, not a marketing page. */
-  --card-pad: 16px;
-  --section-gap: 14px;
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-md);
 }
 
 .app-shell {
@@ -4873,4 +4863,82 @@
    contains no actual control rather than guessing at fixed heights. */
 .review-filter-bar .ant-card-body .ant-space-item:last-child:not(:has(.ant-select)):not(:has(.ant-btn)):not(:has(.ant-input)):not(:has(.ant-segmented)):not(:has(.ant-tag)) {
   display: none;
+}
+
+/* ---------- Tests: reference on demand ----------
+   With no saved tests the panel measured 3589px, of which ~2700px was
+   explanatory prose. The teaching content was correct but it was resident:
+   four permanent panels described how tests work on a screen that had nothing
+   to show yet, which is the real reason this tab felt oversized. */
+
+.tests-guide-disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.tests-guide-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.tests-guide-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tests-guide-disclosure > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.tests-guide-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.tests-guide-disclosure > summary:hover {
+  color: var(--text);
+}
+
+.tests-guide-disclosure__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+
+.tests-guide-disclosure .tests-guide-card {
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+/* Each kind chip repeated its business question as body text, which is what
+   made a simple 8-way filter 681px tall. The same sentence is already on the
+   chip's title attribute, so it is still reachable — just not resident. */
+.tests-kind-chip small {
+  display: none;
+}
+
+.tests-kind-chip {
+  padding: 5px 10px !important;
+}
+
+/* Four summary tiles reading "0" do not warrant display type. */
+.tests-summary-card .ant-statistic-content,
+.tests-summary-card .ant-statistic-content-value,
+.tests-summary-card .ant-statistic-content-value-int {
+  font-size: 18px !important;
 }
