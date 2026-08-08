@@ -438,6 +438,22 @@
   align-items: baseline;
 }
 
+.policy-exceptions-page {
+  padding: 4px 2px;
+}
+
+.policy-exception-card {
+  border-radius: 10px;
+  border-color: #e5e7eb;
+}
+
+.policy-exception-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .rule-card-scope {
   font-size: 12.5px;
   display: flex;
@@ -2496,7 +2512,6 @@
 .summary-narrative {
   background: #fafafa;
   border: 1px solid #f0f0f0;
-  border-left: 3px solid #7c3aed;
   border-radius: 8px;
   padding: 4px 18px;
   margin-bottom: 12px;
@@ -3010,6 +3025,10 @@
   margin-top: 4px;
   padding: 10px 12px;
   background: var(--bg-sunken);
+  /* A blockquote rule, not a decorative accent: this block holds verbatim rule
+     text quoted as the evidence for a finding, and a left rule is the standard
+     typographic mark for quoted material. Deliberately --border-strong (neutral)
+     rather than an accent colour, so it reads as quotation and not as emphasis. */
   border-left: 3px solid var(--border-strong);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
@@ -3080,7 +3099,6 @@
 
 .quality-history-row.is-open {
   border-color: var(--accent, #7c3aed);
-  box-shadow: inset 3px 0 0 var(--accent, #7c3aed);
 }
 
 .quality-history-when {
@@ -3125,6 +3143,14 @@
    Rows are dense on purpose: this is a scannable log, not a reading surface. */
 .activity-panel .ant-timeline {
   margin-top: 4px;
+  /* The trail is unbounded in principle — an active project accumulates an
+     event per review, publication and disposition — so it is capped and
+     scrolled here. Without this the panel grows without limit and pushes the
+     rest of the Overview off the page, which is the opposite of what a summary
+     is for. */
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .activity-item {
