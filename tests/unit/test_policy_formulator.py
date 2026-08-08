@@ -15,6 +15,7 @@ These cover the two places the pipeline can silently go wrong:
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -37,6 +38,7 @@ from policy_platform.infrastructure.formulation_mapping import (
 )
 from policy_platform.infrastructure.policy_formulator import (
     PolicyFormulationError,
+    PolicyFormulatorAgent,
     load_formulator_prompt,
     parse_formulation,
 )
@@ -829,3 +831,78 @@ class TestSemanticProjectionShapeVariance:
 
         with pytest.raises(PolicyFormulationError):
             parse_formulation(raw)
+
+
+class TestTrustedConfigShapeWarnings:
+    """A wrong-shaped trusted config must not fail silently.
+
+    A config the agent cannot use produces output identical to supplying none:
+    well-formed, and still reporting FACT_MODEL_REQUIRED. The caller's only
+    signal is the absence of an expected improvement, which is not a signal.
+    """
+
+    @staticmethod
+    def _agent(config: dict) -> PolicyFormulatorAgent:
+        return PolicyFormulatorAgent(
+            client=object(),  # type: ignore[arg-type]
+            settings=object(),  # type: ignore[arg-type]
+            trusted_config=config,
+        )
+
+    def test_an_unknown_top_level_key_is_named(self, caplog) -> None:
+        """`temporal_model` is a reasonable guess and is not in Section 83."""
+
+        with caplog.at_level(logging.WARNING):
+            self._agent({"temporal_model": {"a": 1}})
+
+        assert "temporal_model" in caplog.text
+        assert "Section 83" in caplog.text
+
+    def test_a_valid_config_warns_about_nothing(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING):
+            self._agent(
+                {
+                    "fact_model": {
+                        "age of the worker": {
+                            "feel_expression": "worker.ageYears",
+                            "type": "number",
+                        }
+                    },
+                    "output_model": {
+                        "outcome": {"feel_name": "outcome", "type": "string"}
+                    },
+                    "numeric_normalization": True,
+                }
+            )
+
+        assert caplog.text == ""
+
+    def test_keying_a_fact_by_its_feel_path_is_flagged(self, caplog) -> None:
+        """The shape that silently costs a whole agent run to discover."""
+
+        with caplog.at_level(logging.WARNING):
+            self._agent({"fact_model": {"worker.ageYears": {"type": "number"}}})
+
+        assert "worker.ageYears" in caplog.text
+        assert "feel_expression" in caplog.text
+        assert "SOURCE TERM" in caplog.text
+
+    def test_output_model_is_checked_for_its_own_key(self, caplog) -> None:
+        """`output_model` uses `feel_name`, not `feel_expression`."""
+
+        with caplog.at_level(logging.WARNING):
+            self._agent(
+                {"output_model": {"approval route": {"feel_expression": "route"}}}
+            )
+
+        assert "approval route" in caplog.text
+        assert "feel_name" in caplog.text
+
+    def test_an_empty_config_is_silent(self, caplog) -> None:
+        """Supplying nothing is a documented, valid operating mode."""
+
+        with caplog.at_level(logging.WARNING):
+            self._agent({})
+
+        assert caplog.text == ""
+

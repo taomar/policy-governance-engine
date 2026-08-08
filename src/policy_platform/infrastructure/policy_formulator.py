@@ -307,9 +307,63 @@ def _remap_projection(raw: Any, index_map: dict[int, int]) -> DmnProjection:
         ) from exc
 
 
+def _warn_on_unusable_trusted_config(config: dict[str, Any]) -> None:
+    """Say so when a supplied config cannot reach the agent as the caller intends.
+
+    A trusted config that is wrong-shaped fails *silently*: the agent still runs,
+    still returns well-formed output, and still reports `FACT_MODEL_REQUIRED` —
+    identical to having supplied nothing. The caller's only signal is the absence
+    of an improvement they were expecting, which is not a signal at all.
+
+    Two shapes were observed producing exactly that. A key outside Section 83's
+    list (`temporal_model` was tried, reasonably enough, and does not exist) is
+    passed through to the model as noise and, worse, made the corresponding
+    requirement code *more* frequent. And an entry keyed by the FEEL path rather
+    than by the source term — `{"worker.ageYears": {...}}` instead of
+    `{"age of the worker": {"feel_expression": "worker.ageYears", ...}}` — gives
+    the agent a destination with no way to recognise the wording that maps onto
+    it, which is the half that matters.
+
+    Warnings rather than errors: Section 83 is the spec's list, not the model's,
+    and a future spec revision adding a key should not stop an extraction. Being
+    wrong here costs a log line; refusing to run costs a job.
+    """
+
+    unknown = sorted(set(config) - PolicyFormulatorAgent._SECTION_83_KEYS)
+    if unknown:
+        logger.warning(
+            "trusted_config: ignoring unknown key(s) %s; Section 83 defines only %s. "
+            "Unknown keys reach the agent as noise and do not enrich anything.",
+            ", ".join(unknown),
+            ", ".join(sorted(PolicyFormulatorAgent._SECTION_83_KEYS)),
+        )
+
+    for model_key, mapping_key in PolicyFormulatorAgent._EXPECTED_MAPPING_KEY.items():
+        entries = config.get(model_key)
+        if not isinstance(entries, dict):
+            continue
+        malformed = sorted(
+            term
+            for term, spec in entries.items()
+            if not isinstance(spec, dict) or mapping_key not in spec
+        )
+        if malformed:
+            logger.warning(
+                "trusted_config.%s: entr(ies) %s have no '%s'. Section 84 keys each "
+                "entry by the SOURCE TERM as it appears in the policy text, with the "
+                "FEEL target inside — e.g. {'age of the worker': {'%s': "
+                "'worker.ageYears', 'type': 'number'}}. Keying by the FEEL path "
+                "instead leaves the agent unable to map wording onto it, and it will "
+                "still report the enrichment as missing.",
+                model_key,
+                ", ".join(malformed),
+                mapping_key,
+                mapping_key,
+            )
+
+
 class PolicyFormulatorAgent:
     """Formulates policy text into canonical + DMN JSON.
-
     Stateless apart from its client and trusted configuration, so a single
     instance can be reused across a whole extraction run.
 
@@ -323,6 +377,28 @@ class PolicyFormulatorAgent:
     rather than confident-looking fabrications.
     """
 
+    #: Section 83's key set, verbatim. A key outside it is not "extra context"
+    #: the agent can use — it is silently ignored, so the caller believes they
+    #: supplied enrichment that never reached the model.
+    _SECTION_83_KEYS = frozenset(
+        {
+            "fact_model",
+            "output_model",
+            "type_model",
+            "value_normalization",
+            "term_dictionary",
+            "decision_precedence",
+            "hit_policy",
+            "definitions",
+            "numeric_normalization",
+            "currency",
+            "unit_conversions",
+        }
+    )
+
+    #: The key each mapping model uses to name its FEEL target (Section 84).
+    _EXPECTED_MAPPING_KEY = {"fact_model": "feel_expression", "output_model": "feel_name"}
+
     def __init__(
         self,
         client: AzureOpenAIClient,
@@ -333,6 +409,7 @@ class PolicyFormulatorAgent:
         self._client = client
         self._settings = settings
         self._trusted_config = trusted_config or {}
+        _warn_on_unusable_trusted_config(self._trusted_config)
 
     def _build_user_message(self, source_text: str) -> str:
         config_block = (
