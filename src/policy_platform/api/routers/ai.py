@@ -478,6 +478,14 @@ async def correlation_findings(
     true of the rules as they stood when it was produced, so merging runs would
     show contradictions that have since been fixed alongside live ones with no
     way to tell them apart.
+
+    "Latest" means the latest *completed* run. A run in progress is a partial
+    result — it may have analysed sixty of seventeen hundred groups — and
+    showing it as the current state of the policy set would read as "the
+    contradictions were fixed" when in fact the analysis has not reached them
+    yet. The previous complete answer stays on screen until a new one exists.
+    An explicit `run_id` still returns whatever it names, including a run that
+    is still going, so progress remains inspectable on request.
     """
     policy_set = await PolicySetRepository(session).get_by_key(key)
     if policy_set is None:
@@ -486,7 +494,10 @@ async def correlation_findings(
     if run_id is None:
         latest = await session.execute(
             select(CorrelationRun.id)
-            .where(CorrelationRun.policy_set_id == policy_set.id)
+            .where(
+                CorrelationRun.policy_set_id == policy_set.id,
+                CorrelationRun.status == "completed",
+            )
             .order_by(desc(CorrelationRun.created_at))
             .limit(1)
         )

@@ -18,7 +18,7 @@ import sys
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.correlation import (
@@ -49,6 +49,23 @@ logger = logging.getLogger(__name__)
 #: does not affect the result — findings are deduplicated by identity, not by
 #: arrival order — so this is purely a throughput knob.
 GROUP_CONCURRENCY = 3
+
+#: Groups analysed between database commits.
+#:
+#: Findings used to be held in memory for the whole run and written once at the
+#: end. On the statutory sets that is a 1,700-group, two-and-a-half-hour job in
+#: which any failure — a dropped connection, a rate limit the retry budget
+#: cannot absorb, an operator stopping the process — discarded every finding
+#: produced up to that point. The unit of work is one group; the unit of
+#: durability was the entire run.
+#:
+#: Sized well above `GROUP_CONCURRENCY` so the semaphore stays saturated for the
+#: overwhelming majority of each chunk: a chunk boundary drains the in-flight
+#: calls, which costs at most `GROUP_CONCURRENCY - 1` idle slots once per chunk.
+#: At 60 groups per commit that is a fraction of a percent of throughput, and it
+#: bounds the loss from a crash to roughly two minutes of analysis rather than
+#: two hours.
+PERSIST_CHUNK_GROUPS = 60
 
 #: Review states whose rules take part in correlation.
 #:
@@ -182,6 +199,15 @@ async def run_correlation_analysis(
     )
     session.add(run)
     await session.flush()
+    # Commit the run row before any analysis begins, so a run in progress is
+    # visible to every other connection. Previously this row was flushed but not
+    # committed until the run finished, which meant `status="running"` was a
+    # value the schema declared and no reader could ever observe: a two-hour job
+    # left the database looking idle, and an operator had no way to tell a run
+    # that was working from one that had died. A run that fails now also leaves
+    # a `failed` row behind instead of vanishing with the transaction.
+    await session.commit()
+    run_id = run.id
 
     logger.info(
         "correlation: set=%s rules=%d groups=%d/%d uncompared=%d (budget_skipped=%d)",
@@ -214,8 +240,6 @@ async def run_correlation_analysis(
                 logger.warning("correlation: group %d failed: %s", index + 1, exc)
                 return []
 
-    results = await asyncio.gather(*(analyze(i, g) for i, g in enumerate(groups)))
-
     seen: set[tuple] = set()
     stored = 0
     suppressed = 0
@@ -229,7 +253,15 @@ async def run_correlation_analysis(
     examined_by_classification: dict[str, int] = {}
     non_actionable = 0
 
-    for findings in results:
+    def record(findings: list[CorrelationFinding]) -> None:
+        """Fold one group's findings into the run's counters and the session.
+
+        `seen` deliberately outlives a chunk. Deduplication is by finding
+        identity across the whole run, so the same contradiction reached through
+        two overlapping groups stays one finding no matter which commit each
+        group landed in.
+        """
+        nonlocal stored, suppressed, non_actionable
         for finding in findings:
             examined_by_classification[finding.classification] = (
                 examined_by_classification.get(finding.classification, 0) + 1
@@ -246,6 +278,46 @@ async def run_correlation_analysis(
             stored += 1
             by_classification[finding.classification] = by_classification.get(finding.classification, 0) + 1
             by_severity[finding.severity] = by_severity.get(finding.severity, 0) + 1
+
+    # Analysed and committed in chunks rather than gathering every group and
+    # writing once at the end. Concurrency within a chunk is unchanged, and the
+    # result is unchanged because findings are deduplicated by identity rather
+    # than by arrival order; what changes is that work already done survives a
+    # failure of the work that follows it.
+    try:
+        for start in range(0, len(groups), PERSIST_CHUNK_GROUPS):
+            chunk = groups[start : start + PERSIST_CHUNK_GROUPS]
+            results = await asyncio.gather(
+                *(analyze(start + offset, group) for offset, group in enumerate(chunk))
+            )
+            for findings in results:
+                record(findings)
+            await session.commit()
+            logger.info(
+                "correlation: committed through group %d/%d (%d finding(s) stored)",
+                min(start + PERSIST_CHUNK_GROUPS, len(groups)),
+                len(groups),
+                stored,
+            )
+    except Exception as exc:
+        # Record the failure with an explicit statement rather than through the
+        # ORM instance: the exception may have come from the database, and the
+        # rollback that requires expires `run`, after which reading it would need
+        # a lazy load this async session cannot perform. A run killed outright
+        # rather than failing is left as `running` — honest, since it never
+        # completed, and harmless because readers select the latest *completed*
+        # run.
+        await session.rollback()
+        await session.execute(
+            update(CorrelationRun)
+            .where(CorrelationRun.id == run_id)
+            .values(status="failed", error_message=str(exc), completed_at=datetime.now(UTC))
+        )
+        await session.commit()
+        logger.exception(
+            "correlation: run %s failed with %d finding(s) already committed", run_id, stored
+        )
+        raise
 
     run.status = "completed"
     run.completed_at = datetime.now(UTC)
