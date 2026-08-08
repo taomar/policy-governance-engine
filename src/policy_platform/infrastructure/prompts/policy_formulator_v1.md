@@ -502,7 +502,12 @@ Do not invent the responsible payer.
 
 # 14. ELIGIBILITY
 
-Use `eligibility` where the source establishes qualification for something.
+Use `eligibility` where the source establishes qualification for something —
+i.e. `effect.action` describes something the subject GAINS: a benefit,
+program, status, coverage, protection, or a release from an otherwise-binding
+rule (an exemption). Gaining a release counts as gaining something, even
+though the source sentence contains a negating word like "exempt", "excuse",
+or "not subject to" — see the POLARITY TEST below.
 
 Example:
 
@@ -510,9 +515,33 @@ Example:
 
 Eligibility does not automatically equal entitlement.
 
+Example (exemption — still `eligibility`, NOT `ineligibility`):
+
+"Agricultural workers shall be exempted from the implementation of the
+provisions of this Law."
+
+This grants agricultural workers a release from the Law's provisions — a real
+exemption rule (defines who is NOT covered), but the OUTCOME for the worker
+is a gain (they need not comply / are not bound), so:
+
+rule_type = eligibility
+
+effect.action = "be exempted from the implementation of the provisions of
+this Law" (or equivalent — the exemption itself, phrased as the thing
+granted)
+
+Do NOT classify this as `ineligibility`: `ineligibility` maps to a DENY
+effect, which would pair with this action to mean "denied the exemption" —
+i.e. the Law's provisions DO apply — the literal opposite of the source.
+
 ---
 
 # 15. INELIGIBILITY
+
+Use `ineligibility` where the source establishes that the subject does NOT
+qualify for something — i.e. `effect.action` describes something the subject
+is DENIED: a benefit, program, status, coverage, or protection that would
+otherwise apply.
 
 Example:
 
@@ -527,6 +556,36 @@ It is NOT:
 prohibition
 
 The employee is not being forbidden from taking an action.
+
+---
+
+# 15.1 POLARITY TEST — ELIGIBILITY vs. INELIGIBILITY (mandatory)
+
+`eligibility` → `effect.type = allow`. `ineligibility` → `effect.type = deny`.
+Because `effect.type` and `effect.action` are read together as one sentence
+("{ALLOW/DENY} {action}"), picking the wrong one of this pair silently
+reverses the rule's real-world meaning even when every word you extracted is
+correct.
+
+Before picking either classification, ask: **is the state named by
+`effect.action` something the subject ENDS UP WITH, or something the subject
+ENDS UP WITHOUT?**
+
+- Ends up WITH it (a program, a payment, a status, a protection, OR a release
+  from a burden/law/obligation) → `eligibility` / `allow`, even if the source
+  sentence itself contains a negating word such as "exempt", "excused",
+  "immune", "not subject to", "not bound by". These are GRANT-SHAPED
+  negations: the negation is inside what they gain (they gain "not having to
+  comply"), so the outcome as a whole is still a grant.
+- Ends up WITHOUT it (denied a program, payment, status, or protection that
+  would otherwise apply) → `ineligibility` / `deny`. These are LOSS-SHAPED
+  negations: "not eligible for", "excluded from receiving", "disqualified
+  from", "not entitled to".
+
+Quick check once you've drafted `effect.type` + `effect.action`: read them as
+one sentence. If the combined sentence says the person loses something the
+source says they gain (or vice versa), the classification is backwards — swap
+`eligibility`/`ineligibility` (do not just edit the action wording).
 
 ---
 
@@ -650,7 +709,9 @@ its actual effect (e.g. `classification` or `eligibility`), not `non_normative`.
 
 "Agricultural workers shall be exempted from the implementation of the
 provisions of this Law." → a real exemption rule (defines who is NOT
-covered) — classify normally (e.g. `ineligibility`), not `non_normative`.
+covered) — classify normally (`eligibility` — see # 14/# 15.1 POLARITY TEST;
+the worker GAINS a release from the Law, so this is `eligibility`, NOT
+`ineligibility`, even though it defines who is exempt), not `non_normative`.
 
 "This policy applies to all full-time employees in the United States."
 → a real scope rule. Classify normally, not `non_normative`.
@@ -669,6 +730,67 @@ there is no operative subject at all
 
 No `effect` should be derived beyond a neutral/no-op marker — this rule
 type carries no obligation, permission, or prohibition to execute.
+
+---
+
+# 19.2 DEFINITION
+
+Use `definition` for a sentence that establishes what a term means or which
+category an entity belongs to, rather than an obligation, prohibition,
+permission, entitlement, eligibility, or outcome. This is the "Term:
+description" / "Term means description" / "Term refers to description"
+pattern common to every domain's definitions section (a law's Article of
+Definitions, an HR policy's glossary, an IT policy's key-terms list, a
+procurement policy's defined terms, etc.) — not solely a legal-drafting
+concept.
+
+THE PATTERN AND HOW TO DECOMPOSE IT:
+
+Source text states the term, then a delimiter (a colon, dash, em dash, or
+the words "means"/"refers to"/"is defined as"/"shall mean"), then the
+description. Decompose as:
+
+subject = the term being defined (e.g. "Minor", "Temporary Work",
+"Confidential Information")
+
+predicate = a synthesized copula naming the relationship — "is defined as"
+or "means" — chosen to read naturally; NEVER the literal delimiter
+character itself
+
+object = the descriptive/classifying text that follows the delimiter,
+exactly as it appears in the source (do not summarize or shorten it)
+
+CRITICAL — the predicate must never be a punctuation mark. A definition's
+delimiter (":", "-", "—", or the word "as follows") is formatting, not a
+predicate. Emitting `"predicate": ":"` (or `"-"`, or an empty string) is
+always wrong regardless of how the source is punctuated — it is Stage 2's
+job to name the semantic relationship the punctuation stands for, the same
+way Section 20 already requires resolving `modality`/`condition`/etc. to
+their meaning rather than echoing source punctuation.
+
+Example:
+
+"Minor: Any person of 15 and below 18 years of age."
+
+→ subject = "Minor", predicate = "is defined as", object = "any person of
+15 and below 18 years of age". This is a plain, unambiguous definition —
+do not add an ambiguity code merely because the source used a colon
+instead of the word "means" (see Section 36 — punctuation choice is not
+ambiguity).
+
+"Temporary Work: work whose nature requires completion within a specific
+period, or work concerned with a specific task with a view to its
+completion."
+
+→ subject = "Temporary Work", predicate = "is defined as", object = "work
+whose nature requires completion within a specific period, or work
+concerned with a specific task with a view to its completion".
+
+A dense passage that defines many terms back-to-back (e.g. an Article-2-
+style definitions block with no paragraph breaks between terms) still
+yields ONE definition rule per term, decomposed the same way — see Section
+36.2's AMBIGUOUS_RULE_BOUNDARY entry: the passage containing many terms is
+expected, not itself a boundary ambiguity.
 
 ---
 
@@ -1126,35 +1248,129 @@ Do not use general world knowledge for inheritance.
 
 # 36. AMBIGUITY
 
-Never guess through material ambiguity.
+Never guess through material ambiguity. But an ambiguity code is a claim about
+the SOURCE TEXT's meaning, not a claim about this engine's ability to produce
+executable FEEL. Whether a rule can become an executable DMN decision is a
+separate, purely technical question (governed by whether a `trusted_config` —
+Section 83 — was supplied) and is already fully captured by `dmn_mapping_status`
+/ Section 45. Do not emit an ambiguity code merely because a rule has no
+derivable machine condition, no configured fact path, or no numeric FEEL
+comparator available. A rule whose meaning is perfectly clear in plain
+language is `ambiguity: []` even when it cannot yet be executed.
 
-Allowed ambiguity codes include:
+## 36.1 Test before flagging
 
-AMBIGUOUS_SUBJECT
+Before recording any ambiguity code, confirm a competent human reader of the
+source clause, using ONLY that clause's own text (no outside knowledge), could
+NOT confidently settle the question in one plain reading. If a plain reading
+settles it, resolve it silently and do not flag it — flagging a clause that
+is actually clear is itself a defect. Only emit a code when settling the
+question would require guessing, inventing information the clause does not
+state, or picking between two-plus readings the text does not itself
+disambiguate.
 
-AMBIGUOUS_PREDICATE
+## 36.2 Per-code definitions, triggers, and worked examples
 
-AMBIGUOUS_OBJECT
+Each code below names exactly one kind of unresolved question. Use the single
+best-fitting code; do not stack multiple codes to hedge.
 
-AMBIGUOUS_CONDITION
+**AMBIGUOUS_SUBJECT** — the entity the rule is about cannot be identified from
+the clause, including a pronoun or demonstrative ("it", "this", "that", "such",
+"they", "the above") whose antecedent is not stated in the same clause or the
+immediately governing context. Resolution comes first: if an antecedent noun
+phrase appears earlier in the same clause (or in a heading/parent clause it
+inherits from per Section 35), substitute that noun phrase as the subject and
+do NOT flag. Only flag when no such antecedent exists in the available text.
+This never contradicts Stage 1's verbatim/no-pronoun-replacement rule: Stage 1
+governs the quoted `source_text`/`evidence` span, which always keeps the
+original wording pronoun and all; resolution here only fills the structured
+`subject` field of the canonical rule with the noun phrase the pronoun stands
+for. Record `"source_origin": "resolved_reference"` on the rule whenever
+`subject` was filled this way, so a reviewer can see it was inferred rather
+than a literal quote.
+  - Resolve, do not flag: "Temporary Work: work whose nature requires
+    completion within a specific period... The employment relationship ends
+    upon completion of the work. It shall not exceed 90 days in either case."
+    → "It" resolves to "the period of Temporary Work" stated one sentence
+    earlier in the same clause; emit the rule with that resolved subject and
+    `"source_origin": "resolved_reference"`.
+  - Flag: a clause opens mid-thought with "It must be renewed annually" and no
+    preceding sentence in the supplied text names what "It" is.
 
-AMBIGUOUS_THRESHOLD
+**AMBIGUOUS_PREDICATE** — the action/relationship connecting subject and
+object is missing or reduces to a non-verb placeholder (e.g. a bare colon with
+nothing after it functioning as a predicate). A definition's copula ("is
+defined as", "means") is a valid, unambiguous predicate — do not flag
+definition rules merely for having a copula predicate instead of an action
+verb.
 
-AMBIGUOUS_RANGE
+**AMBIGUOUS_OBJECT** — the target/complement of the predicate cannot be
+identified, or the clause supports two or more irreconcilable readings of what
+is being acted upon.
 
-AMBIGUOUS_PRECEDENCE
+**AMBIGUOUS_CONDITION** — a qualifying clause ("if", "when", "provided that",
+"unless") admits more than one plausible parse and the different parses
+would change which effect applies. Do not flag a condition merely for being
+compound (e.g. "if X and Y" is unambiguous conjunction, not ambiguity).
 
-AMBIGUOUS_MODALITY
+**AMBIGUOUS_THRESHOLD** — a described cutoff point (a single boundary value)
+cannot be pinned to one unambiguous value from the text — e.g. the clause uses
+a vague qualitative term with no defined value ("a reasonable time", "prompt
+notice") or the same named threshold is given two different, irreconcilable
+values elsewhere in the supplied text.
+  - Do NOT flag: "shall not exceed 90 days" — the boundary (90 days) and the
+    comparator (an upper bound, inclusive per "not exceed") are both stated
+    explicitly and singularly. This is a clear threshold, not an ambiguous one.
 
-AMBIGUOUS_REFERENCE
+**AMBIGUOUS_RANGE** — an interval's endpoints, or whether an endpoint is
+inclusive or exclusive, cannot be determined from the text. A range is NOT
+ambiguous merely because it is numeric, or because inclusivity must be read
+from ordinary wording rather than mathematical notation.
+  - Do NOT flag: "any person of 15 and below 18 years of age" — both endpoints
+    are stated (15, 18) and the inclusivity of each is stated in plain English
+    ("of 15" includes 15; "below 18" excludes 18). This is exactly the false
+    positive this engine must stop producing: a clearly bounded range is not
+    an ambiguous one.
+  - Flag: "young workers, roughly teenage" — no numeric endpoints are given at
+    all, so a boundary cannot be derived without guessing.
 
-AMBIGUOUS_RULE_BOUNDARY
+**AMBIGUOUS_PRECEDENCE** — two or more clauses could plausibly both govern the
+same situation and the text does not state, and Section 15.4's dimensions
+cannot derive, which one controls.
 
-AMBIGUOUS_DECISION_SEMANTICS
+**AMBIGUOUS_MODALITY** — the deontic force (mandatory "shall"/"must" vs.
+permissive "may" vs. recommendatory "should") cannot be determined, e.g.
+inconsistent modal verbs are used for what reads as a single obligation, and
+picking one would change enforceability.
 
-If ambiguity prevents executable mapping:
+**AMBIGUOUS_REFERENCE** — the clause cross-references another article,
+clause, schedule, or annex whose content was not included in the supplied
+extraction context, so the reference cannot be resolved without guessing what
+it says.
 
-do not generate executable FEEL.
+**AMBIGUOUS_RULE_BOUNDARY** — within a dense passage it is unclear exactly
+where one rule's scope ends and the next begins. This is NOT the same as "this
+passage contains several distinct definitions/rules" — a passage that lists
+many terms (e.g. an Article-2-style definitions block) is expected to yield
+one rule per term; formulate each on its own rather than flagging the passage
+merely for containing multiple rules. Only flag when the split point itself
+is textually unclear (e.g. a qualifying phrase could belong to either the
+preceding or following rule).
+
+**AMBIGUOUS_DECISION_SEMANTICS** — the clause implies multiple applicable
+outcomes and the text does not state how they combine (first-match,
+collect-all, priority-override, etc.).
+
+## 36.3 Executable mapping
+
+If genuine ambiguity (any code above) is recorded, or the source contains
+material this engine will not resolve without guessing:
+
+do not generate executable FEEL for that rule.
+
+Absence of ambiguity codes does not by itself guarantee executable FEEL —
+that additionally requires a `trusted_config` fact mapping (Section 83); the
+two gates are independent and both must pass.
 
 ---
 

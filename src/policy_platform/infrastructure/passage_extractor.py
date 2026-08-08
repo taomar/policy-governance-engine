@@ -248,24 +248,20 @@ def clean_clause_ref(ref: str | None) -> str | None:
     return cleaned or None
 
 
-def resolve_span(
-    source: PassageSource,
-    clause_texts: dict[str, str],
-    clause_order: list[str],
-) -> str | None:
-    """Copy the text a span reference points at, out of the application's own store.
+def _span_indices(
+    source: PassageSource, clause_texts: dict[str, str], clause_order: list[str]
+) -> tuple[int, int] | None:
+    """Resolve a passage's source span to a `(start_idx, end_idx)` pair into `clause_order`.
 
-    This is the step the architecture specification ends on: the agent returns
-    *where* the policy is, and the application — which holds the authoritative
-    canonical text — produces the characters. It is a stronger guarantee than
-    verifying the agent's transcription after the fact. Verification makes a
-    fabricated word *detectable*; copying makes it *impossible*, because no
-    model-authored character ever reaches the output.
+    Shared by `resolve_span` (which needs the span's text) and
+    `span_clause_refs` (which needs the span's identifiers), so the text
+    Stage 2 reads and the identifiers evidence later points at can never fall
+    out of sync — both are computed from exactly the same index resolution.
 
-    Returns None when the span cannot be resolved: an unknown identifier, or an
-    empty span. An unresolvable span is a real failure and must not be papered
-    over with a best guess, because the guess would silently attribute one
-    clause's text to another clause's location.
+    Returns None when the span cannot be resolved: an unknown identifier, or
+    an empty span. An unresolvable span is a real failure and must not be
+    papered over with a best guess, because the guess would silently
+    attribute one clause block's text to another clause's location.
     """
 
     start_ref = clean_clause_ref(source.clause_ref)
@@ -287,10 +283,62 @@ def resolve_span(
 
     if end_idx < start_idx:
         start_idx, end_idx = end_idx, start_idx
+    return start_idx, end_idx
+
+
+def resolve_span(
+    source: PassageSource,
+    clause_texts: dict[str, str],
+    clause_order: list[str],
+) -> str | None:
+    """Copy the text a span reference points at, out of the application's own store.
+
+    This is the step the architecture specification ends on: the agent returns
+    *where* the policy is, and the application — which holds the authoritative
+    canonical text — produces the characters. It is a stronger guarantee than
+    verifying the agent's transcription after the fact. Verification makes a
+    fabricated word *detectable*; copying makes it *impossible*, because no
+    model-authored character ever reaches the output.
+
+    Returns None when the span cannot be resolved (see `_span_indices`).
+    """
+
+    indices = _span_indices(source, clause_texts, clause_order)
+    if indices is None:
+        return None
+    start_idx, end_idx = indices
 
     parts = [clause_texts[ref] for ref in clause_order[start_idx : end_idx + 1]]
     joined = "\n\n".join(part.strip() for part in parts if part.strip())
     return joined or None
+
+
+def span_clause_refs(
+    source: PassageSource,
+    clause_texts: dict[str, str],
+    clause_order: list[str],
+) -> list[str] | None:
+    """Return the ordered clause identifiers a passage's source span covers.
+
+    This is `resolve_span`'s sibling for provenance rather than content: it
+    answers "which clause(s) did this text actually come from?" instead of
+    "what does that span say?". Extraction uses it to attach evidence to the
+    *specific* clause(s) a passage was copied from, rather than to every
+    clause anywhere near it in the batch — the same span/reference precision
+    that document-interchange standards for normative text (e.g. Akoma
+    Ntoso's element-level cross-references, LegalRuleML's many-to-many
+    rule-to-provision linking) treat as a basic correctness requirement,
+    regardless of what kind of source document (statute, HR handbook, IT
+    policy, procurement manual, ...) the clauses came from.
+
+    Returns None when the span cannot be resolved (see `_span_indices`).
+    """
+
+    indices = _span_indices(source, clause_texts, clause_order)
+    if indices is None:
+        return None
+    start_idx, end_idx = indices
+    return clause_order[start_idx : end_idx + 1]
 
 
 class PassageExtractorAgent:

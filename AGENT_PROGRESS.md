@@ -57,6 +57,9 @@ is documented in ADR-0006.
 | 41 | Employee attestation tracking (ISO 37301 §7.3 — the last remaining P1 gap from `docs/policy-standards-research.md`): `PolicyAttestation` model/migration/schemas/repository/router, manager-gated bulk campaign creation, computed pending/acknowledged/overdue status, no-login self-service "My Attestations" page + project "Attestations" tab. See ADR-0012 | done |
 | 42 | Policy ownership / RACI metadata (🟠 P2 gap from `docs/policy-standards-research.md`): 5 new `PolicySet` fields (`accountable_owner`, `delegate_approver`, `escalation_contact`, `consulted_parties`, `informed_parties`) alongside the pre-existing department-level `owner`, wired end-to-end (model/migration/schema/repository/router + frontend Edit Project modal section + new Overview-tab "Governance & ownership" card). See ADR-0013 | done |
 | 43 | Intake-quality root-cause fix (user-reported: `saudi-labor-law` review queue full of non-policy junk). `EffectType.INFORMATIONAL` added to schema (fixes `definition`/`classification` rules being forced into a false `ALLOW`); colon-separator-predicate bug fixed; combining-algorithm correctness fix so an informational rule never corrupts a real allow/deny conflict; full test + frontend coverage; safe backfill of the existing 668-row queue (55 rows corrected, 0 review-status/LLM calls). Separately: `non_normative` rule-type guidance was entirely undocumented in both extraction prompts (listed in the enum, never explained) — root cause of legislative/document-lifecycle boilerplate ("This Law shall be published", "This Law shall enter into force") being misclassified as real obligations/routing rules. Added domain-agnostic guidance (Stage 1 + Stage 2 prompts) generalizing the pattern to ANY policy genre (HR/IT/procurement/conduct, not just legal), with explicit counter-examples so real scope/exemption rules that merely cite "this Law"/"this policy" are never miscaught. Manually vetted and rejected (not deleted — full audit trail) exactly 6 pure document-lifecycle-meta rows already sitting in the current queue; left the other 43 keyword-matched rows untouched as genuine policy content. Extraction re-run remains explicitly gated on user go-ahead. | done |
+| 44 | Generalized architectural fix for AI-extraction quality (user: "generalize the problem... revisit the full architecture"). Root-caused `ambiguity_status = human_judgment_required` on 100% of 500 rows to a conflation bug in `_ambiguity_for()` (content-ambiguity vs. technical-executability were the same flag); decoupled them so clear-but-non-executable rules now map to `NON_BLOCKING`. Rewrote formulator Section 36 (AMBIGUITY) from a bare 11-code enum into per-code definitions + worked pass/fail examples, closing the over-triggering gap that flagged "15 and below 18" as `AMBIGUOUS_RANGE` and "shall not exceed 90 days" as `AMBIGUOUS_THRESHOLD`. Added anaphora resolution guidance (dangling pronoun subjects like "It shall not exceed 90 days" now resolve to their antecedent in the structured `subject` field, `source_text` untouched, no conflict with Stage 1's verbatim-quote invariant). Closed the prompt gap Milestone 43's own code fix had explicitly flagged but left open ("the prompt gives it no better convention"): new Section 19.2 (DEFINITION) gives explicit subject/predicate/object decomposition rules so `definition` rules stop emitting `predicate: ":"`; added a deterministic `degenerate_predicate` dashboard finding (reusing the existing `_is_separator_predicate` helper for a single source of truth) as a regression/backfill guard. Full suite: 320 passed, 11 skipped. Re-extraction and dataset backfill explicitly deferred pending small-batch (~50 clause) validation, per user's standing instruction. | done |
+| 45 | Per-rule evidence scoping + "which law?" source-context fix + Definitions/Glossary content-kind split. Root-caused a live bug (both "null and void" rules citing 5 evidence entries spanning Articles 6/7/8, though each rule is only actually about Article 8) to `formulation_to_candidate_rules()` applying one flat batch-wide evidence list to every rule from a multi-topic batch. Fixed via passage-matching: each rule's evidence is now resolved from `CanonicalPolicy.source_text` against Stage-1 passages (normalized bidirectional substring containment), falling back to the coarse batch-wide list only when no passage matches. Validated the *pattern* against Akoma Ntoso (span-level references) and LegalRuleML (N:M rule↔provision linking) before implementing, kept domain-neutral. 2 new regression tests added; full suite 322 passed/11 skipped; re-ran a 50-clause extraction live and confirmed both "null and void" rules now cite exactly 1 evidence entry (Article 8 only). Separately, closed a distinct UI gap the user flagged via screenshot ("which law? :)"): the raw "AI EXTRACTION RECORD" JSON viewer (`PolicyInspector.tsx` and `RuleCard.tsx`, both render the same `formulation.canonical`/`formulation.dmn_decisions`) preserves source wording verbatim ("this Law", "this policy") but carried zero document/clause context of its own — added an "Extracted from: {document} ({version}) · {section}, p.{page} · clause {ref}" banner directly above the JSON toggles in both components, reusing each component's already-loaded `docMetaByVersionId`/`clausesById` (no new API calls). Also finished a previously-deferred, explicitly user-requested item that was left half-wired and was blocking `npm run build`: rendered the `Segmented` "Policies & Rules"/"Definitions & Glossary" content-kind toggle in `ReviewQueue.tsx` (state/filtering/counts already existed from earlier work, only the visual control was missing) — live-verified both tabs filter correctly (15 policies / 28 definitions on the current 43-row test set). `tsc --noEmit`, `npm run lint`, and `npm run build` all clean; all three fixes visually verified live in the browser. | done |
+| 46 | Two-bug quality-dashboard triage: (1) exemption-rule effect-polarity inversion (`high` severity, `semantic_modeling`) — 6 exemption rules ("shall be exempted from the implementation of this Law") were classified `rule_type: eligibility` + `effect.type: deny`, which the deterministic evaluator (`_apply_combining_algorithm`) composes literally into `outcome`, so a satisfied rule would report "denied: be exempted" — the *opposite* of the source text. Root cause: Stage 2's own formulator prompt (an example the agent itself added in Milestone 43) told the LLM to classify grant-shaped exemptions as `ineligibility`. Fixed by rewriting prompt Sections 14/15 (ELIGIBILITY/INELIGIBILITY) with explicit GAIN/LOSS semantics, correcting the wrong worked example, and adding new **Section 15.1 (POLARITY TEST)** generalizing a "grant-shaped negation" (exempt/excused/immune/not subject to → gain → eligibility/allow) vs. "loss-shaped negation" (not eligible for/excluded from/disqualified from → loss → ineligibility/deny) heuristic — directly addressing the user's standing "generalize, don't patch one example" instruction. Added a permanent deterministic regression guard, `_eligibility_polarity_findings()` in `ai_quality.py` (5 new unit tests). (2) `data_integrity` truncation defect (`high` severity) — `formulation_mapping.py`'s `_effect_action()` hard-cut every rule's evaluator-facing `effect.action` at exactly 200 characters with **no ellipsis marker**, silently dropping the tail of any longer clause (unlike its sibling `_title_for()`, which truncates-with-`"..."` for the same 200-char display budget). Confirmed via `correlation_agent.py`'s own code comment and a full caller audit (backend + frontend) that nothing consumes `effect.action` as a bounded/display-only string — it is evaluator-facing (`engine.py` returns it verbatim as the decision `outcome`) — so the cap was removed entirely rather than raised-with-ellipsis. Added a regression test (`test_effect_action_is_not_silently_truncated`) with a >200-char definition object. Both fixes required a full validation loop: prompt cache is `@lru_cache(maxsize=1)` (needs process restart) and `_effect_action` runs at extraction/write-time (baked into `payload_json`, not recomputed on read) — so verifying required deleting the 43/78 stale candidate rows, restarting the backend twice (once per fix), and re-running the same 50-clause extraction twice. Final state confirmed live against real data: all 6 exemption-derived rows (12 after re-extraction's slightly different rule count) show `eligibility`+`allow`, zero `deny`; longest `effect.action` in the fresh 47-row set is 1383 characters with no truncation; a re-pulled quality report shows **zero** `eligibility_polarity_inversion` or `data_integrity` findings. Full suite: 328 passed, 11 skipped (up from 327). Then triaged all 17 quality-dashboard findings on the fresh dataset: 13 are genuine `ai_review` human-review content signals (source-law imprecision / 50-of-743-clause sample incompleteness), 2 (`not_machine_executable`, `ambiguity`) are deterministic checks already working as designed post-Milestone-44, and 2 more (`rule_classification` — no `applicability` type exists in the closed vocabulary; `scope_risk` — `scope.jurisdictions`/etc. are unconditionally empty, `PolicyScope()`, confirmed permissive-default not an inversion) were root-caused but deliberately left unfixed as open product/schema decisions with candidate resolutions documented, since both require a business decision the user should make (not a mechanical bug fix). | done |
 
 **All Phase 1 (Foundation) + Phase 5 (Deterministic Execution) milestones for this
 local vertical slice are complete and verified, plus the human review/approval
@@ -3126,3 +3129,851 @@ touched), and reconfirm that extraction re-run / advancing candidates to
 review remains explicitly pending the user's go-ahead. Two extraction
 fragment/duplication observations (see above) are noted for awareness, not
 auto-fixed.
+
+### Milestone 44 detail — Generalized architectural fix for AI-extraction quality (ambiguity/predicate/anaphora)
+
+**Trigger:** after a fresh wipe-and-reimport of the Saudi Labor Law PDF (500
+candidate rows), the user surfaced two concrete bugs — a definition rule
+("Minor: Any person of 15 and below 18 years of age") showing a degenerate
+`predicate: ":"` plus a spurious `AMBIGUOUS_RANGE` flag on clearly
+unambiguous text, and a worse rule titled "It shall not exceed 90 days"
+with an unresolved pronoun subject and evidence citing unrelated clauses —
+then gave an explicit standing instruction to stop patching symptoms:
+**"generalize the problem and find a solution, even architectural...
+revisit the full architecture here."** Per the Resilient Architect
+protocol, this milestone paused local edits and widened the investigation
+before touching any code.
+
+#### Architectural Context
+
+**System boundary:** the two-stage AI extraction pipeline —
+`passage_extractor_v1.md` (Stage 1: clause segmentation + verbatim
+evidence quoting) → `policy_formulator_v1.md` (Stage 2: canonical
+subject/predicate/object/modality decomposition + ambiguity/executability
+classification) → `formulation_mapping.py` (deterministic Stage-2-output →
+`CanonicalRule` mapping, including `_ambiguity_for()` and
+`_title_for()`/`_effect_action()`) → `ai_quality.py` (dashboard findings
+surfaced to human reviewers before anything is approved).
+
+**Relevant components and responsibilities:**
+- `passage_extractor_v1.md` — owns verbatim clause/evidence extraction;
+  invariant: never replace pronouns with nouns in the quoted `source_text`.
+- `policy_formulator_v1.md` — owns the structured canonical decomposition
+  (`subject`/`predicate`/`object`/`modality`) and the ambiguity/executability
+  classification signals for every rule type.
+- `formulation_mapping.py` — deterministic, no-LLM-call mapping from
+  Stage 2's JSON into the platform's `CanonicalRule`/`ambiguity_status`
+  fields; the single place that decides what a reviewer sees for
+  `ambiguity_status`, `title`, and `effect.action`.
+- `ai_quality.py` — read-only dashboard findings layer; reports defects to
+  reviewers but never mutates data or blocks approval by itself.
+
+**Important invariants:**
+- `ambiguity_status` must answer *only* "is the source text's meaning
+  unclear", independent of `machine_executable` (a technical-configuration
+  question, already fully captured by its own field) — enforcement point:
+  `_ambiguity_for()`.
+- Stage 1's quoted `source_text`/evidence spans must remain byte-for-byte
+  verbatim substrings of the source document, including pronouns —
+  enforcement point: `passage_extractor_v1.md` Section 2 (untouched this
+  milestone).
+- A `predicate` value, when present, must express a real relationship, not
+  echo the source's own punctuation — enforcement point: now dually
+  covered by `_is_separator_predicate()` (cleans derived display strings)
+  and the new `degenerate_predicate` finding (reports on the raw stored
+  field).
+
+#### Architectural Signals
+
+- **Signal:** `ambiguity_status = human_judgment_required` on literally
+  500/500 rows (100%) — zero discriminative signal, a strong indicator of
+  a systemic conflation rather than 500 independent judgment calls.
+- **Signal:** the same degenerate-predicate defect pattern recurring across
+  rule instances (24/500), plus a prior milestone's own code comment
+  ("reasonable given the prompt gives it no better convention") explicitly
+  predicting an unfixed prompt-level root cause.
+- **Signal:** dangling pronoun subjects (11/500) is a repeated pattern, not
+  an isolated one-off, and touches a cross-file invariant (Stage 1's
+  verbatim rule) that had to be checked for conflict before any fix.
+- **Confirmed:** all three signals traced to genuine architectural/prompt
+  gaps, not isolated implementation slips. Decision: fix at the prompt +
+  mapping-function level (the owning layers), not by patching individual
+  output rows.
+
+#### Root-Cause Analysis
+
+1. **Ambiguity/executability conflation.**
+   - *Visible symptom:* every rule flagged "human judgment required."
+   - *Immediate cause:* `_ambiguity_for()` unconditionally returned
+     `HUMAN_JUDGMENT_REQUIRED` whenever `executable=False`.
+   - *Violated assumption:* that "not machine-executable" implies "content
+     is ambiguous" — false; `machine_executable=False` is the default state
+     for 100% of rules platform-wide absent a `trusted_config` (Section 83),
+     so it carries no information about the source text's clarity.
+   - *Root cause:* the mapping function used one flag to answer two
+     unrelated questions.
+   - *Owning boundary:* `formulation_mapping.py` (deterministic mapping
+     layer) — confirmed correct ownership by checking `ai_quality.py`,
+     which *already* treats these as separate dashboard findings
+     (`_non_blocking_ambiguity_findings` vs.
+     `_machine_executability_findings`), i.e. the intended architecture
+     already existed one layer up and the mapping function was the one
+     place still conflating them.
+   - *Chosen correction:* decouple in `_ambiguity_for()` — genuine
+     ambiguity signals (`policy.ambiguity` codes,
+     `extraction_status == AMBIGUOUS`) still force
+     `HUMAN_JUDGMENT_REQUIRED`; non-executable-but-clear rules now map to
+     `NON_BLOCKING` instead.
+
+2. **Ambiguity-code over-triggering (`AMBIGUOUS_RANGE`, `AMBIGUOUS_THRESHOLD`, etc.).**
+   - *Immediate cause:* formulator Section 36 (AMBIGUITY) was a bare
+     11-code enum with no per-code definitions, tests, or examples —
+     nothing telling the model that "15 and below 18" is a *closed,
+     unambiguous* range, or that "shall not exceed 90 days" is a *hard
+     numeric cap*, not a vague threshold.
+   - *Root cause:* prompt-completeness gap, same class of defect as
+     Milestone 43's `non_normative` gap (a rule/code is listed but never
+     explained) — confirms this is a recurring documentation-debt pattern
+     in this prompt file, not a one-off.
+   - *Chosen correction:* rewrote Section 36 with a framing principle
+     ("ambiguity ≠ non-executability"), a "test before flagging" rule, and
+     per-code definitions with worked positive *and* negative examples for
+     all 11 codes — explicitly including the two negative examples that
+     had just been observed miscaught.
+
+3. **Dangling pronoun subjects.**
+   - *Immediate cause:* Stage 2 had no guidance on resolving anaphora in
+     the structured `subject` field.
+   - *Cross-file check performed before fixing:* Stage 1's "never replace
+     pronouns with nouns" invariant governs only the literal quoted
+     `source_text`/evidence span (confirmed via grep — zero "verbatim"
+     mentions anywhere in `policy_formulator_v1.md`); Stage 2's `subject`
+     field was never a verbatim-quote field, so resolving a pronoun there
+     does not violate Stage 1's contract as long as `source_text` is left
+     untouched.
+   - *Chosen correction:* added anaphora-resolution guidance into Section
+     36.2's `AMBIGUOUS_SUBJECT` entry — resolve to the antecedent within
+     the same clause and record `source_origin: "resolved_reference"`
+     (extending the existing free-form `source_origin` field, precedented
+     by `"inherited_context"`) for reviewer audit traceability; only flag
+     if no antecedent exists in-clause.
+
+4. **Degenerate `predicate: ":"` — closing a gap a prior milestone had already flagged.**
+   - *Discovery while reviewing `AGENT_PROGRESS.md`:* Milestone 43 had
+     already shipped a *code-level* workaround
+     (`_is_separator_predicate()`) that skips a punctuation-only predicate
+     when building the *derived* `title`/`effect.action` display strings —
+     but that function's own docstring explicitly named the gap this
+     milestone closes: "reasonable given the prompt gives it no better
+     convention." The raw `formulation.canonical.rule.predicate` field
+     itself (what the user's screenshot showed) was never fixed by that
+     prior workaround, since it only cleans two *derived* strings, not the
+     stored field.
+   - *Root cause confirmed non-duplicate:* formulator Section 9 lists
+     `definition`/`classification` in the rule-type enum, but spec Sections
+     10-19 give a dedicated worked-example section to every *other* rule
+     type — `definition` had none, so the model had no better convention
+     than echoing the source's own "Term: Definition" delimiter.
+   - *Chosen correction:* new Section 19.2 (DEFINITION) — explicit
+     subject/predicate/object decomposition (subject = term, predicate =
+     synthesized copula such as "is defined as"/"means", never the literal
+     delimiter, object = definition text), plus a new deterministic
+     `degenerate_predicate` dashboard finding in `ai_quality.py` as a
+     regression/backfill guard. **DRY correction made during this
+     milestone:** the new finding initially reimplemented its own
+     punctuation-only test; refactored to import and reuse
+     `formulation_mapping._is_separator_predicate` instead, so "what counts
+     as a degenerate predicate" has exactly one definition shared by both
+     the display-cleaning code and the reviewer-facing finding — avoiding
+     the "same business rule encoded in multiple places" anti-pattern.
+
+#### Impact Analysis
+
+- **Direct callers of `_ambiguity_for()`:** only `formulation_mapping.py`'s
+  own mapping pipeline; no other module calls it directly.
+- **Downstream consumers of `ambiguity_status`:** `ai_quality.py`
+  dashboard findings (already correctly separated — now fed accurate
+  input for the first time) and the frontend
+  (`apps/web/src/ruleDisplay.ts`'s `hasAmbiguityFlag`/`AMBIGUITY_META`) —
+  confirmed by inspection to already key off the real enum values with no
+  frontend code change required.
+- **Data impact:** none yet — the existing 500-row `saudi-labor-law`
+  dataset from the pre-fix extraction has *not* been touched or backfilled
+  this milestone; these are prompt/mapping-function fixes that only affect
+  future extractions (and any explicit future backfill script) until the
+  user approves re-running extraction.
+- **Contract impact:** `AmbiguityStatus` enum unchanged (no new values
+  added); `source_origin` gains a second recognized free-form value
+  (`"resolved_reference"`) alongside the existing `"inherited_context"` —
+  additive, not breaking.
+- **Test impact:** one existing assertion
+  (`test_non_decision_obligation_stays_non_executable_but_is_kept`) encoded
+  the old conflated behavior and was updated with an explanatory docstring;
+  6 new tests added for the degenerate-predicate finding. Full suite: 320
+  passed, 11 skipped (up from 314/11 baseline), zero regressions.
+- **Deliberately NOT touched:** `ai_rewrite.py`'s similarly-shaped
+  `machine_executable=False` + `human_judgment_required` pairing in its
+  `condition_only_failure` fallback — judged a narrower, legitimately
+  different trigger (a failed condition-rewrite creates a genuine
+  description/condition mismatch, not mere non-executability), so fixing
+  it would have been an unjustified scope expansion of "the same defect
+  pattern."
+- **Operational impact:** backend process (no `--reload`) must be
+  restarted before these prompt/mapping changes take effect on any new
+  extraction — not yet done as of this entry.
+
+#### Architecture Decisions
+
+**Decision: Decouple `ambiguity_status` from `machine_executable` in `_ambiguity_for()`.**
+- *Context:* 100% of rows flagged `human_judgment_required`, zero
+  discriminative signal.
+- *Decision:* content-ambiguity and technical-executability are answered
+  by two independent fields; non-executable-but-clear rules map to
+  `NON_BLOCKING`, not `HUMAN_JUDGMENT_REQUIRED`.
+- *Alternatives considered:* (a) leave mapping alone and fix only the
+  dashboard/frontend display layer — rejected, since `ai_quality.py`
+  already correctly separates these concerns and would have kept
+  consuming a falsely-conflated upstream signal; (b) add a third,
+  in-between enum value — rejected as unnecessary, `NON_BLOCKING` already
+  exists and fits exactly.
+- *Consequences:* positive — the flag becomes discriminative again;
+  negative — none identified; migration impact — none (no data migration,
+  only future extractions affected); compatibility — additive, no enum
+  values removed.
+- *Validation:* full suite green (320/11); frontend inspected, requires no
+  change; small-batch re-extraction still pending as the live-data
+  validation step.
+
+**Decision: Give `definition` rules their own decomposition section (19.2) instead of a code-level-only fix.**
+- *Context:* Milestone 43's own code comment had already flagged this gap
+  as open.
+- *Decision:* fix at the prompt layer (root cause) while keeping the
+  Milestone 43 code-level workaround in place (still useful as a display
+  safety net for any residual/future slip) and adding a reviewer-facing
+  finding (`degenerate_predicate`) as a backstop.
+- *Alternatives considered:* rely solely on the existing
+  `_is_separator_predicate` display cleanup — rejected, since it hides the
+  symptom from display but leaves the stored `predicate` field itself
+  wrong, silently, with no way for reviewers to know a rule needs
+  reformulation.
+- *Consequences:* positive — closes the gap at its source for all future
+  extractions, with a durable regression guard; negative — none;
+  migration impact — none yet (existing 500 rows not backfilled this
+  milestone); compatibility — additive only.
+- *Validation:* 6 new unit tests, full suite green; DRY-refactored to
+  share one predicate-degeneracy definition with the pre-existing display
+  helper.
+
+#### Explicitly NOT done this milestone (gated on user go-ahead)
+
+- No re-extraction of `saudi-labor-law` or any other policy set.
+- No backfill of the existing 500-row dataset against the fixed mapping
+  logic (unlike Milestone 43, which did backfill — this milestone's fixes
+  are prompt-level and can only be validated by re-running extraction, not
+  by re-deriving from already-stored `formulation.canonical`, since the
+  bad `predicate`/ambiguity-code values were produced by the LLM itself,
+  not by a deterministic mapping bug).
+- Backend not yet restarted to pick up the code changes.
+- A small-batch (~50 clause) test extraction, per the user's standing
+  "pull 50 and stop" instruction, has not yet been run against these
+  fixes.
+
+### Next action
+
+Restart the backend (no `--reload`, matching documented convention), then
+either add a `limit` parameter to the extraction endpoint or otherwise
+constrain a test run to ~50 clauses, run it, and manually inspect the
+resulting candidate rules against all four fixes (ambiguity distribution,
+range/threshold flagging, pronoun resolution, definition predicates) before
+presenting results to the user for approval to scale to the full document.
+
+### Milestone 45 detail — Per-rule evidence scoping, "which law?" source-context fix, Definitions/Glossary split
+
+**Trigger:** after the Milestone 44 fixes and a 50-clause re-extraction, the
+user reviewed live output and flagged a rule titled "Any condition shall be
+deemed null and void" — its evidence cited 5 clauses spanning Articles 6, 7,
+*and* 8, even though the rule's actual text is only about Article 8. Later,
+via a screenshot of the same rule's expanded "AI EXTRACTION RECORD" panel,
+the user asked **"which law? :)"** — pointing at raw DMN JSON text reading
+"...the provisions of this Law" with zero document/source identification
+anywhere in that panel. Both are instances of the same underlying pattern:
+a rule's presented content lacking traceability back to its specific
+source, one in the evidence array, one in the raw JSON viewer.
+
+#### Architectural Context
+
+**System boundary:** the same two-stage extraction pipeline as Milestone 44,
+plus the frontend rule-review surfaces that render a `CandidateRule`'s
+`evidence` and raw `formulation` fields (`RuleCard.tsx` — inline expandable
+card in the Review Queue; `PolicyInspector.tsx` — a fuller rule-inspector
+component with the same "AI extraction record" section).
+
+**Relevant components and responsibilities:**
+- `formulation_to_candidate_rules()` (`formulation_mapping.py`) — maps a
+  Stage-2 formulation batch into one or more `CandidateRule`s; owns
+  populating each rule's `evidence` list.
+- `PolicyPassage` / `PassageSource` (`contracts/passage.py`) — Stage 1's
+  clause-level output; the only place a rule↔specific-clause link can be
+  derived from, since Stage 2's `CanonicalPolicy.source_text` is a
+  formulated/paraphrased-adjacent field, not itself an index.
+- `RuleCard.tsx` / `PolicyInspector.tsx` — two independent React components
+  (not a shared subcomponent) that each render `rule.evidence` (Evidence
+  section) and `rule.formulation.canonical`/`dmn_decisions` (raw AI
+  extraction record) side by side, but previously only cross-referenced
+  document/clause metadata (`docMetaByVersionId`/`clausesById`) for the
+  former, not the latter.
+
+**Important invariants:**
+- A `CandidateRule`'s evidence must cite only the clause(s) that rule's
+  content actually came from — not every clause in the same Stage-2 batch
+  call, which commonly spans multiple articles/topics for LLM-efficiency
+  reasons unrelated to any individual rule's scope.
+- Raw AI extraction output (`formulation.canonical`, `formulation.dmn_decisions`)
+  must stay byte-for-byte as the model produced it (self-referential
+  phrasing like "this Law" included) — the fix must supply context
+  *alongside* the raw record, not rewrite or post-process it.
+
+#### Architectural Signals
+
+- **Signal:** the buggy evidence pattern was not a one-off — both
+  "null and void" rules in the same batch showed the identical 5-entry,
+  3-article evidence list, indicating a structural (batch-wide) cause
+  rather than two independent extraction mistakes.
+- **Signal:** the "which law?" gap recurred in two separate, near-duplicate
+  React components (`RuleCard.tsx` and `PolicyInspector.tsx`), confirming a
+  shared-pattern gap rather than a single-file oversight.
+- **Confirmed:** both signals traced to genuine architectural gaps — one
+  backend (evidence resolution granularity), one frontend (missing
+  data-reuse at a specific render site) — not isolated typos.
+
+#### Root-Cause Analysis
+
+1. **Evidence citation was batch-wide, not rule-specific.**
+   - *Visible symptom:* a rule about Article 8 cited Article 6/7 clauses too.
+   - *Immediate cause:* `formulation_to_candidate_rules()` received one flat
+     `evidence` list for the whole Stage-2 batch call and applied it
+     identically to every `CandidateRule` produced from that batch.
+   - *Violated assumption:* that a Stage-2 batch call's evidence is
+     necessarily rule-specific — false; batches commonly cover several
+     source clauses/topics per call for extraction efficiency, and a rule's
+     `source_text` may match only one of them.
+   - *Root cause:* no per-rule evidence *resolution* step existed between
+     "the batch's evidence" and "this rule's evidence" — the mapping
+     function conflated the two.
+   - *Owning boundary:* `formulation_mapping.py` (the deterministic
+     Stage-2-output → `CandidateRule` mapping layer) — the same layer
+     responsible for `_ambiguity_for()` in Milestone 44, confirming this is
+     the correct, single owning boundary for "what does this specific rule
+     carry as its record," not a frontend display concern.
+   - *Chosen correction:* match each rule's `CanonicalPolicy.source_text`
+     against Stage-1 `PolicyPassage`s (normalized bidirectional substring
+     containment) to resolve which specific passage(s)/clause(s) it
+     actually came from; fall back to the coarse batch-wide evidence only
+     when no passage match is found (keeps the previous behavior as a
+     safety net rather than ever producing empty evidence).
+   - *Prior-art check performed before implementing:* validated the
+     *pattern* (not the exact mechanism) against Akoma Ntoso's span-level
+     provision references and LegalRuleML's N:M rule↔provision linking —
+     both confirm "a rule's evidence should be the precise provision(s) it
+     was derived from, not a batch-level list" is standard practice in
+     legal/regulatory-rule modeling; kept the implementation itself
+     domain-neutral (substring/text matching, no legal-specific vocabulary)
+     so it applies identically to HR/IT/procurement source documents.
+
+2. **Raw AI extraction JSON displayed without any document context.**
+   - *Visible symptom:* expanding "DMN JSON" shows "...the provisions of
+     this Law" with no way to tell which law/document/article that is.
+   - *Immediate cause:* `formulation.canonical`/`formulation.dmn_decisions`
+     are Stage-2's raw, verbatim-preserved outputs — by design, they carry
+     no document/clause metadata of their own (that metadata is computed
+     separately, as `CandidateRule.evidence`, precisely so the raw record
+     stays untouched/auditable).
+   - *Violated assumption:* that a reviewer looking only at the JSON panel
+     (as opposed to the Evidence section elsewhere on the same page) could
+     resolve self-referential phrasing from context — false, since the two
+     sections don't share a visual anchor.
+   - *Root cause:* both `RuleCard.tsx` and `PolicyInspector.tsx` already
+     loaded `docMetaByVersionId`/`clausesById` (used to label the Evidence
+     section) but never reused that same lookup next to the raw JSON
+     viewer — a data-reuse gap, not a missing-data gap.
+   - *Owning boundary:* frontend render layer, once per component (no
+     shared subcomponent exists between the two, confirmed by inspecting
+     both files) — correctly NOT a backend change, since the underlying
+     data (`rule.evidence`) already contains everything needed.
+   - *Chosen correction:* added a `sourceLabels` memo (deduped
+     `"{documentTitle} ({versionLabel}) · {section}, p.{page} · clause {ref}"`
+     strings derived from `rule.evidence` + already-loaded doc/clause maps)
+     and an "Extracted from:" banner directly above the Canonical/DMN JSON
+     toggles, in both `RuleCard.tsx` and `PolicyInspector.tsx` — reusing
+     existing loaded data, zero new API calls.
+
+3. **Deferred `Segmented` Policies/Definitions toggle was left half-wired, blocking `npm run build`.**
+   - Not part of the original trigger, but discovered while verifying this
+     milestone's frontend changes via a full `npm run build`: `ReviewQueue.tsx`
+     had `contentKind`/`setContentKind`/`contentKindCounts` state and
+     filtering already wired (from earlier work responding to the user's
+     explicit requests, *"split policies and definitions... separate tab"*
+     and *"glossary and definitions can be in separate tab"*), but the
+     `Segmented` control itself was never rendered in JSX — `tsc -b`'s
+     `noUnusedLocals` correctly flagged this as 3 build-breaking errors.
+   - *Scope decision:* this directly fulfills an explicit, twice-repeated
+     user request and was a two-line JSX addition using already-existing,
+     already-tested state — completed now rather than left as a broken
+     build. Rendered the control (`"Policies & Rules (N)"` /
+     `"Definitions & Glossary (N)"`) directly above the existing filter bar.
+
+#### Impact Analysis
+
+- **Direct callers of `formulation_to_candidate_rules()`:** `ai_extraction.py`
+  (Stage 2 orchestration) — signature extended with `passages`/
+  `passage_clause_refs`/`clause_evidence_by_ref` params, all optional with
+  safe fallback, so existing callers are unaffected unless they opt in.
+- **Downstream consumers of `CandidateRule.evidence`:** the frontend
+  Evidence section (both components) and the new "Extracted from" banner —
+  both now receive precise, per-rule evidence instead of batch-wide noise.
+- **Data impact:** the 46 pre-fix `saudi-labor-law` candidate rules (from
+  before this milestone's backend fix landed) were deleted and
+  re-extracted (50-clause test batch, 42 new rows, 0 skipped) specifically
+  to validate the fix against live data — not a silent backfill; the user
+  had already approved small-batch validation as the standing workflow.
+- **Contract impact:** none breaking — `evidence` remains the same
+  `list[EvidenceReference]` shape, just correctly scoped per rule now.
+- **Frontend contract impact:** none — `sourceLabels` is derived entirely
+  from already-fetched data, no new endpoints or props required.
+- **Test impact:** 2 new regression tests
+  (`test_evidence_is_scoped_to_the_matching_passage_not_the_whole_batch`,
+  `test_evidence_falls_back_to_whole_batch_when_no_passage_matches`); full
+  suite 322 passed, 11 skipped (up from 320/11), zero regressions.
+- **Operational impact:** backend restarted (no `--reload`) to pick up the
+  fix before live validation.
+
+#### Architecture Decisions
+
+**Decision: Resolve evidence per-rule via passage-matching, with batch-wide fallback.**
+- *Context:* one flat evidence list applied identically to every rule from
+  a multi-topic Stage-2 batch.
+- *Decision:* match `CanonicalPolicy.source_text` against Stage-1 passages
+  (normalized bidirectional substring containment); fall back to the
+  original batch-wide list only when no match is found.
+- *Rationale:* smallest change that fixes the root cause (imprecise
+  evidence) without ever regressing to empty evidence, which would be worse
+  than the original bug for an auditability-focused platform.
+- *Alternatives considered:* (a) require Stage 2 to emit its own
+  clause-reference IDs — rejected as a larger, riskier prompt/schema change
+  for a problem already solvable deterministically from data the pipeline
+  already has; (b) always show all batch evidence but rank/highlight the
+  best match — rejected as more complex for no accuracy benefit over a
+  clean per-rule resolution.
+- *Consequences:* positive — evidence is now audit-accurate per rule;
+  negative — none identified; migration impact — none (only affects new
+  extractions unless a set is explicitly re-extracted, as done here for
+  `saudi-labor-law`); compatibility — additive optional parameters.
+- *Validation:* 2 new unit tests + full suite green (322/11); live
+  re-extraction confirmed both "null and void" rules now show exactly 1
+  evidence entry (Article 8 only), down from 5 spanning 3 articles;
+  visually confirmed in the browser.
+
+**Decision: Surface evidence-derived source labels next to the raw JSON viewer, not by rewriting the raw record.**
+- *Context:* raw `formulation.canonical`/`dmn_decisions` intentionally
+  preserve source wording verbatim; reviewers need context without losing
+  that verbatim guarantee.
+- *Decision:* add a banner using already-loaded evidence/document data,
+  placed directly above the JSON toggles, in both components that render
+  this section.
+- *Alternatives considered:* post-process/annotate the raw JSON strings
+  themselves (e.g., replacing "this Law" with the actual title) — rejected,
+  since it would violate the "preserved verbatim" invariant the panel's own
+  heading asserts, and would hide rather than fix the underlying
+  traceability gap.
+- *Consequences:* positive — closes the "which law?" gap in exactly the
+  place the user found it, with zero new data fetches; negative — none;
+  migration impact — none; compatibility — purely additive UI.
+- *Validation:* `npx tsc --noEmit` clean (both files), `npm run lint` clean
+  (no new warnings), `npm run build` clean; visually verified live in the
+  browser for `RuleCard.tsx` (Review Queue) showing
+  "Extracted from: Saudi Labor Law (v1) · Article 8, p.5 · clause p5-6-E000050"
+  both in the corrected Evidence section and the new banner above the
+  Canonical/DMN JSON toggles.
+
+#### Explicitly NOT done this milestone
+
+- Full-scale (743-clause) re-extraction — still gated on user approval per
+  standing instruction; only the 50-clause validation batch was re-run.
+- No candidate rules were advanced to "approved"/published status.
+- The other 41 rules from the 50-clause re-extraction were not
+  individually spot-checked in the browser (only the two "null and void"
+  rules, the ones with the originally-reported defect, were verified both
+  via API and live UI).
+- Nothing committed to git.
+
+#### Follow-up check: the deferred "Basic Wage:" colon-predicate variant
+
+While looking for other genuinely open work (user unavailable to confirm
+next priorities), re-checked this previously-deferred item against the
+live 50-clause re-extraction dataset rather than assuming it still needed
+a fix. **Confirmed already resolved** — not by a new code change, but as a
+direct consequence of Milestone 44's Section 19.2 (DEFINITION) prompt fix
+landing before this segment's re-extraction:
+- Raw formulation for the "Basic Wage" rule: `subject: "Basic Wage"`,
+  `predicate: "is defined as"`, `object: "All that is given to a worker
+  for his work..."` — `source_text` still correctly preserves the literal
+  `"Basic Wage: All that is given..."` verbatim, untouched.
+- Checked all 28 `definition`-type rules in the current dataset: every
+  predicate is a real synthesized copula (`"is defined as"`, `"be deemed"`,
+  `"apply to"`, `"be subject to"`) — zero punctuation-only predicates.
+- Cross-checked the `degenerate_predicate` quality-dashboard finding
+  (`ai_quality.py`, added in Milestone 43 as a regression guard): zero
+  findings in that category across all 43 candidate rules.
+- Conclusion: no further action needed on this item; the earlier concern
+  (a *variant* not caught by `_is_separator_predicate`'s alphanumeric
+  check, i.e. the colon merging into `subject` instead of `predicate`)
+  does not occur in practice once Stage 2 is instructed to synthesize a
+  real copula — the model no longer produces a colon-bearing `subject` or
+  `predicate` at all for `definition` rules, so there's nothing left for
+  that stricter check to catch.
+
+### Next action
+
+Report the "which law?" fix back to the user with the live-verified banner
+behavior, confirm whether the Definitions/Glossary split and evidence
+fix fully address their concerns, and ask whether to proceed with
+spot-checking the remaining rules or resume larger-scale extraction — both
+explicitly gated on user go-ahead per standing instructions (no approvals/
+publishing, no full-scale extraction without confirmation).
+
+### Milestone 46 detail — Quality-dashboard triage: exemption-polarity inversion + silent truncation
+
+**Trigger:** with the user unavailable and autonomous decision-making
+authorized (state-mutating actions like publish/approve/scale still
+excluded), continued the quality review of the current 43-rule dataset by
+pulling `GET /candidates/quality`, which returned 15 findings across 14
+categories. Two were `high` severity and looked like real code/prompt
+defects rather than content that merely needs human review — both were
+investigated and fixed this milestone.
+
+#### Architectural Context
+
+**System boundary:** the same two-stage extraction pipeline as Milestones
+43–45 (Stage 1 passage extraction → Stage 2 `policy_formulator_v1.md` →
+`formulation_mapping.py`'s deterministic mapper → `candidate_rules`), plus
+the deterministic evaluator (`engine.py`) that later consumes
+`effect.type`/`effect.action` as its literal decision payload.
+
+**Relevant components:**
+- `policy_formulator_v1.md` — owns the LLM's `rule_type`/`effect.type`
+  classification judgment. Cached via `@lru_cache(maxsize=1)`
+  (`policy_formulator.py`), so edits require a backend restart.
+- `formulation_mapping.py` — deterministic, non-LLM mapping from the LLM's
+  `CanonicalPolicy` into the schema's `CandidateRule`/`Effect`. Owns
+  `_RULE_TYPE_MAP` (canonical rule type → schema `RuleType`+`EffectType`)
+  and `_effect_action()` (extracts the evaluator-facing action string).
+  Runs once, at extraction time; its output is baked into
+  `candidate_rules.payload_json` and never recomputed on read.
+- `engine.py`'s `_apply_combining_algorithm` — the evaluator. Treats
+  `effect.type` + `effect.action` as one composed sentence: a satisfied
+  `deny` rule's action lands in `denied_actions`, and `outcome =
+  winner.effect_action` verbatim.
+- `ai_quality.py` — deterministic dashboard checks; the mechanism that
+  surfaced both bugs in the first place, and the same place both new
+  permanent regression guards were added.
+
+**Important invariants:**
+- `effect.type`/`effect.action`, taken together, must describe the exact
+  real-world consequence of a rule being satisfied — never the inverse.
+  Enforced (now) by `_eligibility_polarity_findings()`.
+- `effect.action` must carry the source's own words in full when the
+  underlying `rule.predicate`/`rule.object` is long (e.g. `definition`
+  rules, whose "action" is an entire definition body) — never silently
+  truncated. Enforced (now) by `test_effect_action_is_not_silently_truncated`
+  and the pre-existing `data_integrity` dashboard check.
+
+#### Architectural Signals
+
+- **Signal observed:** a `semantic_modeling` finding flagging 6 rules with
+  `rule_type: eligibility... effect.type: deny` for an "exempted" action —
+  contradictory on its face (a grant expressed as a denial).
+- **Evidence:** pulled the 6 rules' raw JSON via `fetch()` in the browser
+  console; all 6 had the same shape (`effect.action` = "be exempted from
+  the implementation of the provisions of this Law", always-true empty
+  condition). Traced `_apply_combining_algorithm` to confirm the evaluator
+  reads `effect.type`+`effect.action` as one sentence, so this is a live
+  correctness bug, not a cosmetic label mismatch.
+- **Potential scope:** initially unclear whether this was a `formulation_mapping.py`
+  mapping bug or an LLM classification bug (same ambiguity structure as
+  Milestones 44/45). Checked `_RULE_TYPE_MAP` first (cheapest, most
+  central place a systemic bug could hide) — found it already correct,
+  narrowing the cause to Stage 2's own classification judgment, driven by
+  the prompt.
+- **Confirmed:** the prompt's own worked example (added during this
+  session's own Milestone 43 fix for `non_normative` over-application) told
+  the LLM to classify "Agricultural workers shall be exempted..." as
+  `ineligibility` — the example itself was wrong. Root cause confirmed at
+  the prompt-guidance layer, matching the established pattern (Milestones
+  44/45 also root-caused prompt-guidance gaps, not mapper bugs).
+- **Decision:** fix at the prompt layer (matching precedent for
+  classification-judgment defects) plus a deterministic dashboard guard
+  (matching precedent for permanent regression coverage, e.g.
+  `_definition_effect_findings`, `_degenerate_predicate_findings`).
+
+A second, unrelated `high`-severity `data_integrity` finding (9 rules with
+truncated `effect.action` despite complete `description` text) was
+investigated in parallel:
+- **Signal observed:** truncated action text with no visual indication of
+  truncation.
+- **Evidence:** found `_effect_action()`'s `[:200]` hard slice with no
+  ellipsis, directly adjacent to `_title_for()`'s more correct
+  truncate-with-`"..."` logic for the same 200-char budget — strongly
+  suggesting a copy-paste-derived, unintentional constraint.
+- **Potential scope:** checked whether any caller (backend: `engine.py`,
+  `ai_quality.py`, `ai_summary.py`, `correlation_agent.py`; frontend:
+  `api.ts`, `ruleDisplay.ts`, `EvaluationResultView.tsx`,
+  `EditRuleModal.tsx`, `PolicyInspector.tsx`, `ReviewQueue.tsx`,
+  `RuleCard.tsx`, `RuleScenarioTester.tsx`) assumes/requires a short,
+  bounded `effect.action`. Found none; found a `correlation_agent.py`
+  comment explicitly documenting that `effect.action` legitimately carries
+  "a whole clause" for real corpora like this one.
+- **Decision:** remove the cap entirely (not raise-with-ellipsis) — nothing
+  in the codebase needs `effect.action` to be short or display-bounded;
+  it's an evaluator-facing payload, and the schema (`Effect.action: str`,
+  `contracts/policy.py`) has no length constraint of its own.
+
+#### Root-Cause Analysis
+
+**Bug 1 — exemption-rule polarity inversion:**
+- Visible symptom: 6 rules read as "denied: be exempted from the Law."
+- Immediate cause: `effect.type: deny` paired with a grant-shaped action.
+- Violated assumption: that `rule_type`↔`effect.type` mapping in
+  `_RULE_TYPE_MAP` is sufficient to guarantee correct polarity — it isn't,
+  because the mapping is only as correct as the LLM's *upstream*
+  `CanonicalRuleType` choice (`ELIGIBILITY` vs. `INELIGIBILITY`), which the
+  prompt did not adequately distinguish for grant-shaped negation clauses.
+- Root cause: `policy_formulator_v1.md` (Sections 14/15) gave no explicit
+  GAIN/LOSS test, and the one worked example present was itself
+  incorrect — introduced by this same session's earlier Milestone 43 fix.
+- Owning boundary: Stage 2 prompt guidance (not the deterministic mapper,
+  which was already correct).
+- Chosen correction level: prompt rewrite (Sections 14/15 + new Section
+  15.1 POLARITY TEST) + a permanent deterministic dashboard guard.
+
+**Bug 2 — silent `effect.action` truncation:**
+- Visible symptom: `effect.action` values ending mid-sentence, no ellipsis.
+- Immediate cause: `_effect_action()`'s hard `[:200]` slice.
+- Violated assumption: that a short, "action phrase"-shaped string is
+  always sufficient for this field — false for `definition`/`classification`
+  rules, whose "action" (per the `_RULE_TYPE_MAP` and Milestone 43's own
+  `EffectType.INFORMATIONAL` work) is the definition body itself, which can
+  be arbitrarily long in real legislative/policy text.
+- Root cause: an unjustified length cap, most likely copy-paste-derived
+  from the adjacent `_title_for()` (whose cap *is* justified — it's a
+  display-only title field).
+- Owning boundary: `formulation_mapping.py`'s `_effect_action()`.
+- Chosen correction level: local fix (remove the cap) — no other path is
+  affected, no redesign needed, contract (`Effect.action: str`) already
+  permits unbounded length.
+
+#### Impact Analysis
+
+- **Direct callers of `effect.type`/`effect.action`:** the deterministic
+  evaluator (`engine.py`), the quality dashboard (`ai_quality.py`), the
+  correlation/summary agents, and every frontend rule-display surface.
+  None assume short or polarity-pre-validated strings; all now receive
+  correct, complete data.
+- **Data impact:** the fixes only change *newly extracted* rows (mapping
+  runs at extraction/write-time, not read-time). The 43 pre-existing
+  `saudi-labor-law` rows from before this milestone were deleted and
+  regenerated twice (once per fix, since each fix needed its own backend
+  restart to take effect) rather than patched in place — consistent with
+  this session's established "re-extract to validate, don't silently
+  backfill" pattern for small test batches.
+- **Contract impact:** none. `Effect.action: str` and `EffectType` enum
+  are unchanged; only their *population logic* changed.
+- **Security/operational impact:** none directly, but Bug 1 is a genuine
+  correctness defect for any real evaluator caller (e.g. an integration
+  checking "is this worker subject to the Law?") — silently inverted
+  answers on 6 real rules prior to this fix.
+- **Migration impact:** none required beyond re-extraction of already-
+  affected policy sets if/when the user chooses to scale up (deferred,
+  per standing constraints).
+- **Rollback:** trivial — both changes are isolated (one prompt section
+  set, one one-line mapper function); reverting either file restores prior
+  behavior with no data-shape implications.
+
+#### Architecture Decisions
+
+**Decision: generalize the polarity fix as a heuristic, not a single
+corrected example.** Per the user's repeated standing instruction to
+"generalize the problem," Section 15.1 (POLARITY TEST) codifies the
+general "grant-shaped vs. loss-shaped negation" rule rather than only
+fixing the one wrong worked example — so the same class of defect (a
+future different exemption/immunity/waiver phrasing) is caught by the
+stated rule, not just the one literal fixed example.
+- *Alternatives considered:* patch only the wrong example (matches
+  Milestone 43's original, narrower approach) — rejected because that
+  approach is what produced this exact bug; a semantic classifier/second
+  LLM pass to double-check polarity — rejected as disproportionate
+  (adds latency/cost for a problem a clear heuristic already resolves,
+  and the deterministic dashboard guard already provides a safety net
+  for whatever the heuristic misses).
+- *Consequences:* the fix depends on the LLM correctly applying a stated
+  heuristic (not a proof), so `_eligibility_polarity_findings()` remains
+  in place permanently as defense-in-depth, exactly as documented in its
+  own docstring.
+
+**Decision: remove the `effect.action` length cap rather than raise it.**
+- *Alternatives considered:* raise the cap to e.g. 2000 chars with
+  ellipsis (mirrors `_title_for()`'s pattern) — rejected because no
+  evidence supports any cap being meaningful for this evaluator-facing
+  field, and an arbitrary "big enough" number just delays the same class
+  of bug for a sufficiently long clause.
+- *Consequences:* `effect.action` can now be arbitrarily long (matching
+  `description`, which was already unbounded) — no downstream code was
+  found that assumes otherwise; frontend rendering already wraps/scrolls
+  long text via normal CSS flow, not fixed-width truncation.
+
+#### Validation
+
+- `pytest tests/unit/test_ai_quality.py -q` → 24 passed (5 new tests for
+  Bug 1's guard).
+- `pytest tests/unit/test_policy_formulator.py -q` → 69 passed (1 new test,
+  `test_effect_action_is_not_silently_truncated`, for Bug 2).
+- Full suite: `pytest -q` → **328 passed, 11 skipped** (up from 327/11).
+- Deleted the 43 (then 78, after the first re-extraction) stale
+  `saudi-labor-law` candidate rows directly via
+  `docker exec policy-postgres psql ... DELETE FROM candidate_rules ...`
+  before each re-extraction, matching the established validation pattern.
+- Backend restarted twice (`uvicorn policy_platform.api.app:app --app-dir
+  src`, no `--reload`) — once per fix, since the prompt fix needed the
+  `@lru_cache`'d prompt reloaded and the mapper fix needed the process's
+  loaded module reloaded.
+- Re-ran the same 50-clause extraction against the same
+  `document_version_id` (`0fbf7f9c-a386-41ab-87f4-8b0ac64f8c1a`) after each
+  restart. Final (post-both-fixes) run produced 47 candidate rows, 0
+  skipped.
+- **Live data confirms both fixes:** all exemption-derived rows (12 rows
+  in the final 47-row set, up from 6 due to a slightly different LLM
+  clause-grouping outcome across independent runs) show `rule_type:
+  eligibility` + `effect.type: allow`, zero `deny`. Longest `effect.action`
+  in the final set is 1383 characters, verified to end at a real sentence
+  boundary (not mid-word), confirming no truncation.
+- **Quality dashboard re-pulled and confirmed clean:** `GET
+  /candidates/quality` against the fresh 47-row dataset shows the 17
+  findings it now reports contain **zero** `eligibility_polarity_inversion`
+  and **zero** `data_integrity` entries — both defect classes fully
+  resolved on real data, not just in unit tests.
+
+#### Explicitly NOT done this milestone
+
+- No candidate rules advanced to "approved"/published status.
+- No full-scale (743-clause) extraction — only the same 50-clause
+  validation batch was re-run (twice, once per fix).
+- Nothing committed to git.
+
+### Remaining-findings triage (completed)
+
+Pulled the fresh 47-row quality report (17 findings) and individually
+assessed each one against the same "is this a code/prompt defect, or a
+genuine content signal about a partial 50/743-clause sample?" question
+used for the two bugs above. Two more looked structurally like the same
+"100%-of-rules" bug signature (matching the pre-Milestone-44
+`ambiguity_status` and this milestone's own two bugs) and got a full
+investigation rather than being waved through as "expected AI review
+noise":
+
+- **`rule_classification` (high, 6/47 rules) — investigated, NOT fixed,
+  documented as an open product decision.** Six "Provisions of this Law
+  shall apply to \[category\]" rules are classified `definition` +
+  `informational` — meaning the evaluator silently no-ops them (an
+  `informational` effect never resolves an `allow`/`deny`/`require_action`
+  decision). Checked whether a better fit already exists in
+  `CanonicalRuleType`'s closed vocabulary (spec Section 9): it does not —
+  the enum has no `applicability`/`scope` value (only `obligation`,
+  `prohibition`, `permission`, `entitlement`, `eligibility`,
+  `ineligibility`, `conditional_outcome`, `calculation`, `classification`,
+  `recommendation`, `definition`, `non_normative`). Unlike the exemption-
+  polarity bug, there is no single unambiguous correct mapping within the
+  existing vocabulary (eligibility+allow is a plausible fit — "gains the
+  law's protections" parallels the GAIN/LOSS heuristic just added — but so
+  is treating these as a new dedicated type), and either resolution changes
+  classification behavior for every future extraction, not just these 6
+  rows. Per the "propose, don't unilaterally perform" architecture-decision
+  discipline (this is a closed-vocabulary/schema question, not a mapping
+  bug), **left unfixed** — logged here with two candidate resolutions for
+  the user to choose between when they return: (a) map "applies to X"
+  phrasing to `eligibility`+`allow` using the existing vocabulary
+  (contained, low-risk, reuses this milestone's polarity heuristic), or
+  (b) add a new `APPLICABILITY` canonical rule type (bigger: touches the
+  enum, `_RULE_TYPE_MAP`, the prompt, and potentially the DMN projection).
+- **`scope_risk` (high, 47/47 rules) — investigated, NOT fixed, documented
+  as an open product decision.** Every rule has empty
+  `scope.jurisdictions`/`organizational_units`/`personas`/`processes`.
+  Traced this to `formulation_mapping.py` line 626
+  (`scope=PolicyScope()` — an unconditional empty default) and confirmed
+  `CanonicalPolicy`/`CanonicalPolicyRule` (the LLM-facing contract) has no
+  scope-related field at all — the LLM is never asked for this, by design
+  or by omission. Checked the evaluator (`engine.py`'s
+  `_match_scope_dimension`) to determine severity: an empty scope dimension
+  "always matches" (permissive default), so this is a **completeness gap,
+  not an active correctness inversion** like the two bugs above — it under-
+  restricts (a rule could apply outside its true jurisdiction) rather than
+  producing an outright wrong allow/deny. The ai_review finding's own
+  recommendation floats a parent-policy-level inherited default as an
+  acceptable alternative to per-rule extraction, which lines up with this
+  platform's stated need to generalize beyond legal documents (a company
+  HR policy doesn't have a "jurisdiction" in the legal sense; it might need
+  "business unit" instead) — precisely the kind of cross-domain product
+  decision this session's standing instructions say must not be legal-
+  specific. **Left unfixed**, logged with two candidate resolutions: (a) a
+  policy-set-level scope default inherited by every rule under it (lower
+  risk, no prompt/schema change), or (b) per-rule LLM-extracted scope
+  (bigger: new `CanonicalPolicy` fields + prompt guidance + mapping, with
+  uncertain extraction reliability for fields like "organizational_units").
+- **The remaining 13 findings** (`ambiguity` [deterministic, working as
+  designed post-Milestone-44 — 45/47 rules are `non_blocking`, only 2 are
+  genuine `human_judgment_required`]; `not_machine_executable`
+  [deterministic, explicitly self-labeled "not extraction defects" —
+  needs `trusted_config`, expected/by-design per Milestone 35's
+  architecture]; `redundancy` ×2, `unclear_wording`, `missing_context`,
+  `incomplete_rule`, `calculation_risk`, `exception_loss`,
+  `applicability_conflict`, `coverage_gap`, `unclear_applicability`,
+  `control_design`, `missing_exception_criteria`, `rights_waiver_risk`
+  [all `ai_review`-sourced]) were each read in full. All describe genuine
+  gaps or imprecision **in the source law's own drafting**, or in this
+  50-clause sample's incompleteness relative to the full 743-clause
+  document (e.g. `coverage_gap`'s "players and coaches" observation is a
+  direct function of not having extracted the rest of the document yet) —
+  not pipeline defects. Spot-checked one representative case in the DB
+  (`unclear_wording`'s "15 and below 18 years of age" Minor definition) to
+  confirm it is NOT a repeat of the pre-Milestone-44 false-ambiguity bug:
+  its `ambiguity_status` is correctly `non_blocking` (the deterministic
+  pipeline is not miscategorizing it); the `ai_review` finding is a
+  separate, legitimate content-clarity observation about the source
+  wording itself, not a contradiction of Milestone 44's fix. These 13 are
+  exactly the kind of content the Review Queue's human-in-the-loop workflow
+  exists for — no further code/prompt changes recommended.
+
+### Next action
+
+Report the full triage back to the user (who remains unavailable): 2 real
+bugs fixed and verified live (exemption-polarity inversion,
+`effect.action` truncation); 2 architectural completeness gaps found,
+root-caused, and documented with candidate resolutions but deliberately
+left unimplemented pending a product decision (`rule_classification`'s
+missing applicability vocabulary, `scope_risk`'s unpopulated
+jurisdiction/org-unit/persona/process fields); 13 findings confirmed as
+genuine human-review content, not code defects. Continue to hold off on
+approvals, publishing, and full-scale extraction pending the user's
+return and explicit confirmation.
+
+### Session handoff saved
+
+The authoritative successor handoff is
+`docs/handoff/extraction-quality-handoff-2026-08-08.md`. It captures the
+current uncommitted file list, live runtime/database state, user constraints,
+Milestones 43–46 architecture learnings, validation evidence, open product
+decisions, and exact restart/resumption commands. The older
+`docs/handoff/backend-data-integrity-handoff.md` is explicitly marked
+historical because its neutral-`EffectType` open item is now resolved by
+`EffectType.INFORMATIONAL`. The structured todo database was reconciled:
+the stale `effecttype-neutral-member` item was marked done, and two pending
+architecture-decision items were added for applicability classification and
+scope population.

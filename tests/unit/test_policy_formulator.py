@@ -32,6 +32,7 @@ from policy_platform.contracts.formulation import (
     DmnTableRule,
     PolicyFormulation,
 )
+from policy_platform.contracts.passage import PassageSource, PolicyPassage
 from policy_platform.infrastructure.formulation_mapping import (
     formulation_to_candidate_rules,
     parse_feel_unary_test,
@@ -347,7 +348,14 @@ def test_executable_decision_becomes_a_machine_executable_rule():
 
 
 def test_non_decision_obligation_stays_non_executable_but_is_kept():
-    """Spec Section 106: not every policy is a decision — keep it, don't force it."""
+    """Spec Section 106: not every policy is a decision — keep it, don't force it.
+
+    `ambiguity_status` must be `non_blocking`, not `human_judgment_required`:
+    the source text here is perfectly clear, it just has no derivable machine
+    condition. Forcing HUMAN_JUDGMENT_REQUIRED purely from non-executability
+    was the bug that made every rule in a config-less extraction run look
+    equally "ambiguous" regardless of actual wording clarity.
+    """
 
     rules, skipped = _map(
         parse_formulation(
@@ -374,7 +382,7 @@ def test_non_decision_obligation_stays_non_executable_but_is_kept():
     assert skipped == []
     (rule,) = rules
     assert rule.machine_executable is False
-    assert rule.ambiguity_status.value == "human_judgment_required"
+    assert rule.ambiguity_status.value == "non_blocking"
     assert rule.condition.type == "all" and rule.condition.all == []
     assert rule.rule_type.value == "obligation"
     assert rule.effect.type.value == "require_action"
@@ -503,6 +511,48 @@ def test_classification_gets_informational_effect_too():
     (rule,) = rules
     assert rule.rule_type.value == "definition"
     assert rule.effect.type.value == "informational"
+
+
+def test_effect_action_is_not_silently_truncated():
+    """Regression guard for the `data_integrity` defect the quality dashboard
+    flagged: `_effect_action` used to hard-cut at 200 characters with no
+    ellipsis, so a long definition's object lost its tail with no sign
+    anything was missing. `effect.action` is evaluator-facing (the deny/allow
+    combining algorithm returns it verbatim as the decision outcome), so it
+    must carry the full text, unlike the display-only `title`.
+    """
+
+    long_object = (
+        "The basic wage plus all other due increments decided for a worker for the effort "
+        "he exerts at work or for risks he encounters in the course of performing his work, "
+        "or those benefits stipulated in his employment contract or the firm's regulations."
+    )
+    assert len(long_object) > 200
+
+    rules, skipped = _map(
+        parse_formulation(
+            _envelope(
+                [
+                    {
+                        "source_text": f"Actual Wage: {long_object}",
+                        "extraction_status": "complete",
+                        "rule": {
+                            "rule_type": "definition",
+                            "subject": "Actual Wage",
+                            "predicate": ":",
+                            "object": long_object,
+                        },
+                    }
+                ],
+                [],
+            )
+        )
+    )
+
+    assert skipped == []
+    (rule,) = rules
+    assert rule.effect.action == long_object
+    assert rule.effect.action.endswith("regulations.")
 
 
 def test_ambiguous_extraction_forces_human_judgment():
@@ -654,6 +704,149 @@ def test_rule_carries_its_formulation_for_audit():
     assert rule.lineage.prompt_version == "dmn-formulator-v1"
     # The whole rule must stay round-trippable, since it is persisted as JSONB.
     assert json.loads(json.dumps(rule.model_dump(mode="json")))["formulation"]["source_index"] == 0
+
+
+# --------------------------------------------------------------------------
+# Per-rule evidence scoping
+#
+# A batch commonly bundles Stage-1 passages copied from several unrelated
+# clauses (a document is walked in fixed-size windows, not one topic at a
+# time). Every rule the formulator drafts from that batch must cite only the
+# clause(s) its own passage came from — never every clause anywhere in the
+# batch, which would make an unrelated clause's wording appear to justify a
+# rule it has nothing to do with. This is the same many-to-many
+# rule-to-provision precision that document-interchange standards for
+# normative text require, and applies to any source document type (statute,
+# HR handbook, IT policy, procurement manual, ...).
+# --------------------------------------------------------------------------
+
+
+def _two_topic_formulation() -> PolicyFormulation:
+    return parse_formulation(
+        _envelope(
+            [
+                {
+                    "source_text": "Seasonal workers are exempt from the notice period "
+                    "requirement.",
+                    "extraction_status": "complete",
+                    "rule": {
+                        "rule_type": "obligation",
+                        "subject": "Seasonal workers",
+                        "modality": "shall",
+                        "predicate": "be exempt from",
+                        "object": "the notice period requirement",
+                    },
+                },
+                {
+                    "source_text": "Any condition that conflicts with the provisions of this "
+                    "Law shall be deemed null and void.",
+                    "extraction_status": "complete",
+                    "rule": {
+                        "rule_type": "obligation",
+                        "subject": "Any condition that conflicts with the provisions of this Law",
+                        "modality": "shall",
+                        "predicate": "be deemed",
+                        "object": "null and void",
+                    },
+                },
+            ],
+            [],
+        )
+    )
+
+
+def _two_topic_passages() -> list[PolicyPassage]:
+    return [
+        PolicyPassage(
+            passage_id="p1",
+            text="Seasonal workers are exempt from the notice period requirement.",
+            source=PassageSource(clause_ref="p5-E000039", section="Article 6"),
+        ),
+        PolicyPassage(
+            passage_id="p2",
+            text="Any condition that conflicts with the provisions of this Law shall be "
+            "deemed null and void.",
+            source=PassageSource(clause_ref="p5-6-E000050", section="Article 8"),
+        ),
+    ]
+
+
+def test_evidence_is_scoped_to_the_matching_passage_not_the_whole_batch():
+    passages = _two_topic_passages()
+    passage_clause_refs = [["p5-E000039"], ["p5-6-E000050"]]
+    clause_evidence_by_ref = {
+        "p5-E000039": {"document_version_id": "doc-1", "source_hash": "h", "clause_id": "c-39"},
+        "p5-6-E000050": {"document_version_id": "doc-1", "source_hash": "h", "clause_id": "c-50"},
+    }
+    whole_batch_evidence = [
+        clause_evidence_by_ref["p5-E000039"],
+        clause_evidence_by_ref["p5-6-E000050"],
+    ]
+
+    rules, skipped = formulation_to_candidate_rules(
+        _two_topic_formulation(),
+        policy_set_id="ps-1",
+        extraction_run_id="run-1",
+        deployment_name="test-deployment",
+        prompt_version="dmn-formulator-v1",
+        parser_version="dmn-formulator-v1",
+        evidence=whole_batch_evidence,
+        passages=passages,
+        passage_clause_refs=passage_clause_refs,
+        clause_evidence_by_ref=clause_evidence_by_ref,
+        source_note="p5-E000039; p5-6-E000050",
+    )
+
+    assert skipped == []
+    seasonal_rule, null_and_void_rule = rules
+
+    # The seasonal-worker rule must cite only its own clause...
+    assert [ev.clause_id for ev in seasonal_rule.evidence] == ["c-39"]
+    # ...and the null-and-void rule must cite only *its* clause, not the
+    # unrelated seasonal-worker clause the old whole-batch evidence would
+    # have attached.
+    assert [ev.clause_id for ev in null_and_void_rule.evidence] == ["c-50"]
+    assert "p5-6-E000050" in null_and_void_rule.description
+    assert "p5-E000039" not in null_and_void_rule.description
+
+
+def test_evidence_falls_back_to_whole_batch_when_no_passage_matches():
+    """An unmatched policy keeps the coarse fallback rather than losing evidence.
+
+    A missed match should degrade to the old (imprecise but non-empty)
+    behavior, not to nothing — an admittedly coarse citation is still more
+    useful to a reviewer than none.
+    """
+
+    passages = [
+        PolicyPassage(
+            passage_id="p1",
+            text="Completely unrelated passage text that shares no wording.",
+            source=PassageSource(clause_ref="p5-E000039"),
+        )
+    ]
+    passage_clause_refs = [["p5-E000039"]]
+    clause_evidence_by_ref = {
+        "p5-E000039": {"document_version_id": "doc-1", "source_hash": "h", "clause_id": "c-39"},
+    }
+    fallback_evidence = [{"document_version_id": "doc-1", "source_hash": "h", "clause_id": "c-fallback"}]
+
+    rules, _ = formulation_to_candidate_rules(
+        _executable_expense_formulation(),
+        policy_set_id="ps-1",
+        extraction_run_id="run-1",
+        deployment_name="test-deployment",
+        prompt_version="dmn-formulator-v1",
+        parser_version="dmn-formulator-v1",
+        evidence=fallback_evidence,
+        passages=passages,
+        passage_clause_refs=passage_clause_refs,
+        clause_evidence_by_ref=clause_evidence_by_ref,
+        source_note="fallback-note",
+    )
+
+    (rule,) = rules
+    assert [ev.clause_id for ev in rule.evidence] == ["c-fallback"]
 
 
 class TestPartialBatchRecovery:

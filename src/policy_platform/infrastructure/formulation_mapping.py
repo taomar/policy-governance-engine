@@ -51,6 +51,8 @@ from policy_platform.contracts.formulation import (
     PolicyFormulation,
     RuleFormulation,
 )
+from policy_platform.contracts.passage import PolicyPassage
+from policy_platform.infrastructure.passage_extractor import _normalize
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
@@ -349,7 +351,24 @@ def _title_for(policy: CanonicalPolicy) -> str:
 
 
 def _effect_action(policy: CanonicalPolicy) -> str:
-    """The action a PEP must carry out, taken from the source's own words."""
+    """The action a PEP must carry out, taken from the source's own words.
+
+    Deliberately unbounded in length (unlike the sibling `_title_for`, which
+    truncates for compact display). This is the evaluator-facing payload:
+    `_apply_combining_algorithm` (engine.py) returns it verbatim as the
+    decision `outcome` and puts it straight into `required_actions`/
+    `denied_actions`, so a caller relies on its literal text. A prior version
+    silently hard-cut this at 200 characters with no ellipsis marker (unlike
+    `_title_for`'s truncation, which at least appends "..."), which for a
+    `definition`/`classification` rule — where the "action" is the whole
+    definition body, not a short imperative phrase (see
+    `correlation_agent.py`'s `_signals_for`: real extracted corpora routinely
+    put "a whole clause" here) — silently dropped the tail of the sentence.
+    The quality dashboard's `data_integrity` check exists to catch exactly
+    this class of defect; nothing downstream (evaluator, frontend, or
+    `ai_quality`'s own conflicting-effect grouping) assumes a bounded length,
+    so removing the cap is correct rather than merely raising it.
+    """
 
     rule = policy.rule
     if rule is None:
@@ -357,23 +376,36 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     predicate = rule.predicate or ""
     obj = rule.object or ""
     parts = [obj] if _is_separator_predicate(predicate) else [p for p in (predicate, obj) if p]
-    return " ".join(" ".join(parts).split())[:200]
+    return " ".join(" ".join(parts).split())
 
 
 def _ambiguity_for(policy: CanonicalPolicy, executable: bool) -> AmbiguityStatus:
     """Map extraction/ambiguity signals onto the platform's ambiguity ladder.
 
-    Any recorded ambiguity code, or an ambiguous/incomplete extraction status,
-    forces human judgement — as does the absence of a derivable machine
-    condition, preserving the platform's existing invariant that a rule with no
-    real condition is never marked unambiguous.
+    `ambiguity_status` answers one question only: is the rule's *meaning*
+    (the source text itself) unclear enough that a policy/business reviewer
+    must interpret it before the rule can be trusted? It must stay
+    independent of `executable` (whether a `trusted_config` — Section 83 —
+    was supplied so the rule can become an executable DMN decision), which
+    is a *technical configuration* question, not a content question, and is
+    already fully captured by `machine_executable` / `dmn_mapping_status`.
+
+    Until 2025-Q_ these two were conflated here: any non-executable rule
+    (which, absent a `trusted_config`, is every rule) was unconditionally
+    forced to HUMAN_JUDGMENT_REQUIRED. That made the flag carry zero
+    discriminative signal — a plainly unambiguous definition like "Minor: any
+    person of 15 and below 18 years of age" was flagged identically to a
+    genuinely vague clause, because both merely lacked machine-executability.
+    A rule that is textually clear but not yet executable now maps to
+    NON_BLOCKING ("needs configuration, not clarification") instead of
+    HUMAN_JUDGMENT_REQUIRED ("needs a human to interpret unclear wording").
     """
 
     if policy.ambiguity or policy.extraction_status == ExtractionStatus.AMBIGUOUS:
         return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
-    if not executable:
-        return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
     if policy.extraction_status == ExtractionStatus.INCOMPLETE or policy.missing_components:
+        return AmbiguityStatus.NON_BLOCKING
+    if not executable:
         return AmbiguityStatus.NON_BLOCKING
     return AmbiguityStatus.NONE
 
@@ -400,6 +432,41 @@ def _description_for(policy: CanonicalPolicy, decisions: list[DmnDecision], sour
     if policy.missing_components:
         lines.append(f"[Missing: {', '.join(str(m) for m in policy.missing_components)}]")
     return "\n".join(lines).strip()
+
+
+def _passage_matches_for_policy(source_text: str, passages: list[PolicyPassage]) -> list[int]:
+    """Find which Stage-1 passage(s) a canonical policy's `source_text` came from.
+
+    Stage 2 is instructed to preserve `source_text` verbatim from the passage
+    it read (spec Section 7), so in the overwhelmingly common case exactly one
+    passage's text will contain — or be contained by — the policy's
+    `source_text` once formatting noise (whitespace, quote-mark style) is
+    normalized. Checking containment in both directions also covers the
+    legitimate case where Stage 2 merges two consecutive passages into one
+    canonical policy (spec Section 91's "several provisions contribute to one
+    rule" case — the same N:M rule-to-provision relationship LegalRuleML
+    models explicitly, and true regardless of whether the provisions are
+    statute articles, HR-handbook clauses, or IT-policy line items).
+
+    Returns the indexes of every passage that matches, in passage order. An
+    empty list means no passage could be matched with confidence, and the
+    caller must fall back to coarser evidence rather than guessing — silently
+    attributing a rule to the wrong clause is worse than admitting the match
+    is unclear.
+    """
+
+    needle = _normalize(source_text)
+    if not needle:
+        return []
+
+    matches = []
+    for i, passage in enumerate(passages):
+        hay = _normalize(passage.text)
+        if not hay:
+            continue
+        if needle in hay or hay in needle:
+            matches.append(i)
+    return matches
 
 
 def _group_labels(formulation: PolicyFormulation) -> dict[int, str]:
@@ -444,10 +511,33 @@ def formulation_to_candidate_rules(
     prompt_version: str,
     parser_version: str,
     evidence: list[dict] | None = None,
+    passages: list[PolicyPassage] | None = None,
+    passage_clause_refs: list[list[str]] | None = None,
+    clause_evidence_by_ref: dict[str, dict] | None = None,
     source_note: str = "unspecified",
     category: str = "",
 ) -> tuple[list[CanonicalRule], list[dict]]:
     """Convert one formulation into draft `CanonicalRule`s ready for review.
+
+    `evidence`/`source_note` are the coarse, whole-batch fallback. When
+    `passages` and `passage_clause_refs` (parallel lists — index *i* of each
+    describes the same Stage-1 passage) and `clause_evidence_by_ref` are also
+    supplied, each canonical policy's `source_text` is matched back to the
+    *specific* passage(s) it was formulated from (see
+    `_passage_matches_for_policy`), and only those passages' clauses are used
+    as that one rule's evidence and source note. A batch commonly spans
+    several unrelated clauses (a document is walked in fixed-size windows, not
+    one-topic-at-a-time), so without this, every rule drafted from a batch
+    would cite every clause any passage in the batch came from — including
+    clauses about a completely different topic than the rule itself. This
+    applies to any source document type (statute, HR handbook, IT policy,
+    procurement manual, ...), not just legal text.
+
+    A policy whose `source_text` cannot be matched to any passage keeps the
+    coarse fallback rather than being left without evidence — an admittedly
+    imprecise citation is still more useful to a reviewer than none, and the
+    fallback is the same whole-batch evidence this function used before
+    per-passage matching existed.
 
     Returns `(rules, skipped)`, where `skipped` entries carry a machine-readable
     reason so nothing disappears silently from an extraction run's summary.
@@ -457,6 +547,7 @@ def formulation_to_candidate_rules(
     skipped: list[dict] = []
     group_labels = _group_labels(formulation)
     rule_ids_by_group: dict[str, list[str]] = {}
+    default_evidence = evidence or []
 
     for index, policy in enumerate(formulation.canonical_policies):
         canonical_rule = policy.rule
@@ -498,6 +589,30 @@ def formulation_to_candidate_rules(
             condition, required_facts = derived
             machine_executable = True
 
+        # Scope evidence to the clause(s) this specific policy was actually
+        # formulated from, when the caller supplied enough to do that. See the
+        # function docstring — this is what stops one rule from a multi-topic
+        # batch citing clauses that belong to an unrelated rule from the same
+        # batch.
+        rule_evidence = default_evidence
+        rule_source_note = source_note
+        if passages and passage_clause_refs and clause_evidence_by_ref:
+            matched_refs: list[str] = []
+            seen_refs: set[str] = set()
+            for passage_index in _passage_matches_for_policy(policy.source_text, passages):
+                if passage_index >= len(passage_clause_refs):
+                    continue
+                for ref in passage_clause_refs[passage_index]:
+                    if ref not in seen_refs:
+                        seen_refs.add(ref)
+                        matched_refs.append(ref)
+            matched_evidence = [
+                clause_evidence_by_ref[ref] for ref in matched_refs if ref in clause_evidence_by_ref
+            ]
+            if matched_evidence:
+                rule_evidence = matched_evidence
+                rule_source_note = "; ".join(matched_refs)
+
         rules.append(
             CanonicalRule(
                 policy_set_id=policy_set_id,
@@ -505,7 +620,7 @@ def formulation_to_candidate_rules(
                 rule_id=f"AI-{uuid.uuid4().hex[:10]}",
                 rule_revision=1,
                 title=_title_for(policy),
-                description=_description_for(policy, decisions, source_note),
+                description=_description_for(policy, decisions, rule_source_note),
                 rule_type=rule_type,
                 authority=PolicyAuthority(level="ai_drafted", owner="policy-formulator", rank=0),
                 scope=PolicyScope(),
@@ -516,7 +631,7 @@ def formulation_to_candidate_rules(
                 machine_executable=machine_executable,
                 ambiguity_status=_ambiguity_for(policy, machine_executable),
                 review_status=ReviewStatus.CANDIDATE,
-                evidence=evidence or [],
+                evidence=rule_evidence,
                 lineage=RuleLineage(
                     extraction_run_id=extraction_run_id,
                     deployment_name=deployment_name,

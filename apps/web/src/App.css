@@ -2258,6 +2258,23 @@
   line-height: 1.55;
 }
 
+.extraction-source-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.extraction-source-banner-label {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
 .json-view-toolbar {
   display: flex;
   align-items: center;

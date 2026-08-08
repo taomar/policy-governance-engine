@@ -59,6 +59,7 @@ from policy_platform.infrastructure.passage_extractor import (
     PassageExtractionError,
     PassageExtractorAgent,
     clean_clause_ref,
+    span_clause_refs,
 )
 from policy_platform.infrastructure.policy_formulator import (
     FORMULATOR_PROMPT_VERSION,
@@ -205,6 +206,7 @@ async def extract_candidate_rules(
     policy_set_key: str,
     document_version_id: uuid.UUID,
     trusted_config: dict[str, Any] | None = None,
+    max_clauses: int | None = None,
 ) -> dict:
     """Run AI extraction over one document version's clauses for one policy set.
 
@@ -214,6 +216,14 @@ async def extract_candidate_rules(
     it is valid: the agent then returns faithful canonical records with
     candidly non-executable DMN projections carrying requirement codes, rather
     than inventing fact paths to look complete.
+
+    `max_clauses` caps how many of the document's clauses (in document order)
+    are sent to the agents this run. Intended for a small-batch validation
+    pass — e.g. confirming a prompt change actually fixes the defects it was
+    meant to fix — before committing to a full-document extraction, which is
+    otherwise the only option and cannot be cheaply undone once hundreds of
+    candidate rows exist. `None` (the default) processes every clause, exactly
+    as before this parameter existed.
 
     Returns a summary dict: {extraction_run_id, created: [candidate ids], skipped: [{item, reason}]}.
     Raises ValueError for not-found policy set/document/clauses (caller maps to HTTP 404/409).
@@ -250,6 +260,8 @@ async def extract_candidate_rules(
     clauses = await clause_repo.list_by_document_version(document_version_id)
     if not clauses:
         raise ValueError(f"document version '{document_version_id}' has no extracted clauses")
+    if max_clauses is not None:
+        clauses = clauses[:max_clauses]
     clauses_by_ref = {c.clause_ref: c for c in clauses}
 
     run_repo = ExtractionRunRepository(session)
@@ -277,6 +289,9 @@ async def extract_candidate_rules(
         for batch in _batch_clauses(clauses):
             batch_ref = batch[0].clause_ref if batch else ""
 
+            clause_texts = {c.clause_ref: c.text for c in batch}
+            clause_order = [c.clause_ref for c in batch]
+
             # Stage 1 (identify): decide which spans of this batch are actually
             # policy-bearing and copy them verbatim. Without this the formulator
             # sees every sentence in the document and, having no instruction to
@@ -290,8 +305,8 @@ async def extract_candidate_rules(
                     # Hand the agent's own addressing table back to the extractor
                     # so a passage that points at a real clause but transcribes it
                     # imperfectly can be repaired by copying, rather than lost.
-                    clause_texts={c.clause_ref: c.text for c in batch},
-                    clause_order=[c.clause_ref for c in batch],
+                    clause_texts=clause_texts,
+                    clause_order=clause_order,
                 )
             except PassageExtractionError as exc:
                 skipped.append(
@@ -313,15 +328,39 @@ async def extract_candidate_rules(
                 # as a skip — it would otherwise bury real problems in noise.
                 continue
 
-            # Evidence now points at the clauses the passages were actually
-            # copied from, rather than at every clause in the batch. Batch-wide
-            # evidence made a single rule appear to cite a dozen unrelated
-            # paragraphs, which destroys a reviewer's ability to check it
-            # against the source.
+            # Whole-batch evidence: the fallback used only when a specific rule
+            # can't be matched back to the passage(s) it came from (see below).
+            # Also drives `cited` for the human-facing note on that fallback
+            # path.
             cited_refs = {clean_clause_ref(p.source.clause_ref) for p in passages}
             cited_refs |= {clean_clause_ref(p.source.end_clause_ref) for p in passages}
             cited_refs.discard(None)
             cited = [c for c in batch if c.clause_ref in cited_refs] or batch
+
+            # Per-clause evidence lookup, keyed by ref, covering every clause in
+            # the batch (not just `cited`) so a multi-clause passage span
+            # resolves fully even when its middle clauses cited no passage
+            # boundary directly.
+            clause_evidence_by_ref = {
+                c.clause_ref: {
+                    "document_version_id": str(document_version_id),
+                    "source_hash": doc_version.content_hash,
+                    "page": c.page,
+                    "section": c.section,
+                    "clause_id": str(c.id),
+                }
+                for c in batch
+            }
+
+            # Per-passage clause spans: which clause(s) each individual Stage-1
+            # passage actually came from. A batch commonly bundles passages
+            # from several unrelated clauses (a document is walked in
+            # fixed-size windows, not one topic at a time), so this is what
+            # lets each rule below cite only the clause(s) it was actually
+            # formulated from, instead of every clause anywhere in the batch.
+            passage_clause_refs = [
+                span_clause_refs(p.source, clause_texts, clause_order) or [] for p in passages
+            ]
 
             # Stage 2 (formulate): the agent's job. Only the verbatim policy
             # text is piped to it. Extraction owns no prompt.
@@ -354,6 +393,9 @@ async def extract_candidate_rules(
                 prompt_version=PROMPT_VERSION,
                 parser_version=PARSER_VERSION,
                 evidence=batch_evidence,
+                passages=passages,
+                passage_clause_refs=passage_clause_refs,
+                clause_evidence_by_ref=clause_evidence_by_ref,
                 source_note="; ".join(c.clause_ref for c in cited),
             )
             drafted.extend(rules)

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.formulation_mapping import _is_separator_predicate
 from policy_platform.infrastructure.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.repositories import (
     ApprovedPolicyVersionRepository,
@@ -127,6 +128,8 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     findings.extend(_non_blocking_ambiguity_findings(rules))
     findings.extend(_machine_executability_findings(rules))
     findings.extend(_definition_effect_findings(rules))
+    findings.extend(_degenerate_predicate_findings(rules))
+    findings.extend(_eligibility_polarity_findings(rules))
 
     return findings
 
@@ -202,10 +205,138 @@ def _definition_effect_findings(rules: list[CanonicalRule]) -> list[dict]:
                 "Check these against their source text first: a definition whose "
                 "wording is negative ('shall not be included', 'may not be deemed') "
                 "now reads as a permission to do the thing the source excludes. "
-                "The effect vocabulary has no neutral member, so a durable fix means "
-                "adding one to EffectType and deciding what the evaluator returns for "
-                "a definitional rule — a contract change worth making before any "
-                "trusted_config lets these become executable."
+                "New extraction maps definition/classification rules to the neutral "
+                "informational effect. Re-extract or safely backfill these legacy rows "
+                "before any trusted_config can make them executable, and keep this "
+                "finding as a regression guard."
+            ),
+            "source": "deterministic",
+        }
+    ]
+
+
+def _eligibility_polarity_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Report `eligibility`-type rules whose `deny` effect names a grant, not a loss.
+
+    Observed in the Saudi Labor Law extraction: six rules titled "... shall be
+    exempted from the implementation of the provisions of this Law" were
+    formulated with `rule_type: eligibility`, `effect.type: "deny"`,
+    `effect.action: "be exempted from the implementation of the provisions of
+    this Law"`. `effect.type` and `effect.action` are read together as one
+    sentence by the evaluator (`_apply_combining_algorithm` puts a satisfied
+    `deny` rule's action straight into `denied_actions`), so this reads as
+    "denied: be exempted..." — i.e. the Law's provisions DO apply — the
+    literal opposite of the source, which grants the exemption.
+
+    Root cause: the single `RuleType.ELIGIBILITY` schema value covers both
+    directions via the AI-facing `CanonicalRuleType.ELIGIBILITY` (→ `allow`)
+    and `.INELIGIBILITY` (→ `deny`) in `_RULE_TYPE_MAP`. The formulator picked
+    `ineligibility` for a grant-shaped exemption because the prompt's own
+    worked example (fixed alongside this check) told it to. See
+    policy_formulator_v1.md Section 14/15.1 (POLARITY TEST) for the
+    GRANT-SHAPED vs. LOSS-SHAPED negation heuristic this guards against
+    regressing.
+
+    This is a structural, keyword-based heuristic (grant-shaped verbs paired
+    with a `deny` effect), not a semantic proof: it can miss an inversion
+    phrased without any of these verbs, and could in principle false-positive
+    on a genuinely-intended denial that happens to reuse one of these words.
+    It exists as a regression/backfill guard, the same way
+    `_definition_effect_findings` guards its own polarity defect: rows
+    formulated before the prompt fix, or any future slip, still surface here
+    at the review boundary rather than being approved unnoticed.
+    """
+
+    grant_shaped_markers = (
+        "exempt",
+        "excus",
+        "immune",
+        "not subject to",
+        "not bound by",
+        "released from",
+        "relieved of",
+        "waived",
+    )
+    offenders = [
+        r
+        for r in rules
+        if r.rule_type.value == "eligibility"
+        and r.effect.type.value == "deny"
+        and any(marker in r.effect.action.lower() for marker in grant_shaped_markers)
+    ]
+    if not offenders:
+        return []
+
+    return [
+        {
+            "severity": "high",
+            "category": "eligibility_polarity_inversion",
+            "finding": (
+                f"{len(offenders)} eligibility rule(s) have effect.type='deny' but "
+                f"effect.action names a grant (e.g. an exemption/release from a "
+                f"burden), which reads as denying that grant — the opposite of what "
+                f"the source establishes."
+            ),
+            "affected_rule_ids": [r.rule_id for r in offenders[:20]],
+            "recommendation": (
+                "Re-run formulation for these rules (or edit them manually) so a "
+                "grant-shaped outcome (an exemption, a release from a burden) is "
+                "classified eligibility/allow, not ineligibility/deny. See "
+                "policy_formulator_v1.md Section 15.1 (POLARITY TEST)."
+            ),
+            "source": "deterministic",
+        }
+    ]
+
+
+def _degenerate_predicate_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Report rules whose canonical predicate is punctuation, not a relationship.
+
+    Observed in the Saudi Labor Law extraction: a definition sourced from
+    "Minor: Any person of 15 and below 18 years of age" was formulated with
+    `predicate: ":"` — the source's own delimiter, echoed back as though it
+    were the semantic relationship between subject and object, instead of
+    being resolved to a copula such as "is defined as" (see the formulator
+    prompt's Section 19.2). A predicate with no alphanumeric characters can
+    never be a real relationship; that is always a decomposition slip, not a
+    property of the source text, so this stays as a regression/backfill
+    guard the same way `_definition_effect_findings` guards its own defect —
+    rows formulated before the prompt fix, or any future slip, still surface
+    here rather than being approved unnoticed.
+
+    Reuses `formulation_mapping._is_separator_predicate` — the same
+    punctuation-only test that already makes `_title_for`/`_effect_action`
+    skip a degenerate predicate when building display strings — so "what
+    counts as degenerate" has exactly one definition. That existing helper
+    only cleans the *derived* title/effect text; it doesn't fix or report on
+    the underlying stored `predicate` field itself, which is what this
+    finding surfaces to reviewers.
+    """
+
+    offenders = []
+    for r in rules:
+        canonical = getattr(getattr(r, "formulation", None), "canonical", None)
+        predicate = getattr(getattr(canonical, "rule", None), "predicate", None)
+        if predicate is not None and _is_separator_predicate(predicate):
+            offenders.append(r)
+
+    if not offenders:
+        return []
+
+    return [
+        {
+            "severity": "medium",
+            "category": "degenerate_predicate",
+            "finding": (
+                f"{len(offenders)} rule(s) have a predicate that is empty or pure punctuation "
+                f'(e.g. ":"), echoing the source\'s delimiter instead of naming the '
+                f"subject/object relationship."
+            ),
+            "affected_rule_ids": [r.rule_id for r in offenders[:20]],
+            "recommendation": (
+                "Re-run formulation for these rules (or edit them manually) so the predicate "
+                'names the relationship in words (e.g. "is defined as", "means", "shall submit") '
+                "rather than repeating source punctuation."
             ),
             "source": "deterministic",
         }

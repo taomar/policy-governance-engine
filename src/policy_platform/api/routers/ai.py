@@ -105,6 +105,11 @@ class ExtractRequest(BaseModel):
     """
 
     trusted_config: dict[str, Any] | None = None
+    max_clauses: int | None = None
+    """Cap on how many of the document's clauses (in document order) to
+    extract this run, for a small-batch validation pass before committing to
+    a full-document run. `None` (the default) processes every clause, as
+    before this field existed."""
 
 
 @router.post("/policy-sets/{key}/documents/{document_version_id}/extract")
@@ -121,6 +126,7 @@ async def extract_with_ai(
             policy_set_key=key,
             document_version_id=document_version_id,
             trusted_config=body.trusted_config if body else None,
+            max_clauses=body.max_clauses if body else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

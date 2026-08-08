@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Collapse, Descriptions, Space, Tag, Typography, List } from "antd";
+import { Button, Collapse, Descriptions, Space, Tag, Tooltip, Typography, List } from "antd";
 import {
   FileTextOutlined,
   ApartmentOutlined,
@@ -90,6 +90,30 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
   // so the header button's tooltip doesn't claim to be loading forever.
   const evidenceStillResolving = rule.evidence.length > 0 && !primaryEvidence;
   const activeDocMeta = bodyViewer ? docMetaByVersionId.get(bodyViewer.documentVersionId) : undefined;
+
+  // Deduped "which source document(s)" labels for this rule's evidence, shared by the AI
+  // extraction record banner below. Source text extracted verbatim from a document (e.g. "this
+  // Law", "this policy", "this Agreement") is meaningless on its own once it is lifted out of
+  // that document into an AI extraction record — so that section must restate which source
+  // document it came from too, not just the "Original source text" block above it. Kept generic
+  // ("source document"), never "law" — a rule here can equally come from an HR handbook, an IT
+  // policy, or a procurement manual.
+  const sourceLabels = useMemo(() => {
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const ev of rule.evidence) {
+      const docMeta = docMetaByVersionId.get(ev.document_version_id);
+      const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
+      const label = `${docMeta ? `${docMeta.documentTitle} (${docMeta.versionLabel})` : "Document"}${
+        ev.section ? ` · ${ev.section}` : ""
+      }${ev.page !== null ? `, p.${ev.page}` : ""}${clause ? ` · clause ${clause.clause_ref}` : ""}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        labels.push(label);
+      }
+    }
+    return labels;
+  }, [rule.evidence, docMetaByVersionId, clausesById]);
 
   const header = (
     <Space size={10} wrap className="rule-card-header">
@@ -454,6 +478,24 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                 <Text strong className="rule-card-section-title">
                   <CodeOutlined /> AI extraction record — both stages, preserved verbatim
                 </Text>
+                {rule.formulation && (
+                  <div className="extraction-source-banner">
+                    <Text type="secondary" className="extraction-source-banner-label">
+                      <FileTextOutlined /> Extracted from:
+                    </Text>
+                    {sourceLabels.length > 0 ? (
+                      <Space size={4} wrap>
+                        {sourceLabels.map((label) => (
+                          <Tag key={label}>{label}</Tag>
+                        ))}
+                      </Space>
+                    ) : (
+                      <Tooltip title="This rule has no linked evidence, so any self-referential wording below (e.g. 'this Law', 'this policy') cannot be resolved to a specific source document.">
+                        <Text type="warning">source document unknown — see above</Text>
+                      </Tooltip>
+                    )}
+                  </div>
+                )}
                 {rule.formulation ? (
                   <Collapse
                     className="inspector-technical-collapse"

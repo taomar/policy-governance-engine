@@ -1,5 +1,11 @@
 # Backend data-integrity session — handoff
 
+> **Historical handoff (superseded 2026-08-08).** Start with
+> [`extraction-quality-handoff-2026-08-08.md`](extraction-quality-handoff-2026-08-08.md).
+> In particular, this file's open item claiming `EffectType` has no neutral member
+> is obsolete: `EffectType.INFORMATIONAL` now exists, definition/classification
+> rules map to it, and the evaluator excludes it from the allow/deny axis.
+
 A working note, not a specification. It records what one session changed, what it
 found and deliberately did not change, and the environment facts that cost time to
 discover. Written so the next session can resume without re-deriving them.

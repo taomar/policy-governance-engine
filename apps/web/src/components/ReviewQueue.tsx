@@ -14,6 +14,7 @@ import {
   Pagination,
   Progress,
   Row,
+  Segmented,
   Select,
   Space,
   Statistic,
@@ -122,6 +123,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
   const [candidates, setCandidates] = useState<CandidateRule[]>([]);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
+  const [contentKind, setContentKind] = useState<"policies" | "definitions">("policies");
   const [searchText, setSearchText] = useState("");
   const [reviewer, setReviewer] = useState("");
   const [publishedBy, setPublishedBy] = useState("");
@@ -308,10 +310,30 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   const REVIEWABLE_STATUSES = new Set(["candidate", "rejected", "changes_requested"]);
 
+  // Definitions/glossary entries (rule_type "definition" — both the AI's
+  // "definition" and "classification" canonical types map here in
+  // formulation_mapping.py) describe terms, not obligations: they have no
+  // real condition/effect to evaluate and read very differently from
+  // operative rules. Reviewing them interleaved with obligations/
+  // prohibitions/eligibility rules buried both — a glossary entry's "Approve"
+  // looks identical to a real policy's, so a reviewer scanning for
+  // enforceable rules had to mentally filter dozens of "X is defined as Y"
+  // rows out of the list. Splitting by content kind lets a reviewer clear
+  // the glossary in one pass, then focus entirely on rules that actually
+  // constrain behavior.
+  const isDefinitionKind = (ruleType: string) => ruleType === "definition";
+
+  const contentKindCounts = useMemo(() => {
+    let definitions = 0;
+    for (const c of candidates) if (isDefinitionKind(c.rule_type)) definitions += 1;
+    return { definitions, policies: candidates.length - definitions };
+  }, [candidates]);
+
   const filteredCandidates = useMemo(() => {
     const q = searchText.trim().toLowerCase();
-    if (!q) return candidates;
     return candidates.filter((c) => {
+      if (isDefinitionKind(c.rule_type) !== (contentKind === "definitions")) return false;
+      if (!q) return true;
       const r = c.rule;
       return (
         r.title.toLowerCase().includes(q) ||
@@ -323,13 +345,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         (r.group_label ?? "").toLowerCase().includes(q)
       );
     });
-  }, [candidates, searchText]);
+  }, [candidates, searchText, contentKind]);
 
-  // Reset to page 1 whenever the search narrows/widens the filtered set, so
-  // the reviewer never lands on a now-empty trailing page.
+  // Reset to page 1 whenever the search or content-kind tab narrows/widens
+  // the filtered set, so the reviewer never lands on a now-empty trailing page.
   useEffect(() => {
     setPage(1);
-  }, [searchText]);
+  }, [searchText, contentKind]);
 
   const pagedCandidates = useMemo(
     () => filteredCandidates.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -681,6 +703,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 </Button>
               </Form>
             )}
+
+            <Segmented
+              value={contentKind}
+              onChange={(v) => setContentKind(v as typeof contentKind)}
+              style={{ marginBottom: 16 }}
+              options={[
+                { label: `Policies & Rules (${contentKindCounts.policies})`, value: "policies" },
+                { label: `Definitions & Glossary (${contentKindCounts.definitions})`, value: "definitions" },
+              ]}
+            />
 
             <Space size={16} wrap className="review-controls-bar" style={{ marginBottom: 16 }}>
               <Select

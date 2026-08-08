@@ -277,3 +277,137 @@ class TestDefinitionsCarryingEffects:
 
         assert found == []
 
+
+class TestDegeneratePredicateFindings:
+    """A predicate must name a relationship, not echo the source's delimiter."""
+
+    @staticmethod
+    def _with_predicate(rid: str, predicate: str | None):
+        from policy_platform.contracts.formulation import (
+            CanonicalPolicy,
+            CanonicalPolicyRule,
+            RuleFormulation,
+        )
+
+        rule = _rule(rid)
+        canonical_rule = CanonicalPolicyRule(rule_type="definition", subject="Minor") if predicate is None else (
+            CanonicalPolicyRule(rule_type="definition", subject="Minor", predicate=predicate)
+        )
+        rule.formulation = RuleFormulation(
+            source_index=0,
+            canonical=CanonicalPolicy(source_text="Minor: any person of 15 and below 18.", rule=canonical_rule),
+        )
+        return rule
+
+    def _findings(self, rules):
+        return [
+            f
+            for f in ai_quality._deterministic_findings(rules)
+            if f["category"] == "degenerate_predicate"
+        ]
+
+    def test_a_colon_predicate_is_reported(self) -> None:
+        found = self._findings([self._with_predicate("R1", ":")])
+
+        assert len(found) == 1
+        assert "R1" in found[0]["affected_rule_ids"]
+        assert found[0]["severity"] == "medium"
+
+    def test_a_dash_predicate_is_reported(self) -> None:
+        found = self._findings([self._with_predicate("R1", "-")])
+
+        assert len(found) == 1
+
+    def test_all_offenders_collapse_into_one_finding(self) -> None:
+        rules = [self._with_predicate(f"R{i}", ":") for i in range(10)]
+
+        found = self._findings(rules)
+
+        assert len(found) == 1
+        assert "10 rule(s)" in found[0]["finding"]
+
+    def test_a_real_predicate_is_not_reported(self) -> None:
+        found = self._findings([self._with_predicate("R1", "is defined as")])
+
+        assert found == []
+
+    def test_no_predicate_at_all_is_not_reported(self) -> None:
+        """Absent is fine per Section 21; only a present-but-punctuation value is a defect."""
+
+        found = self._findings([self._with_predicate("R1", None)])
+
+        assert found == []
+
+
+class TestEligibilityPolarityFindings:
+    """A `deny` effect that names a grant reads as denying the grant it describes."""
+
+    @staticmethod
+    def _rule(rid: str, effect_type: str, action: str, rule_type: str = "eligibility"):
+        return make_rule(
+            rid,
+            FactComparisonCondition(fact="x", operator=ConditionOperator.EQUALS, value=1),
+            effect_action=action,
+            effect_type=EffectType(effect_type),
+            rule_type=RuleType(rule_type),
+        )
+
+    def _findings(self, rules):
+        return [
+            f
+            for f in ai_quality._deterministic_findings(rules)
+            if f["category"] == "eligibility_polarity_inversion"
+        ]
+
+    def test_deny_plus_exemption_action_is_reported(self) -> None:
+        found = self._findings(
+            [
+                self._rule(
+                    "R1",
+                    "deny",
+                    "be exempted from the implementation of the provisions of this Law",
+                )
+            ]
+        )
+
+        assert len(found) == 1
+        assert "R1" in found[0]["affected_rule_ids"]
+        assert found[0]["severity"] == "high"
+
+    def test_all_offenders_collapse_into_one_finding(self) -> None:
+        rules = [self._rule(f"R{i}", "deny", "be exempted from coverage") for i in range(6)]
+
+        found = self._findings(rules)
+
+        assert len(found) == 1
+        assert "6 eligibility rule(s)" in found[0]["finding"]
+
+    def test_genuine_ineligibility_is_not_reported(self) -> None:
+        """'Not eligible for the bonus' is a real denial — no grant-shaped word present."""
+
+        found = self._findings([self._rule("R1", "deny", "receive the bonus")])
+
+        assert found == []
+
+    def test_allow_side_exemption_is_not_reported(self) -> None:
+        """The correctly-classified version of the same rule must not itself be flagged."""
+
+        found = self._findings(
+            [
+                self._rule(
+                    "R1",
+                    "allow",
+                    "be exempted from the implementation of the provisions of this Law",
+                )
+            ]
+        )
+
+        assert found == []
+
+    def test_non_eligibility_rule_types_are_left_alone(self) -> None:
+        found = self._findings(
+            [self._rule("R1", "deny", "be exempted from this obligation", rule_type="prohibition")]
+        )
+
+        assert found == []
+

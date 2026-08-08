@@ -137,6 +137,31 @@ export function PolicyInspector({
   // never touches group_label/related_rule_ids).
   const variations = useMemo(() => (rule ? findRuleVariations(rule, allRules) : null), [rule, allRules]);
 
+  // Deduped "which source document(s)" labels for this rule's evidence, shared by the JSON
+  // tab's extraction-record banner below. Source text extracted verbatim from a document (e.g.
+  // "this Law", "this policy", "this Agreement") is meaningless on its own once it is lifted out
+  // of that document into an AI extraction record — so every place that shows the raw formulator
+  // output must restate which source document it came from, not just the Evidence tab. Generic
+  // ("source document"), never "law" — a rule here can equally come from an HR handbook, an IT
+  // policy, or a procurement manual.
+  const sourceLabels = useMemo(() => {
+    if (!rule) return [];
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const ev of rule.evidence) {
+      const docMeta = docMetaByVersionId.get(ev.document_version_id);
+      const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
+      const label = `${docMeta ? `${docMeta.documentTitle} (${docMeta.versionLabel})` : "Document"}${
+        ev.section ? ` · ${ev.section}` : ""
+      }${ev.page !== null ? `, p.${ev.page}` : ""}${clause ? ` · clause ${clause.clause_ref}` : ""}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        labels.push(label);
+      }
+    }
+    return labels;
+  }, [rule, docMetaByVersionId, clausesById]);
+
   /** Renders a list of rule IDs (from `related_rule_ids`/`supersedes_rule_ids`) as clickable
    * jump-to-rule tags when the target is resolvable in the current version's rule set,
    * falling back to a plain copyable ID otherwise (e.g. a dangling/out-of-version reference). */
@@ -572,6 +597,69 @@ export function PolicyInspector({
         </Text>
       </div>
       {jsonBlock}
+
+      <div className="json-view-caption" style={{ marginTop: 20 }}>
+        <div className="section-eyebrow">
+          <CodeOutlined /> AI extraction record — both stages, preserved verbatim
+        </div>
+        <Text type="secondary" className="json-view-caption-text">
+          The formulator agent always produces two paired outputs (spec Section 8, "canonical before executable"):
+          the subject/predicate/object <Text code>Canonical JSON</Text> decomposed straight from the source text,
+          and a <Text code>DMN JSON</Text> decision projection. The executable form above is a lossy mapping of the
+          first — this section shows both originals so you can check the mapping against what the AI actually said.
+        </Text>
+      </div>
+      {rule.formulation && (
+        <div className="extraction-source-banner">
+          <Text type="secondary" className="extraction-source-banner-label">
+            <FileTextOutlined /> Extracted from:
+          </Text>
+          {sourceLabels.length > 0 ? (
+            <Space size={4} wrap>
+              {sourceLabels.map((label) => (
+                <Tag key={label}>{label}</Tag>
+              ))}
+            </Space>
+          ) : (
+            <Tooltip title="This rule has no linked evidence, so any self-referential wording below (e.g. 'this Law', 'this policy') cannot be resolved to a specific source document.">
+              <Text type="warning">source document unknown — see Evidence tab</Text>
+            </Tooltip>
+          )}
+        </div>
+      )}
+      {rule.formulation ? (
+        <Collapse
+          className="inspector-technical-collapse"
+          items={[
+            {
+              key: "extraction-canonical",
+              label: "Canonical JSON — verbatim subject/predicate/object",
+              children: (
+                <JsonView
+                  value={rule.formulation.canonical ?? null}
+                  downloadName={`${rule.rule_id}-canonical.json`}
+                  maxHeight={420}
+                />
+              ),
+            },
+            {
+              key: "extraction-dmn",
+              label: "DMN JSON — OMG DMN 1.5 / FEEL decision projection",
+              children: (
+                <JsonView
+                  value={rule.formulation.dmn_decisions}
+                  downloadName={`${rule.rule_id}-dmn.json`}
+                  maxHeight={420}
+                />
+              ),
+            },
+          ]}
+        />
+      ) : (
+        <Text type="secondary">
+          No AI extraction record — this rule was hand-authored or drafted before the formulator agent existed.
+        </Text>
+      )}
     </div>
   );
 
