@@ -17,6 +17,7 @@ from policy_platform.domain.models import (
     ApprovedRule,
     CandidateRule,
     Clause,
+    DocumentVersion,
     Evaluation,
     EvidenceReference,
     ExtractionRun,
@@ -350,11 +351,47 @@ class CandidateRuleRepository:
         return candidate
 
     async def list_by_policy_set(
-        self, policy_set_id: uuid.UUID, *, review_status: str | None = None
+        self,
+        policy_set_id: uuid.UUID,
+        *,
+        review_status: str | None = None,
+        document_id: uuid.UUID | None = None,
+        document_version_id: uuid.UUID | None = None,
+        extraction_run_id: uuid.UUID | None = None,
+        delta_status: str | None = None,
+        include_superseded: bool = False,
     ) -> list[CandidateRule]:
+        """Candidate rules for a policy set, current generation by default.
+
+        `include_superseded` exists for exactly one caller shape: looking at a
+        historical extraction run on purpose. Every other read means "the rules
+        in play right now", so superseded rows — the previous extraction of a
+        re-extracted document, retained for delta comparison — are excluded
+        unless asked for. Defaulting the other way would silently double the
+        review queue the first time anyone re-ran a document.
+        """
+
         stmt = select(CandidateRule).where(CandidateRule.policy_set_id == policy_set_id)
+        if not include_superseded:
+            stmt = stmt.where(CandidateRule.superseded_at.is_(None))
         if review_status is not None:
             stmt = stmt.where(CandidateRule.review_status == review_status)
+        if extraction_run_id is not None:
+            stmt = stmt.where(CandidateRule.extraction_run_id == extraction_run_id)
+        if delta_status is not None:
+            stmt = stmt.where(CandidateRule.delta_status == delta_status)
+        if document_version_id is not None or document_id is not None:
+            # Joined rather than filtered on the payload's evidence, because a
+            # rule composed by the AI author or written by hand has no evidence
+            # pointing at a document version, and the run it belongs to is the
+            # only reliable link back to the source.
+            stmt = stmt.join(ExtractionRun, ExtractionRun.id == CandidateRule.extraction_run_id)
+            if document_version_id is not None:
+                stmt = stmt.where(ExtractionRun.document_version_id == document_version_id)
+            if document_id is not None:
+                stmt = stmt.join(
+                    DocumentVersion, DocumentVersion.id == ExtractionRun.document_version_id
+                ).where(DocumentVersion.document_id == document_id)
         stmt = stmt.order_by(CandidateRule.created_at)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())

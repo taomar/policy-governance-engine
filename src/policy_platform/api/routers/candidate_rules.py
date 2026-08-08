@@ -15,7 +15,15 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from policy_platform.domain.models import (
+    CandidateRule,
+    DocumentVersion,
+    ExtractionRun,
+    SourceDocument,
+)
 
 from policy_platform.api.schemas import (
     ApprovedPolicyVersionResponse,
@@ -88,6 +96,12 @@ def _to_response(candidate) -> CandidateRuleResponse:
         review_notes=candidate.review_notes,
         published_version_id=str(candidate.published_version_id) if candidate.published_version_id else None,
         created_at=candidate.created_at,
+        delta_status=candidate.delta_status,
+        reworded=bool(candidate.reworded),
+        baseline_candidate_id=(
+            str(candidate.baseline_candidate_id) if candidate.baseline_candidate_id else None
+        ),
+        superseded_at=candidate.superseded_at,
         rule=CanonicalRule.model_validate(candidate.payload_json),
     )
 
@@ -128,16 +142,174 @@ async def draft_candidate_rule(
 
 @router.get("/{key}/candidate-rules", response_model=list[CandidateRuleResponse])
 async def list_candidate_rules(
-    key: str, status: str | None = None, session: AsyncSession = Depends(get_session)
+    key: str,
+    status: str | None = None,
+    document_id: uuid.UUID | None = None,
+    document_version_id: uuid.UUID | None = None,
+    extraction_run_id: uuid.UUID | None = None,
+    delta_status: str | None = None,
+    include_superseded: bool = False,
+    session: AsyncSession = Depends(get_session),
 ) -> list[CandidateRuleResponse]:
+    """The review queue, narrowed to whatever the reviewer is looking at.
+
+    `include_superseded` is opt-in and only meaningful alongside
+    `extraction_run_id`: it is how a reviewer opens a historical run to see what
+    it produced. Left off, this returns the current generation of rules, which
+    is what every other view means.
+    """
+
     policy_set_repo = PolicySetRepository(session)
     policy_set = await policy_set_repo.get_by_key(key)
     if policy_set is None:
         raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
 
     candidate_repo = CandidateRuleRepository(session)
-    candidates = await candidate_repo.list_by_policy_set(policy_set.id, review_status=status)
+    candidates = await candidate_repo.list_by_policy_set(
+        policy_set.id,
+        review_status=status,
+        document_id=document_id,
+        document_version_id=document_version_id,
+        extraction_run_id=extraction_run_id,
+        delta_status=delta_status,
+        include_superseded=include_superseded,
+    )
     return [_to_response(c) for c in candidates]
+
+
+@router.get("/{key}/review-facets")
+async def review_facets(key: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Everything the review queue needs to offer filters, in one round-trip.
+
+    A reviewer facing hundreds of candidates needs to narrow by the things that
+    actually organise the work — which document, which extraction run, and what
+    changed — and each of those lists has to be derived from the data rather
+    than hardcoded. Returned together because they are always needed together;
+    four separate calls would only make the filter bar render in stages.
+
+    Also returns `removed`: rules the previous extraction produced that the
+    latest one did not. Those generate no row in the queue, so without this they
+    would be invisible — and a clause disappearing from a re-uploaded document
+    is precisely the kind of change a reviewer must not miss.
+    """
+
+    policy_set_repo = PolicySetRepository(session)
+    policy_set = await policy_set_repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    rows = (
+        await session.execute(
+            select(
+                CandidateRule.extraction_run_id,
+                CandidateRule.delta_status,
+                CandidateRule.review_status,
+                func.count(),
+            )
+            .where(
+                CandidateRule.policy_set_id == policy_set.id,
+                CandidateRule.superseded_at.is_(None),
+            )
+            .group_by(
+                CandidateRule.extraction_run_id,
+                CandidateRule.delta_status,
+                CandidateRule.review_status,
+            )
+        )
+    ).all()
+
+    run_ids = {r[0] for r in rows}
+    runs_meta = (
+        (
+            await session.execute(
+                select(ExtractionRun, DocumentVersion, SourceDocument)
+                .join(DocumentVersion, DocumentVersion.id == ExtractionRun.document_version_id)
+                .join(SourceDocument, SourceDocument.id == DocumentVersion.document_id)
+                .where(ExtractionRun.id.in_(run_ids))
+            )
+        ).all()
+        if run_ids
+        else []
+    )
+
+    documents: dict[str, dict] = {}
+    runs: dict[str, dict] = {}
+    for run, version, document in runs_meta:
+        documents.setdefault(
+            str(document.id),
+            {"id": str(document.id), "title": document.title, "rule_count": 0},
+        )
+        runs[str(run.id)] = {
+            "id": str(run.id),
+            "reference": run.reference,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "document_id": str(document.id),
+            "document_title": document.title,
+            "document_version_id": str(version.id),
+            "version_label": f"v{version.version_number}",
+            "content_hash": version.content_hash[:12] if version.content_hash else None,
+            "total": 0,
+            "pending": 0,
+            "delta": {"new": 0, "changed": 0, "unchanged": 0, "baseline": 0},
+        }
+
+    delta_totals = {"new": 0, "changed": 0, "unchanged": 0, "baseline": 0, "unclassified": 0}
+    status_totals: dict[str, int] = {}
+    for run_id, delta_status, review_status, count in rows:
+        bucket = delta_status if delta_status in delta_totals else "unclassified"
+        delta_totals[bucket] += count
+        status_totals[review_status] = status_totals.get(review_status, 0) + count
+        entry = runs.get(str(run_id))
+        if entry is None:
+            continue
+        entry["total"] += count
+        if review_status == "candidate":
+            entry["pending"] += count
+        if delta_status in entry["delta"]:
+            entry["delta"][delta_status] += count
+        documents[entry["document_id"]]["rule_count"] += count
+
+    # A rule is "no longer found" when a later run retired it and nothing in
+    # that later run claimed it as a continuation.
+    claimed = select(CandidateRule.baseline_candidate_id).where(
+        CandidateRule.baseline_candidate_id.is_not(None)
+    )
+    removed_rows = (
+        await session.execute(
+            select(CandidateRule, ExtractionRun)
+            .join(ExtractionRun, ExtractionRun.id == CandidateRule.superseded_by_run_id)
+            .where(
+                CandidateRule.policy_set_id == policy_set.id,
+                CandidateRule.superseded_at.is_not(None),
+                CandidateRule.id.not_in(claimed),
+            )
+            .order_by(CandidateRule.superseded_at.desc())
+            .limit(200)
+        )
+    ).all()
+
+    removed = [
+        {
+            "id": str(row.id),
+            "title": (row.payload_json or {}).get("title") or "(untitled rule)",
+            "rule_type": row.rule_type,
+            "review_status": row.review_status,
+            "superseded_at": row.superseded_at.isoformat() if row.superseded_at else None,
+            "superseded_by_run_id": str(row.superseded_by_run_id) if row.superseded_by_run_id else None,
+            "superseded_by_reference": superseding_run.reference,
+            "source_text": ((row.payload_json or {}).get("formulation") or {}).get("source_text", ""),
+        }
+        for row, superseding_run in removed_rows
+    ]
+
+    return {
+        "documents": sorted(documents.values(), key=lambda d: d["title"]),
+        "runs": sorted(runs.values(), key=lambda r: r["started_at"] or "", reverse=True),
+        "delta_totals": delta_totals,
+        "status_totals": status_totals,
+        "removed": removed,
+    }
 
 
 @router.get("/{key}/candidate-rules/export")

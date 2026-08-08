@@ -6,6 +6,7 @@ a SQLAlchemy object.
 """
 from __future__ import annotations
 
+from policy_platform.contracts.formulation import RuleFormulation
 from policy_platform.contracts.policy import (
     AggregateLimit,
     AggregateLimitContribution,
@@ -76,6 +77,12 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         is_explicit_override=rule.is_explicit_override,
         supersedes_rule_ids=list(rule.supersedes_rule_ids_json or []),
         advice=[Advice(**a) for a in (rule.advice_json or [])],
+        # Restores what the source actually said. The fields above are a lossy
+        # executable projection of this record, so a rule reconstructed without
+        # it is not the rule that was published — see migration e4c7a2b8d190.
+        formulation=(
+            RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
+        ),
     )
 
 

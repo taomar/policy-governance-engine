@@ -126,6 +126,9 @@ async def import_approved_policy_version(
             is_explicit_override=rule.is_explicit_override,
             supersedes_rule_ids_json=list(rule.supersedes_rule_ids),
             advice_json=[a.model_dump(mode="json") for a in rule.advice],
+            formulation_json=(
+                rule.formulation.model_dump(mode="json") if rule.formulation else None
+            ),
         )
         session.add(approved_rule)
         await session.flush()
