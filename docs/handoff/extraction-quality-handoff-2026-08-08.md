@@ -22,7 +22,8 @@ Standing user instructions:
 
 1. Run locally.
 2. PostgreSQL uses the non-standard host port **5433**.
-3. Frontend must be served on **5178**.
+3. Frontend must be served on **5789**. This supersedes the earlier 5178
+   instruction; port 5178 is now intentionally free.
 4. Use the local `.env` for runtime connections, but never commit or reproduce its
    secrets. `.env` is intentionally ignored by git.
 5. Approved dependency feeds:
@@ -45,12 +46,12 @@ Standing user instructions:
 ### Git
 
 - Branch: `master`
-- Latest committed HEAD at handoff: `1900a76`
-- Current work is **uncommitted**.
-- Do not reset, stash, discard, or overwrite these changes.
-- Stage only explicit paths if the user later asks for a commit.
+- Extraction-quality implementation commit: `91cf192`
+- Fresh first-50 extraction record commit: `2c3e051`
+- The implementation and Milestone 47 record are committed.
+- Do not reset, stash, discard, or overwrite these commits.
 
-Modified files at handoff:
+Files included in the extraction-quality implementation commit:
 
 ```text
 AGENT_PROGRESS.md
@@ -75,12 +76,12 @@ architecture/root-cause/impact/validation form.
 
 ### Processes and ports
 
-State measured at handoff:
+State measured after the Milestone 47 refresh:
 
 - PostgreSQL container `policy-postgres`: healthy, host port **5433**
-- Frontend: responding on `http://127.0.0.1:5178`, title `Policy Platform`
-- API on `http://127.0.0.1:8010`: **offline**
-- No Copilot-managed PowerShell sessions remain active
+- Frontend: responding on `http://127.0.0.1:5789`, title `Policy Platform`
+- API on `http://127.0.0.1:8010`: healthy
+- Port **5178**: free
 
 Start the API from repo root:
 
@@ -92,12 +93,12 @@ Start the frontend explicitly on the user-required port:
 
 ```powershell
 cd apps\web
-npm run dev -- --host 127.0.0.1 --port 5178
+npm run dev -- --host 127.0.0.1 --port 5789
 ```
 
 Important: `.env` currently has a historical `WEB_DEV_SERVER_PORT=5174`, and
 `apps/web/vite.config.ts` does not read that variable. Do not assume the env value
-controls Vite; use the explicit `--port 5178` argument unless the configuration is
+controls Vite; use the explicit `--port 5789` argument unless the configuration is
 deliberately wired later.
 
 The backend runs without `--reload`. Prompt and Python changes require a process
@@ -115,20 +116,20 @@ Only one project remains:
 | policy set key | `saudi-labor-law` |
 | policy set id | `58b28fd6-898a-476c-83c5-3afc50dcbeb4` |
 | document version id | `0fbf7f9c-a386-41ab-87f4-8b0ac64f8c1a` |
-| final clean extraction run | `c7b242ee-a421-496e-95c5-458d8b36d6d7` |
+| final clean extraction run | `61e7b4e1-7748-4ffa-a586-efe4b6d663fb` |
 | extraction scope | first 50 clauses |
-| candidate rules | 47 |
+| candidate rules | 44 |
 | review status | all `candidate` |
 | approved/published | none performed |
 | document versions | 1 |
 
-Effect distribution in the 47 candidates:
+Effect distribution in the 44 candidates:
 
 | Effect | Count |
 |---|---:|
-| `informational` | 31 |
+| `informational` | 29 |
 | `allow` | 8 |
-| `require_action` | 5 |
+| `require_action` | 4 |
 | `deny` | 3 |
 
 Useful query:
@@ -282,7 +283,10 @@ Neither category appears in the fresh report after re-extraction.
 
 ### Deterministic checks working as designed
 
-- `ambiguity`: 45 of 47 are `non_blocking`; only 2 need real human judgment
+- In the prior Milestone 46 47-rule report, `ambiguity` classified 45 rules as
+  `non_blocking` and only 2 as requiring real human judgment. Milestone 47 replaced
+  those rows with 44 fresh candidates; rerun the quality endpoint before quoting
+  current ambiguity counts.
 - `not_machine_executable`: expected until trusted configuration supplies source-term
   fact/output/temporal mappings; this is not extraction failure
 
@@ -367,6 +371,16 @@ The final real-data validation loop was:
 5. re-pull `/api/ai/policy-sets/saudi-labor-law/candidates/quality`
 6. confirm exemption polarity and truncation findings are absent
 
+Milestone 47 then reran the latest committed pipeline over source clauses 0–49:
+
+- extraction run `61e7b4e1-7748-4ffa-a586-efe4b6d663fb`
+- 47 prior unreviewed candidates superseded
+- 44 fresh candidates created, 0 batches skipped
+- all 44 remain unreviewed and unpublished
+- all 178 evidence links resolve to clause sequences 0–49
+- exemption-derived output: 6 `allow`, 0 `deny`
+- longest action: 1,383 characters; no action is exactly 200 characters
+
 ---
 
 ## 8. Structured pending work
@@ -391,10 +405,10 @@ Pending:
 
 1. Read this file and Milestones 43–46 in `AGENT_PROGRESS.md`.
 2. Run `git status --short`; preserve every existing modification.
-3. Start the API on 8010 using the command above. Frontend is currently live on 5178,
+3. Verify the API on 8010 and frontend on 5789; both were healthy at final handoff,
    but verify it rather than assuming.
 4. Do **not** re-extract or delete data merely to “check” current state; the clean
-   47-rule dataset is already validated.
+   44-rule dataset is already validated.
 5. Present the two open architecture decisions (applicability classification and scope
    population) to the user before implementing either.
 6. Continue only the first-50-clause workflow until the user explicitly authorizes
