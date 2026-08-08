@@ -9,6 +9,7 @@ useful, but not infallible, and never silently presented as fact).
 """
 from __future__ import annotations
 
+import collections
 import json
 import logging
 from datetime import date
@@ -62,25 +63,14 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
             )
 
     for r in rules:
-        if r.ambiguity_status.value != "none":
+        if r.ambiguity_status.value == "blocking":
             findings.append(
                 {
-                    "severity": "high" if r.ambiguity_status.value == "blocking" else "medium",
+                    "severity": "high",
                     "category": "ambiguity",
-                    "finding": f"Rule '{r.title}' ({r.rule_id}) has ambiguity_status={r.ambiguity_status.value}",
+                    "finding": f"Rule '{r.title}' ({r.rule_id}) has ambiguity_status=blocking",
                     "affected_rule_ids": [r.rule_id],
                     "recommendation": "Have a human reviewer formalize this rule's condition/wording before relying on it in automated evaluation.",
-                    "source": "deterministic",
-                }
-            )
-        if not r.machine_executable:
-            findings.append(
-                {
-                    "severity": "medium",
-                    "category": "not_machine_executable",
-                    "finding": f"Rule '{r.title}' ({r.rule_id}) is marked machine_executable=false",
-                    "affected_rule_ids": [r.rule_id],
-                    "recommendation": "This rule cannot be enforced by the deterministic evaluator yet; it needs a precise condition.",
                     "source": "deterministic",
                 }
             )
@@ -134,18 +124,135 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
                 }
             )
 
+    findings.extend(_non_blocking_ambiguity_findings(rules))
+    findings.extend(_machine_executability_findings(rules))
+
     return findings
 
 
-async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], policy_set_key: str) -> None:
+def _non_blocking_ambiguity_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """One finding for the non-blocking ambiguity backlog, not one per rule.
+
+    A per-rule finding is right when each row needs its own decision. Ambiguity
+    that the extractor flagged for human judgment is a queue with a known size,
+    and emitting one row per rule pushes genuinely distinct problems (duplicate
+    ids, conflicting effects) off the end of a report that is read top-down.
+    """
+    flagged = [r for r in rules if r.ambiguity_status.value not in ("none", "blocking")]
+    if not flagged:
+        return []
+    by_status = collections.Counter(r.ambiguity_status.value for r in flagged)
+    breakdown = ", ".join(f"{count} {status}" for status, count in sorted(by_status.items()))
+    return [
+        {
+            "severity": "medium",
+            "category": "ambiguity",
+            "finding": (
+                f"{len(flagged)} of {len(rules)} rule(s) need human judgment on wording ({breakdown})."
+            ),
+            "affected_rule_ids": [r.rule_id for r in flagged],
+            "recommendation": (
+                "Work these through the Review Queue. This records that the source wording needs a "
+                "human decision — it is not an extraction failure."
+            ),
+            "source": "deterministic",
+        }
+    ]
+
+
+def _machine_executability_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Report non-executable rules by *cause*, and name the enrichment that unblocks them.
+
+    Every rule whose DMN projection was not `executable` is non-executable, and
+    when no trusted configuration was supplied that is every rule in the set --
+    one systemic cause, not N independent defects. Reporting it per rule states
+    the symptom N times and never states the cause, so the reader is left to
+    infer that N rules were each extracted badly.
+
+    The agent already said precisely what it was missing, as
+    `DmnRequirementCode`s whose stated purpose is to make `enrichment_required`
+    "actionable rather than a dead end" (contracts.formulation). Those codes are
+    the actionable part of this finding, so they are surfaced here rather than
+    left in the payload.
+    """
+    blocked = [r for r in rules if not r.machine_executable]
+    if not blocked:
+        return []
+
+    requirements: collections.Counter[str] = collections.Counter()
+    statuses: collections.Counter[str] = collections.Counter()
+    for r in blocked:
+        formulation = getattr(r, "formulation", None)
+        for decision in getattr(formulation, "dmn_decisions", None) or []:
+            statuses[getattr(decision.dmn_mapping_status, "value", str(decision.dmn_mapping_status))] += 1
+            for code in decision.requirements or []:
+                requirements[getattr(code, "value", str(code))] += 1
+
+    share = f"{len(blocked)} of {len(rules)}"
+    if requirements:
+        top = ", ".join(f"{code} ({count})" for code, count in requirements.most_common(6))
+        finding = (
+            f"{share} rule(s) are not machine-executable. The formulation agent reported what it "
+            f"was missing: {top}."
+        )
+        recommendation = (
+            "These are not extraction defects. Supply the matching trusted configuration "
+            "(fact_model, output_model, value_normalization, ...) when extracting, and re-run: "
+            "the agent can then emit executable DMN decisions instead of enrichment requests."
+        )
+        severity = "high"
+    else:
+        # No requirement codes at all: the rules did not come through the
+        # formulation path, so there is nothing specific to ask for.
+        finding = f"{share} rule(s) are not machine-executable and carry no DMN enrichment requirements."
+        recommendation = "These rules need a precise condition before the evaluator can enforce them."
+        severity = "medium"
+
+    if statuses:
+        finding += " DMN mapping status: " + ", ".join(
+            f"{status} ({count})" for status, count in statuses.most_common()
+        )
+
+    return [
+        {
+            "severity": severity,
+            "category": "not_machine_executable",
+            "finding": finding,
+            "affected_rule_ids": [r.rule_id for r in blocked],
+            "recommendation": recommendation,
+            "source": "deterministic",
+        }
+    ]
+
+
+async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], policy_set_key: str) -> bool:
     """Append AI-review findings to `findings` in place, tagged source=ai_review.
 
     Best-effort: on any failure the deterministic findings already collected
     remain valid and are returned as-is (never fails the whole report).
+
+    Returns True only when the review actually ran to completion. Callers must
+    record *this* rather than the flag they passed in: a failed review produces
+    a report with fewer findings, which reads as a cleaner policy set unless the
+    report says the review never happened. When the review was expected and did
+    not run, a finding is appended so the gap is visible in the report itself
+    and not only in the server log.
     """
     settings = get_settings()
-    if not (settings.ai_enabled and rules):
-        return
+    if not rules:
+        return False
+    if not settings.ai_enabled:
+        findings.append(
+            {
+                "severity": "medium",
+                "category": "review_coverage",
+                "finding": "AI review was requested but AI is disabled, so only deterministic checks ran.",
+                "affected_rule_ids": [],
+                "recommendation": "Enable AI to get ambiguity, conflict and gap findings.",
+                "source": "deterministic",
+            }
+        )
+        return False
     try:
         ai_client = AzureOpenAIClient(settings)
         rule_summaries = [
@@ -185,8 +292,23 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
         for f in parsed.get("findings", []):
             f["source"] = "ai_review"
             findings.append(f)
+        return True
     except Exception as exc:  # noqa: BLE001 - deterministic findings remain valid without AI review
         logger.warning("AI quality review failed for %s: %s", policy_set_key, exc)
+        findings.append(
+            {
+                "severity": "medium",
+                "category": "review_coverage",
+                "finding": f"AI review did not complete, so only deterministic checks ran: {exc}",
+                "affected_rule_ids": [],
+                "recommendation": (
+                    "Re-run the evaluation. If this repeats on a large policy set, the review sends every "
+                    "rule in one request and may be exceeding the model's context window."
+                ),
+                "source": "deterministic",
+            }
+        )
+        return False
 
 
 async def evaluate_policy_set_quality(
@@ -226,7 +348,9 @@ async def evaluate_policy_set_quality(
     )
 
     if use_ai_review:
-        await _run_ai_review(rules, findings, policy_set_key)
+        ai_review_used = await _run_ai_review(rules, findings, policy_set_key)
+    else:
+        ai_review_used = False
 
     run_id = None
     if record_run:
@@ -236,7 +360,7 @@ async def evaluate_policy_set_quality(
             version_number=active.version_number,
             rule_count=len(rules),
             findings=findings,
-            ai_review_used=use_ai_review,
+            ai_review_used=ai_review_used,
             triggered_by=triggered_by,
         )
         await session.commit()
@@ -299,7 +423,9 @@ async def evaluate_candidate_quality(
     findings = _deterministic_findings(rules) + parse_errors
 
     if use_ai_review:
-        await _run_ai_review(rules, findings, policy_set_key)
+        ai_review_used = await _run_ai_review(rules, findings, policy_set_key)
+    else:
+        ai_review_used = False
 
     run_id = None
     if record_run:
@@ -309,7 +435,7 @@ async def evaluate_candidate_quality(
             version_number=None,
             rule_count=len(rules),
             findings=findings,
-            ai_review_used=use_ai_review,
+            ai_review_used=ai_review_used,
             triggered_by=triggered_by,
         )
         await session.commit()
