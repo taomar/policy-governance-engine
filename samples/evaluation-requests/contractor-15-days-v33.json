@@ -1,0 +1,5 @@
+{
+  "policy_set_id": "hardware-provisioning-policy",
+  "facts": { "is_contractor": true, "engagement_days": 15 },
+  "correlation_id": "contractor-15-days-v3.3-active"
+}

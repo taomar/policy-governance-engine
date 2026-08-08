@@ -1,0 +1,14 @@
+interface:
+  display_name: Governed Policy Ingestion
+  short_description: Extract, reconcile, and govern policy releases
+  default_prompt: Use $build-governed-policy-ingestion to design a governed policy
+    extraction, conflict review, and publication pipeline.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

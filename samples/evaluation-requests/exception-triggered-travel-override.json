@@ -1,0 +1,5 @@
+{
+  "policy_set_id": "expense-policy",
+  "facts": { "amount": 800, "category": "travel" },
+  "correlation_id": "sample-request-exception-triggered"
+}

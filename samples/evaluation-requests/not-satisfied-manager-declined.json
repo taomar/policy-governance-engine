@@ -1,0 +1,5 @@
+{
+  "policy_set_id": "expense-policy",
+  "facts": { "amount": 500, "manager_approved": false },
+  "correlation_id": "sample-request-not-satisfied"
+}

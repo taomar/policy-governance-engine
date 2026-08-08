@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    container_name: policy-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: policy_admin
+      POSTGRES_PASSWORD: policy_admin_pw
+      POSTGRES_DB: policy_platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U policy_admin -d policy_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata:

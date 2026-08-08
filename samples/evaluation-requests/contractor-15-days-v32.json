@@ -1,0 +1,7 @@
+{
+  "policy_set_id": "hardware-provisioning-policy",
+  "policy_version_id": "17fdb3a3-9928-47f6-b226-9ede8ee1040a",
+  "use_active_version": false,
+  "facts": { "is_contractor": true, "engagement_days": 15 },
+  "correlation_id": "contractor-15-days-v3.2"
+}

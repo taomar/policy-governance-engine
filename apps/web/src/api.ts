@@ -1,0 +1,1296 @@
+/**
+ * Typed HTTP client for the Policy Platform API.
+ *
+ * Mirrors src/policy_platform/api/schemas.py and contracts/evaluation.py.
+ * Kept dependency-free (native fetch) since this is a thin admin/demo UI,
+ * not a large SPA.
+ */
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
+
+export interface ApiError {
+  status: number;
+  detail: string;
+}
+
+export class PolicyPlatformApiError extends Error implements ApiError {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? JSON.stringify(body);
+    } catch {
+      // ignore parse failure, fall back to statusText
+    }
+    throw new PolicyPlatformApiError(res.status, detail);
+  }
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return (await res.json()) as T;
+}
+
+export interface PolicySet {
+  id: string;
+  key: string;
+  name: string;
+  owner: string;
+  description: string;
+  category: string;
+  tags: string[];
+}
+
+export interface CreatePolicySetRequest {
+  key: string;
+  name: string;
+  owner: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+}
+
+export interface UpdatePolicySetRequest {
+  name?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+}
+
+export interface ApprovedPolicyVersion {
+  id: string;
+  policy_set_id: string;
+  version_number: number;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  approved_by: string;
+  approved_at: string;
+  rule_count: number;
+}
+
+export interface ImportPolicyVersionRequest {
+  version_number: number;
+  effective_from: string;
+  effective_to?: string | null;
+  approved_by: string;
+  is_active?: boolean;
+  rules: unknown[];
+}
+
+export interface PolicyAuthority {
+  level: string;
+  owner: string;
+  rank: number;
+}
+
+export interface PolicyScope {
+  jurisdictions: string[];
+  organizational_units: string[];
+  personas: string[];
+  processes: string[];
+}
+
+export type ConditionOperator =
+  | "equals"
+  | "notEquals"
+  | "greaterThan"
+  | "greaterThanOrEqual"
+  | "lessThan"
+  | "lessThanOrEqual"
+  | "in"
+  | "notIn"
+  | "contains"
+  | "startsWith"
+  | "endsWith"
+  | "exists"
+  | "isNull"
+  | "before"
+  | "after"
+  | "onOrBefore"
+  | "onOrAfter"
+  | "withinDuration"
+  | "countEquals"
+  | "countGreaterThan";
+
+export interface FactComparisonCondition {
+  type: "factComparison";
+  fact: string;
+  operator: ConditionOperator;
+  value: unknown;
+}
+
+export interface AllCondition {
+  type: "all";
+  all: ConditionNode[];
+}
+
+export interface AnyCondition {
+  type: "any";
+  any: ConditionNode[];
+}
+
+export interface NotCondition {
+  type: "not";
+  not: ConditionNode;
+}
+
+export type ConditionNode = FactComparisonCondition | AllCondition | AnyCondition | NotCondition;
+
+export interface Effect {
+  type: "allow" | "deny" | "require_action";
+  action: string;
+}
+
+export interface RequiredFact {
+  name: string;
+  data_type: string;
+  required: boolean;
+}
+
+export interface RuleException {
+  exception_id: string;
+  description: string;
+  condition?: ConditionNode | null;
+  effect_override?: Effect | null;
+  // Structured magnitude for exceptions that carry a limit rather than only
+  // prose (e.g. "up to 15 days/year for a sick family member").
+  limit_value?: number | null;
+  limit_unit?: string | null;
+}
+
+/** Non-blocking supplementary guidance attached to a rule's decision (XACML
+ * Advice), distinct from the mandatory `effect`/`require_action` Obligation.
+ * See ADR-0011. */
+export interface Advice {
+  advice_id: string;
+  text: string;
+}
+
+/** Request-side mirror of a rule's `PolicyScope` (XACML Subject/Environment
+ * attributes matched against a rule's Target). Not part of the
+ * EvaluationRequest wire contract — use `principalToFacts()` to flatten this
+ * into reserved fact keys before submitting an evaluation. */
+export interface PrincipalContext {
+  persona?: string | null;
+  organizational_unit?: string | null;
+  jurisdiction?: string | null;
+  process?: string | null;
+}
+
+/** Mirrors `PrincipalContext.to_facts()` on the backend: flattens populated
+ * dimensions into the reserved fact keys the evaluator's Target-matching
+ * step reads out of `EvaluationRequest.facts`. Only populated dimensions are
+ * included — an absent key is treated identically to an absent fact. */
+export function principalToFacts(principal: PrincipalContext): Record<string, string> {
+  const facts: Record<string, string> = {};
+  if (principal.persona) facts["subject.persona"] = principal.persona;
+  if (principal.organizational_unit) facts["subject.organizationalUnit"] = principal.organizational_unit;
+  if (principal.jurisdiction) facts["subject.jurisdiction"] = principal.jurisdiction;
+  if (principal.process) facts["context.process"] = principal.process;
+  return facts;
+}
+
+export interface AggregateLimitContribution {
+  rule_id: string;
+  amount_fact: string;
+}
+
+/** Cross-rule cap on combined numeric outcome of several rules (DMN
+ * Collect+SUM). See ADR-0008. */
+export interface AggregateLimit {
+  aggregate_id: string;
+  description: string;
+  contributing_rules: AggregateLimitContribution[];
+  aggregator: "SUM";
+  max_value: number;
+  period?: string | null;
+}
+
+/** Mutable draft aggregate-limit CRUD row (policy-set scoped, edited directly
+ * by a Policy Manager — no per-candidate review workflow). Snapshotted
+ * verbatim into an immutable `AggregateLimit` at publish time. */
+export interface AggregateLimitResponse {
+  id: string;
+  policy_set_id: string;
+  aggregate_key: string;
+  description: string;
+  contributing_rules: AggregateLimitContribution[];
+  aggregator: "SUM";
+  max_value: number;
+  period?: string | null;
+}
+
+export interface CreateAggregateLimitRequest {
+  aggregate_key: string;
+  description?: string;
+  contributing_rules: AggregateLimitContribution[];
+  aggregator?: "SUM";
+  max_value: number;
+  period?: string | null;
+}
+
+export interface UpdateAggregateLimitRequest {
+  description?: string;
+  contributing_rules: AggregateLimitContribution[];
+  aggregator?: "SUM";
+  max_value: number;
+  period?: string | null;
+}
+
+export interface EvidenceReference {
+  document_version_id: string;
+  source_hash: string;
+  page: number | null;
+  section: string | null;
+  clause_id: string | null;
+  start_offset: number | null;
+  end_offset: number | null;
+}
+
+export interface RuleLineage {
+  extraction_run_id: string | null;
+  deployment_name: string | null;
+  prompt_version: string | null;
+  parser_version: string | null;
+  schema_version: string;
+}
+
+export interface CanonicalRule {
+  schema_version: string;
+  policy_set_id: string;
+  policy_version_id: string;
+  rule_id: string;
+  rule_revision: number;
+  title: string;
+  description: string;
+  rule_type: string;
+  authority: PolicyAuthority;
+  scope: PolicyScope;
+  condition: ConditionNode;
+  effect: Effect;
+  required_facts: RequiredFact[];
+  exceptions: RuleException[];
+  priority: number;
+  effective_from: string;
+  effective_to: string | null;
+  machine_executable: boolean;
+  ambiguity_status: string;
+  review_status: string;
+  evidence: EvidenceReference[];
+  lineage: RuleLineage;
+  category: string;
+  tags: string[];
+  group_label: string;
+  related_rule_ids: string[];
+  // Section 15.4 precedence dimensions: a deliberate, named override of
+  // otherwise-applicable rules, and explicit same-version rule supersession.
+  is_explicit_override: boolean;
+  supersedes_rule_ids: string[];
+  // Non-blocking guidance attached to this rule's decision (XACML Advice).
+  // See ADR-0011. Empty on the vast majority of existing rules.
+  advice: Advice[];
+}
+
+export interface DocumentVersion {
+  id: string;
+  version_number: number;
+  content_hash: string;
+  storage_path: string;
+  mime_type: string;
+  created_at: string;
+}
+
+export interface Clause {
+  id: string;
+  clause_ref: string;
+  section: string | null;
+  page: number | null;
+  text: string;
+  sequence: number;
+}
+
+export interface SourceDocument {
+  id: string;
+  title: string;
+  owner: string;
+  source_system: string;
+  created_at: string;
+  versions: DocumentVersion[];
+  policy_set_id?: string | null;
+  policy_set_key?: string | null;
+  policy_set_name?: string | null;
+}
+
+export interface CandidateRuleDraftRequest {
+  rule: Record<string, unknown>;
+}
+
+export interface CandidateRule {
+  id: string;
+  policy_set_id: string;
+  extraction_run_id: string;
+  rule_type: string;
+  revision: number;
+  review_status: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  published_version_id: string | null;
+  created_at: string;
+  rule: CanonicalRule;
+}
+
+export interface CandidateRuleReviewRequest {
+  decision: "approve" | "reject";
+  reviewer: string;
+  notes?: string | null;
+}
+
+export interface CandidateRuleEditRequest {
+  rule: Record<string, unknown>;
+  editor: string;
+}
+
+export interface RequestChangesRequest {
+  manager: string;
+  actor_role: string;
+  reason: string;
+  notes?: string | null;
+}
+
+export interface OverrideReviewRequest {
+  manager: string;
+  actor_role: string;
+  decision: "approve" | "reject";
+  reason: string;
+  notes?: string | null;
+}
+
+export interface PublishCandidatesRequest {
+  approved_by: string;
+  effective_from: string;
+  effective_to?: string | null;
+  version_number?: number | null;
+  is_active?: boolean;
+}
+
+export type EvaluationStatus =
+  | "SATISFIED"
+  | "NOT_SATISFIED"
+  | "NOT_APPLICABLE"
+  | "INDETERMINATE"
+  | "ERROR";
+
+export interface RuleEvaluationResult {
+  rule_id: string;
+  rule_revision: number;
+  status: EvaluationStatus;
+  effect_action: string | null;
+  // The rule's effect type ("allow"/"deny"/"require_action"), so a satisfied
+  // DENY can be told apart from a satisfied ALLOW without re-fetching the rule.
+  effect_type?: "allow" | "deny" | "require_action" | null;
+  missing_facts: string[];
+  triggered_exceptions: string[];
+  // Populated when status is NOT_APPLICABLE specifically because a
+  // non-wildcard scope dimension didn't match the principal's facts (XACML
+  // Target mismatch) — e.g. "scope_mismatch:persona".
+  not_applicable_reason?: string | null;
+  // rule_id of the higher-precedence rule that won when this SATISFIED
+  // rule's action conflicted with another SATISFIED rule on the opposite
+  // allow/deny axis. null means this rule's outcome (if satisfied) stands.
+  overridden_by?: string | null;
+  // This rule's own advice text(s), populated only when SATISFIED. See
+  // ADR-0011 / EvaluationResponse.advice_notes for the aggregated version.
+  advice?: string[];
+}
+
+/** One aggregate limit whose contributing rules' summed amount exceeded
+ * max_value for this evaluation. See AggregateLimit / ADR-0008. */
+export interface AggregateBreach {
+  aggregate_id: string;
+  description: string;
+  total: number;
+  max_value: number;
+  contributing_rule_ids: string[];
+}
+
+export interface EvaluationResponse {
+  evaluation_id: string;
+  policy_set_id: string;
+  policy_version_id: string;
+  overall_status: EvaluationStatus;
+  outcome: string | null;
+  applicable_rules: string[];
+  satisfied_rules: string[];
+  failed_rules: string[];
+  missing_facts: string[];
+  // SATISFIED rules whose effect is allow/require_action only.
+  required_actions: string[];
+  // SATISFIED rules whose effect is deny, kept on its own axis rather than
+  // mixed into required_actions.
+  denied_actions?: string[];
+  triggered_exceptions: string[];
+  evidence_references: string[];
+  rule_results: RuleEvaluationResult[];
+  aggregate_breaches?: AggregateBreach[];
+  // Aggregated non-blocking guidance (XACML Advice) from the winning side's
+  // SATISFIED rules, deduped and sorted. See ADR-0011.
+  advice_notes?: string[];
+  result_hash: string;
+  evaluation_timestamp: string;
+}
+
+export interface EvaluationRequest {
+  policy_set_id: string;
+  policy_version_id?: string | null;
+  use_active_version?: boolean;
+  evaluation_timestamp?: string | null;
+  facts: Record<string, unknown>;
+  correlation_id?: string | null;
+  calling_system_identity?: string | null;
+}
+
+// ---------- AI features ----------
+
+export interface AiStatus {
+  ai_enabled: boolean;
+  search_enabled: boolean;
+  chat_deployment: string | null;
+  fast_deployment: string | null;
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AskSource {
+  heading: string | null;
+  section: string | null;
+  clause_id: string;
+  document_id: string;
+}
+
+export interface AskFact {
+  text: string;
+  source_label: string | null;
+}
+
+export interface AskGroup {
+  heading: string;
+  facts: AskFact[];
+}
+
+export interface AskResponse {
+  groups: AskGroup[];
+  reflection: string;
+  sources: AskSource[];
+}
+
+export interface ExtractResult {
+  extraction_run_id: string;
+  created: string[];
+  skipped: { item: unknown; reason: string }[];
+}
+
+export interface RewriteSuggestion {
+  current: CanonicalRule;
+  suggested: CanonicalRule;
+  explanation: string;
+}
+
+export interface ScenarioEvaluation {
+  applies: "yes" | "no" | "uncertain";
+  reasoning: string;
+  predicted_outcome: string;
+  missing_facts: string[];
+  reasoning_effort: string;
+}
+
+/** Result of the REAL, deterministic-engine-backed scenario tester (distinct
+ * from ScenarioEvaluation above, which is advisory-only). AI only produced
+ * `inferred_facts`/`assumptions` and `explanation`; `rule_result` and
+ * `overall_evaluation_status` come straight from evaluator.engine.evaluate_policy —
+ * see ai_scenario_engine.py's module docstring. */
+export interface RuleScenarioTestResult {
+  rule_id: string;
+  rule_title: string;
+  scenario: string;
+  inferred_facts: Record<string, unknown>;
+  assumptions: string[];
+  rule_result: RuleEvaluationResult | null;
+  not_in_effect: boolean;
+  overall_evaluation_status: EvaluationStatus;
+  missing_facts: string[];
+  explanation: string;
+  reasoning_effort: string;
+  evaluation_timestamp: string;
+  result_hash: string;
+}
+
+export interface QualityFinding {
+  severity: "high" | "medium" | "low";
+  category: string;
+  finding: string;
+  affected_rule_ids: string[];
+  recommendation: string;
+  source: "deterministic" | "ai_review";
+}
+
+export interface QualityReport {
+  policy_set_key: string;
+  scope?: "published" | "candidates";
+  version_number: number | null;
+  rule_count: number;
+  candidate_statuses_included?: string[];
+  findings: QualityFinding[];
+}
+
+/** One past evaluation, summarised. Findings are omitted so the history list
+ *  stays cheap to render; fetch them per-run with `getQualityRun`. */
+export interface QualityRunSummary {
+  id: string;
+  scope: "published" | "candidates";
+  version_number: number | null;
+  rule_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  finding_count: number;
+  ai_review_used: boolean;
+  triggered_by: string | null;
+  run_at: string;
+}
+
+export interface QualityRunDetail extends QualityReport {
+  id: string;
+  ai_review_used: boolean;
+  triggered_by: string | null;
+  run_at: string;
+}
+
+export interface CompareResult {
+  policy_set_key: string;
+  version_a: number;
+  version_b: number;
+  added: CanonicalRule[];
+  removed: CanonicalRule[];
+  changed: { rule_id: string; title: string; changed_fields: Record<string, { before: unknown; after: unknown }> }[];
+  unchanged_count: number;
+  narrative: string | null;
+}
+
+export interface PolicySetSummaryStats {
+  total_rules: number;
+  by_rule_type: Record<string, number>;
+  by_effect: Record<string, number>;
+  by_ambiguity_status: Record<string, number>;
+  by_category: Record<string, number>;
+  scope_coverage: {
+    jurisdictions: string[];
+    organizational_units: string[];
+    personas: string[];
+    processes: string[];
+  };
+  explicit_overrides_count: number;
+  explicit_overrides: { rule_id: string; title: string }[];
+  advice_rules_count: number;
+  aggregate_limits_count: number;
+  rules_with_sunset_date: number;
+}
+
+export interface PolicySetSummary {
+  policy_set_key: string;
+  policy_set_name: string;
+  version_number: number;
+  is_active: boolean;
+  effective_from: string | null;
+  effective_to: string | null;
+  stats: PolicySetSummaryStats;
+  narrative: string | null;
+}
+
+// ---------- Notes ----------
+
+export type NoteEntityType = "policy_set" | "policy_version" | "candidate_rule" | "rule";
+
+export interface Note {
+  id: string;
+  entity_type: NoteEntityType;
+  entity_id: string;
+  author: string;
+  author_role: string;
+  body: string;
+  created_at: string;
+}
+
+export interface CreateNoteRequest {
+  entity_type: NoteEntityType;
+  entity_id: string;
+  author: string;
+  author_role: string;
+  body: string;
+}
+
+// ---------- Policy Tests (Section 21.6 / 11.6 / 9.11 step 6) ----------
+//
+// Named, saved test cases for a policy set — distinct from the ad hoc
+// `/api/evaluations` simulation (see `EvaluationRequest`/`evaluate` above).
+// AI may propose a PolicyTest via `propose`, but every test is actually
+// executed by the real deterministic evaluator server-side; the frontend
+// never computes pass/fail itself.
+
+export type PolicyTestKind =
+  | "positive"
+  | "negative"
+  | "boundary"
+  | "missing_fact"
+  | "scope"
+  | "effective_date"
+  | "exception"
+  | "precedence";
+
+export type PolicyTestRunStatus = "pass" | "fail" | "error";
+
+export interface PolicyTest {
+  id: string;
+  policy_set_id: string;
+  name: string;
+  description: string;
+  test_kind: PolicyTestKind;
+  input_facts: Record<string, unknown>;
+  evaluation_timestamp: string | null;
+  expected_overall_status: EvaluationStatus;
+  expected_rule_id: string | null;
+  expected_rule_status: EvaluationStatus | null;
+  expected_missing_facts: string[] | null;
+  proposed_by: "ai" | "human";
+  review_status: "active" | "pending_review" | "rejected";
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PolicyTestRun {
+  id: string;
+  policy_test_id: string;
+  policy_version_id: string;
+  status: PolicyTestRunStatus;
+  explanation: string;
+  actual_response_json: EvaluationResponse | null;
+  run_trigger: "manual" | "on_publish";
+  triggered_by: string;
+  run_at: string;
+}
+
+export interface PolicyTestListItem {
+  test: PolicyTest;
+  latest_run: PolicyTestRun | null;
+}
+
+export interface CreatePolicyTestRequest {
+  name: string;
+  description?: string;
+  test_kind: PolicyTestKind;
+  input_facts: Record<string, unknown>;
+  evaluation_timestamp?: string | null;
+  expected_overall_status: EvaluationStatus;
+  expected_rule_id?: string | null;
+  expected_rule_status?: EvaluationStatus | null;
+  expected_missing_facts?: string[] | null;
+}
+
+export interface ProposePolicyTestsResponse {
+  policy_set_key: string;
+  version_number: number;
+  reasoning_effort: string;
+  proposed_tests: PolicyTest[];
+  skipped: string[];
+}
+
+export const policyTestApi = {
+  list: (policySetKey: string, opts?: { isActive?: boolean; testKind?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.isActive !== undefined) params.set("is_active", String(opts.isActive));
+    if (opts?.testKind) params.set("test_kind", opts.testKind);
+    const qs = params.toString();
+    return request<PolicyTestListItem[]>(
+      `/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}${qs ? `?${qs}` : ""}`
+    );
+  },
+
+  listFailing: (policySetKey: string) =>
+    request<PolicyTestListItem[]>(`/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}/failing`),
+
+  create: (policySetKey: string, body: CreatePolicyTestRequest) =>
+    request<PolicyTest>(`/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  propose: (policySetKey: string, reasoningEffort: "low" | "medium" | "high" = "medium") =>
+    request<ProposePolicyTestsResponse>(`/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}/propose`, {
+      method: "POST",
+      body: JSON.stringify({ reasoning_effort: reasoningEffort }),
+    }),
+
+  review: (testId: string, decision: "accept" | "reject", reviewer: string, notes?: string) =>
+    request<PolicyTest>(`/api/policy-tests/${encodeURIComponent(testId)}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision, reviewer, notes: notes ?? null }),
+    }),
+
+  run: (testId: string, triggeredBy: string, policyVersionId?: string) =>
+    request<PolicyTestRun>(`/api/policy-tests/${encodeURIComponent(testId)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ triggered_by: triggeredBy, policy_version_id: policyVersionId ?? null }),
+    }),
+
+  listRuns: (testId: string) => request<PolicyTestRun[]>(`/api/policy-tests/${encodeURIComponent(testId)}/runs`),
+};
+
+// ---------- Policy Exceptions (ADR-0009) ----------
+//
+// Ad hoc, human-requested, time-bounded waivers of a rule (or an entire
+// policy set) for one particular case — decided by a human reviewer, never
+// auto-evaluated. Distinct from the `exceptions` embedded in `CanonicalRule`
+// (a standing, automatically-evaluated carve-out baked into a rule's own
+// definition, e.g. "employees under 2 years get a reduced limit").
+
+export type PolicyExceptionDecision = "pending" | "granted" | "denied";
+
+export interface PolicyException {
+  id: string;
+  policy_set_id: string;
+  rule_id: string | null;
+  requester: string;
+  justification: string;
+  decision: PolicyExceptionDecision;
+  expiry_date: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_notes: string | null;
+  is_expired: boolean;
+  created_at: string;
+}
+
+export interface CreatePolicyExceptionRequest {
+  rule_id?: string | null;
+  requester: string;
+  justification: string;
+  expiry_date?: string | null;
+}
+
+export interface DecidePolicyExceptionRequest {
+  decision: "granted" | "denied";
+  decided_by: string;
+  decision_notes?: string | null;
+}
+
+export const policyExceptionApi = {
+  list: (policySetKey: string, opts?: { decision?: string; ruleId?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.decision) params.set("decision", opts.decision);
+    if (opts?.ruleId) params.set("rule_id", opts.ruleId);
+    const qs = params.toString();
+    return request<PolicyException[]>(
+      `/api/policy-exceptions/policy-sets/${encodeURIComponent(policySetKey)}${qs ? `?${qs}` : ""}`
+    );
+  },
+
+  create: (policySetKey: string, body: CreatePolicyExceptionRequest) =>
+    request<PolicyException>(`/api/policy-exceptions/policy-sets/${encodeURIComponent(policySetKey)}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  decide: (exceptionId: string, body: DecidePolicyExceptionRequest) =>
+    request<PolicyException>(`/api/policy-exceptions/${encodeURIComponent(exceptionId)}/decide`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+// ---------- Export ----------
+
+export type ExportFormat = "json" | "jsonl" | "csv";
+
+/** Triggers a browser "Save As" download for an already-fetched blob. */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Parses `attachment; filename="..."` out of a Content-Disposition header. */
+function filenameFromContentDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const match = /filename="?([^";]+)"?/i.exec(header);
+  return match ? match[1] : fallback;
+}
+
+async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}${path}`);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? JSON.stringify(body);
+    } catch {
+      // ignore
+    }
+    throw new PolicyPlatformApiError(res.status, detail);
+  }
+  const blob = await res.blob();
+  const filename = filenameFromContentDisposition(res.headers.get("Content-Disposition"), fallbackFilename);
+  downloadBlob(blob, filename);
+}
+
+/**
+ * Correlation: relationships *between* rules.
+ *
+ * The classification vocabulary is closed (Section 51 of the contradiction
+ * detector specification) so findings can be grouped and triaged; an open
+ * vocabulary would let each finding coin its own label.
+ *
+ * Note the deliberate absence of a confidence score. `analysisStatus` says
+ * whether the finding is real; `severity` says how bad it is if it is. A single
+ * number would collapse "certainly a minor overlap" and "possibly a critical
+ * contradiction" into the same value, and those need opposite handling.
+ */
+export type CorrelationSeverity = "critical" | "high" | "medium" | "low" | "informational";
+export type CorrelationAnalysisStatus = "confirmed" | "potential" | "ambiguous" | "resolved";
+export type CorrelationDisposition = "open" | "accepted" | "dismissed" | "resolved";
+
+export interface CorrelationEvidence {
+  policy_index: number;
+  rule_id: string;
+  source_text: string;
+  relevant_semantics?: Record<string, unknown>;
+}
+
+export interface CorrelationFinding {
+  id: string;
+  run_id: string;
+  classification: string;
+  analysis_status: CorrelationAnalysisStatus;
+  severity: CorrelationSeverity;
+  rule_ids: string[];
+  reason: string;
+  evidence: CorrelationEvidence[];
+  overlap?: { type?: string | null; fact?: string | null; scope?: string | null } | null;
+  requirements: string[];
+  disposition: CorrelationDisposition;
+  disposition_by: string | null;
+  disposition_at: string | null;
+  disposition_notes: string | null;
+  created_at: string | null;
+}
+
+export interface CorrelationFindingsResponse {
+  run_id: string | null;
+  findings: CorrelationFinding[];
+  by_classification: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export interface CorrelationRunSummary {
+  id: string;
+  status: string;
+  rules_analyzed: number;
+  groups_analyzed: number;
+  /** Rules that shared no comparison signal with any other and so were never
+   * examined. Surfaced because a coverage gap the reviewer cannot see is one
+   * they will assume does not exist. */
+  rules_uncompared: number;
+  prompt_version: string | null;
+  error_message: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface CorrelationRunResult {
+  correlation_run_id: string;
+  policy_set_key: string;
+  rules_analyzed: number;
+  groups_analyzed: number;
+  rules_uncompared: number;
+  findings_stored: number;
+  duplicates_suppressed: number;
+  findings_examined: number;
+  non_actionable_suppressed: number;
+  examined_by_classification: Record<string, number>;
+  by_classification: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export const aiApi = {
+  status: () => request<AiStatus>("/api/ai/status"),
+
+  ask: (question: string, policySetKey?: string, history: ChatTurn[] = [], focusCandidateRuleId?: string) =>
+    request<AskResponse>("/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        question,
+        policy_set_key: policySetKey ?? null,
+        history,
+        focus_candidate_rule_id: focusCandidateRuleId ?? null,
+      }),
+    }),
+
+  extractWithAi: (policySetKey: string, documentVersionId: string) =>
+    request<ExtractResult>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/documents/${encodeURIComponent(documentVersionId)}/extract`,
+      { method: "POST" }
+    ),
+
+  suggestRewrite: (candidateId: string, instruction: string) =>
+    request<RewriteSuggestion>(`/api/ai/candidate-rules/${encodeURIComponent(candidateId)}/rewrite`, {
+      method: "POST",
+      body: JSON.stringify({ instruction }),
+    }),
+
+  applyRewrite: (candidateId: string, suggestedPayload: Record<string, unknown>) =>
+    request<{ id: string; revision: number }>(
+      `/api/ai/candidate-rules/${encodeURIComponent(candidateId)}/rewrite/apply`,
+      { method: "POST", body: JSON.stringify({ suggested_payload: suggestedPayload }) }
+    ),
+
+  // Same AI rewrite as `suggestRewrite`, but for a rule that has no saved
+  // CandidateRule yet (the "Revise this rule" form, pre-filled from a
+  // published rule). Returns a suggestion the caller applies to its own
+  // in-progress form state — nothing is persisted server-side.
+  rewritePreview: (rule: CanonicalRule, instruction: string) =>
+    request<RewriteSuggestion>("/api/ai/rules/rewrite-preview", {
+      method: "POST",
+      body: JSON.stringify({ rule, instruction }),
+    }),
+
+  // Advisory-only AI reasoning about how a rule (possibly still being
+  // edited) would apply to a plain-English scenario. Never touches the
+  // deterministic evaluation engine — see ai_scenario_eval.py.
+  evaluateScenario: (rule: CanonicalRule, scenario: string, reasoningEffort: string) =>
+    request<ScenarioEvaluation>("/api/ai/rules/evaluate-scenario", {
+      method: "POST",
+      body: JSON.stringify({ rule, scenario, reasoning_effort: reasoningEffort }),
+    }),
+
+  // The REAL, deterministic-engine-backed scenario tester for an already
+  // -published rule: AI only translates the scenario into facts and explains
+  // the result; evaluator.engine.evaluate_policy always decides the verdict.
+  // See ai_scenario_engine.py's module docstring for how this differs from
+  // evaluateScenario above.
+  testRuleScenario: (policySetKey: string, ruleId: string, scenario: string, reasoningEffort: string) =>
+    request<RuleScenarioTestResult>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/rules/${encodeURIComponent(ruleId)}/test-scenario`,
+      {
+        method: "POST",
+        body: JSON.stringify({ scenario, reasoning_effort: reasoningEffort }),
+      }
+    ),
+
+  compareVersions: (policySetKey: string, versionA: number, versionB: number, narrative = true) =>
+    request<CompareResult>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/compare?version_a=${versionA}&version_b=${versionB}&narrative=${narrative}`
+    ),
+
+  getQuality: (policySetKey: string) =>
+    request<QualityReport>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality`),
+
+  getCandidateQuality: (policySetKey: string) =>
+    request<QualityReport>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/candidates/quality`),
+
+  // History exists so a reviewer can tell whether the policy set is getting
+  // better or worse. A single evaluation says "12 findings", which is only
+  // meaningful next to last week's number.
+  getQualityHistory: (policySetKey: string, scope?: "published" | "candidates", limit = 50) =>
+    request<QualityRunSummary[]>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality/history?limit=${limit}` +
+        (scope ? `&scope=${scope}` : "")
+    ),
+
+  getQualityRun: (policySetKey: string, runId: string) =>
+    request<QualityRunDetail>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality/history/${encodeURIComponent(runId)}`
+    ),
+
+  // Whole-policy-set rollup: deterministic rule-count/scope/override/obligation
+  // breakdown, plus (when narrative=true and AI is enabled) a plain-English AI
+  // narrative of what the policy set as a whole governs. Defaults to the
+  // active published version. See ai_summary.py.
+  getPolicySetSummary: (policySetKey: string, narrative = true) =>
+    request<PolicySetSummary>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/summary?narrative=${narrative}`
+    ),
+
+  // Correlation: relationships *between* rules. Quality review examines one
+  // rule at a time and so cannot see a contradiction — both rules in a
+  // contradictory pair are usually well-formed on their own.
+  runCorrelation: (policySetKey: string, body: { actionable_only?: boolean; max_groups?: number } = {}) =>
+    request<CorrelationRunResult>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/correlate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listCorrelationRuns: (policySetKey: string) =>
+    request<CorrelationRunSummary[]>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/correlate/runs`
+    ),
+
+  getCorrelationFindings: (policySetKey: string, runId?: string) =>
+    request<CorrelationFindingsResponse>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/correlate/findings` +
+        (runId ? `?run_id=${encodeURIComponent(runId)}` : "")
+    ),
+
+  setFindingDisposition: (findingId: string, disposition: string, dispositionBy: string, notes = "") =>
+    request<CorrelationFinding>(
+      `/api/ai/correlate/findings/${encodeURIComponent(findingId)}/disposition`,
+      {
+        method: "POST",
+        body: JSON.stringify({ disposition, disposition_by: dispositionBy, notes }),
+      }
+    ),
+};
+
+export interface AuditEvent {
+  id: string;
+  event_type: string;
+  entity_type: string;
+  entity_id: string | null;
+  actor: string;
+  details: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface AuditEventPage {
+  events: AuditEvent[];
+  count: number;
+  truncated: boolean;
+}
+
+export const auditApi = {
+  list: (params: {
+    entityType?: string;
+    entityId?: string;
+    eventType?: string;
+    actor?: string;
+    limit?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.entityType) qs.set("entity_type", params.entityType);
+    if (params.entityId) qs.set("entity_id", params.entityId);
+    if (params.eventType) qs.set("event_type", params.eventType);
+    if (params.actor) qs.set("actor", params.actor);
+    if (params.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString();
+    return request<AuditEventPage>(`/api/audit-events${suffix ? `?${suffix}` : ""}`);
+  },
+};
+
+export const api = {
+  health: () => request<{ status: string }>("/health"),
+
+  listPolicySets: () => request<PolicySet[]>("/api/policy-sets"),
+
+  getPolicySet: (key: string) => request<PolicySet>(`/api/policy-sets/${encodeURIComponent(key)}`),
+
+  createPolicySet: (body: CreatePolicySetRequest) =>
+    request<PolicySet>("/api/policy-sets", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updatePolicySet: (key: string, body: UpdatePolicySetRequest) =>
+    request<PolicySet>(`/api/policy-sets/${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  importPolicyVersion: (key: string, body: ImportPolicyVersionRequest) =>
+    request<ApprovedPolicyVersion>(`/api/policy-sets/${encodeURIComponent(key)}/versions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getActiveVersion: (key: string) =>
+    request<ApprovedPolicyVersion>(`/api/policy-sets/${encodeURIComponent(key)}/active-version`),
+
+  listPolicyVersions: (key: string) =>
+    request<ApprovedPolicyVersion[]>(`/api/policy-sets/${encodeURIComponent(key)}/versions`),
+
+  getVersionRules: (key: string, versionId: string) =>
+    request<CanonicalRule[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/rules`
+    ),
+
+  getVersionAggregateLimits: (key: string, versionId: string) =>
+    request<AggregateLimit[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/aggregate-limits`
+    ),
+
+  listAggregateLimits: (key: string) =>
+    request<AggregateLimitResponse[]>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`),
+
+  createAggregateLimit: (key: string, body: CreateAggregateLimitRequest) =>
+    request<AggregateLimitResponse>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateAggregateLimit: (key: string, aggregateKey: string, body: UpdateAggregateLimitRequest) =>
+    request<AggregateLimitResponse>(
+      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/${encodeURIComponent(aggregateKey)}`,
+      { method: "PUT", body: JSON.stringify(body) }
+    ),
+
+  deleteAggregateLimit: (key: string, aggregateKey: string) =>
+    request<void>(
+      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/${encodeURIComponent(aggregateKey)}`,
+      { method: "DELETE" }
+    ),
+
+  listDocuments: (policySetKey?: string) =>
+    request<SourceDocument[]>(
+      `/api/documents${policySetKey ? `?policy_set_key=${encodeURIComponent(policySetKey)}` : ""}`
+    ),
+
+  getDocumentClauses: (documentVersionId: string) =>
+    request<Clause[]>(`/api/documents/${encodeURIComponent(documentVersionId)}/clauses`),
+
+  uploadDocument: async (title: string, owner: string, file: File, policySetKey?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    const params = new URLSearchParams({ title, owner });
+    if (policySetKey) params.set("policy_set_key", policySetKey);
+    const res = await fetch(`${API_BASE_URL}/api/documents/upload?${params.toString()}`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail ?? JSON.stringify(body);
+      } catch {
+        // ignore
+      }
+      throw new PolicyPlatformApiError(res.status, detail);
+    }
+    return res.json();
+  },
+
+  assignDocumentToProject: (documentId: string, policySetKey: string | null) =>
+    request<SourceDocument>(`/api/documents/${encodeURIComponent(documentId)}/assign`, {
+      method: "PATCH",
+      body: JSON.stringify({ policy_set_key: policySetKey }),
+    }),
+
+  draftCandidateRule: (key: string, body: CandidateRuleDraftRequest) =>
+    request<CandidateRule>(`/api/policy-sets/${encodeURIComponent(key)}/candidate-rules`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listCandidateRules: (key: string, status?: string) =>
+    request<CandidateRule[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules${status ? `?status=${encodeURIComponent(status)}` : ""}`
+    ),
+
+  reviewCandidateRule: (key: string, candidateId: string, body: CandidateRuleReviewRequest) =>
+    request<CandidateRule>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/${encodeURIComponent(candidateId)}/review`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  editCandidateRule: (key: string, candidateId: string, body: CandidateRuleEditRequest) =>
+    request<CandidateRule>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/${encodeURIComponent(candidateId)}`,
+      { method: "PUT", body: JSON.stringify(body) }
+    ),
+
+  requestChanges: (key: string, candidateId: string, body: RequestChangesRequest) =>
+    request<CandidateRule>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/${encodeURIComponent(candidateId)}/request-changes`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  overrideReview: (key: string, candidateId: string, body: OverrideReviewRequest) =>
+    request<CandidateRule>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/${encodeURIComponent(candidateId)}/override`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  bulkReviewCandidateRules: (
+    key: string,
+    body: { candidate_ids: string[]; decision: "approve" | "reject"; reviewer: string; notes?: string }
+  ) =>
+    request<{ reviewed: number; skipped: string[] }>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/bulk-review`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  publishCandidates: (key: string, body: PublishCandidatesRequest) =>
+    request<ApprovedPolicyVersion>(`/api/policy-sets/${encodeURIComponent(key)}/publish`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  evaluate: (body: EvaluationRequest) =>
+    request<EvaluationResponse>("/api/evaluations", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // ---------- Notes ----------
+
+  listNotes: (entityType: NoteEntityType, entityId: string) =>
+    request<Note[]>(
+      `/api/notes?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`
+    ),
+
+  createNote: (body: CreateNoteRequest) =>
+    request<Note>("/api/notes", { method: "POST", body: JSON.stringify(body) }),
+
+  deleteNote: (noteId: string) => request<void>(`/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" }),
+
+  // ---------- Export (triggers a browser download; no return value) ----------
+
+  exportVersionRules: (key: string, versionId: string, format: ExportFormat) =>
+    downloadFile(
+      `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/export?format=${format}`,
+      `${key}-rules.${format}`
+    ),
+
+  exportCandidateRules: (key: string, format: ExportFormat, status?: string) =>
+    downloadFile(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules/export?format=${format}${
+        status ? `&status=${encodeURIComponent(status)}` : ""
+      }`,
+      `${key}-candidate-rules.${format}`
+    ),
+};

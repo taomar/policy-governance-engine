@@ -1,0 +1,3151 @@
+/* ==========================================================================
+   App shell layout only — everything else is Ant Design components styled
+   via the ConfigProvider theme in main.tsx. Component-specific styling
+   (that AntD doesn't cover) lives in each component's own class names below.
+   ========================================================================== */
+
+.app-shell {
+  height: 100vh;
+  width: 100%;
+}
+
+/* ---------- Sider ---------- */
+
+.app-sider {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 20px 20px 16px;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #a855f7 100%);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.02em;
+}
+
+.brand-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 1px;
+}
+
+.app-menu {
+  flex: 1;
+  border-inline-end: none !important;
+  padding: 0 10px;
+}
+
+.sider-footer {
+  padding: 14px 20px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.env-tag {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 11.5px;
+}
+
+/* ---------- Header ----------
+   Invariant: the header is exactly one row, exactly 60px tall, and never
+   bleeds into .app-content below it.
+
+   This was previously unenforced and broke badly: both flex children are
+   antd <Space> wrappers, and neither declared flex-shrink or min-width. A
+   long project name in the breadcrumb therefore shrank *both* groups, and
+   because <Space> puts every child in its own .ant-space-item, those items
+   collapsed to a few characters wide and wrapped mid-word ("con/nect/ed").
+   The old `line-height: 60px` (a vertical-centering hack made redundant by
+   align-items: center) then rendered every wrapped line 60px tall, so the
+   overflow spilled over the page content. Ownership of "stay one row" lives
+   here, so the fix lives here too — not in whatever supplies the title. */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding: 0 28px;
+  border-bottom: 1px solid #eef0f4;
+  height: 60px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+/* The breadcrumb is the variable-length side, so it is the side that yields. */
+.breadcrumb {
+  font-size: 13.5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.breadcrumb > .ant-space-item {
+  white-space: nowrap;
+}
+
+/* Fixed segments ("Policy Platform", "/", the nav label) keep their width... */
+.breadcrumb > .ant-space-item:not(:last-child) {
+  flex: 0 0 auto;
+}
+
+/* ...and only the trailing project name absorbs the overflow as an ellipsis. */
+.breadcrumb > .ant-space-item:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.breadcrumb > .ant-space-item:last-child > .ant-typography {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status readouts and actions are fixed affordances — never crush them. */
+.header-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.header-actions > .ant-space-item {
+  flex: 0 0 auto;
+}
+
+.status-text {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.header-divider {
+  width: 1px;
+  height: 16px;
+  background: #e5e7eb;
+  display: inline-block;
+  margin: 0 2px;
+}
+
+/* ---------- Content ---------- */
+
+.app-content {
+  overflow-y: auto;
+  height: calc(100vh - 60px);
+}
+
+.page-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 26px 32px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* The Policies workspace is a two-pane data view, not prose — the 1320px
+   reading-width cap that suits every other page just wastes half a wide
+   monitor here. Scoped with :has() so no other page is affected and so the
+   widening degrades to the default cap on engines without :has() support. */
+.page-inner:has(.policies-workspace--desktop) {
+  max-width: 1760px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+/* ---------- Condition tree (ConditionView) ---------- */
+
+.cond-tree .ant-tree-treenode {
+  padding: 3px 0;
+}
+
+.cond-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7c3aed;
+}
+
+.cond-leaf {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cond-fact {
+  color: #6d28d9;
+  background: #f5f3ff !important;
+  border-color: #ddd6fe !important;
+}
+
+.cond-op {
+  color: #6b7280;
+}
+
+.cond-value {
+  font-size: 12px;
+}
+
+/* ---------- RuleCard ---------- */
+
+.rule-card {
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.rule-card:hover {
+  border-color: #ddd6fe;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.1);
+}
+
+.rule-card-header {
+  align-items: center;
+}
+
+.rule-card-header-spacer {
+  flex: 1 1 auto;
+}
+
+.rule-card-header-action {
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.rule-card-header-action:hover {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+.rule-card-id {
+  font-size: 12px;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.rule-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rule-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-card-section-title {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+}
+
+/* Entity band: prominent "who sets it / who it applies to / what happens"
+   summary at the top of the card body — the answer to "who can do what". */
+.entity-band {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f5f7ff;
+  border: 1px solid #e0e7ff;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.entity-band-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.entity-band-icon {
+  color: #6366f1;
+  font-size: 12px;
+}
+
+.entity-band-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6366f1;
+  font-weight: 600;
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.entity-band-value {
+  color: #1e293b;
+}
+
+.entity-band-row-action {
+  padding-top: 8px;
+  border-top: 1px dashed #dbe2fb;
+  align-items: center;
+}
+
+.entity-band-action-text {
+  font-weight: 600;
+}
+
+.entity-band-priority {
+  margin-left: auto;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.precedence-band {
+  background: #faf5ff;
+  border: 1px solid #f3e8ff;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.record-details .rule-card-section-title {
+  color: #d1d5db;
+}
+
+.cond-box {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.cond-box-nested {
+  margin-top: 6px;
+}
+
+.fact-tag {
+  background: #f8fafc !important;
+  color: #334155 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fact-type {
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+.fact-optional {
+  font-size: 10.5px;
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.exception-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.exception-item-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exception-limit-tag {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+}
+
+.exception-condition-label {
+  font-size: 11px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.aggregate-contribution-box {
+  background: #f0f7ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aggregate-limits-page {
+  padding: 4px 2px;
+}
+
+.aggregate-limit-card {
+  border-radius: 10px;
+  border-color: #e5e7eb;
+}
+
+.aggregate-limit-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aggregate-limit-contributors {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.aggregate-limit-form-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.aggregate-limit-form-row {
+  align-items: baseline;
+}
+
+.rule-card-scope {
+  font-size: 12.5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.evidence-line {
+  font-size: 12.5px;
+}
+
+.evidence-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.evidence-quote-box {
+  background: #fcfbf7;
+  border: 1px solid #ece7da;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.evidence-quote-text.ant-typography {
+  margin-bottom: 0 !important;
+  font-style: italic;
+  color: #3f3a2e;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.evidence-quote-missing {
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.evidence-quote-missing-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.evidence-empty-block {
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.evidence-context-link.ant-btn {
+  padding: 0;
+  height: auto;
+  font-size: 12px;
+}
+
+/* ---------- Dashboard ---------- */
+
+.stat-card {
+  cursor: pointer;
+}
+
+.quick-links-card .ant-card-body {
+  padding: 16px 20px;
+}
+
+.toolkit-card .ant-card-body {
+  padding: 16px 20px;
+}
+
+.toolkit-tool-card {
+  height: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.toolkit-tool-card:hover {
+  border-color: #7c3aed;
+  transform: translateY(-1px);
+}
+
+.toolkit-tool-icon {
+  font-size: 20px;
+  color: #7c3aed;
+  padding-top: 2px;
+}
+
+.version-notes-card {
+  background: #fafafa;
+}
+
+/* ---------- Project overview lifecycle flow ---------- */
+
+.project-flow {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.project-flow-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 22px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.project-flow-step:hover {
+  background: #faf9ff;
+}
+
+.project-flow-step:not(:first-child) {
+  border-left: 1px solid #eef0f4;
+}
+
+.project-flow-step-attn .project-flow-value {
+  color: #b45309;
+}
+
+.project-flow-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.project-flow-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #1f2937;
+}
+
+.project-flow-label {
+  font-size: 12.5px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.project-flow-connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  color: #d1d5db;
+  font-size: 13px;
+  background: #fff;
+  z-index: 1;
+  margin-left: -1px;
+  border-left: 1px solid #eef0f4;
+}
+
+@media (max-width: 700px) {
+  .project-flow {
+    flex-direction: column;
+  }
+
+  .project-flow-step:not(:first-child) {
+    border-left: none;
+    border-top: 1px solid #eef0f4;
+  }
+
+  .project-flow-connector {
+    display: none;
+  }
+}
+
+/* ---------- Policy Sets / shared page bits ---------- */
+
+.back-btn {
+  align-self: flex-start;
+}
+
+.page-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* ---------- Page & section titles ----------
+   Two levels, deliberately distinct so a page never reads as a flat wall of
+   bold text: the page title is the only thing at its weight, and section
+   headings sit clearly below it with a lighter, wider-tracked treatment. */
+
+.page-title {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text-heading, #0f172a);
+  margin: 0;
+}
+
+/* Every page renders its heading as antd <Title level={3}>. Styling the
+   element here rather than in 11 call sites keeps the treatment in one
+   place and means new pages inherit it for free. */
+.page-inner h3.ant-typography {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+/* Section headings inside a page sit a clear step below the page title. */
+.page-inner h4.ant-typography,
+.page-inner h5.ant-typography {
+  letter-spacing: -0.01em;
+  color: #1e293b;
+}
+
+.page-subtitle {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary, #64748b);
+  max-width: 78ch;
+  margin: 6px 0 0;
+}
+
+/* Small uppercase eyebrow used above/inside panels (e.g. "ORIGINAL SOURCE
+   TEXT"). Kept at one size everywhere so panels look like siblings. */
+.section-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #94a3b8);
+}
+
+/* ---------- Segmented tabs (primary navigation / mode switches) ----------
+   A pill bar rather than antd's default underline. Nested tabs (the rule
+   inspector's Overview/Logic/Scope/History/Notes) keep the underline
+   treatment, so the two levels of tab are never confusable.
+   `.tabs-segmented` is the reusable hook; `.workspace-tabs` is the project
+   tab strip and also picks up the layout rules below it. */
+
+.workspace-tabs > .ant-tabs-nav {
+  margin-bottom: 20px;
+}
+
+.tabs-segmented > .ant-tabs-nav::before,
+.workspace-tabs > .ant-tabs-nav::before {
+  display: none;
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-nav-wrap,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-nav-list,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-nav-list {
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  /* The page sits on #f7f7fb, so the track needs to be a clear step darker
+     plus a hairline, otherwise the control reads as loose floating text. */
+  background: #ebedf3;
+  border: 1px solid rgba(15, 23, 42, 0.055);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.045);
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-tab,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-tab {
+  margin: 0 !important;
+  padding: 6px 15px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #64748b;
+  transition: background-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-tab:hover,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-tab:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-tab-active,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-tab-active {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.09), 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.tabs-segmented > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #6d28d9 !important;
+  font-weight: 600;
+}
+
+/* The sliding underline is the wrong affordance for a segmented control —
+   the moving white pill already shows which tab is active. */
+.tabs-segmented > .ant-tabs-nav .ant-tabs-ink-bar,
+.workspace-tabs > .ant-tabs-nav .ant-tabs-ink-bar {
+  display: none;
+}
+
+.policy-set-card {
+  cursor: pointer;
+  height: 100%;
+}
+
+.policy-set-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.policy-set-card-tags {
+  margin-top: 8px;
+}
+
+.policy-set-card-desc {
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.project-card-stats {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 12.5px;
+  color: #6b7280;
+}
+
+.project-card-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.project-card-stat-attn {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* ---------- Ask AI drawer (custom chat UI) ---------- */
+
+.ask-ai-subtitle {
+  padding: 0 20px;
+  margin-bottom: 12px !important;
+  font-size: 12px;
+}
+
+.ask-ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 200px;
+}
+
+.ask-ai-empty {
+  padding: 20px 0;
+}
+
+.ask-ai-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ask-ai-msg-user {
+  flex-direction: row-reverse;
+}
+
+.ask-ai-avatar-ai {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+}
+
+.ask-ai-avatar-user {
+  background: #334155;
+}
+
+.ask-ai-msg-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 82%;
+}
+
+.ask-ai-msg-user .ask-ai-msg-content {
+  align-items: flex-end;
+}
+
+.ask-ai-msg-bubble {
+  background: #f4f4f6;
+  border-radius: 12px;
+  padding: 9px 13px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ask-ai-msg-user .ask-ai-msg-bubble {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.ask-ai-msg-error .ask-ai-msg-bubble {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.ask-ai-thinking {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.ask-ai-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.ask-ai-sources-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ask-ai-source-chip {
+  font-size: 11px;
+}
+
+.ask-ai-structured {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.ask-ai-fact-groups {
+  background: #f4f4f6;
+  border-radius: 12px;
+  padding: 2px 10px;
+}
+
+.ask-ai-fact-groups .ant-collapse-item {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.ask-ai-fact-groups .ant-collapse-item:last-child {
+  border-bottom: none;
+}
+
+.ask-ai-fact-groups .ant-collapse-header {
+  padding: 8px 0 !important;
+}
+
+.ask-ai-fact-groups .ant-collapse-content-box {
+  padding: 0 0 10px !important;
+}
+
+.ask-ai-group-heading {
+  font-size: 13px;
+  color: #1f2937;
+}
+
+.ask-ai-fact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-ai-fact-item {
+  background: #fff;
+  border: 1px solid #ececf0;
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.ask-ai-fact-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #1f2937;
+  white-space: pre-wrap;
+  font-style: italic;
+}
+
+.ask-ai-fact-source {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8b5cf6;
+  font-weight: 500;
+}
+
+.ask-ai-reflection {
+  background: linear-gradient(135deg, #f5f3ff, #eef2ff);
+  border: 1px solid #ddd6fe;
+  border-radius: 12px;
+  padding: 10px 13px;
+}
+
+.ask-ai-reflection-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7c3aed;
+  margin-bottom: 4px;
+}
+
+.ask-ai-reflection-text {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #312e81;
+  margin-bottom: 0 !important;
+  white-space: pre-wrap;
+}
+
+/* ---------- Document body drawer (read the original policy text) ---------- */
+
+.doc-body-drawer .ant-drawer-body {
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-body-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.doc-body-match-count {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.doc-body-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0;
+}
+
+.doc-body-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.doc-body-page-marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #b0b3bb;
+}
+
+.doc-body-page-marker::before,
+.doc-body-page-marker::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #ececf0;
+}
+
+.doc-body-section-heading.ant-typography {
+  margin: 20px 0 10px;
+  padding-top: 4px;
+  font-size: 14.5px;
+  color: #1f2937;
+  border-top: 1px solid #f0f0f0;
+}
+
+.doc-body-flow > div:first-child .doc-body-section-heading.ant-typography {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.doc-body-paragraph {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+}
+
+.doc-body-paragraph:hover {
+  background: #fafaf8;
+}
+
+.doc-body-paragraph-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-body-paragraph-text.ant-typography {
+  margin-bottom: 2px !important;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #262626;
+}
+
+.doc-body-clause-ref {
+  font-size: 10px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.doc-body-paragraph:hover .doc-body-clause-ref,
+.doc-body-table-row:hover .doc-body-clause-ref {
+  opacity: 1;
+}
+
+.doc-body-table-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 8px 10px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.doc-body-table-icon {
+  margin-top: 3px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.doc-body-table-row .doc-body-paragraph-text.ant-typography {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+  color: #334155;
+}
+
+.doc-body-highlight {
+  background: #fef08a;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.doc-body-focus {
+  animation: doc-body-flash 2.2s ease;
+  border-radius: 8px;
+}
+
+@keyframes doc-body-flash {
+  0% {
+    background: #fef3c7;
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.ask-ai-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* ---------- Review Queue candidate items ---------- */
+
+.review-controls-bar {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.review-controls-bar .ant-btn,
+.policies-toolbar-row .ant-btn {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.review-controls-bar .ant-btn:hover,
+.policies-toolbar-row .ant-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(124, 58, 237, 0.15);
+}
+
+.modern-card {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.progress-stats-bar {
+  background: linear-gradient(135deg, #f5f3ff, #eef2ff);
+  border: 1px solid #e0e7ff;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.candidate-item {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #f0f0f2;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.candidate-row {
+  border-bottom: none;
+  border-radius: 10px;
+}
+
+.candidate-row-status-tag {
+  font-size: 11px;
+  line-height: 18px;
+  margin-inline-end: 0;
+}
+
+.candidate-row-actions {
+  flex-shrink: 0;
+}
+
+.candidate-item-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 14px 14px;
+  border-top: 1px solid #f5f5f7;
+  background: #fafafa;
+}
+
+.candidate-item-detail .rule-card {
+  margin-top: 10px;
+}
+
+.candidate-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 4px;
+}
+
+.candidate-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 4px 0;
+}
+
+.bulk-bar {
+  background: #faf5ff;
+  border-color: #ede9fe;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.extract-panel {
+  background: #fafafa;
+}
+
+/* ---------- Actor switcher ---------- */
+
+.actor-switcher-btn {
+  font-size: 12.5px;
+}
+
+.actor-switcher-role {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.actor-switcher-popover {
+  width: 260px;
+}
+
+.actor-field-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.actor-role-description {
+  display: block;
+  font-size: 11.5px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* ---------- Notes panel ---------- */
+
+.notes-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notes-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.notes-count-tag {
+  background: #f5f3ff !important;
+  color: #7c3aed !important;
+  border: none;
+}
+
+.notes-panel-error {
+  margin-bottom: 0 !important;
+}
+
+.notes-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.notes-role-tag {
+  background: #f8fafc !important;
+  color: #64748b !important;
+  font-size: 10.5px;
+}
+
+.notes-timestamp {
+  font-size: 11px;
+}
+
+.notes-body {
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.notes-composer {
+  align-items: flex-end;
+}
+
+/* ---------- Copyable entity IDs ---------- */
+
+.entity-id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-family: "IBM Plex Mono", monospace;
+  color: #9ca3af;
+}
+
+/* Below ~1120px the header's fixed affordances (two status readouts, Ask AI,
+   the actor switcher) leave the breadcrumb almost no room. Drop the status
+   *labels* first — the coloured Badge dots still convey API/AI state — so the
+   breadcrumb keeps enough width to stay legible instead of ellipsing away. */
+@media (max-width: 1120px) {
+  .status-text {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-inner {
+    padding: 18px 16px 40px;
+  }
+
+  .app-header {
+    padding: 0 16px;
+  }
+}
+
+/* ==========================================================================
+   Policies tab — master/detail workspace
+   ========================================================================== */
+
+/* ---------- Workspace layout ---------- */
+
+.policies-workspace {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.policies-workspace--desktop {
+  height: calc(100vh - 232px);
+  min-height: 520px;
+}
+
+.policies-workspace--narrow {
+  height: auto;
+}
+
+.policies-workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 520px;
+  max-width: 720px;
+}
+
+.policies-workspace--narrow .policies-workspace-list {
+  max-width: none;
+  flex: 1 1 auto;
+}
+
+.policies-workspace--narrow .policy-list-scroll,
+.policies-workspace--narrow .policy-list-empty {
+  height: 60vh;
+  min-height: 320px;
+}
+
+.policies-workspace-inspector {
+  flex: 1 1 640px;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Toolbar ---------- */
+
+.policies-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.policies-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.policies-toolbar-search {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.policies-toolbar-select {
+  min-width: 148px;
+}
+
+.policies-toolbar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.policies-toolbar-count {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.policies-family-clear {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: #7c3aed;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ---------- Family strip ----------
+   Related rules are almost never adjacent under any sort order, so the left-edge
+   bands alone can't answer "what families exist here?" — you'd have to scroll the
+   whole list to find out. This strip answers that up front: every family, largest
+   first, as a colored chip that doubles as a one-click isolation lens. */
+
+.policies-family-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #eef0f4;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fcfcfe 0%, #f7f8fb 100%);
+}
+
+.policies-family-strip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6b7280;
+  white-space: nowrap;
+  padding-top: 3px;
+  flex: none;
+}
+
+/* When collapsed the strip is at most two rows; expanded it may be taller, but
+   never so tall that it crowds out the list it describes. */
+.policies-family-strip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-height: 118px;
+  overflow-y: auto;
+}
+
+.policies-family-more {
+  border: 1px dashed #d1d5db;
+  border-radius: 999px;
+  background: none;
+  padding: 2px 10px;
+  font-size: 11.5px;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.policies-family-more:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+.policies-family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11.5px;
+  color: #4b5563;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.policies-family-chip:hover {
+  border-color: var(--family-color, #d1d5db);
+  background: #fff;
+}
+
+.policies-family-chip--active {
+  border-color: var(--family-color, #7c3aed);
+  box-shadow: 0 0 0 1px var(--family-color, #7c3aed);
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.policies-family-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--family-color, #9ca3af);
+  flex: none;
+}
+
+.policies-family-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.policies-family-chip-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 0 5px;
+  flex: none;
+}
+
+.policies-family-chip--active .policies-family-chip-count {
+  color: #fff;
+  background: var(--family-color, #7c3aed);
+}
+
+.policies-filter-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 280px;
+}
+
+.policies-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.policies-filter-row-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+}
+
+.policies-filter-row-select {
+  width: 100%;
+}
+
+.policies-filter-clear-btn {
+  align-self: flex-start;
+}
+
+/* ---------- Policy list (virtualized) ---------- */
+
+.policy-list-scroll {
+  flex: 1;
+  min-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  position: relative;
+}
+
+.policy-list-scroll:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
+.policy-list-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.policy-list-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+/* ---------- Group headers ---------- */
+
+.policy-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  user-select: none;
+  height: 100%;
+}
+
+.policy-group-header:hover {
+  background: #f5f3ff;
+}
+
+.policy-group-header:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
+.policy-group-caret {
+  font-size: 10px;
+  color: #9ca3af;
+  transition: transform 0.15s ease;
+}
+
+.policy-group-caret-open {
+  transform: rotate(90deg);
+}
+
+.policy-group-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.policy-group-count {
+  font-size: 11px;
+  color: #b0b4bd;
+}
+
+/* ---------- Policy row ---------- */
+
+.policy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #f5f5f7;
+  cursor: pointer;
+  background: #fff;
+  position: relative;
+  transition: background-color 0.12s ease;
+}
+
+.policy-row:hover {
+  background: #faf9ff;
+}
+
+/* ---------- Family block ----------
+   A run of consecutive same-family rows has to read as ONE nested object, not
+   as N separate cards that happen to carry a stripe. Four things do that work
+   together, and all four are needed:
+     1. indentation      — the run is visibly *inside* something
+     2. a resting wash   — one continuous surface instead of white gaps
+     3. merged edges     — no internal divider, rounded only at the run's ends
+     4. rail + nodes     — a spine with one dot per member, so the family is
+                           countable at a glance
+   Everything is driven by --cluster-accent / --cluster-wash, set per-row in
+   PolicyRow so each family keeps its own colour identity. */
+
+.policy-row--family {
+  padding-left: 32px;
+  background: var(--cluster-wash, #fff);
+}
+
+.policy-row--family:hover {
+  background: var(--cluster-tint, #faf9ff);
+}
+
+/* Rows inside a run share one surface — a divider would chop the block up. */
+.policy-row--family:not(.policy-row--family-end) {
+  border-bottom-color: transparent;
+}
+
+.policy-row--family-start {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.policy-row--family-end {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.policy-row-selected,
+.policy-row-selected:hover {
+  background: #f5f3ff;
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+
+.policy-row-cluster-lit {
+  background: var(--cluster-tint, #faf9ff);
+}
+
+.policy-row-cluster-lit.policy-row-selected {
+  background: var(--cluster-tint, #f5f3ff);
+}
+
+/* While a family lens is active every surviving row belongs to it, so a strong
+   per-row treatment would just be noise — a faint tint is enough to confirm
+   "these are the family" without competing with the selected-row accent. */
+.policy-row-cluster-focused {
+  background: var(--cluster-tint, #faf9ff);
+}
+
+.policy-row-cluster-focused.policy-row-selected {
+  background: var(--cluster-tint, #f5f3ff);
+}
+
+.policy-row:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
+/* The family spine. Sits at the run's indent line so the rows visibly hang off
+   it. Rounded only at the true start/end of a run of consecutive same-family
+   rows, so N adjacent siblings read as one continuous rail while an isolated
+   single row still gets a short, clearly-intentional segment. */
+.policy-row-band {
+  position: absolute;
+  left: 13px;
+  width: 3px;
+  top: 0;
+  bottom: 0;
+  background: var(--cluster-accent, #7c3aed);
+}
+
+.policy-row-band--start {
+  top: 10px;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+
+.policy-row-band--end {
+  bottom: 10px;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+/* One node per member, centred on the spine. This is what makes a family
+   countable — a bare stripe tells you "related", the dots tell you "three of
+   them, and this is one". Hollow centre so it reads as a marker on the rail
+   rather than a thicker patch of rail. */
+.policy-row-band-node {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--cluster-accent, #7c3aed);
+  box-sizing: border-box;
+  transition: transform 0.12s ease;
+}
+
+.policy-row:hover .policy-row-band-node,
+.policy-row-selected .policy-row-band-node {
+  transform: scale(1.2);
+}
+
+/* A run of adjacent siblings is often only a *fragment* of a family, because
+   sorting rarely co-locates all of them. A hard rounded cap would read as
+   "that's all of them", so when siblings exist further up/down the list the
+   corresponding cap fades out instead — an open end that says "continues
+   elsewhere". Implemented with mask-image because the band's color is an
+   inline per-cluster background, which a gradient background would overwrite. */
+.policy-row-band--continues-up {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+}
+
+.policy-row-band--continues-down {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 14px);
+  mask-image: linear-gradient(to top, transparent 0, #000 14px);
+}
+
+/* Both ends open (a single isolated row in the middle of its family) — one
+   two-stop gradient instead of mask-composite, which has patchier support. */
+.policy-row-band--continues-up.policy-row-band--continues-down {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+
+.policy-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.policy-row-line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.policy-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.policy-row--compact .policy-row-title {
+  font-size: 13px;
+}
+
+.policy-row-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.policy-row-flag {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.policy-row-flag-override {
+  color: #d97706;
+}
+
+.policy-row-flag-ambiguity--blue {
+  color: #2563eb;
+}
+
+.policy-row-flag-ambiguity--gold {
+  color: #d97706;
+}
+
+.policy-row-flag-ambiguity--red {
+  color: #dc2626;
+}
+
+.policy-row-flag-ambiguity--green {
+  color: #16a34a;
+}
+
+.policy-row-line2 {
+  font-size: 12px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-row--compact .policy-row-line2 {
+  display: none;
+}
+
+.policy-row-line3 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #b0b4bd;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Family membership leads the metadata line because it outranks the rule ID:
+   "what does this belong to" is scanned far more often than "what is its
+   opaque identifier". Coloured with the family accent so the chip, the spine
+   and the toolbar's family strip are unmistakably the same object. */
+.policy-row-family-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 17px;
+  padding: 0 7px 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cluster-accent, #7c3aed);
+  background: var(--cluster-tint, #f5f3ff);
+  transition: box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.policy-row-family-chip-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.policy-row-family-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-row-family-chip-count {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--cluster-accent, #7c3aed);
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 13px;
+}
+
+/* Continuation rows only appear when a family is fragmented across the list,
+   so they carry position ("3 of 7") rather than the name — the name is already
+   on the run above. Muted, because it is a wayfinding aid, not a label. */
+.policy-row-family-chip--continuation {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--cluster-tint, #ede9fe);
+}
+
+.policy-row-family-chip--clickable {
+  cursor: pointer;
+}
+
+.policy-row-family-chip--clickable:hover {
+  filter: brightness(0.94);
+}
+
+/* While a family is isolated, its chips carry a ring so it's obvious which
+   family the lens is currently holding — and that clicking again releases it. */
+.policy-row-family-chip--focused {
+  box-shadow: 0 0 0 1.5px currentColor;
+}
+
+.policy-row-dot {
+  color: #d1d5db;
+}
+
+.policy-row-mono {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.policy-row-category-tag {
+  font-size: 10px;
+  line-height: 16px;
+  margin-inline-end: 0;
+  padding: 0 6px;
+}
+
+.policy-row-cluster-tip-sub {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.policy-row-cluster-tip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.policy-row-more-btn {
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.policy-row-more-btn:hover {
+  color: #6b7280;
+}
+
+.policy-row-highlight {
+  background: #fef08a;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* ---------- Effect badge ---------- */
+
+.policy-effect-badge {
+  font-weight: 600;
+  font-size: 11px;
+  margin-inline-end: 0;
+}
+
+.policy-effect-badge-sm {
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 6px;
+}
+
+/* ---------- Inspector ---------- */
+
+.policy-inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.policy-inspector-empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.policy-inspector-header {
+  padding: 18px 22px 0;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+
+.policy-inspector-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.policy-inspector-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+  word-break: break-word;
+}
+
+.policy-inspector-close {
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.policy-inspector-subtitle {
+  margin-top: 8px;
+}
+
+.policy-inspector-actions {
+  margin: 10px 0 14px;
+}
+
+.policy-inspector-tabs {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.policy-inspector-tabs .ant-tabs-nav {
+  padding: 0 22px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+/* Secondary tabs: underline, deliberately quieter than the segmented
+   workspace tabs so nesting is legible at a glance. */
+.policy-inspector-tabs .ant-tabs-tab {
+  padding: 11px 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8a93a3;
+  transition: color 0.14s ease;
+}
+
+.policy-inspector-tabs .ant-tabs-tab:hover {
+  color: #475569;
+}
+
+.policy-inspector-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #6d28d9 !important;
+  font-weight: 600;
+}
+
+.policy-inspector-tabs .ant-tabs-ink-bar {
+  height: 2.5px;
+  border-radius: 2px 2px 0 0;
+  background: #7c3aed;
+}
+
+.policy-inspector-tabs .ant-tabs-content-holder {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.policy-inspector-tabs .ant-tabs-content,
+.policy-inspector-tabs .ant-tabs-tabpane {
+  height: 100%;
+}
+
+.inspector-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 22px 26px;
+}
+
+.inspector-descriptions {
+  background: #fff;
+}
+
+.inspector-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 20px;
+}
+
+.inspector-scope-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inspector-scope-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inspector-scope-value-default {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.inspector-technical-collapse {
+  background: transparent;
+}
+
+/* ---------- Rule version history (History tab) ----------
+   Before/after pairs for a single rule's changed fields between the previous
+   and current published version — a compact strike-through/new-value pair
+   per row, echoing a familiar diff convention without a full diff-view
+   dependency. */
+
+.version-history-descriptions {
+  width: 100%;
+}
+
+.version-history-diff-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.version-history-before {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.version-history-after {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- JSON viewer ----------
+   A dark surface is deliberate: it marks the machine-readable view as a
+   different *kind* of content from the surrounding human-readable panes,
+   the way a code block does in prose. */
+
+.json-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.json-view-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.json-view-caption-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.json-view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.json-view-meta {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.json-view-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.json-view-code {
+  margin: 0;
+  padding: 14px 0;
+  border-radius: 12px;
+  background: #161824;
+  border: 1px solid #23263a;
+  /* Clip the full-bleed row hover to the rounded corners. Call sites may opt
+     into a capped, deliberately scrollable code region; long lines still wrap
+     instead of introducing horizontal scrolling (see .json-line-text). */
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.65;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace);
+  tab-size: 2;
+}
+
+.json-view-code {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4058 #161824;
+}
+
+.json-view-code::-webkit-scrollbar {
+  width: 9px;
+}
+
+.json-view-code::-webkit-scrollbar-track {
+  background: #161824;
+  border-radius: 12px;
+}
+
+.json-view-code::-webkit-scrollbar-thumb {
+  background-color: #3a4058;
+  border-radius: var(--radius-pill);
+  border: 2px solid #161824;
+  background-clip: content-box;
+}
+
+.json-view-code::-webkit-scrollbar-thumb:hover {
+  background-color: #4b5169;
+  background-clip: content-box;
+}
+
+.json-view-code code {
+  display: block;
+}
+
+.json-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 0 16px 0 0;
+}
+
+.json-line:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+/* Gutter is decorative wayfinding, so it must never be picked up by a
+   text selection or copy of the code body. */
+.json-line-no {
+  flex: 0 0 auto;
+  width: 40px;
+  padding-right: 10px;
+  text-align: right;
+  color: #4b5169;
+  user-select: none;
+  border-right: 1px solid #262a3d;
+  font-variant-numeric: tabular-nums;
+}
+
+.json-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* pre-wrap keeps JSON's significant indentation while still wrapping long
+     string values, so nothing is hidden off the right edge. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #c7ccdb;
+}
+
+.json-key {
+  color: #8ab4f8;
+}
+
+.json-string {
+  color: #9ae6a4;
+}
+
+.json-number {
+  color: #f0b072;
+}
+
+.json-boolean {
+  color: #c8a6f5;
+}
+
+.json-null {
+  color: #7c8399;
+  font-style: italic;
+}
+.inspector-technical-collapse .ant-collapse-header {
+  font-size: 12.5px;
+  color: #9ca3af;
+  padding-left: 0 !important;
+}
+
+.inspector-technical-collapse .ant-collapse-content-box {
+  padding: 12px 0 0 !important;
+}
+
+/* The Overview disclosure is a *findable* affordance, not buried metadata, so
+   it gets a real border and readable label rather than inheriting the muted
+   grey used for the technical-metadata block in History. */
+.inspector-json-collapse {
+  border-top: 1px solid #eceef3;
+  padding-top: 4px;
+  margin-top: -4px;
+}
+
+.inspector-json-collapse .ant-collapse-header {
+  color: #4b5563 !important;
+  font-weight: 600;
+  align-items: center !important;
+}
+
+.inspector-json-collapse .ant-collapse-header:hover {
+  color: #7c3aed !important;
+}
+
+.inspector-json-collapse-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 0.01em;
+}
+
+.inspector-json-collapse-label .anticon {
+  color: #7c3aed;
+  font-size: 13px;
+}
+
+.inspector-relationship-line {
+  font-size: 12.5px;
+  line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* "Decision variations" strip — a heuristic (display-only, no data change)
+ * cluster of other rules that compare the same fact as the one currently
+ * selected, e.g. five separate "<role> device entitlement" rules that each
+ * check role_profile against a different value. Shown in the inspector
+ * header so it stays visible no matter which tab (Overview/Logic/Scope/...)
+ * is active. See findRuleVariations() in ruleDisplay.ts for the exact rule. */
+.policy-inspector-variations {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-inspector-variations-label {
+  font-size: 12px;
+}
+
+/* Clickable jump-to-rule pills — shared look for the heuristic "variations"
+ * strip and the curated related/supersedes reference lists, so both read as
+ * the same kind of "this is a link to another rule" affordance. Capped width
+ * with ellipsis since group-based variation pills show full rule titles
+ * (which can be long, e.g. "Contact centre device entitlement") — the full
+ * text is still available via the native `title` tooltip. */
+.variation-pill,
+.rule-ref-tag {
+  cursor: pointer;
+  border-radius: 999px;
+  border-color: #e9d5ff;
+  background: #faf5ff;
+  color: #6d28d9;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.variation-pill:hover,
+.rule-ref-tag:hover {
+  background: #f3e8ff;
+  border-color: #c4b5fd;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(124, 58, 237, 0.18);
+}
+
+.variation-pill--current {
+  cursor: default;
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+  font-weight: 600;
+}
+
+.variation-pill--current:hover {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ---------- Inspector drawer (mobile/tablet) ---------- */
+
+.policy-inspector-drawer .ant-drawer-body {
+  padding: 0;
+}
+
+/* ---------- Policy Set Summary panel (Overview tab) ---------- */
+
+.policy-summary-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.summary-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  background: #faf5ff;
+  border: 1px solid #f3e8ff;
+  border-radius: 10px;
+  padding: 14px 0;
+  margin-bottom: 16px;
+}
+
+.summary-stat {
+  flex: 1 1 120px;
+  text-align: center;
+  padding: 0 12px;
+  border-right: 1px solid #f3e8ff;
+}
+
+.summary-stat:last-child {
+  border-right: none;
+}
+
+.summary-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.summary-stat-label {
+  font-size: 11.5px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.summary-narrative {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-left: 3px solid #7c3aed;
+  border-radius: 8px;
+  padding: 4px 18px;
+  margin-bottom: 12px;
+}
+
+.summary-narrative .ant-typography {
+  margin-bottom: 12px;
+}
+
+.summary-narrative-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.summary-narrative-list li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.summary-detail-collapse .ant-collapse-item {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.summary-breakdown-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.summary-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.summary-bar-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.summary-bar-label {
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-bar-track {
+  background: #f3e8ff;
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.summary-bar-fill {
+  background: #7c3aed;
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.summary-bar-count {
+  text-align: right;
+  color: #6b7280;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* ---------- Responsive tweaks ---------- */
+
+@media (max-width: 1100px) {
+  .policies-toolbar-select {
+    min-width: 128px;
+  }
+}
+
+@media (max-width: 720px) {
+  .summary-breakdown-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .summary-stat {
+    flex: 1 1 45%;
+    border-right: none;
+    border-bottom: 1px solid #f3e8ff;
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+
+  .summary-bar-row {
+    grid-template-columns: 100px 1fr 28px;
+  }
+}
+
+/* ---------- Tests workspace ---------- */
+
+.page-inner:has(.tests-workspace) {
+  max-width: 1760px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.tests-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.tests-page-intro {
+  max-width: 92ch;
+  margin-bottom: 0 !important;
+}
+
+.tests-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.tests-summary-card .ant-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tests-summary-card strong {
+  font-size: 24px;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.tests-control-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.35fr) minmax(320px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.tests-ai-panel,
+.tests-filter-panel,
+.tests-guide-card,
+.tests-empty-state {
+  border: 1px solid #eef0f4;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.tests-ai-panel .ant-card-body,
+.tests-filter-panel .ant-card-body,
+.tests-guide-card .ant-card-body,
+.tests-empty-state .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tests-panel-title {
+  margin: 0 !important;
+}
+
+.tests-panel-copy {
+  margin-bottom: 0 !important;
+}
+
+.tests-field-note {
+  display: block;
+  font-size: 12.5px;
+}
+
+.tests-kind-filter {
+  width: 100%;
+}
+
+.tests-kind-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tests-kind-chip {
+  border: 1px solid #eef0f4;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.tests-kind-chip:hover,
+.tests-kind-chip--active {
+  border-color: #c4b5fd;
+  background: #faf7ff;
+  box-shadow: 0 1px 2px rgba(124, 58, 237, 0.12);
+}
+
+.tests-kind-chip span,
+.tests-kind-chip small {
+  display: block;
+}
+
+.tests-kind-chip span {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.tests-kind-chip small {
+  margin-top: 2px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.tests-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.tests-list-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.tests-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  position: sticky;
+  top: 20px;
+}
+
+.tests-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tests-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tests-section-header h4.ant-typography {
+  margin: 0;
+}
+
+.tests-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tests-test-card {
+  border-radius: 14px;
+  height: 100%;
+}
+
+.tests-test-card--pending {
+  border-color: #fde68a !important;
+  background: linear-gradient(180deg, #fffbeb 0%, #fff 44%);
+}
+
+.tests-card-topline {
+  margin-bottom: 8px;
+}
+
+.tests-card-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tests-card-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tests-card-title {
+  display: block;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.tests-card-description {
+  margin-bottom: 8px !important;
+  font-size: 13px;
+}
+
+.tests-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.tests-expectation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12.5px;
+}
+
+.tests-expectation code {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "IBM Plex Mono", monospace;
+  color: #334155;
+}
+
+.tests-assertions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tests-run-explanation {
+  margin: 8px 0 0 !important;
+}
+
+.tests-history {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef0f4;
+}
+
+.tests-history-row {
+  font-size: 13px;
+}
+
+.tests-empty-state {
+  background: linear-gradient(180deg, #fff 0%, #fbfbff 100%);
+}
+
+.tests-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 0.65fr) auto minmax(0, 0.8fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #eef0f4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.tests-flow div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tests-flow span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.tests-flow code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "IBM Plex Mono", monospace;
+  color: #334155;
+}
+
+.tests-empty-notes,
+.tests-lifecycle,
+.tests-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tests-empty-notes > div,
+.tests-lifecycle > div,
+.tests-status-list > div {
+  padding: 10px 12px;
+  border: 1px solid #eef0f4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.tests-status-list > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tests-modal-help {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 1280px) {
+  .tests-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tests-side-column {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .tests-summary-grid,
+  .tests-control-grid,
+  .tests-card-grid,
+  .tests-side-column {
+    grid-template-columns: 1fr;
+  }
+
+  .tests-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .tests-flow > strong {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tests-card-body {
+    flex-direction: column;
+  }
+
+  .tests-card-actions {
+    align-items: flex-start;
+  }
+
+  .tests-kind-chips {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ==========================================================================
+   Correlation findings
+   ==========================================================================
+   A finding is an accusation about two rules, so the card leads with the
+   accusation and puts the quoted source text underneath it. The quotes are
+   set apart deliberately: they are the only part of the card the model did
+   not write, and a reviewer deciding whether a contradiction is real needs to
+   be able to tell the evidence from the argument at a glance.
+*/
+
+.correlation-finding-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.correlation-finding-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.correlation-finding-card .ant-card-head {
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  min-height: 44px;
+}
+
+/* The severity stripe repeats what the tag already says, which is the point:
+   scanning a long list by colour is faster than reading every tag, and a
+   critical finding should be findable without reading at all. */
+.correlation-finding-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  background: transparent;
+}
+
+.correlation-finding-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.correlation-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--bg-sunken);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.correlation-evidence-item .ant-typography {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.correlation-evidence-item > .ant-typography:first-child {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+}
+/* ── Quality evaluation history ──────────────────────────────────────────
+   A run's finding count is only meaningful beside the run before it, so the
+   list is built around the comparison rather than around the number. */
+
+.quality-history-card {
+  margin-top: 16px;
+}
+
+.quality-history-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.quality-history-intro {
+  margin-bottom: 12px !important;
+  font-size: 13px;
+}
+
+.quality-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quality-history-row {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-raised, #fff);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.quality-history-row:hover {
+  border-color: var(--accent, #7c3aed);
+  background: var(--surface-hover, #fafaff);
+}
+
+.quality-history-row:focus-visible {
+  outline: 2px solid var(--accent, #7c3aed);
+  outline-offset: 2px;
+}
+
+.quality-history-row.is-open {
+  border-color: var(--accent, #7c3aed);
+  box-shadow: inset 3px 0 0 var(--accent, #7c3aed);
+}
+
+.quality-history-when {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-heading, #0f172a);
+}
+
+.quality-history-meta {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.quality-history-counts {
+  display: inline-flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.quality-history-counts .ant-tag,
+.quality-history-delta {
+  margin-inline-end: 0;
+  font-size: 11px;
+}
+
+.quality-history-delta {
+  min-width: 74px;
+  text-align: center;
+}
+
+@media (max-width: 860px) {
+  .quality-history-row {
+    grid-template-columns: 1fr auto;
+    row-gap: 6px;
+  }
+  .quality-history-meta {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Recent governance activity (audit trail) on the project Overview tab.
+   Rows are dense on purpose: this is a scannable log, not a reading surface. */
+.activity-panel .ant-timeline {
+  margin-top: 4px;
+}
+
+.activity-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activity-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-item-head .ant-tag {
+  margin-inline-end: 0;
+}
+
+@media (max-width: 640px) {
+  .activity-item-head {
+    gap: 4px;
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "policy_set_id": "expense-policy",
+  "facts": { "amount": 500 },
+  "correlation_id": "sample-request-indeterminate"
+}

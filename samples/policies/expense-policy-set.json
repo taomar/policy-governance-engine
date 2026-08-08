@@ -1,0 +1,6 @@
+{
+  "key": "expense-policy",
+  "name": "Corporate Expense Approval Policy",
+  "owner": "finance-controls",
+  "description": "Governs auto-approval thresholds and manager approval requirements for employee expense claims."
+}

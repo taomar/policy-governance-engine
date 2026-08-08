@@ -1,0 +1,82 @@
+{
+  "version_number": 1,
+  "effective_from": "2024-01-01",
+  "approved_by": "policy-governance-board",
+  "is_active": true,
+  "rules": [
+    {
+      "policy_set_id": "expense-policy",
+      "policy_version_id": "v1",
+      "rule_id": "RULE-001",
+      "rule_revision": 1,
+      "title": "Auto-approve small expenses",
+      "description": "Expenses at or below $100 are automatically approved without manager review.",
+      "rule_type": "approval_requirement",
+      "authority": { "level": "corporate", "owner": "finance-controls", "rank": 10 },
+      "scope": { "jurisdictions": ["US"], "organizational_units": ["*"], "personas": ["*"], "processes": ["expense"] },
+      "condition": {
+        "type": "factComparison",
+        "fact": "amount",
+        "operator": "lessThanOrEqual",
+        "value": 100
+      },
+      "effect": { "type": "allow", "action": "auto_approve" },
+      "required_facts": [{ "name": "amount", "data_type": "number", "required": true }],
+      "priority": 0,
+      "effective_from": "2024-01-01"
+    },
+    {
+      "policy_set_id": "expense-policy",
+      "policy_version_id": "v1",
+      "rule_id": "RULE-002",
+      "rule_revision": 1,
+      "title": "Manager approval required above threshold",
+      "description": "Expenses above $100 require explicit manager approval before payment.",
+      "rule_type": "approval_requirement",
+      "authority": { "level": "corporate", "owner": "finance-controls", "rank": 10 },
+      "scope": { "jurisdictions": ["US"], "organizational_units": ["*"], "personas": ["*"], "processes": ["expense"] },
+      "condition": {
+        "type": "all",
+        "all": [
+          { "type": "factComparison", "fact": "amount", "operator": "greaterThan", "value": 100 },
+          { "type": "factComparison", "fact": "manager_approved", "operator": "equals", "value": true }
+        ]
+      },
+      "effect": { "type": "require_action", "action": "manager_approval" },
+      "required_facts": [
+        { "name": "amount", "data_type": "number", "required": true },
+        { "name": "manager_approved", "data_type": "boolean", "required": true }
+      ],
+      "priority": 0,
+      "effective_from": "2024-01-01"
+    },
+    {
+      "policy_set_id": "expense-policy",
+      "policy_version_id": "v1",
+      "rule_id": "RULE-003",
+      "rule_revision": 1,
+      "title": "Executive override authority",
+      "description": "A higher-authority rule (regional exec office) allowing an executive to override the standard $100 threshold up to $1000, unless the expense category is travel.",
+      "rule_type": "approval_requirement",
+      "authority": { "level": "regional-executive", "owner": "regional-exec-office", "rank": 20 },
+      "scope": { "jurisdictions": ["US"], "organizational_units": ["executive"], "personas": ["*"], "processes": ["expense"] },
+      "condition": {
+        "type": "factComparison",
+        "fact": "amount",
+        "operator": "lessThanOrEqual",
+        "value": 1000
+      },
+      "effect": { "type": "allow", "action": "auto_approve" },
+      "required_facts": [{ "name": "amount", "data_type": "number", "required": true }],
+      "exceptions": [
+        {
+          "exception_id": "EXC-TRAVEL",
+          "description": "Travel expenses are excluded from the executive auto-approve override.",
+          "condition": { "type": "factComparison", "fact": "category", "operator": "equals", "value": "travel" }
+        }
+      ],
+      "priority": 0,
+      "effective_from": "2024-01-01"
+    }
+  ]
+}

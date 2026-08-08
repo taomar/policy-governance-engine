@@ -1,0 +1,553 @@
+{
+  "version_number": 1,
+  "effective_from": "2026-04-01",
+  "approved_by": "policy-governance-board",
+  "is_active": false,
+  "rules": [
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-001",
+      "rule_revision": 1,
+      "title": "Self-service approval tier (<=150)",
+      "description": "Requests at or below $150 require no approval and are fulfilled as self-service (Table 7.1).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "factComparison",
+        "fact": "request_value_usd",
+        "operator": "lessThanOrEqual",
+        "value": 150
+      },
+      "effect": {
+        "type": "allow",
+        "action": "auto_approve"
+      },
+      "required_facts": [
+        {
+          "name": "request_value_usd",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-002",
+      "rule_revision": 1,
+      "title": "Line manager approval tier (151-600)",
+      "description": "Requests from $151 to $600 require line manager approval (Table 7.1).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "all",
+        "all": [
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "greaterThan",
+            "value": 150
+          },
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "lessThanOrEqual",
+            "value": 600
+          }
+        ]
+      },
+      "effect": {
+        "type": "require_action",
+        "action": "line_manager_approval"
+      },
+      "required_facts": [
+        {
+          "name": "request_value_usd",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-003",
+      "rule_revision": 1,
+      "title": "Manager + Asset Management tier (601-2,500)",
+      "description": "Requests from $601 to $2,500 require line manager and Asset Management approval (Table 7.1).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "all",
+        "all": [
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "greaterThan",
+            "value": 600
+          },
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "lessThanOrEqual",
+            "value": 2500
+          }
+        ]
+      },
+      "effect": {
+        "type": "require_action",
+        "action": "manager_and_asset_management_approval"
+      },
+      "required_facts": [
+        {
+          "name": "request_value_usd",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-004",
+      "rule_revision": 1,
+      "title": "Manager + Asset Management + Finance tier (2,501-10,000)",
+      "description": "Requests from $2,501 to $10,000 require line manager, Asset Management, and Finance Business Partner approval (Table 7.1).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "all",
+        "all": [
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "greaterThan",
+            "value": 2500
+          },
+          {
+            "type": "factComparison",
+            "fact": "request_value_usd",
+            "operator": "lessThanOrEqual",
+            "value": 10000
+          }
+        ]
+      },
+      "effect": {
+        "type": "require_action",
+        "action": "manager_asset_finance_approval"
+      },
+      "required_facts": [
+        {
+          "name": "request_value_usd",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-005",
+      "rule_revision": 1,
+      "title": "Director approval tier (>10,000)",
+      "description": "Requests above $10,000 additionally require Director, Digital Workplace approval (Table 7.1).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "factComparison",
+        "fact": "request_value_usd",
+        "operator": "greaterThan",
+        "value": 10000
+      },
+      "effect": {
+        "type": "require_action",
+        "action": "manager_asset_finance_director_approval"
+      },
+      "required_facts": [
+        {
+          "name": "request_value_usd",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-006",
+      "rule_revision": 1,
+      "title": "Third device refused",
+      "description": "A request for a third computing device held at one time is refused unless raised as an exception (2.2).",
+      "rule_type": "prohibition",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "factComparison",
+        "fact": "devices_held_count",
+        "operator": "greaterThanOrEqual",
+        "value": 3
+      },
+      "effect": {
+        "type": "deny",
+        "action": "refuse_request"
+      },
+      "required_facts": [
+        {
+          "name": "devices_held_count",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-007",
+      "rule_revision": 1,
+      "title": "Contractor permanent-allocation entitlement",
+      "description": "Contractors engaged for 20 working days or fewer are not entitled to a permanent allocation and are served from loan stock only (1.1).",
+      "rule_type": "eligibility",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "all",
+        "all": [
+          {
+            "type": "factComparison",
+            "fact": "is_contractor",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "type": "factComparison",
+            "fact": "engagement_days",
+            "operator": "lessThanOrEqual",
+            "value": 20
+          }
+        ]
+      },
+      "effect": {
+        "type": "deny",
+        "action": "deny_permanent_allocation_use_loan_stock"
+      },
+      "required_facts": [
+        {
+          "name": "is_contractor",
+          "data_type": "boolean",
+          "required": true
+        },
+        {
+          "name": "engagement_days",
+          "data_type": "number",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-008",
+      "rule_revision": 1,
+      "title": "Self-approval prohibited",
+      "description": "No colleague may approve their own request or a request from a person to whom they report; approval passes to the next level (7.3).",
+      "rule_type": "prohibition",
+      "authority": {
+        "level": "corporate",
+        "owner": "digital-workplace",
+        "rank": 10
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "any",
+        "any": [
+          {
+            "type": "factComparison",
+            "fact": "approver_is_requester",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "type": "factComparison",
+            "fact": "approver_reports_to_requester",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      "effect": {
+        "type": "deny",
+        "action": "escalate_to_next_management_level"
+      },
+      "required_facts": [
+        {
+          "name": "approver_is_requester",
+          "data_type": "boolean",
+          "required": true
+        },
+        {
+          "name": "approver_reports_to_requester",
+          "data_type": "boolean",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 0,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-009",
+      "rule_revision": 1,
+      "title": "Workplace adjustment priority override",
+      "description": "Equipment required as a workplace adjustment bypasses the financial thresholds, entitlement limits, and refresh interval, and is approved by Asset Management alone (9.1, Appendix A.3).",
+      "rule_type": "approval_requirement",
+      "authority": {
+        "level": "corporate-hr",
+        "owner": "occupational-health",
+        "rank": 20
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "factComparison",
+        "fact": "is_workplace_adjustment",
+        "operator": "equals",
+        "value": true
+      },
+      "effect": {
+        "type": "allow",
+        "action": "asset_management_priority_approval"
+      },
+      "required_facts": [
+        {
+          "name": "is_workplace_adjustment",
+          "data_type": "boolean",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 10,
+      "effective_from": "2026-04-01"
+    },
+    {
+      "policy_set_id": "hardware-provisioning-policy",
+      "policy_version_id": "vX",
+      "rule_id": "RULE-HW-010",
+      "rule_revision": 1,
+      "title": "Security suspension overrides all issuance",
+      "description": "A device that has not checked in for 30+ days is suspended from network access; no further equipment is issued to that colleague until resolved, overriding every other provision including 9.1 (16.2, Appendix A.4).",
+      "rule_type": "prohibition",
+      "authority": {
+        "level": "corporate-security",
+        "owner": "information-security",
+        "rank": 30
+      },
+      "scope": {
+        "jurisdictions": [
+          "*"
+        ],
+        "organizational_units": [
+          "*"
+        ],
+        "personas": [
+          "*"
+        ],
+        "processes": [
+          "hardware_provisioning"
+        ]
+      },
+      "condition": {
+        "type": "factComparison",
+        "fact": "device_suspended_for_noncompliance",
+        "operator": "equals",
+        "value": true
+      },
+      "effect": {
+        "type": "deny",
+        "action": "block_all_issuance"
+      },
+      "required_facts": [
+        {
+          "name": "device_suspended_for_noncompliance",
+          "data_type": "boolean",
+          "required": true
+        }
+      ],
+      "exceptions": [],
+      "priority": 20,
+      "effective_from": "2026-04-01"
+    }
+  ]
+}

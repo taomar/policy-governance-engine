@@ -1,0 +1,407 @@
+=== Workplace-Hardware-Provisioning-Policy-v3.2.docx ===
+Workplace Hardware Provisioning Policy
+POL-HW-001 � Version 3.2 � Effective 2026-04-01
+This policy governs how colleagues obtain, keep, replace, return, and get support for workplace computing hardware. It applies to all employees, fixed-term staff, and approved contractors across all operating regions, and to every device funded by the organisation whether or not it is held on company premises.
+Amendment history
+1. Purpose and Scope
+The organisation provides the equipment colleagues need to do their work safely, productively, and securely, within a controlled and predictable cost envelope.
+1.1 Who this applies to
+This policy applies to all permanent employees, fixed-term staff, interns, and contractors engaged for longer than twenty working days. Contractors engaged for shorter periods are provided loan equipment under section 11 and are not entitled to a permanent allocation.
+Where a colleague holds a dual role, the entitlement of the higher role applies, but only one primary device is provided.
+1.2 What this applies to
+This policy covers laptops, desktops, tablets, monitors, docking stations, keyboards, mice, headsets, printers where individually allocated, and any peripheral funded from the IT equipment budget.
+Mobile telephony is governed separately by POL-TEL-004 and is out of scope.
+Laboratory, manufacturing, and test equipment is governed by the owning function.
+Software licensing is in scope only where a licence is tied to a specific device (see 17).
+1.3 Ownership
+All equipment funded by the organisation remains the property of the organisation at all times, including during any period of leave, secondment, or notice. Equipment is allocated for business use and does not transfer to the colleague under any circumstances, including on leaving.
+2. Entitlement
+Entitlement is set by role profile. The device catalogue lists the models available to each profile and is maintained by the Digital Workplace team; models are added and retired without amendment to this policy.
+2.1 Standard entitlement
+Every colleague in scope is entitled to one primary computing device appropriate to their role profile, together with a standard peripheral set comprising one monitor, one docking station, one keyboard, one mouse, and one headset.
+Table 2.1 � Primary device entitlement by role profile
+2.2 Devices held at any one time
+A colleague may hold one primary device. A second computing device is provided only where the role requires simultaneous use of two operating systems, where a colleague works regularly across two fixed locations, or under an approved workplace adjustment.
+A request for a third computing device is refused. Where a genuine need exists it must be raised as an exception under section 22.
+2.3 Off-catalogue equipment
+Equipment outside the published catalogue is not provided. Where a colleague believes the catalogue does not meet a genuine business need, the gap should be raised with the Digital Workplace team, who review the catalogue quarterly. A refused request must state that the item is off-catalogue and name the nearest catalogue equivalent.
+3. Refresh and Device Age
+3.1 Standard refresh interval
+Primary computing devices are refreshed every forty-eight months from the date the device entered service. Prior to version 3.2 of this policy the interval was thirty-six months; devices already past thirty-six months on 1 April 2026 remain eligible under the previous interval until 31 December 2026.
+A device that has not reached its refresh date is replaced only for the reasons set out in section 4. Preference, appearance, or the availability of a newer model are not grounds for early replacement.
+3.2 Peripheral refresh
+Monitors and docking stations are refreshed every sixty months. Keyboards, mice, and headsets are replaced on failure and are not subject to a refresh interval.
+3.3 Early refresh on role change
+Where a colleague moves to a role profile with a higher device class, a replacement is provided at the point of the move regardless of the age of the current device, subject to line manager confirmation of the new role. The released device returns to stock.
+4. Replacement
+A replacement is provided where a device can no longer support the work, not where a newer one is preferred.
+4.1 Faulty equipment
+A device that has failed, or that is degrading work through repeated faults, is replaced. Diagnostics must be completed first, and where the device remains under warranty the warranty route in section 5 takes precedence over replacement.
+4.2 Accidental damage
+Accidental damage is replaced or repaired at the organisation's cost on the first and second occurrence in any rolling twelve-month period. A third occurrence in the same period is referred to the line manager, who must confirm the circumstances before a further device is issued.
+Damage arising from wilful misuse or from use in breach of the Acceptable Use Policy may be recovered from the colleague under section 20.
+4.3 Performance
+Where a colleague reports that a device is too slow for their work, the Digital Workplace team assesses the workload before any replacement. Where the workload exceeds the device class, the colleague is moved to the appropriate class under 2.1 and the request is treated as an upgrade under section 6, not a replacement.
+4.4 Lost or stolen equipment
+Loss or theft must be reported to the IT Service Desk within twenty-four hours of discovery, and to the Information Security team in every case. The device is remotely wiped and blocked before any replacement is issued.
+Theft occurring outside the workplace requires a police reference number before a replacement is released. A replacement following loss requires line manager approval irrespective of the value of the device.
+5. Warranty and Repair
+5.1 Warranty first
+Where a device is under manufacturer warranty and the fault is covered, the device is repaired under warranty. A replacement is not issued for a warranty-covered fault unless repair would take longer than five working days, in which case a loan device is provided under section 11 while the repair proceeds.
+5.2 Out of warranty
+Repair of an out-of-warranty device is authorised where the repair cost is below forty per cent of the current catalogue price of the equivalent new device. Above that threshold the device is replaced and the old unit dispositioned under section 19.
+5.3 Repeated failure
+A device that has required three or more repairs within twelve months is treated as unreliable and is replaced regardless of remaining warranty or age.
+6. Upgrades
+6.1 Justification
+An upgrade to a higher device class requires a documented workload justification describing the software in use and the specific limitation encountered. General statements of preference are not sufficient.
+6.2 Approval
+Upgrades require line manager approval in all cases, and additionally require Asset Management approval where the resulting device cost exceeds the threshold in Table 7.1. The current device is returned when the upgrade is delivered.
+7. Financial Authority
+Spend authority is determined by the total value of the request, not by the value of individual lines.
+7.1 Approval thresholds
+Requests must not be split across multiple submissions in order to fall below a threshold. Where related items are requested within a fourteen-day window they are assessed at their combined value.
+Table 7.1 � Approval required by request value
+7.2 Budget
+Equipment is funded from the central IT equipment budget. Where a request exceeds the remaining departmental allocation for the financial year it is held until the following period unless the requesting director accepts the cost against their own budget line.
+7.3 Self-approval prohibited
+No colleague may approve their own request, a request from which they benefit, or a request raised by a person to whom they report. Where the ordinary approver is conflicted, approval passes to the next level of management.
+8. Peripherals and Accessories
+8.1 Standard set
+The standard peripheral set in 2.1 is issued with the primary device and does not require separate approval.
+8.2 Additional peripherals
+Additional peripherals are assessed against Table 7.1 on value. A second monitor for a General office profile requires line manager approval; for profiles where Table 2.1 shows a second monitor as included, no separate approval is required.
+Consumables such as cables, adapters, and mouse batteries are issued on request without approval up to a value of fifty dollars per occurrence.
+8.3 Compatibility
+Peripherals must be compatible with the allocated device. A request for an item that cannot connect to the colleague's device is refused with the compatible alternative named.
+9. Workplace Adjustments and Accessibility
+9.1 Priority
+Equipment required as a workplace adjustment is provided as a priority and is not subject to the financial thresholds in Table 7.1, the entitlement limits in section 2, or the refresh interval in 3.1.
+Adjustment requests require confirmation from Occupational Health or a recognised assessment, and are approved by Asset Management on that basis alone. A line manager does not approve, and is not told, the clinical detail.
+9.2 Confidentiality
+The existence of an adjustment may be recorded against the allocation. The underlying medical information is not held in the asset record and is not visible to the Service Desk.
+10. New Joiners
+10.1 Standard bundle
+A new joiner receives the standard bundle for their role profile, ordered on acceptance of offer and targeted to be available on the first working day. Bundles ordered fewer than five working days before the start date are fulfilled from stock where possible and otherwise on the earliest available date.
+10.2 Approval
+A new joiner bundle within the standard entitlement does not require separate approval; the approved requisition is sufficient. Anything above the standard bundle follows Table 7.1.
+11. Temporary Loans
+11.1 When a loan is provided
+Loan equipment is provided while a device is under repair, for short-term contractors, for travel where the allocated device is unsuitable, and for events or training.
+11.2 Loan period
+The maximum loan period is thirty days. Extensions are granted once by the Service Desk and thereafter require Asset Management approval. Loans are booked against available loan stock only; a loan is never fulfilled by purchasing new equipment.
+A colleague holding an overdue loan device may not receive further equipment until the loan is returned or extended.
+12. Leavers and Returns
+12.1 Return on leaving
+All equipment must be returned on or before the last working day. The line manager is accountable for the return and Human Resources is notified where equipment is outstanding after the leaving date.
+12.2 Outstanding equipment
+Where equipment remains outstanding fourteen days after the leaving date its replacement value may be recovered from final pay where local law permits.
+12.3 Data
+Every returned device is wiped to the organisation's data destruction standard before it re-enters stock or is dispositioned. A device may not be reissued before the wipe is recorded.
+13. Remote and Hybrid Working
+13.1 Home working equipment
+Colleagues working from home for two or more days each week are entitled to one additional monitor and one additional docking station for home use, subject to line manager confirmation of the working pattern.
+Desks, chairs, and other furniture are not provided under this policy and are handled by Facilities under POL-FAC-002.
+13.2 Equipment held off site
+Equipment held at a home address remains the property of the organisation and must be made available for collection, audit, or return on request.
+14. Contractors and Non-Employees
+14.1 Engagements over twenty days
+Contractors engaged for longer than twenty working days receive a standard General office allocation unless the engaging manager specifies a higher profile and accepts the cost against the engagement.
+14.2 Shorter engagements
+Shorter engagements are served from loan stock under section 11. Contractors are not eligible for refresh under section 3 at any engagement length.
+15. Bring Your Own Device
+15.1 Personal devices
+Personal computing devices may not be used to process organisational data except through the approved virtual desktop service. The organisation does not fund, repair, insure, or support personally owned hardware.
+A colleague who chooses to use a personal device through the virtual desktop remains entitled to an organisational device and does not receive an allowance in lieu.
+16. Security Requirements
+16.1 Baseline
+Every device must carry full-disk encryption, current endpoint protection, and the current management agent before it is issued. A device that cannot meet the baseline is not issued.
+16.2 Devices out of compliance
+A device that has not checked in to the management service for thirty days is suspended from network access. Further equipment is not issued to a colleague with a suspended device until the position is resolved.
+17. Software Tied to Hardware
+17.1 Device-bound licences
+Where a licence is bound to a specific device, its cost forms part of the request value for the purposes of Table 7.1. Licences are recovered and reassigned when a device is returned.
+18. Sustainability
+18.1 Reuse before purchase
+Where suitable equipment is available in stock it is issued in preference to purchasing new. A request is not refused solely because stock is unavailable, but stock is always assessed first.
+18.2 Disposal
+Retired equipment is refurbished for reuse, donated, or recycled through an approved waste contractor. Equipment is never disposed of to landfill.
+19. Asset Records
+19.1 Register
+Every device is recorded in the asset register from receipt to disposal, with its serial number, holder, location, condition, and lifecycle state. A device that is not in the register may not be issued.
+19.2 Verification
+Colleagues confirm receipt at handover. An unconfirmed handover remains open and the device remains recorded against the Service Desk.
+20. Liability and Recovery
+20.1 Recovery of cost
+The organisation may recover the replacement cost of equipment lost through gross negligence or wilful damage, subject to local employment law and to a documented review by Human Resources. Recovery is not applied to ordinary accidental damage.
+21. Service Levels
+21.1 Support response
+A colleague who is entirely unable to work is treated as P1 regardless of the underlying category.
+Table 21.1 � Service desk targets
+22. Exceptions
+22.1 Raising an exception
+Any requirement this policy does not permit may be raised as an exception. An exception states the business need, the cost, the period, and the risk of refusing it, and is decided by the Director, Digital Workplace.
+An approved exception is recorded against the colleague and expires after twelve months unless renewed. An exception does not create a precedent.
+A. Appendix A � Exceptions and Overrides to the Clauses Above
+The following provisions take precedence over the clauses they reference. They are gathered here for the convenience of the approvals team and are frequently missed.
+A.1 Executive profile
+Notwithstanding Table 7.1, requests from the Executive profile within the published catalogue require Asset Management approval only, at any value. Off-catalogue requests from the Executive profile follow section 22.
+A.2 Field and travel profile
+Notwithstanding 3.1, devices allocated to the Field and travel profile are refreshed at thirty-six months in recognition of heavier physical wear.
+A.3 Adjustment requests
+Clause 9.1 overrides section 2, Table 7.1, and clause 3.1 in their entirety where a workplace adjustment applies. Where 9.1 and A.1 both apply, 9.1 prevails.
+A.4 Security suspension
+Clause 16.2 overrides every other provision of this policy. No equipment is issued to a colleague holding a suspended device, including under 9.1.
+A.5 Regional variation � European Union
+In EU jurisdictions, recovery of equipment cost from final pay under 12.2 and 20.1 is not applied. Outstanding equipment is pursued as a civil matter instead.
+B. Appendix B � Definitions
+B.1 Terms used in this policy
+In service � the date a device was first issued to a colleague, not the date of purchase.
+Primary device � the computing device a colleague uses for the majority of their work.
+Standard bundle � the primary device together with the standard peripheral set at 2.1.
+Role profile � the entitlement grouping in Table 2.1, set by Human Resources.
+Request value � the total value of a submission including device-bound licences.
+Loan stock � equipment held for temporary issue and never permanently allocated.
+Workplace adjustment � equipment provided to remove a barrier to work, under section 9.
+Disposition � the recorded outcome of a retired device: reuse, donation, or recycling.
+All identities, thresholds, suppliers, and figures in this document are synthetic and exist to demonstrate a governed provisioning process.
+--- TABLE ---
+Document reference | POL-HW-001
+Version | 3.2
+Effective date | 2026-04-01
+Policy owner | Director, Digital Workplace
+Classification | Internal
+Review cycle | Annual, or on material change to the device catalogue
+--- TABLE ---
+Version | Effective | Summary of change
+3.2 | 2026-04-01 | Standard refresh extended from 36 to 48 months. Accessibility requests removed from the spend ladder. Loan window capped at 30 days.
+3.1 | 2025-10-01 | Added sustainability clause 18. Clarified that warranty repair precedes replacement.
+3.0 | 2025-04-01 | Rewritten for the unified device catalogue. Regional annexes consolidated into Appendix C.
+--- TABLE ---
+Role profile | Primary device class | Second monitor | Indicative unit cost
+General office | Standard laptop, 14-inch | On request, manager approval | USD 1,150
+Field and travel | Lightweight laptop, 13-inch | Not provided | USD 1,290
+Engineering | Performance laptop, 16-inch | Included | USD 2,400
+Design and media | Performance laptop, 16-inch | Included | USD 2,650
+Data and research | Performance laptop or workstation | Included | USD 2,900
+Executive | Any catalogue laptop | Included | Catalogue
+Contact centre | Desktop, fixed | Included | USD 890
+--- TABLE ---
+Request value (USD) | Approval required | Target turnaround
+Up to 150 | None � self-service | 1 working day
+151 to 600 | Line manager | 2 working days
+601 to 2,500 | Line manager and Asset Management | 4 working days
+2,501 to 10,000 | Line manager, Asset Management, and Finance Business Partner | 6 working days
+Above 10,000 | As above plus Director, Digital Workplace | 10 working days
+--- TABLE ---
+Priority | Definition | Response | Resolution
+P1 | Colleague cannot work and no workaround exists | 30 minutes | 4 hours
+P2 | Significant impairment, workaround exists | 2 hours | 8 hours
+P3 | Standard fault or request | 4 hours | 24 hours
+P4 | Minor, cosmetic, or scheduled | 1 working day | 5 working days
+
+=== Workplace-Hardware-Provisioning-Policy-v3.3.docx ===
+Workplace Hardware Provisioning Policy
+POL-HW-001 � Version 3.3 � Effective 2026-10-01
+This policy governs how colleagues obtain, keep, replace, return, and get support for workplace computing hardware. It applies to all employees, fixed-term staff, and approved contractors across all operating regions, and to every device funded by the organisation whether or not it is held on company premises.
+Amendment history
+1. Purpose and Scope
+The organisation provides the equipment colleagues need to do their work safely, productively, and securely, within a controlled and predictable cost envelope.
+1.1 Who this applies to
+This policy applies to all permanent employees, fixed-term staff, interns, and contractors engaged for longer than ten working days. Contractors engaged for shorter periods are provided loan equipment under section 11 and are not entitled to a permanent allocation.
+Where a colleague holds a dual role, the entitlement of the higher role applies, but only one primary device is provided.
+1.2 What this applies to
+This policy covers laptops, desktops, tablets, monitors, docking stations, keyboards, mice, headsets, printers where individually allocated, and any peripheral funded from the IT equipment budget.
+Mobile telephony is governed separately by POL-TEL-004 and is out of scope.
+Laboratory, manufacturing, and test equipment is governed by the owning function.
+Software licensing is in scope only where a licence is tied to a specific device (see 17).
+1.3 Ownership
+All equipment funded by the organisation remains the property of the organisation at all times, including during any period of leave, secondment, or notice. Equipment is allocated for business use and does not transfer to the colleague under any circumstances, including on leaving.
+1.4 Joint ventures and secondees
+Colleagues seconded to a joint venture retain their allocation for the duration of the secondment. Equipment is not reissued by the receiving entity, and the originating entity remains accountable for its return under section 12.
+2. Entitlement
+Entitlement is set by role profile. The device catalogue lists the models available to each profile and is maintained by the Digital Workplace team; models are added and retired without amendment to this policy.
+2.1 Standard entitlement
+Every colleague in scope is entitled to one primary computing device appropriate to their role profile, together with a standard peripheral set comprising one monitor, one docking station, one keyboard, one mouse, and one headset.
+Table 2.1 � Primary device entitlement by role profile
+2.2 Devices held at any one time
+A colleague may hold one primary device. A second computing device is provided only where the role requires simultaneous use of two operating systems, where a colleague works regularly across two fixed locations, or under an approved workplace adjustment.
+A request for a third computing device is refused. Where a genuine need exists it must be raised as an exception under section 22.
+2.3 Off-catalogue equipment
+Equipment outside the published catalogue is not provided. Where a colleague believes the catalogue does not meet a genuine business need, the gap should be raised with the Digital Workplace team, who review the catalogue quarterly. A refused request must state that the item is off-catalogue and name the nearest catalogue equivalent.
+3. Refresh and Device Age
+3.1 Standard refresh interval
+Primary computing devices are refreshed every forty-eight months from the date the device entered service. Prior to version 3.2 of this policy the interval was thirty-six months; devices already past thirty-six months on 1 April 2026 remain eligible under the previous interval until 31 December 2026.
+A device that has not reached its refresh date is replaced only for the reasons set out in section 4. Preference, appearance, or the availability of a newer model are not grounds for early replacement.
+3.2 Peripheral refresh
+Monitors and docking stations are refreshed every sixty months. Keyboards, mice, and headsets are replaced on failure and are not subject to a refresh interval.
+3.3 Early refresh on role change
+Where a colleague moves to a role profile with a higher device class, a replacement is provided at the point of the move regardless of the age of the current device, subject to line manager confirmation of the new role. The released device returns to stock.
+4. Replacement
+A replacement is provided where a device can no longer support the work, not where a newer one is preferred.
+4.1 Faulty equipment
+A device that has failed, or that is degrading work through repeated faults, is replaced. Diagnostics must be completed first, and where the device remains under warranty the warranty route in section 5 takes precedence over replacement.
+4.2 Accidental damage
+Accidental damage is replaced or repaired at the organisation's cost on the first and second occurrence in any rolling twelve-month period. A third occurrence in the same period is referred to the line manager, who must confirm the circumstances before a further device is issued.
+Damage arising from wilful misuse or from use in breach of the Acceptable Use Policy may be recovered from the colleague under section 20.
+4.3 Performance
+Where a colleague reports that a device is too slow for their work, the Digital Workplace team assesses the workload before any replacement. Where the workload exceeds the device class, the colleague is moved to the appropriate class under 2.1 and the request is treated as an upgrade under section 6, not a replacement.
+4.4 Lost or stolen equipment
+Loss or theft must be reported to the IT Service Desk within twenty-four hours of discovery, and to the Information Security team in every case. The device is remotely wiped and blocked before any replacement is issued.
+Theft occurring outside the workplace requires a police reference number before a replacement is released. A replacement following loss requires line manager approval irrespective of the value of the device.
+5. Warranty and Repair
+5.1 Warranty first
+Where a device is under manufacturer warranty and the fault is covered, the device is repaired under warranty. A replacement is not issued for a warranty-covered fault unless repair would take longer than five working days, in which case a loan device is provided under section 11 while the repair proceeds.
+5.2 Out of warranty
+Repair of an out-of-warranty device is authorised where the repair cost is below forty per cent of the current catalogue price of the equivalent new device. Above that threshold the device is replaced and the old unit dispositioned under section 19.
+5.3 Repeated failure
+A device that has required three or more repairs within twelve months is treated as unreliable and is replaced regardless of remaining warranty or age.
+6. Upgrades
+6.1 Justification
+An upgrade to a higher device class requires a documented workload justification describing the software in use and the specific limitation encountered. General statements of preference are not sufficient.
+6.2 Approval
+Upgrades require line manager approval in all cases, and additionally require Asset Management approval where the resulting device cost exceeds the threshold in Table 7.1. The current device is returned when the upgrade is delivered.
+7. Financial Authority
+Spend authority is determined by the total value of the request, not by the value of individual lines.
+7.1 Approval thresholds
+Requests must not be split across multiple submissions in order to fall below a threshold. Where related items are requested within a fourteen-day window they are assessed at their combined value.
+Table 7.1 � Approval required by request value
+7.2 Budget
+Equipment is funded from the central IT equipment budget. Where a request exceeds the remaining departmental allocation for the financial year it is held until the following period unless the requesting director accepts the cost against their own budget line.
+7.3 Self-approval prohibited
+No colleague may approve their own request, a request from which they benefit, or a request raised by a person to whom they report. Where the ordinary approver is conflicted, approval passes to the next level of management.
+8. Peripherals and Accessories
+8.1 Standard set
+The standard peripheral set in 2.1 is issued with the primary device and does not require separate approval.
+8.2 Additional peripherals
+Additional peripherals are assessed against Table 7.1 on value. A second monitor for a General office profile requires line manager approval; for profiles where Table 2.1 shows a second monitor as included, no separate approval is required.
+Consumables such as cables, adapters, and mouse batteries are issued on request without approval up to a value of fifty dollars per occurrence.
+8.3 Compatibility
+Peripherals must be compatible with the allocated device. A request for an item that cannot connect to the colleague's device is refused with the compatible alternative named.
+9. Workplace Adjustments and Accessibility
+9.1 Priority
+Equipment required as a workplace adjustment is provided as a priority and is not subject to the financial thresholds in Table 7.1, the entitlement limits in section 2, or the refresh interval in 3.1.
+Adjustment requests require confirmation from Occupational Health or a recognised assessment, and are approved by Asset Management on that basis alone. A line manager does not approve, and is not told, the clinical detail.
+9.2 Confidentiality
+The existence of an adjustment may be recorded against the allocation. The underlying medical information is not held in the asset record and is not visible to the Service Desk.
+10. New Joiners
+10.1 Standard bundle
+A new joiner receives the standard bundle for their role profile, ordered on acceptance of offer and targeted to be available on the first working day. Bundles ordered fewer than five working days before the start date are fulfilled from stock where possible and otherwise on the earliest available date.
+10.2 Approval
+A new joiner bundle within the standard entitlement does not require separate approval; the approved requisition is sufficient. Anything above the standard bundle follows Table 7.1.
+11. Temporary Loans
+11.1 When a loan is provided
+Loan equipment is provided while a device is under repair, for short-term contractors, for travel where the allocated device is unsuitable, and for events or training.
+11.2 Loan period
+The maximum loan period is thirty days. Extensions are granted once by the Service Desk and thereafter require Asset Management approval. Loans are booked against available loan stock only; a loan is never fulfilled by purchasing new equipment.
+A colleague holding an overdue loan device may not receive further equipment until the loan is returned or extended.
+12. Leavers and Returns
+12.1 Return on leaving
+All equipment must be returned on or before the last working day. The line manager is accountable for the return and Human Resources is notified where equipment is outstanding after the leaving date.
+12.2 Outstanding equipment
+Where equipment remains outstanding fourteen days after the leaving date its replacement value may be recovered from final pay where local law permits.
+12.3 Data
+Every returned device is wiped to the organisation's data destruction standard before it re-enters stock or is dispositioned. A device may not be reissued before the wipe is recorded.
+13. Remote and Hybrid Working
+13.1 Home working equipment
+Colleagues working from home for two or more days each week are entitled to one additional monitor and one additional docking station for home use, subject to line manager confirmation of the working pattern.
+Desks, chairs, and other furniture are not provided under this policy and are handled by Facilities under POL-FAC-002.
+13.2 Equipment held off site
+Equipment held at a home address remains the property of the organisation and must be made available for collection, audit, or return on request.
+14. Contractors and Non-Employees
+14.1 Engagements over twenty days
+Contractors engaged for longer than twenty working days receive a standard General office allocation unless the engaging manager specifies a higher profile and accepts the cost against the engagement.
+14.2 Shorter engagements
+Shorter engagements are served from loan stock under section 11. Contractors are not eligible for refresh under section 3 at any engagement length.
+15. Bring Your Own Device
+15.1 Personal devices
+Personal computing devices may not be used to process organisational data except through the approved virtual desktop service. The organisation does not fund, repair, insure, or support personally owned hardware.
+A colleague who chooses to use a personal device through the virtual desktop remains entitled to an organisational device and does not receive an allowance in lieu.
+16. Security Requirements
+16.1 Baseline
+Every device must carry full-disk encryption, current endpoint protection, and the current management agent before it is issued. A device that cannot meet the baseline is not issued.
+16.2 Devices out of compliance
+A device that has not checked in to the management service for thirty days is suspended from network access. Further equipment is not issued to a colleague with a suspended device until the position is resolved.
+17. Software Tied to Hardware
+17.1 Device-bound licences
+Where a licence is bound to a specific device, its cost forms part of the request value for the purposes of Table 7.1. Licences are recovered and reassigned when a device is returned.
+18. Sustainability
+18.1 Reuse before purchase
+Where suitable equipment is available in stock it is issued in preference to purchasing new. A request is not refused solely because stock is unavailable, but stock is always assessed first.
+18.2 Disposal
+Retired equipment is refurbished for reuse, donated, or recycled through an approved waste contractor. Equipment is never disposed of to landfill.
+19. Asset Records
+19.1 Register
+Every device is recorded in the asset register from receipt to disposal, with its serial number, holder, location, condition, and lifecycle state. A device that is not in the register may not be issued.
+19.2 Verification
+Colleagues confirm receipt at handover. An unconfirmed handover remains open and the device remains recorded against the Service Desk.
+20. Liability and Recovery
+20.1 Recovery of cost
+The organisation may recover the replacement cost of equipment lost through gross negligence or wilful damage, subject to local employment law and to a documented review by Human Resources. Recovery is not applied to ordinary accidental damage.
+21. Service Levels
+21.1 Support response
+A colleague who is entirely unable to work is treated as P1 regardless of the underlying category.
+Table 21.1 � Service desk targets
+22. Exceptions
+22.1 Raising an exception
+Any requirement this policy does not permit may be raised as an exception. An exception states the business need, the cost, the period, and the risk of refusing it, and is decided by the Director, Digital Workplace.
+An approved exception is recorded against the colleague and expires after twelve months unless renewed. An exception does not create a precedent.
+A. Appendix A � Exceptions and Overrides to the Clauses Above
+The following provisions take precedence over the clauses they reference. They are gathered here for the convenience of the approvals team and are frequently missed.
+A.1 Executive profile
+Notwithstanding Table 7.1, requests from the Executive profile within the published catalogue require Asset Management approval only, at any value. Off-catalogue requests from the Executive profile follow section 22.
+A.2 Field and travel profile
+Notwithstanding 3.1, devices allocated to the Field and travel profile are refreshed at thirty-six months in recognition of heavier physical wear.
+A.3 Adjustment requests
+Clause 9.1 overrides section 2, Table 7.1, and clause 3.1 in their entirety where a workplace adjustment applies. Where 9.1 and A.1 both apply, 9.1 prevails.
+A.4 Security suspension
+Clause 16.2 overrides every other provision of this policy. No equipment is issued to a colleague holding a suspended device, including under 9.1.
+A.5 Regional variation � European Union
+In EU jurisdictions, recovery of equipment cost from final pay under 12.2 and 20.1 is not applied. Outstanding equipment is pursued as a civil matter instead.
+B. Appendix B � Definitions
+B.1 Terms used in this policy
+In service � the date a device was first issued to a colleague, not the date of purchase.
+Primary device � the computing device a colleague uses for the majority of their work.
+Standard bundle � the primary device together with the standard peripheral set at 2.1.
+Role profile � the entitlement grouping in Table 2.1, set by Human Resources.
+Request value � the total value of a submission including device-bound licences.
+Loan stock � equipment held for temporary issue and never permanently allocated.
+Workplace adjustment � equipment provided to remove a barrier to work, under section 9.
+Disposition � the recorded outcome of a retired device: reuse, donation, or recycling.
+All identities, thresholds, suppliers, and figures in this document are synthetic and exist to demonstrate a governed provisioning process.
+--- TABLE ---
+Document reference | POL-HW-001
+Version | 3.3
+Effective date | 2026-10-01
+Policy owner | Director, Digital Workplace
+Classification | Internal
+Review cycle | Annual, or on material change to the device catalogue
+--- TABLE ---
+Version | Effective | Summary of change
+3.3 | 2026-10-01 | Contractor entitlement threshold reduced from twenty to ten working days. Added clause 1.4 covering joint-venture secondees.
+3.2 | 2026-04-01 | Standard refresh extended from 36 to 48 months. Accessibility requests removed from the spend ladder. Loan window capped at 30 days.
+3.1 | 2025-10-01 | Added sustainability clause 18. Clarified that warranty repair precedes replacement.
+3.0 | 2025-04-01 | Rewritten for the unified device catalogue. Regional annexes consolidated into Appendix C.
+--- TABLE ---
+Role profile | Primary device class | Second monitor | Indicative unit cost
+General office | Standard laptop, 14-inch | On request, manager approval | USD 1,150
+Field and travel | Lightweight laptop, 13-inch | Not provided | USD 1,290
+Engineering | Performance laptop, 16-inch | Included | USD 2,400
+Design and media | Performance laptop, 16-inch | Included | USD 2,650
+Data and research | Performance laptop or workstation | Included | USD 2,900
+Executive | Any catalogue laptop | Included | Catalogue
+Contact centre | Desktop, fixed | Included | USD 890
+--- TABLE ---
+Request value (USD) | Approval required | Target turnaround
+Up to 150 | None � self-service | 1 working day
+151 to 600 | Line manager | 2 working days
+601 to 2,500 | Line manager and Asset Management | 4 working days
+2,501 to 10,000 | Line manager, Asset Management, and Finance Business Partner | 6 working days
+Above 10,000 | As above plus Director, Digital Workplace | 10 working days
+--- TABLE ---
+Priority | Definition | Response | Resolution
+P1 | Colleague cannot work and no workaround exists | 30 minutes | 4 hours
+P2 | Significant impairment, workaround exists | 2 hours | 8 hours
+P3 | Standard fault or request | 4 hours | 24 hours
+P4 | Minor, cosmetic, or scheduled | 1 working day | 5 working days
+

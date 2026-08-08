@@ -1,0 +1,27 @@
+{
+  "rule": {
+    "policy_set_id": "placeholder",
+    "policy_version_id": "placeholder",
+    "rule_id": "RULE-004",
+    "rule_revision": 1,
+    "title": "Travel expense cap",
+    "description": "Travel expenses above $500 require finance director approval regardless of manager approval.",
+    "rule_type": "approval_requirement",
+    "authority": { "level": "corporate", "owner": "finance-controls", "rank": 10 },
+    "scope": { "jurisdictions": ["US"], "organizational_units": ["*"], "personas": ["*"], "processes": ["expense"] },
+    "condition": {
+      "type": "all",
+      "all": [
+        { "type": "factComparison", "fact": "category", "operator": "equals", "value": "travel" },
+        { "type": "factComparison", "fact": "amount", "operator": "greaterThan", "value": 500 }
+      ]
+    },
+    "effect": { "type": "require_action", "action": "finance_director_approval" },
+    "required_facts": [
+      { "name": "category", "data_type": "string", "required": true },
+      { "name": "amount", "data_type": "number", "required": true }
+    ],
+    "priority": 5,
+    "effective_from": "2024-01-01"
+  }
+}

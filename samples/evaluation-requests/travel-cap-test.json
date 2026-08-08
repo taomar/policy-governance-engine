@@ -1,0 +1,9 @@
+{
+  "policy_set_id": "expense-policy",
+  "facts": {
+    "amount": 700,
+    "category": "travel",
+    "manager_approved": true
+  },
+  "correlation_id": "travel-cap-test"
+}
