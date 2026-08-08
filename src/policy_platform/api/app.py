@@ -34,8 +34,10 @@ def create_app() -> FastAPI:
 
     # CORS: allow the configured web dev server port plus Vite's common
     # fallback ports (Vite auto-increments if its preferred port is taken,
-    # which happened locally since 5173 was already in use).
-    web_ports = {settings.web_dev_server_port, 5173, 5174, 5175}
+    # which happened locally since 5173 was already in use). A wider range
+    # is allowed here since multiple concurrent local sessions may each grab
+    # a different port in this range.
+    web_ports = {settings.web_dev_server_port, *range(5173, 5180)}
     allowed_origins = [f"http://localhost:{p}" for p in web_ports] + [
         f"http://127.0.0.1:{p}" for p in web_ports
     ]
