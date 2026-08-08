@@ -196,9 +196,12 @@ def _machine_executability_findings(rules: list[CanonicalRule]) -> list[dict]:
             f"was missing: {top}."
         )
         recommendation = (
-            "These are not extraction defects. Supply the matching trusted configuration "
-            "(fact_model, output_model, value_normalization, ...) when extracting, and re-run: "
-            "the agent can then emit executable DMN decisions instead of enrichment requests."
+            "These are not extraction defects. Supply the matching trusted configuration when "
+            "extracting and re-run. Shape it as the specification's Section 84 example: key "
+            "fact_model/output_model by the SOURCE TERM with a feel_expression mapping "
+            '(e.g. {"age of the worker": {"feel_expression": "worker.ageYears", "type": "number"}}). '
+            "Keying by the FEEL path instead is accepted silently but leaves the agent unable to "
+            "connect source wording to the path, so it still reports FACT_MODEL_REQUIRED."
         )
         severity = "high"
     else:
