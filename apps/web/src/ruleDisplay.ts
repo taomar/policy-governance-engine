@@ -109,6 +109,9 @@ export const EFFECT_META: Record<string, { label: string; color: string }> = {
   allow: { label: "ALLOW", color: "green" },
   deny: { label: "DENY", color: "red" },
   require_action: { label: "REQUIRE ACTION", color: "gold" },
+  // Definitions/classifications state vocabulary; they authorize nothing, so
+  // they get a neutral badge distinct from the allow/deny/require axis.
+  informational: { label: "INFORMATIONAL", color: "default" },
 };
 
 export function effectMeta(effectType: string): { label: string; color: string } {

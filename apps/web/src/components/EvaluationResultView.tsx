@@ -132,7 +132,14 @@ export function EvaluationResultView({ response }: { response: EvaluationRespons
             dataIndex: "effect_action",
             render: (v, row) => {
               if (!v) return "—";
-              const color = row.effect_type === "deny" ? "red" : row.effect_type === "allow" ? "green" : "blue";
+              const color =
+                row.effect_type === "deny"
+                  ? "red"
+                  : row.effect_type === "allow"
+                    ? "green"
+                    : row.effect_type === "informational"
+                      ? "default"
+                      : "blue";
               return <Tag color={color}>{v}</Tag>;
             },
           },

@@ -165,7 +165,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [ruleType, setRuleType] = useState("approval_requirement");
-  const [effectType, setEffectType] = useState<"allow" | "deny" | "require_action">("require_action");
+  const [effectType, setEffectType] = useState<"allow" | "deny" | "require_action" | "informational">("require_action");
   const [effectAction, setEffectAction] = useState("");
   const [authorityOwner, setAuthorityOwner] = useState("");
   const [authorityLevel, setAuthorityLevel] = useState("corporate");
@@ -581,6 +581,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               { value: "allow", label: "allow" },
                               { value: "deny", label: "deny" },
                               { value: "require_action", label: "require_action" },
+                              { value: "informational", label: "informational" },
                             ]}
                           />
                         </Form.Item>

@@ -84,6 +84,14 @@ from policy_platform.contracts.policy import (
 #: - `ambiguous` likewise defers to human judgement.
 #:
 #: `non_normative` is absent on purpose — see `_SKIPPED_RULE_TYPES`.
+#:
+#: `classification`/`definition` map to `EffectType.INFORMATIONAL`, not
+#: `ALLOW`: neither authorizes nor forbids anything, so `ALLOW` was a
+#: dishonest projection — most visibly when the source is phrased negatively
+#: ("shall NOT be included...") and the forced `ALLOW` asserts the literal
+#: inverse of the rule's own text. See `ai_quality._definition_effect_findings`
+#: for the defect this closes and `_apply_combining_algorithm` for why an
+#: informational effect never competes on the allow/deny axis.
 _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.OBLIGATION: (RuleType.OBLIGATION, EffectType.REQUIRE_ACTION),
     CanonicalRuleType.PROHIBITION: (RuleType.PROHIBITION, EffectType.DENY),
@@ -93,9 +101,9 @@ _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.INELIGIBILITY: (RuleType.ELIGIBILITY, EffectType.DENY),
     CanonicalRuleType.CONDITIONAL_OUTCOME: (RuleType.ROUTING, EffectType.REQUIRE_ACTION),
     CanonicalRuleType.CALCULATION: (RuleType.CALCULATION, EffectType.REQUIRE_ACTION),
-    CanonicalRuleType.CLASSIFICATION: (RuleType.DEFINITION, EffectType.ALLOW),
+    CanonicalRuleType.CLASSIFICATION: (RuleType.DEFINITION, EffectType.INFORMATIONAL),
     CanonicalRuleType.RECOMMENDATION: (RuleType.HUMAN_JUDGMENT_REQUIREMENT, EffectType.REQUIRE_ACTION),
-    CanonicalRuleType.DEFINITION: (RuleType.DEFINITION, EffectType.ALLOW),
+    CanonicalRuleType.DEFINITION: (RuleType.DEFINITION, EffectType.INFORMATIONAL),
     CanonicalRuleType.AMBIGUOUS: (RuleType.HUMAN_JUDGMENT_REQUIREMENT, EffectType.REQUIRE_ACTION),
 }
 
@@ -308,13 +316,33 @@ def derive_condition(
     return AllCondition(all=leaves), facts
 
 
+def _is_separator_predicate(predicate: str) -> bool:
+    """True when `predicate` is punctuation-only (e.g. bare `":"` or `"-"`).
+
+    Stage 2 uses subject/predicate/object as a generic triple for every rule
+    type, but has no dedicated guidance for `definition`/`classification`
+    (spec sections 10-19 cover only the other ten types). For those, the
+    model idiomatically emits the dictionary "Term: Definition" separator as
+    a literal `predicate=":"` rather than a verb — reasonable given the
+    prompt gives it no better convention, but naive `predicate + object`
+    concatenation then produces a stray leading punctuation mark ahead of
+    the actual definition text (e.g. `": Work considered..."`).
+    """
+
+    return bool(predicate) and not any(c.isalnum() for c in predicate)
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
     rule = policy.rule
     parts: list[str] = []
     if rule is not None:
-        parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
+        predicate = rule.predicate or ""
+        if _is_separator_predicate(predicate):
+            parts = [p for p in (rule.subject, rule.object) if p]
+        else:
+            parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
     text = " ".join(parts) if parts else policy.source_text
     text = " ".join(text.split())
     return (text[:197] + "...") if len(text) > 200 else (text or "Untitled formulated rule")
@@ -326,7 +354,9 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     rule = policy.rule
     if rule is None:
         return ""
-    parts = [p for p in (rule.predicate, rule.object) if p]
+    predicate = rule.predicate or ""
+    obj = rule.object or ""
+    parts = [obj] if _is_separator_predicate(predicate) else [p for p in (predicate, obj) if p]
     return " ".join(" ".join(parts).split())[:200]
 
 

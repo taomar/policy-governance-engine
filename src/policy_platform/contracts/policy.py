@@ -45,6 +45,14 @@ class EffectType(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
     REQUIRE_ACTION = "require_action"
+    # A rule that states vocabulary/classification rather than authorizing or
+    # forbidding anything (e.g. a `definition`/`classification` rule_type).
+    # Added so `_RULE_TYPE_MAP` has somewhere truthful to send these instead
+    # of forcing `ALLOW` — see `ai_quality._definition_effect_findings` for
+    # the defect this fixes (a negatively-phrased definition asserting the
+    # inverse permission of its source text) and `_apply_combining_algorithm`
+    # for why this effect never competes on the allow/deny axis.
+    INFORMATIONAL = "informational"
 
 
 class AmbiguityStatus(str, Enum):

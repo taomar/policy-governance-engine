@@ -442,6 +442,69 @@ def test_non_normative_text_is_skipped_instead_of_becoming_a_rule():
     assert len(skipped) == 1 and "non_normative" in skipped[0]["reason"]
 
 
+def test_definition_gets_informational_effect_not_a_false_allow():
+    """Regression guard for the polarity-reversal defect (ai_quality.py's
+    `_definition_effect_findings` docstring): a `definition` rule must not be
+    forced into `allow`, and Stage 2's idiomatic `predicate=":"`
+    term-separator must not leak a stray leading colon into `effect.action`.
+    """
+
+    rules, skipped = _map(
+        parse_formulation(
+            _envelope(
+                [
+                    {
+                        "source_text": "Temporary Work: Work considered by its nature to end "
+                        "within a limited period.",
+                        "extraction_status": "complete",
+                        "rule": {
+                            "rule_type": "definition",
+                            "subject": "Temporary Work",
+                            "predicate": ":",
+                            "object": "Work considered by its nature to end within a limited period.",
+                        },
+                    }
+                ],
+                [],
+            )
+        )
+    )
+
+    assert skipped == []
+    (rule,) = rules
+    assert rule.rule_type.value == "definition"
+    assert rule.effect.type.value == "informational"
+    assert rule.effect.action == "Work considered by its nature to end within a limited period."
+    assert not rule.effect.action.startswith(":")
+    assert rule.title == "Temporary Work Work considered by its nature to end within a limited period."
+
+
+def test_classification_gets_informational_effect_too():
+    rules, _ = _map(
+        parse_formulation(
+            _envelope(
+                [
+                    {
+                        "source_text": "Workers are classified as either permanent or temporary.",
+                        "extraction_status": "complete",
+                        "rule": {
+                            "rule_type": "classification",
+                            "subject": "Workers",
+                            "predicate": "classified as",
+                            "object": "either permanent or temporary",
+                        },
+                    }
+                ],
+                [],
+            )
+        )
+    )
+
+    (rule,) = rules
+    assert rule.rule_type.value == "definition"
+    assert rule.effect.type.value == "informational"
+
+
 def test_ambiguous_extraction_forces_human_judgment():
     rules, _ = _map(
         parse_formulation(

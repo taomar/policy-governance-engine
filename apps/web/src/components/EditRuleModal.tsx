@@ -157,7 +157,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
   const [title, setTitle] = useState(rule.title);
   const [description, setDescription] = useState(rule.description);
   const [ruleType, setRuleType] = useState(rule.rule_type);
-  const [effectType, setEffectType] = useState<"allow" | "deny" | "require_action">(rule.effect.type);
+  const [effectType, setEffectType] = useState<"allow" | "deny" | "require_action" | "informational">(rule.effect.type);
   const [effectAction, setEffectAction] = useState(rule.effect.action);
   const [priority, setPriority] = useState(rule.priority);
   const [effectiveFrom, setEffectiveFrom] = useState(rule.effective_from);
@@ -500,6 +500,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
                         { value: "allow", label: "allow" },
                         { value: "deny", label: "deny" },
                         { value: "require_action", label: "require_action" },
+                        { value: "informational", label: "informational" },
                       ]}
                     />
                   </Form.Item>

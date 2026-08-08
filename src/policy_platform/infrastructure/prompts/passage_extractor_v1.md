@@ -206,6 +206,38 @@ Do not extract standalone:
 - blank forms
 - definitions that contain no normative effect
 - references such as "See Article 12" without an operative requirement
+- self-referential statements about THE DOCUMENT ITSELF: its own
+  enactment, promulgation, publication, numbering, citation, authorship,
+  approval, effective date, entry into force, or supersession/repeal of an
+  earlier version of the SAME document. This applies across every domain,
+  not only legal text — the same pattern is:
+
+    "This Law shall enter into force ..." (legal statute)
+    "This Law shall be published in the Official Gazette" (legal statute)
+    "This Law shall repeal the Law promulgated by Royal Decree No. ..."
+      (legal statute)
+    "This policy supersedes Policy HR-014 v2.1" (HR policy)
+    "Approved by: CHRO, effective 2024-03-01" (HR/document-control block)
+    "This SOP shall be reviewed annually" (procurement/IT SOP)
+    "This Standard is issued by the IT Governance Office" (IT policy)
+
+  Do NOT apply this exclusion to a sentence that merely names the document
+  ("this Law", "this policy", "this Agreement") while stating a real rule
+  about people, roles, or conduct. Those ARE policy-bearing and MUST be
+  extracted. Example — extract this, do not exclude it:
+
+    "Provisions of this Law shall apply to Workers of charitable
+    institutions." (a real scope/applicability rule — tells you WHO is
+    covered, not merely that the document exists)
+
+    "This policy applies to all full-time employees in the United States."
+      (a real scope rule — extract it)
+
+  Test: does the sentence describe what happens to/because of THE
+  DOCUMENT (its own name, citation, approval, publication, numbering, or
+  replacement of a prior document)? If so, do not extract it — even if it
+  uses "shall"/"must". If instead it describes who/what the document's
+  rules apply to, exempt, or require, extract it normally.
 
 
 ======================================================================

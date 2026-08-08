@@ -195,8 +195,21 @@ def _apply_combining_algorithm(
     allow_like = {EffectType.ALLOW.value, EffectType.REQUIRE_ACTION.value}
     allow_side = [r for r in satisfied if r.effect_type in allow_like]
     deny_side = [r for r in satisfied if r.effect_type == EffectType.DENY.value]
+    # Rules whose effect is neither allow-like nor deny (currently only
+    # INFORMATIONAL, from a `definition`/`classification` rule_type) never
+    # compete on the allow/deny axis. They are excluded from `winner`
+    # selection below so one being top-precedence can't force a spurious
+    # "side" (e.g. `winner in allow_side` is False for an informational
+    # rule, which previously made it default onto the deny side even with
+    # no actual DENY rule present). They remain in `satisfied` and still
+    # reach `winning_side_current`/advice when there is no real conflict.
+    axis_satisfied = [r for r in satisfied if r.effect_type in allow_like or r.effect_type == EffectType.DENY.value]
+    if not axis_satisfied:
+        # Every satisfied rule is purely informational: nothing to combine
+        # or override, but their advice (if any) should still surface.
+        return rule_results, None, [], [], sorted({a for r in satisfied for a in r.advice})
 
-    winner = satisfied[0]  # satisfied is already precedence-ordered
+    winner = axis_satisfied[0]  # already precedence-ordered
     winning_side = allow_side if winner in allow_side else deny_side
     losing_side = deny_side if winning_side is allow_side else allow_side
 

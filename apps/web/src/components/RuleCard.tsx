@@ -10,11 +10,13 @@ import {
   BarChartOutlined,
   ReadOutlined,
   EditOutlined,
+  CodeOutlined,
 } from "@ant-design/icons";
 import type { AggregateLimit, CanonicalRule, Clause } from "../api";
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
+import { JsonView } from "./JsonView";
 import { NotesPanel } from "./NotesPanel";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { ruleTypeLabel } from "../ruleTypes";
@@ -27,6 +29,7 @@ const EFFECT_COLOR: Record<string, string> = {
   allow: "green",
   deny: "red",
   require_action: "gold",
+  informational: "default",
 };
 
 interface RuleCardProps {
@@ -444,6 +447,46 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                       );
                     })}
                   </Space>
+                )}
+              </div>
+
+              <div className="rule-card-section">
+                <Text strong className="rule-card-section-title">
+                  <CodeOutlined /> AI extraction record — both stages, preserved verbatim
+                </Text>
+                {rule.formulation ? (
+                  <Collapse
+                    className="inspector-technical-collapse"
+                    items={[
+                      {
+                        key: "canonical",
+                        label: "Canonical JSON — subject/predicate/object as the AI decomposed it, before mapping",
+                        children: (
+                          <JsonView
+                            value={rule.formulation.canonical ?? null}
+                            downloadName={`${rule.rule_id}-canonical.json`}
+                            maxHeight={320}
+                          />
+                        ),
+                      },
+                      {
+                        key: "dmn",
+                        label: "DMN JSON — OMG DMN 1.5 / FEEL decision projection",
+                        children: (
+                          <JsonView
+                            value={rule.formulation.dmn_decisions}
+                            downloadName={`${rule.rule_id}-dmn.json`}
+                            maxHeight={320}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Text type="secondary">
+                    No AI extraction record — this rule was hand-authored or drafted before the formulator agent
+                    existed.
+                  </Text>
                 )}
               </div>
 

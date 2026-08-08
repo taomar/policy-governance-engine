@@ -56,6 +56,7 @@ is documented in ADR-0006.
 | 40 | Post-handoff code review of the Milestones 19–20 Policies-tab rebuild (3 real bugs fixed) + broad live functional-testing pass (all 7 policy sets) + live-data reconciliation (found `mhrsd-policy`/`saudi-labor-law` now have 0 published versions) | done |
 | 41 | Employee attestation tracking (ISO 37301 §7.3 — the last remaining P1 gap from `docs/policy-standards-research.md`): `PolicyAttestation` model/migration/schemas/repository/router, manager-gated bulk campaign creation, computed pending/acknowledged/overdue status, no-login self-service "My Attestations" page + project "Attestations" tab. See ADR-0012 | done |
 | 42 | Policy ownership / RACI metadata (🟠 P2 gap from `docs/policy-standards-research.md`): 5 new `PolicySet` fields (`accountable_owner`, `delegate_approver`, `escalation_contact`, `consulted_parties`, `informed_parties`) alongside the pre-existing department-level `owner`, wired end-to-end (model/migration/schema/repository/router + frontend Edit Project modal section + new Overview-tab "Governance & ownership" card). See ADR-0013 | done |
+| 43 | Intake-quality root-cause fix (user-reported: `saudi-labor-law` review queue full of non-policy junk). `EffectType.INFORMATIONAL` added to schema (fixes `definition`/`classification` rules being forced into a false `ALLOW`); colon-separator-predicate bug fixed; combining-algorithm correctness fix so an informational rule never corrupts a real allow/deny conflict; full test + frontend coverage; safe backfill of the existing 668-row queue (55 rows corrected, 0 review-status/LLM calls). Separately: `non_normative` rule-type guidance was entirely undocumented in both extraction prompts (listed in the enum, never explained) — root cause of legislative/document-lifecycle boilerplate ("This Law shall be published", "This Law shall enter into force") being misclassified as real obligations/routing rules. Added domain-agnostic guidance (Stage 1 + Stage 2 prompts) generalizing the pattern to ANY policy genre (HR/IT/procurement/conduct, not just legal), with explicit counter-examples so real scope/exemption rules that merely cite "this Law"/"this policy" are never miscaught. Manually vetted and rejected (not deleted — full audit trail) exactly 6 pure document-lifecycle-meta rows already sitting in the current queue; left the other 43 keyword-matched rows untouched as genuine policy content. Extraction re-run remains explicitly gated on user go-ahead. | done |
 
 **All Phase 1 (Foundation) + Phase 5 (Deterministic Execution) milestones for this
 local vertical slice are complete and verified, plus the human review/approval
@@ -2961,3 +2962,167 @@ sleep/resume, Docker Desktop restarts/updates, WSL2 VM recycling). If
 `alembic current`, a health check, or any DB-touching command hangs or
 refuses a connection, check `docker ps -a` and the relevant port first
 before assuming a code-level bug.
+
+### Milestone 43 detail — Intake-quality root cause: `saudi-labor-law` review queue full of non-policy junk
+
+**Trigger:** user reviewed the `saudi-labor-law` candidate queue (668 rows,
+Stage 1+2 AI extraction from the Saudi Labor Law PDF — the smaller of the
+two Saudi documents shared, per explicit instruction) and was unhappy with
+the quality: things that clearly aren't policy rules — including the
+document's own promulgation/enactment clauses — were showing up as
+candidate rules. **Standing instruction: do NOT advance any candidate rows
+to human review, and do not re-run extraction, until the user confirms** —
+this milestone's scope is entirely root-cause analysis + fixes to
+already-existing code/prompts/data, not a new extraction run.
+
+**Defect #1 — `EffectType` had no neutral/informational option (schema gap).**
+`definition` and `classification` canonical rule types were force-mapped to
+`EffectType.ALLOW` in `formulation_mapping.py._RULE_TYPE_MAP` because no
+neutral effect type existed. This is dishonest whenever the source text is
+phrased negatively — e.g. a definition containing "shall NOT be included"
+was still mapped to `ALLOW`, literally asserting the opposite of what the
+rule says. Fix:
+- Added `EffectType.INFORMATIONAL` to `contracts/policy.py` (source of
+  truth), mapped `definition`/`classification` → `INFORMATIONAL` instead of
+  `ALLOW` in `formulation_mapping.py`.
+- Fixed a related colon-separator-predicate bug in the same mapping path
+  (a stray `predicate=":"` term-separator idiom was leaking into
+  `effect.action`/`title` verbatim).
+- Fixed `_apply_combining_algorithm` so an `INFORMATIONAL` rule never
+  competes on the allow/deny axis — verified with two new regression tests
+  (a lone satisfied informational rule produces no crash/no outcome; an
+  informational rule with the highest raw precedence does not corrupt a
+  genuine ALLOW-vs-DENY conflict between two *other* rules).
+- Full frontend mirror: `api.ts` (`Effect.type`,
+  `RuleEvaluationResult.effect_type`), `ruleDisplay.ts` (`EFFECT_META`),
+  `RuleCard.tsx` (`EFFECT_COLOR`), `EditRuleModal.tsx` /
+  `ReviewQueue.tsx` (dropdown option + widened state type),
+  `EvaluationResultView.tsx` / `RuleScenarioTester.tsx` (distinct color).
+  `tsc -b --force` and `vite build` both clean.
+- **Backfill** (`scripts/backfill_effect_type_fix.py`, dry-run capable,
+  zero LLM calls, zero `review_status` changes): re-derived
+  `title`/`effect` for all 668 existing `saudi-labor-law` candidate rows
+  from their already-stored `formulation.canonical` using the fixed
+  deterministic mapping functions. 55 rows changed (37 `definition` + 18
+  `classification` canonical types), 613 unchanged, 0 skipped. Verified via
+  direct SQL: `effect_type` distribution cleanly shows
+  `definition→informational: 55`; `review_status` distribution (666
+  candidate / 1 approved / 1 rejected at the time) and
+  `payload_json['rule_revision']` (all still `1`) both confirmed
+  untouched — only the internal, never-rendered `CandidateRule.revision`
+  bookkeeping column bumped for the 55 changed rows.
+- Full backend suite: 326/326 passed (322 baseline + 4 new tests).
+
+**Defect #2 — `non_normative` rule type was listed but never explained
+(prompt gap), so the LLM almost never used it.** Both `passage_extractor_v1.md`
+(Stage 1) and `policy_formulator_v1.md` (Stage 2) list/permit
+`non_normative`/"document metadata" exclusions, but neither prompt ever
+explained *what qualifies* or gave a worked example — Stage 2 in particular
+lists `non_normative` in the Section 9 rule-type enum with **zero dedicated
+section**, unlike every other rule type (obligation, prohibition,
+permission, etc.), each of which gets its own worked section with examples.
+Result: sentences that are purely about the *document's own* lifecycle
+("This Law shall be published", "This Law shall enter into force", "This
+Law shall repeal the Law promulgated by Royal Decree No. (M/21)...", "The
+Implementing Regulations shall be published", "Regulations... prior to the
+effective date of this Law shall remain in effect") got typed as
+`obligation`/`routing` instead of `non_normative` — and
+`non_normative` is *already* a first-class recognized type in
+`_SKIPPED_RULE_TYPES` (`formulation_mapping.py`), which silently drops such
+rows before they ever become a `candidate_rules` row. **This means the
+architecture/drop-mechanism was already correct; the defect was purely a
+classification-accuracy/prompt-completeness gap** — no new pipeline stage
+was needed.
+
+**Critical scope correction from the user, acted on before shipping the
+fix:** this platform is explicitly multi-domain (Section 4 of the Stage 2
+prompt already lists HR/Finance/Procurement/IT/Legal/Compliance/Safety/etc.
+— see `# 4. UNIVERSAL BUSINESS APPLICABILITY`). An initial draft of this
+fix over-indexed on legal-statute vocabulary (Royal Decree, Official
+Gazette, Council of Ministers) since that's the one document currently
+loaded. The user explicitly flagged this: the same document-lifecycle-meta
+pattern shows up in ANY enterprise policy genre with different words —
+"Approved by: CHRO, effective 2024-03-01", "This policy supersedes Policy
+HR-014 v2.1", "This SOP shall be reviewed annually", document-control
+tables, etc. Both prompt edits were written/rewritten to state the
+GENERAL test ("does this sentence describe the document's own
+name/citation/approval/publication/lifecycle, vs. who/what the document's
+rules apply to?") with **multi-domain examples side by side** (legal
+statute + HR policy + IT/procurement SOP), not legal-only vocabulary. Files
+changed: `src/policy_platform/infrastructure/prompts/passage_extractor_v1.md`
+(Section 5 exclusion list expanded) and
+`.../prompts/policy_formulator_v1.md` (new `# 19.1 NON-NORMATIVE` section
+inserted between `# 19. RECOMMENDATION` and `# 20. GENERAL CANONICAL
+MODEL` — decimal-numbered rather than renumbering all 87 subsequent
+sections, since prompt section numbers are purely human-readable dividers
+with zero code/test cross-references, confirmed via grep). Both edits
+include explicit **counter-examples** so genuinely substantive scope/
+exemption rules that merely cite "this Law"/"this policy" by name are never
+miscaught as `non_normative` (e.g. "Provisions of this Law shall apply to
+Workers of charitable institutions" and "Agricultural workers... shall be
+exempted from the implementation of the provisions of this Law" are real
+rules and must stay classified normally) — this distinction matters because
+an initial broad `title ILIKE '%this law%' OR '%royal decree%' OR ...`
+diagnostic query returned 49 rows, and manual read-through showed the large
+majority (43 of 49) are genuine substantive rules that merely cite "this
+Law" as their legal basis, not junk.
+
+**Current-queue cleanup (existing 668 rows, not a new extraction):** of the
+49 keyword-matched rows, exactly 6 were manually vetted as pure
+document-lifecycle metadata with zero operational content for any party in
+any domain (the "This Law shall be published" / "shall enter into force" /
+"shall supersede/repeal" / transitional-continuity family listed above).
+Wrote `scripts/cleanup_document_meta_junk.py` — deliberately does **not**
+use a keyword filter at query/write time; it acts only on these 6
+individually-vetted, hardcoded candidate-rule IDs, each with its own
+recorded rationale, via the same `set_review_status()` path a human
+reviewer's "reject" click uses (not a delete — full audit trail via
+`reviewed_by="ai-intake-cleanup"` + a `review_notes` string quoting the
+specific reason, fully reversible). Dry-run reviewed and matched exactly
+the expected 6 rows before `--apply`. Verified via direct SQL and via the
+live API (`GET /api/policy-sets/saudi-labor-law/candidate-rules?status=...`):
+`review_status` distribution is now 660 candidate / 1 approved / 7 rejected
+(668 total, unchanged) — down from 666/1/1. The other 43 keyword-matched
+rows (scope/exemption/obligation/permission rules that merely mention "this
+Law") were deliberately left untouched.
+
+**Verification:** full backend suite re-run after all prompt/data changes
+this milestone — 326/326 passed. Backend dev server restarted **without**
+`--reload` (matches the documented `README.md`/prior-milestone convention;
+`--reload --reload-dir src` had still picked up changes to files outside
+`src` — e.g. a new `scripts/*.py` file — and crashed at least twice this
+session; not chasing that further since the documented startup doesn't use
+`--reload` at all).
+
+**Explicitly NOT done this milestone (still gated on user go-ahead):**
+- No re-run of Stage 1/2 extraction for `saudi-labor-law` or any other
+  policy set.
+- No candidate rows advanced to `approved`/human review.
+- The other 43 rows from the diagnostic query were left as `candidate` —
+  they are genuine policy content, not cleanup targets.
+- Two extraction-quality issues were *noticed but not touched*, flagged
+  here for future attention rather than acted on since they need human
+  judgment beyond this milestone's scope: (a) possible rule-granularity
+  duplication where a summary sentence ("They shall have the powers
+  provided for in this Law") is immediately followed by 4 rows itemizing
+  those same powers individually — may be intentional explicit detail
+  rather than true duplication; (b) a candidate title ("Labor courts may
+  not hear any claim arising from this Law or from an employment
+  contract") that reads as an absolute bar on labor courts, which is
+  almost certainly a truncated extraction of what should be a
+  limitations-period/time-bar rule (e.g. "...claims filed more than N
+  months after X") — the limiting condition appears to have been dropped
+  during extraction. Neither was touched; both are candidates for a future
+  extraction-quality pass, not this cleanup.
+
+### Next action
+
+Report back to the user: what was root-caused and fixed (schema +
+mapping + combining-algorithm bugs, now backfilled into the live queue),
+what prompt guidance was added for future extractions (generalized across
+all policy domains, not just legal, per explicit user correction), what was
+cleaned from the current queue (6 rows, with full reasoning, nothing else
+touched), and reconfirm that extraction re-run / advancing candidates to
+review remains explicitly pending the user's go-ahead. Two extraction
+fragment/duplication observations (see above) are noted for awareness, not
+auto-fixed.

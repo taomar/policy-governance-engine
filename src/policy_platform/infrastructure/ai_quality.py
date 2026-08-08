@@ -135,18 +135,18 @@ def _definition_effect_findings(rules: list[CanonicalRule]) -> list[dict]:
     """Report definitions that carry an authorization effect.
 
     A definition establishes vocabulary; it authorizes nothing. `EffectType`
-    offers only allow/deny/require_action, so `_RULE_TYPE_MAP` has nowhere
-    truthful to send `definition` and sends it to `allow`. The rule then asserts
-    a permission its source never granted.
+    used to offer only allow/deny/require_action, so `_RULE_TYPE_MAP` had
+    nowhere truthful to send `definition` and sent it to `allow`. The rule
+    then asserted a permission its source never granted.
 
-    That is not merely untidy, because a definition is often phrased negatively.
-    Observed in the Saudi Labor Law extraction: "The periods designated for
-    rest, prayers, and meals SHALL NOT BE INCLUDED in the actual working hours"
-    became `allow: "be included in the actual working hours"` — the exact
-    inverse of the source. Two separate AI reviews reported this as two findings
-    ("definitions modeled with allow effects" and "semantic polarity errors");
-    they are one defect, and the polarity reversal is the symptom rather than
-    the cause.
+    That was not merely untidy, because a definition is often phrased
+    negatively. Observed in the Saudi Labor Law extraction: "The periods
+    designated for rest, prayers, and meals SHALL NOT BE INCLUDED in the
+    actual working hours" became `allow: "be included in the actual working
+    hours"` — the exact inverse of the source. Two separate AI reviews
+    reported this as two findings ("definitions modeled with allow effects"
+    and "semantic polarity errors"); they are one defect, and the polarity
+    reversal is the symptom rather than the cause.
 
     Severity distinguishes latent from active, because the difference is real.
     While a definition stays non-executable the evaluator returns NOT_APPLICABLE
@@ -155,12 +155,12 @@ def _definition_effect_findings(rules: list[CanonicalRule]) -> list[dict]:
     vocabulary is also what turns this from a labelling error into an evaluator
     returning ALLOW for text that says "shall not".
 
-    Reported here rather than fixed in the mapping deliberately: a truthful
-    effect needs a fourth `EffectType`, which changes a published contract, the
-    evaluator's outcome vocabulary and the effect badges in the UI. That is a
-    design decision, not a defect fix. Surfacing it at the review boundary
-    stops the rules being approved unnoticed in the meantime, which is what the
-    review stage exists for.
+    `EffectType.INFORMATIONAL` now exists precisely for this case, and
+    `_RULE_TYPE_MAP` sends `definition`/`classification` there instead of
+    `allow` — see `formulation_mapping.py`. This check stays, unchanged, as a
+    regression/backfill guard: rows extracted (or mapped) before that fix,
+    or any future rule_type wrongly routed to allow/deny, still surface here
+    at the review boundary rather than being approved unnoticed.
     """
 
     offenders = [

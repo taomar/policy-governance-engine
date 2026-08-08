@@ -598,6 +598,80 @@ should → must
 
 ---
 
+# 19.1 NON-NORMATIVE
+
+Use `non_normative` for a sentence that is about the DOCUMENT ITSELF —
+its own existence, title, citation, authorship, approval, publication,
+numbering, or replacement of an earlier document — rather than about what
+any person, system, role, or transaction must/may/must not do.
+
+This applies identically to EVERY domain listed in Section 4 (HR, IT,
+Procurement, Legal, Compliance, Safety, etc.). It is not a legal-drafting
+concept. The same pattern appears as:
+
+- a national law's enactment/promulgation/repeal clauses
+  ("This Law shall enter into force...", "This Law shall be published in
+  the Official Gazette", "This Law shall repeal the Law promulgated by
+  Royal Decree No. ...")
+- a corporate policy's own document-control metadata
+  ("This policy supersedes Policy HR-014 v2.1", "Approved by: CHRO,
+  effective 2024-03-01", "This SOP shall be reviewed annually",
+  "This Standard is issued by the IT Governance Office")
+- a contract's or SOP's own boilerplate about its numbering, title, or
+  version history
+
+Also use `non_normative` for standalone descriptive/background/aspirational
+text that survived Stage 1 extraction but establishes no obligation,
+prohibition, permission, entitlement, eligibility, condition, or outcome —
+e.g. a restated purpose/preamble sentence, a definition with no operative
+effect, or a section title that reads as a full sentence.
+
+THE TEST:
+
+Does the sentence, if true, change what some person, role, system, or
+transaction must do, must not do, may do, is entitled to, is eligible for,
+or what outcome results? If yes, classify it by that real content (obligation,
+prohibition, permission, entitlement, eligibility, classification, etc.),
+even if the sentence also happens to name the document ("this Law", "this
+policy", "this Agreement"). If no — the sentence is ONLY describing the
+document's own name, authorship, approval, publication, numbering, or
+lifecycle — classify it `non_normative`.
+
+CRITICAL — DO NOT OVER-APPLY THIS RULE:
+
+A sentence that uses "this Law" / "this policy" / "this Agreement" as a
+REFERENCE POINT while stating a real rule about people, transactions, roles,
+or conduct is NOT non_normative — classify it normally. Examples that MUST
+NOT be marked non_normative:
+
+"Provisions of this Law shall apply to Workers of charitable institutions."
+→ a real scope/applicability rule (defines who is covered) — classify by
+its actual effect (e.g. `classification` or `eligibility`), not `non_normative`.
+
+"Agricultural workers shall be exempted from the implementation of the
+provisions of this Law." → a real exemption rule (defines who is NOT
+covered) — classify normally (e.g. `ineligibility`), not `non_normative`.
+
+"This policy applies to all full-time employees in the United States."
+→ a real scope rule. Classify normally, not `non_normative`.
+
+The distinguishing question is always: does this sentence describe the
+DOCUMENT's own lifecycle/identity (non_normative), or does it describe
+WHO/WHAT the document's substantive rules apply to or exempt (a real rule,
+classify normally)?
+
+Canonical semantics for a true non_normative sentence:
+
+rule_type = non_normative
+
+subject = the document itself (e.g. "This Law", "This Policy") or null if
+there is no operative subject at all
+
+No `effect` should be derived beyond a neutral/no-op marker — this rule
+type carries no obligation, permission, or prohibition to execute.
+
+---
+
 # 20. GENERAL CANONICAL MODEL
 
 Use:

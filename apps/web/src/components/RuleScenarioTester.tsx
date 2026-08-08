@@ -123,7 +123,17 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
               {rr ? rr.status : "NO RESULT"}
             </Tag>
             {rr?.effect_action && (
-              <Tag color={rr.effect_type === "deny" ? "red" : rr.effect_type === "allow" ? "green" : "blue"}>
+              <Tag
+                color={
+                  rr.effect_type === "deny"
+                    ? "red"
+                    : rr.effect_type === "allow"
+                      ? "green"
+                      : rr.effect_type === "informational"
+                        ? "default"
+                        : "blue"
+                }
+              >
                 {rr.effect_action}
               </Tag>
             )}

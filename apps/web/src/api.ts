@@ -178,7 +178,11 @@ export interface NotCondition {
 export type ConditionNode = FactComparisonCondition | AllCondition | AnyCondition | NotCondition;
 
 export interface Effect {
-  type: "allow" | "deny" | "require_action";
+  // "informational": the rule states vocabulary/classification (definition,
+  // classification rule_type) rather than authorizing or forbidding
+  // anything — never rendered as allow/deny, never contributes to
+  // required_actions/denied_actions.
+  type: "allow" | "deny" | "require_action" | "informational";
   action: string;
 }
 
@@ -296,6 +300,79 @@ export interface RuleLineage {
   schema_version: string;
 }
 
+// The policy-formulator agent's two paired outputs, preserved verbatim on
+// every AI-extracted rule (see contracts.formulation.RuleFormulation on the
+// backend). `canonical` is CANONICAL_JSON — the subject/predicate/object
+// decomposition of the source text, before any lossy mapping into this
+// platform's executable rule_type/effect vocabulary. `dmn_decisions` is
+// DMN_JSON — the OMG DMN 1.5 / FEEL decision projection. Both are shown to
+// reviewers so they can check the mapped rule (above) against what the AI
+// actually said, rather than only ever seeing the derived form. Nested
+// fields the spec leaves open-ended are typed permissively rather than
+// exhaustively, matching how the backend itself treats them.
+export interface CanonicalEvidence {
+  subject?: string;
+  predicate?: string;
+  object?: string;
+  condition?: string;
+}
+
+export interface CanonicalPolicyRule {
+  rule_type: string;
+  subject?: string;
+  modality?: string;
+  predicate?: string;
+  object?: string;
+  actor?: string;
+  beneficiary?: string;
+  candidate?: string;
+  recipient?: string;
+  assigner?: string;
+  trigger?: string;
+  condition?: string;
+  constraint?: string;
+  threshold?: string;
+  temporal_constraint?: string;
+  frequency?: string;
+  deadline?: string;
+  location?: string;
+  exception?: string;
+  prerequisite?: string;
+  sequence?: string;
+  consequence?: string;
+  remedy?: string;
+  calculation?: string;
+  unit?: string;
+  currency?: string;
+  source_origin?: string;
+}
+
+export interface CanonicalPolicy {
+  source_text: string;
+  extraction_status: string;
+  rule?: CanonicalPolicyRule;
+  evidence?: CanonicalEvidence;
+  relationships: unknown[];
+  ambiguity: string[];
+  missing_components: unknown[];
+}
+
+export interface DmnDecision {
+  source_rule_indexes: number[];
+  dmn_mapping_status: string;
+  requirements: string[];
+  semantic_projection?: Record<string, unknown>;
+  decision_table?: Record<string, unknown> | null;
+  literal_expression?: Record<string, unknown>;
+  dependencies: string[];
+}
+
+export interface RuleFormulation {
+  source_index: number;
+  canonical?: CanonicalPolicy;
+  dmn_decisions: DmnDecision[];
+}
+
 export interface CanonicalRule {
   schema_version: string;
   policy_set_id: string;
@@ -330,6 +407,9 @@ export interface CanonicalRule {
   // Non-blocking guidance attached to this rule's decision (XACML Advice).
   // See ADR-0011. Empty on the vast majority of existing rules.
   advice: Advice[];
+  // The formulator agent's canonical + DMN extraction record. Absent for
+  // hand-authored rules or rules drafted before this agent existed.
+  formulation?: RuleFormulation;
 }
 
 export interface DocumentVersion {
@@ -427,9 +507,10 @@ export interface RuleEvaluationResult {
   rule_revision: number;
   status: EvaluationStatus;
   effect_action: string | null;
-  // The rule's effect type ("allow"/"deny"/"require_action"), so a satisfied
-  // DENY can be told apart from a satisfied ALLOW without re-fetching the rule.
-  effect_type?: "allow" | "deny" | "require_action" | null;
+  // The rule's effect type ("allow"/"deny"/"require_action"/"informational"),
+  // so a satisfied DENY can be told apart from a satisfied ALLOW without
+  // re-fetching the rule.
+  effect_type?: "allow" | "deny" | "require_action" | "informational" | null;
   missing_facts: string[];
   triggered_exceptions: string[];
   // Populated when status is NOT_APPLICABLE specifically because a
