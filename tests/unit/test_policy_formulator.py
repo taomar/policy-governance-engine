@@ -734,3 +734,98 @@ class TestAmbiguityCollectionShape:
         )
 
         assert [code.value for code in policy.ambiguity] == ["AMBIGUOUS_REFERENCE"]
+
+
+class TestSemanticProjectionShapeVariance:
+    """A list-shaped projection field must not cost the batch it arrived in.
+
+    Observed in production: an MHRSD extraction window was discarded whole
+    because one decision carried `object: ["modest", "loose", "opaque"]` where
+    the source listed three adjectives and the agent kept them apart. Unlike a
+    malformed canonical policy, which `_salvage_valid_policies` limits to
+    costing itself, a projection failure re-raises for the entire batch.
+    """
+
+    @staticmethod
+    def _reply(projection_field: str, value: object) -> str:
+        return json.dumps(
+            {
+                "CANONICAL_JSON": {
+                    "canonical_policies": [
+                        {
+                            "source_text": "clothing must be modest, loose and opaque",
+                            "extraction_status": "complete",
+                            "rule": {"rule_type": "obligation", "subject": "worker"},
+                        }
+                    ]
+                },
+                "DMN_JSON": {
+                    "dmn_projection": {
+                        "decisions": [
+                            {
+                                "source_rule_indexes": [0],
+                                "dmn_mapping_status": "not_directly_mappable",
+                                "semantic_projection": {projection_field: value},
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+
+    @pytest.mark.parametrize("field", ["subject", "predicate", "object"])
+    def test_a_list_valued_triple_field_is_joined_not_fatal(self, field: str) -> None:
+        raw = self._reply(field, ["modest", "loose", "opaque"])
+
+        result = parse_formulation(raw)
+
+        assert len(result.canonical_policies) == 1
+        decision = result.dmn_projection.decisions[0]
+        assert decision.semantic_projection is not None
+        assert getattr(decision.semantic_projection, field) == "modest | loose | opaque"
+
+    def test_a_scalar_field_is_left_untouched(self) -> None:
+        """Coercion must not reshape the shape the contract already expects."""
+
+        raw = self._reply("object", "modest clothing")
+
+        result = parse_formulation(raw)
+
+        projection = result.dmn_projection.decisions[0].semantic_projection
+        assert projection is not None
+        assert projection.object == "modest clothing"
+
+    def test_an_unknown_mapping_status_still_fails_loudly(self) -> None:
+        """The re-raise this coercion sits beside must keep its teeth.
+
+        Section 45 makes an unrecognized `dmn_mapping_status` a genuine break,
+        not a shape variance, so recovering from the latter must not quietly
+        widen what counts as an acceptable projection.
+        """
+
+        raw = json.dumps(
+            {
+                "CANONICAL_JSON": {
+                    "canonical_policies": [
+                        {
+                            "source_text": "text",
+                            "extraction_status": "complete",
+                            "rule": {"rule_type": "obligation"},
+                        }
+                    ]
+                },
+                "DMN_JSON": {
+                    "dmn_projection": {
+                        "decisions": [
+                            {
+                                "source_rule_indexes": [0],
+                                "dmn_mapping_status": "invented_status",
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+
+        with pytest.raises(PolicyFormulationError):
+            parse_formulation(raw)

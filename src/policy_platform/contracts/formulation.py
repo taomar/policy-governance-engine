@@ -394,10 +394,18 @@ class DmnSemanticProjection(_OmitEmptyModel):
     condition_source: str | None = None
     outcome_source: str | None = None
 
-    @field_validator("outcome", "condition_source", "outcome_source", mode="before")
+    @field_validator(
+        "subject",
+        "predicate",
+        "object",
+        "outcome",
+        "condition_source",
+        "outcome_source",
+        mode="before",
+    )
     @classmethod
     def _coerce_source_to_string(cls, value: Any) -> Any:
-        """Join a list-shaped source/outcome into one descriptive string.
+        """Join a list-shaped projection field into one descriptive string.
 
         These fields describe *where in the source text* a condition/outcome
         came from, or what the outcome itself is (Sections 88-90). When the
@@ -407,6 +415,20 @@ class DmnSemanticProjection(_OmitEmptyModel):
         `"P1 - Critical | P2 - High | ..."`. The list still names the same
         source material, so joining it preserves the citation instead of
         discarding the whole formulation over a formatting choice.
+
+        The subject/predicate/object triple is covered for the same reason and
+        with sharper evidence: a real extraction lost a whole batch to
+        `object: ["modest", "loose", "opaque"]`, where the source listed three
+        adjectives and the agent kept them apart rather than joining them. The
+        triple is one semantic unit, so covering `object` alone would leave the
+        identical gesture fatal on the two fields beside it.
+
+        Coverage stops at this model deliberately. `_salvage_valid_policies`
+        already limits a malformed *canonical* policy to costing itself, but a
+        projection that fails validation re-raises for the whole batch, so a
+        shape variance here has a blast radius two orders larger than the same
+        variance one model over. That difference in consequence — not a general
+        preference for lenient parsing — is what justifies coercing here.
         """
 
         if isinstance(value, list):
