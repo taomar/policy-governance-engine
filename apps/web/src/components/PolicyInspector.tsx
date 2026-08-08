@@ -657,7 +657,9 @@ export function PolicyInspector({
         />
       ) : (
         <Text type="secondary">
-          No AI extraction record — this rule was hand-authored or drafted before the formulator agent existed.
+          No AI extraction record stored for this rule. Rules drafted by hand carry no formulator
+          output. Rules approved before this record was persisted lost it at publish time and cannot
+          have it reconstructed here.
         </Text>
       )}
     </div>

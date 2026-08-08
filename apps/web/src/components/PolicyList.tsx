@@ -4,6 +4,7 @@ import type { CanonicalRule } from "../api";
 import { PolicyRow, type PolicyDensity } from "./PolicyRow";
 import { PolicyGroupHeader } from "./PolicyGroupHeader";
 import { clusterIdentity, type RuleVariationGroup } from "../ruleDisplay";
+import { computeBandGeometry } from "../bandGeometry";
 
 export interface PolicyGroup {
   key: string;
@@ -134,99 +135,16 @@ export function PolicyList({
 
   const rowItems = useMemo(() => items.filter((i): i is Extract<FlatItem, { type: "row" }> => i.type === "row"), [items]);
 
-  // Per-rule band geometry. Two independent facts are computed here:
-  //
-  //  1. `isStart`/`isEnd` — whether the row begins/ends a run of *consecutive*
-  //     same-cluster rows as currently displayed. A header row always breaks a run,
-  //     since a band bleeding through a group divider would look broken (a curated
-  //     group_label cluster can legitimately span multiple rule_types/categories).
-  //     Drives the rounded-cap "bracket" look in PolicyRow.
-  //
-  //  2. `ordinal`/`total`, `continuesAbove`/`continuesBelow` and `fragmented` —
-  //     position within the family across the *whole* displayed list, not just this
-  //     run. Sorting rarely co-locates a family, so a plain bracket silently implies
-  //     "that's all of them". `fragmented` is a property of the *run* (does this run
-  //     hold every member?), not of an individual row — computing it per-row from the
-  //     end caps would leave a run's middle rows thinking the family was complete.
-  const bandInfo = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        isStart: boolean;
-        isEnd: boolean;
-        ordinal: number;
-        total: number;
-        continuesAbove: boolean;
-        continuesBelow: boolean;
-        fragmented: boolean;
-      }
-    >();
-    if (!clusterMap || clusterMap.size === 0) return map;
-    const seen = new Map<string, number>();
-    const totals = new Map<string, number>();
-    for (const item of items) {
-      if (item.type !== "row") continue;
-      const cluster = clusterMap.get(item.rule.rule_id);
-      if (!cluster) continue;
-      const id = clusterIdentity(cluster);
-      totals.set(id, (totals.get(id) ?? 0) + 1);
-    }
-    // Rows of the run currently being walked, so its length can be applied to
-    // every member once the run closes.
-    let run: string[] = [];
-    let runId: string | null = null;
-    const closeRun = () => {
-      if (runId === null || run.length === 0) return;
-      const total = totals.get(runId) ?? run.length;
-      const fragmented = run.length < total;
-      for (const ruleId of run) {
-        const entry = map.get(ruleId);
-        if (entry) entry.fragmented = fragmented;
-      }
-      run = [];
-      runId = null;
-    };
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type !== "row") {
-        // A header always breaks a run: a band bleeding through a group divider
-        // would look broken (a curated group_label cluster can legitimately span
-        // multiple rule_types/categories).
-        closeRun();
-        continue;
-      }
-      const cluster = clusterMap.get(item.rule.rule_id);
-      if (!cluster) {
-        closeRun();
-        continue;
-      }
-      const id = clusterIdentity(cluster);
-      const ordinal = (seen.get(id) ?? 0) + 1;
-      seen.set(id, ordinal);
-      const total = totals.get(id) ?? 1;
-      const prev = items[i - 1];
-      const next = items[i + 1];
-      const prevCluster = prev && prev.type === "row" ? clusterMap.get(prev.rule.rule_id) : undefined;
-      const nextCluster = next && next.type === "row" ? clusterMap.get(next.rule.rule_id) : undefined;
-      const isStart = !prevCluster || clusterIdentity(prevCluster) !== id;
-      const isEnd = !nextCluster || clusterIdentity(nextCluster) !== id;
-      if (isStart) closeRun();
-      runId = id;
-      run.push(item.rule.rule_id);
-      map.set(item.rule.rule_id, {
-        isStart,
-        isEnd,
-        ordinal,
-        total,
-        continuesAbove: isStart && ordinal > 1,
-        continuesBelow: isEnd && ordinal < total,
-        fragmented: false,
-      });
-      if (isEnd) closeRun();
-    }
-    closeRun();
-    return map;
-  }, [items, clusterMap]);
+  // Band geometry lives in `bandGeometry.ts` so the Review queue can band
+  // pending candidates by the same criterion this list uses.
+  const bandInfo = useMemo(
+    () =>
+      computeBandGeometry(
+        items.map((item) => (item.type === "row" ? { kind: "rule" as const, ruleId: item.rule.rule_id } : { kind: "divider" as const })),
+        clusterMap,
+      ),
+    [items, clusterMap],
+  );
 
   const scrollRuleIntoView = (ruleId: string) => {
     const idx = items.findIndex((i) => i.type === "row" && i.rule.rule_id === ruleId);

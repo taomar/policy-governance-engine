@@ -32,6 +32,7 @@ import {
   type QualityReport,
   type QualityRunSummary,
 } from "../api";
+import { EvaluationTargetBanner, useEvaluationTarget } from "./EvaluationTarget";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -75,6 +76,14 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
+
+  const evaluationTarget = useEvaluationTarget(selectedKey);
+
+  // Disabling the button is what turns an unexplained server error into an
+  // answered question: the banner above already states *why* there is nothing to
+  // run against, so the control stays consistent with the explanation.
+  const runDisabled =
+    scope === "published" ? !evaluationTarget.version : evaluationTarget.candidateCount === 0;
 
   useEffect(() => {
     if (scoped) return; // scope is fixed by the embedding project; no picker/list needed
@@ -181,9 +190,10 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
         )}
       </div>
       <Paragraph type="secondary">
-        Runs deterministic checks (duplicate IDs, ambiguity, conflicting effects, expired rules, review backlog) plus
-        an AI review pass over the active published version, and reports every finding with its severity and a
-        recommendation — nothing is silently "fixed" for you.
+        Quality answers one question: <Text strong>are these rules safe to rely on?</Text> It runs deterministic
+        checks (duplicate IDs, ambiguity, conflicting effects, expired rules, review backlog) plus an AI review
+        pass, and reports every finding with its severity and a recommendation. Nothing is silently "fixed" for
+        you — you decide what to act on.
       </Paragraph>
 
       {error && <Alert type="error" showIcon message={error} />}
@@ -191,22 +201,51 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
 
       {selectedKey && (
         <>
-          <Space size={16} wrap>
-            <Segmented
-              value={scope}
-              onChange={(v) => {
-                setScope(v as typeof scope);
-                setReport(null);
-              }}
-              options={[
-                { value: "published", label: "Published version" },
-                { value: "candidates", label: "Extracted candidates (pre-publish)" },
-              ]}
+          <Card size="small" className="eval-launch-card">
+            <div className="eval-launch-choice">
+              <Text strong className="eval-launch-question">
+                What should be checked?
+              </Text>
+              <Segmented
+                value={scope}
+                onChange={(v) => {
+                  setScope(v as typeof scope);
+                  setReport(null);
+                }}
+                options={[
+                  { value: "published", label: "The published version" },
+                  { value: "candidates", label: "Rules still in review" },
+                ]}
+              />
+            </div>
+
+            <EvaluationTargetBanner
+              scope={scope}
+              target={evaluationTarget}
+              actionLabel="Quality evaluation"
+              emptyHint={
+                scope === "published"
+                  ? "Quality checks the version currently in force. Approve rules in Review and publish a version, then run this to confirm the published set is sound."
+                  : "This checks rules before they are published. Extract a document or draft a rule, then run this to catch problems while they are still cheap to fix."
+              }
             />
-            <Button type="primary" icon={<PlayCircleOutlined />} onClick={runEvaluation} loading={loading}>
-              {loading ? "Evaluating…" : "Run Quality Evaluation"}
-            </Button>
-          </Space>
+
+            <div className="eval-launch-actions">
+              <Button
+                type="primary"
+                size="large"
+                icon={<PlayCircleOutlined />}
+                onClick={runEvaluation}
+                loading={loading}
+                disabled={runDisabled}
+              >
+                {loading ? "Evaluating…" : "Run quality evaluation"}
+              </Button>
+              <Text type="secondary" className="eval-launch-note">
+                Read-only. Running this never changes a rule, an approval, or a published version.
+              </Text>
+            </div>
+          </Card>
 
           <Card
             size="small"

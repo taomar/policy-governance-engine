@@ -47,6 +47,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Badge counts for the project workspace tab strip — one request for all tabs. */
+export interface WorkspaceCounts {
+  documents: number;
+  review_pending: number;
+  policies: number;
+  versions: number;
+  limits: number;
+  tests: number;
+  exceptions_open: number;
+  correlation_findings: number;
+  decisions: number;
+}
+
+export interface TrustedConfigResponse {
+  policy_set_key: string;
+  trusted_config: Record<string, unknown>;
+  /** Shape problems that would make part of the config silently unreachable by the agent. */
+  warnings: string[];
+  fact_count: number;
+  output_count: number;
+}
+
 export interface PolicySet {
   id: string;
   key: string;
@@ -282,6 +304,84 @@ export interface UpdateAggregateLimitRequest {
   period?: string | null;
 }
 
+/** Stable blocker codes from infrastructure/aggregate_eligibility.py. The
+ * evaluator drops a contribution silently in both cases, so these are the two
+ * reasons a saved cap can look configured and do nothing. */
+export type AggregateBlocker = "not_machine_executable" | "no_numeric_fact";
+
+export interface NumericFact {
+  name: string;
+  data_type: string;
+}
+
+export interface RuleEligibility {
+  rule_id: string;
+  title: string;
+  eligible: boolean;
+  machine_executable: boolean;
+  numeric_facts: NumericFact[];
+  blockers: AggregateBlocker[];
+}
+
+export interface AggregateEligibilityResponse {
+  total_rules: number;
+  eligible_count: number;
+  blocked_count: number;
+  can_build_limit: boolean;
+  blocker_totals: Record<string, number>;
+  rules: RuleEligibility[];
+}
+
+export interface ProposedContribution {
+  rule_id: string;
+  amount_fact: string;
+  why: string;
+}
+
+export interface ProposedAggregateLimit {
+  aggregate_key: string;
+  description: string;
+  rationale: string;
+  max_value: number;
+  /** "stated" when the ceiling is in the source text, "unstated" when the model
+   * inferred a shared cap exists but supplied the number itself. */
+  max_value_confidence: "stated" | "unstated";
+  period: string | null;
+  aggregator: string;
+  contributing_rules: ProposedContribution[];
+}
+
+export interface ProposeAggregateLimitsResponse {
+  policy_set_key: string;
+  version_number: number;
+  reasoning_effort: string;
+  prompt_version: string;
+  eligibility: AggregateEligibilityResponse;
+  proposals: ProposedAggregateLimit[];
+  skipped: string[];
+}
+
+export interface PreviewContribution {
+  rule_id: string;
+  amount_fact: string;
+  rule_status: string;
+  contributed: boolean;
+  amount: number | null;
+  reason: string;
+}
+
+export interface PreviewAggregateLimitResponse {
+  max_value: number;
+  total: number;
+  breached: boolean;
+  contributing_count: number;
+  contributions: PreviewContribution[];
+  overall_status: string;
+  /** "inert" is reported separately from "within_limit": a cap nothing
+   * contributed to is not a pass. */
+  verdict: "breached" | "within_limit" | "inert";
+}
+
 export interface EvidenceReference {
   document_version_id: string;
   source_hash: string;
@@ -458,7 +558,95 @@ export interface CandidateRule {
   review_notes: string | null;
   published_version_id: string | null;
   created_at: string;
+  /** How this rule compares to the previous extraction of the same document.
+   *  Null for rules drafted before delta tracking, and for hand-authored rules
+   *  that have no run to compare against. */
+  delta_status: "baseline" | "new" | "changed" | "unchanged" | null;
+  /** Same meaning as the previous run's rule, but the model rewrote the prose. */
+  reworded: boolean;
+  baseline_candidate_id: string | null;
+  superseded_at: string | null;
   rule: CanonicalRule;
+}
+
+export interface ReviewFacetDocument {
+  id: string;
+  title: string;
+  rule_count: number;
+}
+
+export interface ReviewFacetRun {
+  id: string;
+  reference: string | null;
+  status: string;
+  started_at: string | null;
+  document_id: string;
+  document_title: string;
+  document_version_id: string;
+  version_label: string;
+  content_hash: string | null;
+  total: number;
+  pending: number;
+  delta: { new: number; changed: number; unchanged: number; baseline: number };
+}
+
+export interface RemovedRule {
+  id: string;
+  title: string;
+  rule_type: string;
+  review_status: string;
+  superseded_at: string | null;
+  superseded_by_run_id: string | null;
+  superseded_by_reference: string | null;
+  source_text: string;
+}
+
+export interface ReviewFacets {
+  documents: ReviewFacetDocument[];
+  runs: ReviewFacetRun[];
+  delta_totals: {
+    new: number;
+    changed: number;
+    unchanged: number;
+    baseline: number;
+    unclassified: number;
+  };
+  removed: RemovedRule[];
+  /** Non-superseded rule counts keyed by review_status (candidate, approved, …). */
+  status_totals: Record<string, number>;
+}
+
+export interface RuleFieldChange {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface RuleChangeExplanation {
+  candidate_id: string;
+  /** False when the rule has no predecessor — a normal state, not an error. */
+  comparable: boolean;
+  delta_status: string | null;
+  /** Populated only when `comparable` is false, explaining why. */
+  reason: string | null;
+  baseline_candidate_id?: string;
+  baseline_run_reference?: string | null;
+  baseline_review_status?: string;
+  /** Fields that change what the rule does when evaluated. */
+  semantic_changes: RuleFieldChange[];
+  /** Title/description rewording — reported, but does not affect behaviour. */
+  wording_changes: RuleFieldChange[];
+  /** Optional plain-English reading of the diff. Null if the model was unavailable. */
+  narrative: string | null;
+}
+
+export interface CandidateRuleFilters {
+  status?: string;
+  document_id?: string;
+  document_version_id?: string;
+  extraction_run_id?: string;
+  delta_status?: string;
+  include_superseded?: boolean;
 }
 
 export interface CandidateRuleReviewRequest {
@@ -669,6 +857,50 @@ export interface ExtractResult {
   extraction_run_id: string;
   created: string[];
   skipped: { item: unknown; reason: string }[];
+}
+
+/** Live counters for an in-flight extraction, polled while a run is going.
+ *
+ * `active: false` means nothing is being tracked for this document version —
+ * either it was never extracted or the record has been pruned. That is a normal
+ * state, not an error, so the UI falls back to a plain spinner. */
+export interface ExtractionProgress {
+  active: boolean;
+  status?: "running" | "completed" | "failed";
+  /** One short sentence describing what is happening right now. Replaced on
+   * every poll — a status line, not an append-only log. */
+  stage?: string;
+  total_clauses?: number;
+  processed_clauses?: number;
+  total_batches?: number;
+  processed_batches?: number;
+  total_pages?: number;
+  processed_pages?: number;
+  passages_found?: number;
+  rules_drafted?: number;
+  rules_committed?: number;
+  skipped?: number;
+  superseded?: number;
+  run_reference?: string;
+  error?: string | null;
+  elapsed_seconds?: number;
+}
+
+/** One recorded extraction attempt against a document version. */
+export interface ExtractionRunSummary {
+  id: string;
+  /** Short human-quotable form, e.g. `RUN-3F9A2B1C`. */
+  reference: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  prompt_version: string | null;
+  deployment_name: string | null;
+  rules_total: number;
+  rules_reviewed: number;
+  /** True for the run whose rules are the ones currently in the review queue. */
+  is_current: boolean;
 }
 
 export interface RewriteSuggestion {
@@ -908,10 +1140,14 @@ export const policyTestApi = {
       body: JSON.stringify(body),
     }),
 
-  propose: (policySetKey: string, reasoningEffort: "low" | "medium" | "high" = "medium") =>
+  propose: (
+    policySetKey: string,
+    reasoningEffort: "low" | "medium" | "high" = "medium",
+    guidance = ""
+  ) =>
     request<ProposePolicyTestsResponse>(`/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}/propose`, {
       method: "POST",
-      body: JSON.stringify({ reasoning_effort: reasoningEffort }),
+      body: JSON.stringify({ reasoning_effort: reasoningEffort, guidance }),
     }),
 
   review: (testId: string, decision: "accept" | "reject", reviewer: string, notes?: string) =>
@@ -1192,8 +1428,37 @@ export interface CorrelationRunResult {
   by_severity: Record<string, number>;
 }
 
+/** One step of the AI drafting pipeline, as actually executed. Rendered as a
+ * live derivation trail so a reviewer can see how their words became a rule,
+ * rather than watching an opaque spinner. */
+export interface DraftTraceStep {
+  key: string;
+  label: string;
+  status: "done" | "skipped" | "failed";
+  detail: string;
+  items: Record<string, unknown>[];
+}
+
+export interface DraftFromTextResult {
+  policy_set_key: string;
+  source_text: string;
+  rules: CanonicalRule[];
+  skipped: { item?: string; reason?: string }[];
+  trace: DraftTraceStep[];
+  extraction_statuses: string[];
+  /** Always false: authored text has no source clause to cite. Stated by the
+   * server so the UI can explain the empty evidence panel instead of leaving
+   * a reviewer to guess. */
+  has_evidence: boolean;
+}
+
 export const aiApi = {
   status: () => request<AiStatus>("/api/ai/status"),
+
+  explainChange: (candidateId: string, narrative = true) =>
+    request<RuleChangeExplanation>(
+      `/api/ai/candidate-rules/${encodeURIComponent(candidateId)}/explain-change?narrative=${narrative}`,
+    ),
 
   ask: (question: string, policySetKey?: string, history: ChatTurn[] = [], focusCandidateRuleId?: string) =>
     request<AskResponse>("/api/ai/ask", {
@@ -1210,6 +1475,16 @@ export const aiApi = {
     request<ExtractResult>(
       `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/documents/${encodeURIComponent(documentVersionId)}/extract`,
       { method: "POST" }
+    ),
+
+  extractionProgress: (documentVersionId: string) =>
+    request<ExtractionProgress>(
+      `/api/ai/documents/${encodeURIComponent(documentVersionId)}/extraction-progress`
+    ),
+
+  listExtractionRuns: (documentVersionId: string) =>
+    request<ExtractionRunSummary[]>(
+      `/api/ai/documents/${encodeURIComponent(documentVersionId)}/extraction-runs`
     ),
 
   suggestRewrite: (candidateId: string, instruction: string) =>
@@ -1233,6 +1508,18 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify({ rule, instruction }),
     }),
+
+  // Formulate policy text the user typed into draft rules. Same formulator
+  // agent and same deterministic mapper as document extraction, minus the
+  // verbatim passage stage (the author's text *is* the passage). Returns
+  // unsaved drafts plus a trace of the derivation; the caller loads one into
+  // its form and submits it through the ordinary draft endpoint, so nothing
+  // reaches the review queue without a human action.
+  draftFromText: (policySetKey: string, text: string) =>
+    request<DraftFromTextResult>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/rules/draft-from-text`,
+      { method: "POST", body: JSON.stringify({ text }) }
+    ),
 
   // Advisory-only AI reasoning about how a rule (possibly still being
   // edited) would apply to a plain-English scenario. Never touches the
@@ -1381,6 +1668,18 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  getWorkspaceCounts: (key: string) =>
+    request<WorkspaceCounts>(`/api/policy-sets/${encodeURIComponent(key)}/workspace-counts`),
+
+  getTrustedConfig: (key: string) =>
+    request<TrustedConfigResponse>(`/api/policy-sets/${encodeURIComponent(key)}/trusted-config`),
+
+  putTrustedConfig: (key: string, trusted_config: Record<string, unknown>) =>
+    request<TrustedConfigResponse>(`/api/policy-sets/${encodeURIComponent(key)}/trusted-config`, {
+      method: "PUT",
+      body: JSON.stringify({ trusted_config }),
+    }),
+
   importPolicyVersion: (key: string, body: ImportPolicyVersionRequest) =>
     request<ApprovedPolicyVersion>(`/api/policy-sets/${encodeURIComponent(key)}/versions`, {
       method: "POST",
@@ -1405,6 +1704,36 @@ export const api = {
 
   listAggregateLimits: (key: string) =>
     request<AggregateLimitResponse[]>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`),
+
+  /** Which published rules could actually contribute to a combined cap.
+   * Deterministic and AI-free — see infrastructure/aggregate_eligibility.py. */
+  getAggregateEligibility: (key: string) =>
+    request<AggregateEligibilityResponse>(
+      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/eligibility`
+    ),
+
+  /** Ask the model to find rule groups sharing one finite pool. Returns
+   * proposals only; nothing is saved until the reviewer says so. */
+  proposeAggregateLimits: (key: string, body: { reasoning_effort?: string; guidance?: string }) =>
+    request<ProposeAggregateLimitsResponse>(
+      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/propose`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  /** Run a draft cap through the real evaluator without saving it. */
+  previewAggregateLimit: (
+    key: string,
+    body: {
+      contributing_rules: AggregateLimitContribution[];
+      max_value: number;
+      description?: string;
+      facts: Record<string, unknown>;
+    }
+  ) =>
+    request<PreviewAggregateLimitResponse>(
+      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/preview`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
 
   createAggregateLimit: (key: string, body: CreateAggregateLimitRequest) =>
     request<AggregateLimitResponse>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`, {
@@ -1466,10 +1795,22 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  listCandidateRules: (key: string, status?: string) =>
-    request<CandidateRule[]>(
-      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules${status ? `?status=${encodeURIComponent(status)}` : ""}`
-    ),
+  listCandidateRules: (key: string, status?: string, filters?: CandidateRuleFilters) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (filters?.document_id) params.set("document_id", filters.document_id);
+    if (filters?.document_version_id) params.set("document_version_id", filters.document_version_id);
+    if (filters?.extraction_run_id) params.set("extraction_run_id", filters.extraction_run_id);
+    if (filters?.delta_status) params.set("delta_status", filters.delta_status);
+    if (filters?.include_superseded) params.set("include_superseded", "true");
+    const qs = params.toString();
+    return request<CandidateRule[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules${qs ? `?${qs}` : ""}`
+    );
+  },
+
+  reviewFacets: (key: string) =>
+    request<ReviewFacets>(`/api/policy-sets/${encodeURIComponent(key)}/review-facets`),
 
   reviewCandidateRule: (key: string, candidateId: string, body: CandidateRuleReviewRequest) =>
     request<CandidateRule>(

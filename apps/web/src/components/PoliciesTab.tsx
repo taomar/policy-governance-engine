@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Card, Drawer, Empty, Grid, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Drawer, Empty, Grid, Select, Space, Tag, Typography, message } from "antd";
 import { api, PolicyPlatformApiError, type AggregateLimit, type ApprovedPolicyVersion, type CanonicalRule } from "../api";
 import { EditRuleModal } from "./EditRuleModal";
 import { RULE_TYPES, ruleTypeLabel } from "../ruleTypes";
@@ -100,6 +100,32 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
       .finally(() => setLoading(false));
   }, [policySetKey, versionId]);
+
+  // How far the review pipeline has actually got. Used only to make the empty
+  // state truthful: this tab reads *published* versions, and approving a
+  // candidate is a review decision that deliberately does not publish it.
+  // Without this the tab told a user who had already extracted and approved
+  // rules to go extract and approve rules — which reads as "your approvals did
+  // nothing" and hides the one action that would actually help.
+  const [pipeline, setPipeline] = useState<{ approved: number; pending: number } | null>(null);
+
+  useEffect(() => {
+    // Only needed while there is nothing published; once a version exists the
+    // list itself is the answer.
+    if (versions.length > 0) return;
+    let cancelled = false;
+    Promise.all([
+      api.listCandidateRules(policySetKey, "approved"),
+      api.listCandidateRules(policySetKey, "candidate"),
+    ])
+      .then(([approved, pending]) => {
+        if (!cancelled) setPipeline({ approved: approved.length, pending: pending.length });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [policySetKey, versions.length]);
 
   useEffect(() => {
     try {
@@ -397,23 +423,68 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
 
       {versions.length === 0 ? (
         <Card>
-          <Empty
-            description={
-              <Space direction="vertical" size={4}>
-                <Text>No published policies yet for this project.</Text>
-                <Text type="secondary">
-                  Upload a document in <strong>Documents</strong>, extract rules with AI or add them by hand, then
-                  approve and publish them in <strong>Review</strong> — they'll show up here, organized by type.
-                </Text>
-                {onNavigate && (
-                  <Space>
-                    <a onClick={() => onNavigate("documents")}>Go to Documents →</a>
-                    <a onClick={() => onNavigate("review")}>Go to Review →</a>
-                  </Space>
-                )}
-              </Space>
-            }
-          />
+          {pipeline && pipeline.approved > 0 ? (
+            // The user's approvals landed; only the publish step is missing.
+            // Say exactly that, because "no policies yet" is actively
+            // misleading when 7 rules are sitting approved and ready.
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <Space direction="vertical" size={8} style={{ maxWidth: 560 }}>
+                  <Text strong>
+                    {pipeline.approved} approved rule{pipeline.approved === 1 ? " is" : "s are"} waiting to be
+                    published.
+                  </Text>
+                  <Text type="secondary">
+                    Approving a rule records your review decision. It does not change the live policy — this tab shows
+                    only <strong>published versions</strong>, which are immutable, numbered snapshots. Publish a
+                    version in <strong>Review</strong> to turn your {pipeline.approved} approved rule
+                    {pipeline.approved === 1 ? "" : "s"} into v1 and it will appear here.
+                  </Text>
+                  {pipeline.pending > 0 && (
+                    <Text type="secondary">
+                      {pipeline.pending} other rule{pipeline.pending === 1 ? "" : "s"} still awaiting review. Anything
+                      you have not approved is left out of the published version.
+                    </Text>
+                  )}
+                  {onNavigate && (
+                    <Button type="primary" onClick={() => onNavigate("review")}>
+                      Go to Review to publish →
+                    </Button>
+                  )}
+                </Space>
+              }
+            />
+          ) : (
+            <Empty
+              description={
+                <Space direction="vertical" size={4}>
+                  <Text>No published policies yet for this project.</Text>
+                  <Text type="secondary">
+                    {pipeline && pipeline.pending > 0 ? (
+                      <>
+                        {pipeline.pending} candidate rule{pipeline.pending === 1 ? "" : "s"} extracted and awaiting
+                        review. Approve the ones you want in <strong>Review</strong>, then publish a version — they'll
+                        show up here, organized by type.
+                      </>
+                    ) : (
+                      <>
+                        Upload a document in <strong>Documents</strong>, extract rules with AI or add them by hand,
+                        then approve and publish them in <strong>Review</strong> — they'll show up here, organized by
+                        type.
+                      </>
+                    )}
+                  </Text>
+                  {onNavigate && (
+                    <Space>
+                      <a onClick={() => onNavigate("documents")}>Go to Documents →</a>
+                      <a onClick={() => onNavigate("review")}>Go to Review →</a>
+                    </Space>
+                  )}
+                </Space>
+              }
+            />
+          )}
         </Card>
       ) : (
         <>

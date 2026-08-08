@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Form,
   Input,
   Row,
@@ -18,6 +19,8 @@ import { FileTextOutlined, InboxOutlined, ThunderboltOutlined } from "@ant-desig
 import type { UploadFile } from "antd/es/upload/interface";
 import { aiApi, api, PolicyPlatformApiError, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
+import ExtractionProgressPanel from "./ExtractionProgressPanel";
+import ExtractionRunHistory from "./ExtractionRunHistory";
 
 const { Title, Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -51,7 +54,13 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [extractOpenFor, setExtractOpenFor] = useState<string | null>(null);
   const [extractTargetKey, setExtractTargetKey] = useState<string>("");
-  const [extracting, setExtracting] = useState(false);
+  // The id of the version currently extracting, not a bare boolean: progress is
+  // per-document-version, and a boolean would spin the button on every version
+  // panel while only one is actually running.
+  const [extractingId, setExtractingId] = useState<string | null>(null);
+  //. Bumped after each run so the history table refetches without the panel
+  //. having to know how history is loaded.
+  const [runHistoryKey, setRunHistoryKey] = useState(0);
   const [extractResults, setExtractResults] = useState<Record<string, ExtractResult | { error: string }>>({});
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [bodyViewer, setBodyViewer] = useState<{ versionId: string; docTitle: string; versionLabel: string } | null>(
@@ -110,7 +119,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   const handleExtract = async (versionId: string) => {
     const targetKey = scoped ? policySetKey : extractTargetKey;
     if (!targetKey) return;
-    setExtracting(true);
+    setExtractingId(versionId);
     setExtractResults((prev) => {
       const { [versionId]: _drop, ...rest } = prev;
       return rest;
@@ -122,7 +131,9 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
       const detail = e instanceof PolicyPlatformApiError ? e.detail : String(e);
       setExtractResults((prev) => ({ ...prev, [versionId]: { error: detail } }));
     } finally {
-      setExtracting(false);
+      setExtractingId(null);
+      // A finished run is new history, whatever its outcome.
+      setRunHistoryKey((k) => k + 1);
     }
   };
 
@@ -312,10 +323,17 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                                 />
                               </>
                             )}
-                            <Button type="primary" onClick={() => handleExtract(v.id)} loading={extracting}>
+                            <Button
+                              type="primary"
+                              onClick={() => handleExtract(v.id)}
+                              loading={extractingId === v.id}
+                              disabled={extractingId !== null && extractingId !== v.id}
+                            >
                               Run Extraction
                             </Button>
                           </Space>
+
+                          <ExtractionProgressPanel documentVersionId={v.id} running={extractingId === v.id} />
 
                           {extractResults[v.id] && "error" in extractResults[v.id] && (
                             <Alert type="error" showIcon message={(extractResults[v.id] as { error: string }).error} />
@@ -342,6 +360,10 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                               }
                             />
                           )}
+
+                          <Divider style={{ margin: "4px 0" }} />
+                          <Text strong>Extraction runs for this version</Text>
+                          <ExtractionRunHistory documentVersionId={v.id} refreshKey={runHistoryKey} />
                         </Space>
                       </Card>
                     )

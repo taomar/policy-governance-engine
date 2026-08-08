@@ -1,15 +1,19 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Card, Form, Input, Modal, Select, Space, Tag, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Tooltip, Typography } from "antd";
 import {
   CheckOutlined,
   CloseOutlined,
+  ExperimentOutlined,
   HistoryOutlined,
   PlayCircleOutlined,
   PlusOutlined,
+  QuestionCircleOutlined,
   ThunderboltOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
+  api,
   policyTestApi,
   PolicyPlatformApiError,
   type CreatePolicyTestRequest,
@@ -19,8 +23,10 @@ import {
   type PolicyTestRun,
 } from "../api";
 import { useActor } from "../ActorContext";
+import { EvaluationTargetBanner, useEvaluationTarget } from "./EvaluationTarget";
 
 const { Title, Text, Paragraph } = Typography;
+const { TextArea } = Input;
 
 const TEST_KIND_LABELS: Record<PolicyTestKind, string> = {
   positive: "Positive",
@@ -65,6 +71,126 @@ const TEST_KIND_ORDER: PolicyTestKind[] = [
 
 const STATUS_OPTIONS: EvaluationStatus[] = ["SATISFIED", "NOT_SATISFIED", "NOT_APPLICABLE", "INDETERMINATE", "ERROR"];
 
+/**
+ * What accepting a proposal actually does, stated in the reviewer's terms and
+ * kept in one place so the button, the confirmation and the section header can
+ * never drift apart from each other or from the backend.
+ *
+ * Verified against `policy_tests.review_policy_test` (accept sets
+ * review_status="active"/is_active=True) and the two things that read
+ * `is_active`: `run_active_tests_for_version` (the on-publish re-run) and
+ * `list_failing_policy_tests` (the Quality → Failed policy tests list).
+ *
+ * The "never blocks a publish" clause is deliberate and load-bearing: the
+ * on-publish re-run in `publish_approved_candidates` happens *after* the
+ * version is already committed and is wrapped in a best-effort try/except, so
+ * an accepted-but-failing test reports a problem without ever holding up a
+ * release. Reviewers who assume otherwise would over-think every accept.
+ */
+const ACCEPT_CONSEQUENCE = "Runs automatically on every publish from now on. A failure shows up under Quality → Failed policy tests. It never blocks a publish.";
+const REJECT_CONSEQUENCE = "Kept in the record for history, but never runs and never affects Quality.";
+
+/**
+ * A pending proposal's verification state.
+ *
+ * The reviewer's real question is "is the AI's expected status actually what
+ * the engine returns?". That is not a judgement call — the deterministic
+ * evaluator answers it exactly. `unchecked` therefore means "no evidence yet",
+ * not "fine"; it is ordered last so the reviewer sees decidable work first.
+ */
+type VerificationState = "disagrees" | "errored" | "confirmed" | "unchecked";
+
+const VERIFICATION_ORDER: Record<VerificationState, number> = {
+  disagrees: 0,
+  errored: 1,
+  confirmed: 2,
+  unchecked: 3,
+};
+
+function verificationOf(item: PolicyTestListItem): VerificationState {
+  const run = item.latest_run;
+  if (!run) return "unchecked";
+  if (run.status === "pass") return "confirmed";
+  if (run.status === "error") return "errored";
+  return "disagrees";
+}
+
+const VERIFICATION_TAG: Record<VerificationState, { label: string; color: string }> = {
+  disagrees: { label: "Evaluator disagrees", color: "red" },
+  errored: { label: "Could not run", color: "orange" },
+  confirmed: { label: "Evaluator agrees", color: "green" },
+  unchecked: { label: "Not checked yet", color: "default" },
+};
+
+/**
+ * A confirmed check means the AI's expected status matched the engine, so the
+ * expectation is safe to lock in. A disagreement is deliberately NOT framed as
+ * "the AI was wrong": the same evidence is equally consistent with the policy
+ * itself being wrong, and pre-judging that would train reviewers to reject real
+ * findings.
+ */
+const VERIFICATION_VERDICT: Record<VerificationState, { headline: string; detail: string }> = {
+  confirmed: {
+    headline: "The evaluator returned what this test expects",
+    detail: "The expectation matches real engine behaviour, so accepting it locks in behaviour that already holds today.",
+  },
+  disagrees: {
+    headline: "The evaluator returned something else",
+    detail:
+      "Either the expectation is wrong, or the policy does not behave the way it was meant to. Worth reading before you decide — accepting it now would create a test that fails on every publish.",
+  },
+  errored: {
+    headline: "This case could not be evaluated",
+    detail: "The engine raised an error instead of returning a status. The test needs fixing before it can guard anything.",
+  },
+  unchecked: {
+    headline: "Nobody has checked this prediction yet",
+    detail: "The expected status below is the AI's guess. Run it against the evaluator to find out whether it actually holds.",
+  },
+};
+
+/**
+ * Concrete business questions a reviewer already has in their head, mapped to the
+ * test kind that answers each one. The kind names are engine vocabulary
+ * ("boundary", "precedence") and mean nothing to a policy owner on their own, so
+ * every kind is introduced through the real question it settles rather than
+ * through its definition.
+ */
+const TEST_KIND_BUSINESS_QUESTION: Record<PolicyTestKind, string> = {
+  positive: "Does someone who clearly qualifies actually get approved?",
+  negative: "Does someone who clearly does not qualify get refused?",
+  boundary: "What happens to the person sitting exactly on the limit?",
+  missing_fact: "What do we answer when we do not have all the information?",
+  scope: "Does this policy correctly leave other regions or departments alone?",
+  effective_date: "Was the answer different before this policy took effect?",
+  exception: "Does the documented exception really change the outcome?",
+  precedence: "When two policies disagree, does the right one win?",
+};
+
+/** Ready-made steers, so the guidance box is not an empty box with no idea what to type. */
+const GUIDANCE_PRESETS: { label: string; text: string }[] = [
+  {
+    label: "Focus on money",
+    text: "Prioritise rules involving pay, allowances, thresholds and monetary caps. Include boundary tests exactly at each amount.",
+  },
+  {
+    label: "Focus on leave & time",
+    text: "Prioritise rules about leave entitlement, notice periods, tenure and durations. Test the exact day counts at each limit.",
+  },
+  {
+    label: "Focus on termination & exit",
+    text: "Prioritise rules about termination, resignation, end-of-service and final settlement, including the exceptions that change the outcome.",
+  },
+  {
+    label: "Stress the edges",
+    text: "Concentrate on boundary and missing-fact cases. For every numeric or date threshold, test just below, exactly on, and just above it.",
+  },
+  {
+    label: "Find contradictions",
+    text: "Concentrate on precedence and exception cases where two rules could produce conflicting outcomes for the same facts.",
+  },
+];
+
 const RUN_STATUS_COLOR: Record<string, string> = {
   pass: "green",
   fail: "red",
@@ -86,15 +212,58 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
   const [error, setError] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium" | "high">("medium");
+  const [guidance, setGuidance] = useState("");
+  const [howOpen, setHowOpen] = useState(false);
   const [proposing, setProposing] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [bulkVerify, setBulkVerify] = useState<{ done: number; total: number } | null>(null);
+  const [bulkAccept, setBulkAccept] = useState<{ done: number; total: number } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<Record<string, PolicyTestRun[]>>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSaving, setCreateSaving] = useState(false);
   const [form] = Form.useForm();
+
+  const evaluationTarget = useEvaluationTarget(policySetKey);
+  const [executableCount, setExecutableCount] = useState<{ executable: number; total: number } | null>(null);
+
+  /**
+   * How many rules in the target version the engine will actually execute.
+   *
+   * `_evaluate_rule` returns NOT_APPLICABLE immediately for any rule with
+   * machine_executable=false, before scope or condition are considered. A
+   * policy set where that is true of every rule cannot return SATISFIED for
+   * anything, so every test predicting SATISFIED is guaranteed to fail. That is
+   * a property of the policy set rather than of any individual test, so it is
+   * reported once at the top of the page instead of being rediscovered by the
+   * reviewer one failed proposal at a time.
+   */
+  useEffect(() => {
+    const version = evaluationTarget.version;
+    if (!version) {
+      setExecutableCount(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getVersionRules(policySetKey, version.id)
+      .then((rules) => {
+        if (cancelled) return;
+        setExecutableCount({
+          executable: rules.filter((r) => r.machine_executable).length,
+          total: rules.length,
+        });
+      })
+      .catch(() => {
+        // Advisory context only — a failure here must never block test review.
+        if (!cancelled) setExecutableCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [policySetKey, evaluationTarget.version]);
 
   const load = async () => {
     setLoading(true);
@@ -120,7 +289,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
     setProposing(true);
     setError(null);
     try {
-      await policyTestApi.propose(policySetKey, reasoningEffort);
+      await policyTestApi.propose(policySetKey, reasoningEffort, guidance);
       await load();
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
@@ -139,6 +308,75 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setReviewingId(null);
+    }
+  };
+
+  /**
+   * Run every unreviewed proposal against the real evaluator without accepting
+   * any of them, so the reviewer can see which predictions actually hold before
+   * deciding anything.
+   *
+   * This is safe precisely because `is_active` gates *counting*, not
+   * *executing*: `execute_test_by_id` runs any test by id, while the on-publish
+   * re-run and the Quality "failing tests" list both filter `is_active=True`.
+   * A run recorded here therefore shows up in the proposal's own history and
+   * nowhere else.
+   *
+   * Runs are issued one at a time rather than with `Promise.all` — each one is
+   * a full policy evaluation on the server, and a burst of them from a large
+   * proposal batch is a self-inflicted load spike for no latency benefit that
+   * the reviewer would notice.
+   */
+  const handleVerifyAll = async (items: PolicyTestListItem[]) => {
+    const targets = items.filter((i) => i.test.review_status === "pending_review");
+    if (targets.length === 0) return;
+    setError(null);
+    setBulkVerify({ done: 0, total: targets.length });
+    const failures: string[] = [];
+    try {
+      for (const [index, item] of targets.entries()) {
+        try {
+          await policyTestApi.run(item.test.id, actor.name || "unknown");
+        } catch (e) {
+          failures.push(`${item.test.name}: ${e instanceof PolicyPlatformApiError ? e.detail : String(e)}`);
+        }
+        setBulkVerify({ done: index + 1, total: targets.length });
+      }
+      await load();
+      if (failures.length > 0) {
+        setError(`${failures.length} of ${targets.length} checks could not run. ${failures[0]}`);
+      }
+    } finally {
+      setBulkVerify(null);
+    }
+  };
+
+  /**
+   * Accept only those proposals the evaluator has already confirmed. Anything
+   * unchecked or disagreeing is deliberately left behind — a bulk action must
+   * never be a way to activate a test nobody has evidence for.
+   */
+  const handleAcceptConfirmed = async (items: PolicyTestListItem[]) => {
+    const targets = items.filter((i) => i.test.review_status === "pending_review" && verificationOf(i) === "confirmed");
+    if (targets.length === 0) return;
+    setError(null);
+    setBulkAccept({ done: 0, total: targets.length });
+    const failures: string[] = [];
+    try {
+      for (const [index, item] of targets.entries()) {
+        try {
+          await policyTestApi.review(item.test.id, "accept", actor.name || "unknown");
+        } catch (e) {
+          failures.push(`${item.test.name}: ${e instanceof PolicyPlatformApiError ? e.detail : String(e)}`);
+        }
+        setBulkAccept({ done: index + 1, total: targets.length });
+      }
+      await load();
+      if (failures.length > 0) {
+        setError(`${failures.length} of ${targets.length} could not be accepted. ${failures[0]}`);
+      }
+    } finally {
+      setBulkAccept(null);
     }
   };
 
@@ -230,10 +468,44 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
 
   const filtered = tests.filter((t) => kindFilter === "all" || t.test.test_kind === kindFilter);
   const pendingReview = tests.filter((t) => t.test.review_status === "pending_review");
-  const pendingFiltered = filtered.filter((t) => t.test.review_status === "pending_review");
   const activeFiltered = filtered.filter((t) => t.test.review_status === "active");
   const rejectedFiltered = filtered.filter((t) => t.test.review_status === "rejected");
   const latestRuns = tests.filter((t) => t.latest_run);
+
+  /**
+   * Proposals are ordered by what the evaluator found rather than by when they
+   * were created: disagreements first (they either expose a mispredicted
+   * expectation or a real policy problem, and both need a person), then
+   * confirmed ones that can be accepted in a batch, then anything still
+   * unchecked. A flat creation-ordered list gives a reviewer with dozens of
+   * proposals no way to tell those three situations apart.
+   */
+  const pendingFiltered = useMemo(() => {
+    const items = filtered.filter((t) => t.test.review_status === "pending_review");
+    return [...items].sort((a, b) => {
+      const byState = VERIFICATION_ORDER[verificationOf(a)] - VERIFICATION_ORDER[verificationOf(b)];
+      return byState !== 0 ? byState : a.test.name.localeCompare(b.test.name);
+    });
+  }, [filtered]);
+
+  const pendingTally = pendingFiltered.reduce(
+    (acc, item) => {
+      acc[verificationOf(item)] += 1;
+      return acc;
+    },
+    { disagrees: 0, errored: 0, confirmed: 0, unchecked: 0 } as Record<VerificationState, number>
+  );
+
+  /**
+   * Scoped to accepted tests on purpose. Proposals can now be dry-run while
+   * still pending, so counting every failing latest run here would report
+   * unaccepted drafts as if they were live quality problems — which is exactly
+   * the confusion `list_failing_policy_tests` avoids server-side by filtering
+   * on `is_active`.
+   */
+  const failingActiveCount = tests.filter(
+    (t) => t.test.is_active && (t.latest_run?.status === "fail" || t.latest_run?.status === "error")
+  ).length;
 
   const counts = tests.reduce(
     (acc, t) => {
@@ -248,12 +520,14 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
     const run = item.latest_run;
     const history = runHistory[t.id] ?? [];
     const isPending = t.review_status === "pending_review";
+    const verification = verificationOf(item);
+    const busy = bulkVerify !== null || bulkAccept !== null;
 
     return (
       <Card
         key={t.id}
         size="small"
-        className={`finding-card tests-test-card${isPending ? " tests-test-card--pending" : ""}`}
+        className={`finding-card tests-test-card${isPending ? ` tests-test-card--${verification}` : ""}`}
       >
         <div className="tests-card-topline">
           <Space size={8} wrap>
@@ -263,9 +537,14 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
                 AI-proposed
               </Tag>
             )}
-            {isPending && <Tag color="gold">Review before active</Tag>}
             {t.review_status === "rejected" && <Tag>Rejected</Tag>}
-            {run ? <Tag color={RUN_STATUS_COLOR[run.status] ?? "default"}>{run.status.toUpperCase()}</Tag> : <Tag>Never run</Tag>}
+            {isPending ? (
+              <Tag color={VERIFICATION_TAG[verification].color}>{VERIFICATION_TAG[verification].label}</Tag>
+            ) : run ? (
+              <Tag color={RUN_STATUS_COLOR[run.status] ?? "default"}>{run.status.toUpperCase()}</Tag>
+            ) : (
+              <Tag>Never run</Tag>
+            )}
           </Space>
         </div>
 
@@ -294,33 +573,64 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
                 ))}
               </div>
             )}
-            {run && run.status !== "pass" && (
+            {run && run.status !== "pass" && !isPending && (
               <Paragraph type="danger" className="tests-run-explanation">
                 {run.explanation}
               </Paragraph>
+            )}
+
+            {isPending && (
+              <div className={`tests-verdict tests-verdict--${verification}`}>
+                <div className="tests-verdict-head">
+                  {verification === "confirmed" && <CheckOutlined />}
+                  {(verification === "disagrees" || verification === "errored") && <WarningOutlined />}
+                  {verification === "unchecked" && <ExperimentOutlined />}
+                  <strong>{VERIFICATION_VERDICT[verification].headline}</strong>
+                </div>
+                <Text type="secondary">{VERIFICATION_VERDICT[verification].detail}</Text>
+                {run && run.status !== "pass" && <div className="tests-verdict-explanation">{run.explanation}</div>}
+              </div>
             )}
           </div>
 
           <div className="tests-card-actions">
             {isPending ? (
-              <Space>
-                <Button
-                  size="small"
-                  icon={<CheckOutlined />}
-                  onClick={() => handleReview(t.id, "accept")}
-                  loading={reviewingId === t.id}
+              <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                <Tooltip title="Runs this case against the live evaluator without accepting it. Nothing becomes active and Quality is unaffected.">
+                  <Button
+                    size="small"
+                    icon={<ExperimentOutlined />}
+                    onClick={() => handleRun(t.id)}
+                    loading={runningId === t.id}
+                    disabled={busy}
+                    block
+                  >
+                    {run ? "Check again" : "Check prediction"}
+                  </Button>
+                </Tooltip>
+                <Popconfirm
+                  title="Accept this test?"
+                  description={<div className="tests-confirm-copy">{ACCEPT_CONSEQUENCE}</div>}
+                  okText="Accept"
+                  cancelText="Cancel"
+                  onConfirm={() => handleReview(t.id, "accept")}
                 >
-                  Accept
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  icon={<CloseOutlined />}
-                  onClick={() => handleReview(t.id, "reject")}
-                  loading={reviewingId === t.id}
+                  <Button size="small" type="primary" icon={<CheckOutlined />} loading={reviewingId === t.id} disabled={busy} block>
+                    Accept
+                  </Button>
+                </Popconfirm>
+                <Popconfirm
+                  title="Reject this test?"
+                  description={<div className="tests-confirm-copy">{REJECT_CONSEQUENCE}</div>}
+                  okText="Reject"
+                  okButtonProps={{ danger: true }}
+                  cancelText="Cancel"
+                  onConfirm={() => handleReview(t.id, "reject")}
                 >
-                  Reject
-                </Button>
+                  <Button size="small" danger icon={<CloseOutlined />} loading={reviewingId === t.id} disabled={busy} block>
+                    Reject
+                  </Button>
+                </Popconfirm>
               </Space>
             ) : (
               t.is_active && (
@@ -382,11 +692,109 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
       </div>
 
       <Paragraph type="secondary" className="tests-page-intro">
-        Named, saved checks for this policy set — separate from one-off Evaluate experiments. AI can draft candidates,
-        but only accepted tests become active, and every result is decided by the deterministic evaluator.
+        A test writes down a real situation and the answer this policy set <Text strong>should</Text> give — then
+        proves it. If a future edit quietly changes that answer, the test fails and tells you before anyone is
+        affected.
       </Paragraph>
 
+      <EvaluationTargetBanner
+        scope="published"
+        target={evaluationTarget}
+        actionLabel="Tests"
+        emptyHint="Tests run against the version currently in force, so there has to be one. Approve rules in Review and publish a version, then come back and draft tests against it."
+      />
+
+      <Card size="small" className="explainer-card tests-how-card">
+        <button type="button" className="explainer-toggle" onClick={() => setHowOpen((v) => !v)}>
+          <span>
+            <QuestionCircleOutlined /> How a policy test works
+          </span>
+          <Text type="secondary">{howOpen ? "Hide" : "Show"}</Text>
+        </button>
+        {howOpen && (
+          <div className="tests-how-body">
+            <div className="tests-how-flow">
+              <div className="tests-how-step">
+                <span className="tests-how-num">1</span>
+                <Text strong>Describe a real situation</Text>
+                <Text type="secondary">
+                  "An employee in Saudi Arabia with 3 years of service resigns."
+                </Text>
+              </div>
+              <div className="tests-how-step">
+                <span className="tests-how-num">2</span>
+                <Text strong>State the answer you expect</Text>
+                <Text type="secondary">
+                  "They should be entitled to end-of-service benefit." → <Tag color="blue">SATISFIED</Tag>
+                </Text>
+              </div>
+              <div className="tests-how-step">
+                <span className="tests-how-num">3</span>
+                <Text strong>The evaluator decides — not the AI</Text>
+                <Text type="secondary">
+                  The same engine that answers live requests runs the case and compares. →{" "}
+                  <Tag color="green">PASS</Tag>
+                </Text>
+              </div>
+            </div>
+            <div className="tests-how-notes">
+              <div>
+                <Text strong>Why bother?</Text>
+                <Text type="secondary">
+                  {" "}
+                  Policies get re-extracted, edited and re-published. A test is how you find out that a change
+                  broke something, instead of hearing it from the person it affected.
+                </Text>
+              </div>
+              <div>
+                <Text strong>Where results show up.</Text>
+                <Text type="secondary">
+                  {" "}
+                  Publishing re-runs every active test automatically. Anything that fails appears under Quality →
+                  Failed policy tests.
+                </Text>
+              </div>
+              <div>
+                <Text strong>AI drafts, you decide.</Text>
+                <Text type="secondary">
+                  {" "}
+                  Proposals sit in review and do nothing until you accept them. You can run one against the real
+                  evaluator while it is still a proposal — that is the fastest way to tell a correct expectation from a
+                  wrong one. Pass or fail is never judged by the AI.
+                </Text>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+
+      {executableCount && executableCount.total > 0 && executableCount.executable === 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="No rule in the published version is machine-executable yet"
+          description={
+            <span>
+              All {executableCount.total} published rules are documented prose that has not been reduced to executable
+              logic. The evaluator returns <Tag>NOT_APPLICABLE</Tag> for such a rule immediately, without reading its
+              scope or condition — so this policy set cannot return <Tag>SATISFIED</Tag> for anything, and any test
+              expecting it will fail every time. Check a proposal before accepting it, and treat{" "}
+              <Tag>NOT_APPLICABLE</Tag> as the correct expectation here until the rules are made executable.
+            </span>
+          }
+        />
+      )}
+
+      {executableCount && executableCount.total > 0 && executableCount.executable > 0 && executableCount.executable < executableCount.total && (
+        <Alert
+          type="info"
+          showIcon
+          message={`${executableCount.executable} of ${executableCount.total} published rules are machine-executable`}
+          description="The remaining rules are documented prose and always evaluate to NOT_APPLICABLE, whatever their scope or condition says. Tests aimed at those rules can only assert NOT_APPLICABLE."
+        />
+      )}
 
       <div className="tests-summary-grid">
         <Card size="small" className="tests-summary-card">
@@ -402,8 +810,8 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
           <strong>{latestRuns.length}</strong>
         </Card>
         <Card size="small" className="tests-summary-card">
-          <Text type="secondary">Failed latest run</Text>
-          <strong>{tests.filter((t) => t.latest_run?.status === "fail" || t.latest_run?.status === "error").length}</strong>
+          <Text type="secondary">Failing now</Text>
+          <strong>{failingActiveCount}</strong>
         </Card>
       </div>
 
@@ -413,13 +821,55 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
             <ThunderboltOutlined /> AI proposal helper
           </div>
           <Title level={4} className="tests-panel-title">
-            Draft reviewable tests from the current policy set
+            Tell the AI what matters, and it drafts the tests
           </Title>
           <Paragraph type="secondary" className="tests-panel-copy">
-            The AI creates candidate tests only. Review and accept them before they count, run on publish, or appear in
-            Quality failures.
+            It reads the {evaluationTarget.version ? `${evaluationTarget.version.rule_count} published rules` : "published rules"} and
+            proposes cases for review. Leave the box empty for broad coverage, or steer it at the areas you actually
+            worry about.
           </Paragraph>
-          <Space wrap>
+
+          <TextArea
+            value={guidance}
+            onChange={(e) => setGuidance(e.target.value)}
+            className="tests-guidance-input"
+            autoSize={{ minRows: 3, maxRows: 8 }}
+            maxLength={1000}
+            showCount
+            placeholder={
+              "e.g. Focus on end-of-service benefit for employees who resign before 5 years, and test the exact tenure boundaries."
+            }
+            aria-label="Guidance for the AI test proposer"
+          />
+
+          <div className="tests-guidance-presets">
+            {GUIDANCE_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className="tests-guidance-preset"
+                onClick={() => setGuidance(p.text)}
+              >
+                {p.label}
+              </button>
+            ))}
+            {guidance && (
+              <button type="button" className="tests-guidance-preset tests-guidance-clear" onClick={() => setGuidance("")}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          <Space wrap className="tests-guidance-actions">
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={handlePropose}
+              loading={proposing}
+              disabled={!evaluationTarget.version}
+            >
+              {proposing ? "Drafting tests…" : "Generate tests"}
+            </Button>
             <Select
               value={reasoningEffort}
               onChange={(v) => setReasoningEffort(v as typeof reasoningEffort)}
@@ -431,17 +881,15 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
                 { value: "high", label: "High effort" },
               ]}
             />
-            <Button type="primary" icon={<ThunderboltOutlined />} onClick={handlePropose} loading={proposing}>
-              {proposing ? "Proposing…" : "Propose tests with AI"}
-            </Button>
           </Space>
           <Text type="secondary" className="tests-field-note">
-            Higher effort asks for more careful coverage; it does not change how pass/fail is judged.
+            Higher effort asks for more careful coverage. Neither the guidance nor the effort changes how pass/fail
+            is judged — that is always the deterministic evaluator.
           </Text>
         </Card>
 
         <Card className="tests-filter-panel">
-          <div className="section-eyebrow">View tests by kind</div>
+          <div className="section-eyebrow">What each kind of test answers</div>
           <Select
             value={kindFilter}
             onChange={setKindFilter}
@@ -457,10 +905,14 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
                 key={k}
                 type="button"
                 className={`tests-kind-chip${kindFilter === k ? " tests-kind-chip--active" : ""}`}
-                onClick={() => setKindFilter(k)}
+                onClick={() => setKindFilter(kindFilter === k ? "all" : k)}
+                title={TEST_KIND_HELP[k]}
               >
-                <span>{TEST_KIND_LABELS[k]}</span>
-                <small>{TEST_KIND_HELP[k]}</small>
+                <span>
+                  {TEST_KIND_LABELS[k]}
+                  <em className="tests-kind-count">{counts[k] ?? 0}</em>
+                </span>
+                <small>{TEST_KIND_BUSINESS_QUESTION[k]}</small>
               </button>
             ))}
           </div>
@@ -471,44 +923,41 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         <div className="tests-list-column">
           {!loading && tests.length === 0 && (
             <Card className="tests-empty-state">
-              <div className="section-eyebrow">How policy tests work</div>
-              <Title level={4}>Save expected outcomes, then let the evaluator prove them</Title>
-              <div className="tests-flow">
-                <div>
-                  <span>Given these facts</span>
-                  <code>{'{"amount": 50, "subject.jurisdiction": "US"}'}</code>
-                </div>
-                <strong>→</strong>
-                <div>
-                  <span>Expect this status</span>
-                  <Tag color="blue">SATISFIED</Tag>
-                </div>
-                <strong>→</strong>
-                <div>
-                  <span>Deterministic evaluator decides</span>
-                  <Tag color="green">PASS</Tag>
-                </div>
-              </div>
+              <div className="section-eyebrow">No tests yet</div>
+              <Title level={4}>Nothing is guarding this policy set</Title>
+              <Paragraph type="secondary">
+                Right now, a re-extraction or an edit could change what these policies answer and nobody would
+                notice. A handful of tests covering the outcomes that matter most is usually enough to catch that.
+              </Paragraph>
               <div className="tests-empty-notes">
                 <div>
-                  <strong>AI helps draft.</strong>
-                  <Text type="secondary"> Proposals stay in review until you accept them.</Text>
+                  <strong>Fastest start.</strong>
+                  <Text type="secondary">
+                    {" "}
+                    Describe what you care about in the box above and let the AI draft the cases, then accept the
+                    ones you agree with.
+                  </Text>
                 </div>
                 <div>
-                  <strong>Publish re-runs active tests.</strong>
-                  <Text type="secondary"> Failures surface in Quality → Failed policy tests.</Text>
-                </div>
-                <div>
-                  <strong>Kinds explain intent.</strong>
-                  <Text type="secondary"> Positive, negative, boundary, missing fact, scope, date, exception, precedence.</Text>
+                  <strong>Prefer to be precise?</strong>
+                  <Text type="secondary"> Write one yourself with exact facts and the status you expect.</Text>
                 </div>
               </div>
               <Space wrap>
-                <Button type="primary" icon={<ThunderboltOutlined />} onClick={handlePropose} loading={proposing}>
-                  Propose reviewable tests
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={handlePropose}
+                  loading={proposing}
+                  disabled={!evaluationTarget.version}
+                >
+                  Generate tests with AI
                 </Button>
                 <Button icon={<PlusOutlined />} onClick={openCreate}>
                   Create one manually
+                </Button>
+                <Button type="link" onClick={() => setHowOpen(true)}>
+                  How does a test work?
                 </Button>
               </Space>
             </Card>
@@ -526,11 +975,85 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
             <section className="tests-section">
               <div className="tests-section-header">
                 <div>
-                  <div className="section-eyebrow">AI proposals</div>
-                  <Title level={4}>Review before they count</Title>
+                  <div className="section-eyebrow">AI proposals · nothing here runs yet</div>
+                  <Title level={4}>Check the prediction, then decide</Title>
                 </div>
-                <Tag color="gold">{pendingFiltered.length} pending</Tag>
+                <Tag color="gold">{pendingFiltered.length} awaiting a decision</Tag>
               </div>
+
+              <Card size="small" className="tests-triage-bar">
+                <div className="tests-triage-explain">
+                  <Text strong>Accepting a proposal has a real effect.</Text>{" "}
+                  <Text type="secondary">{ACCEPT_CONSEQUENCE}</Text>
+                </div>
+
+                <div className="tests-triage-tally">
+                  <span className="tests-tally tests-tally--disagrees">
+                    <strong>{pendingTally.disagrees}</strong> evaluator disagrees
+                  </span>
+                  <span className="tests-tally tests-tally--errored">
+                    <strong>{pendingTally.errored}</strong> could not run
+                  </span>
+                  <span className="tests-tally tests-tally--confirmed">
+                    <strong>{pendingTally.confirmed}</strong> evaluator agrees
+                  </span>
+                  <span className="tests-tally tests-tally--unchecked">
+                    <strong>{pendingTally.unchecked}</strong> not checked
+                  </span>
+                </div>
+
+                <div className="tests-triage-actions">
+                  <Tooltip title="Runs every proposal below against the live evaluator. Nothing is accepted and Quality is untouched — this only tells you which expectations actually hold.">
+                    <Button
+                      icon={<ExperimentOutlined />}
+                      onClick={() => handleVerifyAll(pendingFiltered)}
+                      loading={bulkVerify !== null}
+                      disabled={bulkAccept !== null}
+                    >
+                      Check all {pendingFiltered.length}
+                    </Button>
+                  </Tooltip>
+                  <Popconfirm
+                    title={`Accept ${pendingTally.confirmed} verified test${pendingTally.confirmed === 1 ? "" : "s"}?`}
+                    description={
+                      <div className="tests-confirm-copy">
+                        Only proposals the evaluator already agreed with will be accepted. {ACCEPT_CONSEQUENCE}
+                      </div>
+                    }
+                    okText="Accept them"
+                    cancelText="Cancel"
+                    onConfirm={() => handleAcceptConfirmed(pendingFiltered)}
+                    disabled={pendingTally.confirmed === 0}
+                  >
+                    <Button
+                      type="primary"
+                      icon={<CheckOutlined />}
+                      loading={bulkAccept !== null}
+                      disabled={pendingTally.confirmed === 0 || bulkVerify !== null}
+                    >
+                      Accept {pendingTally.confirmed} verified
+                    </Button>
+                  </Popconfirm>
+                </div>
+
+                {(bulkVerify || bulkAccept) && (
+                  <div className="tests-triage-progress">
+                    <Progress
+                      percent={Math.round(
+                        (((bulkVerify ?? bulkAccept)!.done / Math.max((bulkVerify ?? bulkAccept)!.total, 1)) * 100)
+                      )}
+                      size="small"
+                      status="active"
+                    />
+                    <Text type="secondary">
+                      {bulkVerify
+                        ? `Checking ${bulkVerify.done} of ${bulkVerify.total} against the evaluator…`
+                        : `Accepting ${bulkAccept!.done} of ${bulkAccept!.total}…`}
+                    </Text>
+                  </div>
+                )}
+              </Card>
+
               <div className="tests-card-grid">{pendingFiltered.map(renderTestCard)}</div>
             </section>
           )}
@@ -589,7 +1112,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
               </div>
               <div>
                 <strong>2. Review</strong>
-                <Text type="secondary"> Accept proposals you trust; reject the rest.</Text>
+                <Text type="secondary"> Check each prediction against the evaluator, then accept or reject it.</Text>
               </div>
               <div>
                 <strong>3. Guard</strong>
