@@ -469,6 +469,61 @@ def _passage_matches_for_policy(source_text: str, passages: list[PolicyPassage])
     return matches
 
 
+#: Minimum normalized clause length before a clause may be attributed to a rule
+#: on the strength of the clause being contained *in* the rule's source text.
+#: Short fragments ("1.", "Wages", a stray heading) appear inside almost any
+#: longer text by accident, so attributing on that basis alone re-creates the
+#: over-citation this narrowing exists to remove.
+_MIN_CONTAINED_CLAUSE_CHARS = 16
+
+
+def _narrow_refs_to_policy(
+    source_text: str,
+    refs: list[str],
+    clause_texts_by_ref: dict[str, str] | None,
+) -> list[str]:
+    """Narrow a passage's clause span to the clause(s) that carry *this* policy.
+
+    `_passage_matches_for_policy` resolves a rule to the Stage-1 passage it was
+    formulated from, but a passage's span is only as fine-grained as the passage
+    itself. One passage routinely covers a whole contiguous block — a statute's
+    definitions article, an HR handbook's eligibility section — that ingestion
+    split into several clauses. Every rule formulated from that block then
+    inherits the block's *entire* clause span, so a rule defining one term cites
+    the clauses of its neighbours too. Reviewers reasonably read that as the
+    platform claiming the rule came from all of them.
+
+    Clause text is available and the policy's `source_text` is verbatim, so the
+    attribution can be checked directly instead of inherited: keep a clause when
+    the policy's text is found inside it (the usual case — one clause holds the
+    provision), or when the clause's own text is found inside the policy's (the
+    converse case — one provision was split across several small clauses, such
+    as a lead-in followed by numbered items).
+
+    Falls back to the unnarrowed span whenever narrowing would produce nothing,
+    on the same principle as the coarse batch fallback: an imprecise citation is
+    more useful to a reviewer than none, and silently dropping evidence would be
+    worse than keeping it broad.
+    """
+
+    if not clause_texts_by_ref or len(refs) < 2:
+        return refs
+    needle = _normalize(source_text)
+    if not needle:
+        return refs
+
+    narrowed: list[str] = []
+    for ref in refs:
+        hay = _normalize(clause_texts_by_ref.get(ref, ""))
+        if not hay:
+            continue
+        if needle in hay:
+            narrowed.append(ref)
+        elif len(hay) >= _MIN_CONTAINED_CLAUSE_CHARS and hay in needle:
+            narrowed.append(ref)
+    return narrowed or refs
+
+
 def _group_labels(formulation: PolicyFormulation) -> dict[int, str]:
     """Cluster canonical policies that a single DMN decision covers.
 
@@ -514,6 +569,7 @@ def formulation_to_candidate_rules(
     passages: list[PolicyPassage] | None = None,
     passage_clause_refs: list[list[str]] | None = None,
     clause_evidence_by_ref: dict[str, dict] | None = None,
+    clause_texts_by_ref: dict[str, str] | None = None,
     source_note: str = "unspecified",
     category: str = "",
 ) -> tuple[list[CanonicalRule], list[dict]]:
@@ -532,6 +588,14 @@ def formulation_to_candidate_rules(
     clauses about a completely different topic than the rule itself. This
     applies to any source document type (statute, HR handbook, IT policy,
     procurement manual, ...), not just legal text.
+
+    Supplying `clause_texts_by_ref` narrows that result one level further, from
+    the passage's whole clause span down to the clause(s) whose text actually
+    carries this policy (see `_narrow_refs_to_policy`). Passage granularity
+    alone still over-cites whenever one passage covers a contiguous block that
+    ingestion split into several clauses — a definitions article, an
+    eligibility section — because every rule from that block inherits the whole
+    block's span.
 
     A policy whose `source_text` cannot be matched to any passage keeps the
     coarse fallback rather than being left without evidence — an admittedly
@@ -606,6 +670,12 @@ def formulation_to_candidate_rules(
                     if ref not in seen_refs:
                         seen_refs.add(ref)
                         matched_refs.append(ref)
+            # A passage's span is coarser than the rule: narrow it to the
+            # clause(s) whose text actually carries this policy, so sibling
+            # provisions in the same block are not cited as this rule's source.
+            matched_refs = _narrow_refs_to_policy(
+                policy.source_text, matched_refs, clause_texts_by_ref
+            )
             matched_evidence = [
                 clause_evidence_by_ref[ref] for ref in matched_refs if ref in clause_evidence_by_ref
             ]

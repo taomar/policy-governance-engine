@@ -6,7 +6,7 @@ canonical evaluator contracts (e.g. policy-set creation, version import).
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,18 @@ class MarkPolicySetReviewedRequest(BaseModel):
     """Attest that a human just reviewed this policy set (ISO 37301 §9.3)."""
 
     next_due_date: date | None = None
+
+
+class UpdateTrustedConfigRequest(BaseModel):
+    """Replace a policy set's Section 83 trusted configuration.
+
+    Deliberately not `| None`: an omitted body and an explicit `{}` must mean
+    the same thing here, because clearing the fact model is a legitimate action
+    and the empty config is a valid operating mode (honest, non-executable
+    projections) rather than an error state.
+    """
+
+    trusted_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class PolicySetResponse(BaseModel):
@@ -174,6 +186,12 @@ class CandidateRuleResponse(BaseModel):
     review_notes: str | None
     published_version_id: str | None
     created_at: datetime
+    # Cross-run delta. Optional because rules drafted before delta tracking
+    # existed, and rules composed by hand, have no run to compare against.
+    delta_status: str | None = None
+    reworded: bool = False
+    baseline_candidate_id: str | None = None
+    superseded_at: datetime | None = None
     rule: CanonicalRule
 
 
@@ -314,6 +332,103 @@ class AggregateLimitResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NumericFactSchema(BaseModel):
+    name: str
+    data_type: str
+
+
+class RuleEligibilitySchema(BaseModel):
+    """Whether one rule can contribute to a combined cap, and why not.
+
+    `blockers` carries stable codes from `infrastructure.aggregate_eligibility`
+    rather than prose, so the wording can be owned by the UI without the two
+    sides drifting about what was actually wrong.
+    """
+
+    rule_id: str
+    title: str
+    eligible: bool
+    machine_executable: bool
+    numeric_facts: list[NumericFactSchema] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
+class AggregateEligibilityResponse(BaseModel):
+    total_rules: int
+    eligible_count: int
+    blocked_count: int
+    can_build_limit: bool
+    blocker_totals: dict[str, int] = Field(default_factory=dict)
+    rules: list[RuleEligibilitySchema] = Field(default_factory=list)
+
+
+class ProposeAggregateLimitsRequest(BaseModel):
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    # Optional reviewer steer, e.g. "look for shared annual leave ceilings".
+    # Biases what the model looks for; never overrides validation.
+    guidance: str = ""
+
+
+class ProposedContributionSchema(BaseModel):
+    rule_id: str
+    amount_fact: str
+    why: str = ""
+
+
+class ProposedAggregateLimitSchema(BaseModel):
+    aggregate_key: str
+    description: str
+    rationale: str
+    max_value: float
+    # "stated" when the ceiling appears in the source text; "unstated" when the
+    # model inferred that a shared cap exists but had to supply the number. The
+    # reviewer needs to treat those two very differently.
+    max_value_confidence: str
+    period: str | None = None
+    aggregator: str = "SUM"
+    contributing_rules: list[ProposedContributionSchema] = Field(default_factory=list)
+
+
+class ProposeAggregateLimitsResponse(BaseModel):
+    policy_set_key: str
+    version_number: int
+    reasoning_effort: str
+    prompt_version: str
+    # Returned even when proposals is empty: "nothing qualified" and "no rule
+    # here could ever contribute" need completely different reviewer actions.
+    eligibility: AggregateEligibilityResponse
+    proposals: list[ProposedAggregateLimitSchema] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+
+
+class PreviewAggregateLimitRequest(BaseModel):
+    contributing_rules: list[AggregateLimitContributionSchema] = Field(default_factory=list)
+    max_value: float
+    description: str = ""
+    facts: dict[str, object | None] = Field(default_factory=dict)
+
+
+class PreviewContributionSchema(BaseModel):
+    rule_id: str
+    amount_fact: str
+    rule_status: str
+    contributed: bool
+    amount: float | None = None
+    reason: str
+
+
+class PreviewAggregateLimitResponse(BaseModel):
+    max_value: float
+    total: float
+    breached: bool
+    contributing_count: int
+    contributions: list[PreviewContributionSchema] = Field(default_factory=list)
+    overall_status: str
+    # "breached" | "within_limit" | "inert". `inert` is reported distinctly
+    # because a cap nothing contributed to is not a pass.
+    verdict: str
+
+
 class CreatePolicyTestRequest(BaseModel):
     """Manually author a `PolicyTest`. Human-authored tests skip the AI
     review step entirely (review_status="active", is_active=True
@@ -337,6 +452,11 @@ class CreatePolicyTestRequest(BaseModel):
 
 class ProposePolicyTestsRequest(BaseModel):
     reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    # Optional plain-English steer, e.g. "focus on overtime pay thresholds and
+    # end-of-service benefits". It shapes which scenarios the model prioritises;
+    # it never changes how pass/fail is judged, which stays with the
+    # deterministic evaluator.
+    guidance: str = ""
 
 
 class PolicyTestReviewRequest(BaseModel):

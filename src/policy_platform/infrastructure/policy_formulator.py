@@ -307,8 +307,8 @@ def _remap_projection(raw: Any, index_map: dict[int, int]) -> DmnProjection:
         ) from exc
 
 
-def _warn_on_unusable_trusted_config(config: dict[str, Any]) -> None:
-    """Say so when a supplied config cannot reach the agent as the caller intends.
+def check_trusted_config(config: dict[str, Any]) -> list[str]:
+    """Return human-readable warnings for a config that cannot reach the agent.
 
     A trusted config that is wrong-shaped fails *silently*: the agent still runs,
     still returns well-formed output, and still reports `FACT_MODEL_REQUIRED` —
@@ -324,18 +324,22 @@ def _warn_on_unusable_trusted_config(config: dict[str, Any]) -> None:
     the agent a destination with no way to recognise the wording that maps onto
     it, which is the half that matters.
 
-    Warnings rather than errors: Section 83 is the spec's list, not the model's,
-    and a future spec revision adding a key should not stop an extraction. Being
-    wrong here costs a log line; refusing to run costs a job.
+    Returned rather than only logged so the API can hand these back to whoever
+    is authoring the config, at the moment they save it. A log line is the right
+    channel for a batch job and the wrong one for a person editing a fact model:
+    they will never see it, and the failure it describes is invisible by
+    construction. Both callers share this one implementation so the rules cannot
+    drift apart.
     """
+
+    warnings: list[str] = []
 
     unknown = sorted(set(config) - PolicyFormulatorAgent._SECTION_83_KEYS)
     if unknown:
-        logger.warning(
-            "trusted_config: ignoring unknown key(s) %s; Section 83 defines only %s. "
-            "Unknown keys reach the agent as noise and do not enrich anything.",
-            ", ".join(unknown),
-            ", ".join(sorted(PolicyFormulatorAgent._SECTION_83_KEYS)),
+        warnings.append(
+            f"Ignoring unknown key(s) {', '.join(unknown)}; Section 83 defines only "
+            f"{', '.join(sorted(PolicyFormulatorAgent._SECTION_83_KEYS))}. Unknown keys "
+            "reach the agent as noise and do not enrich anything."
         )
 
     for model_key, mapping_key in PolicyFormulatorAgent._EXPECTED_MAPPING_KEY.items():
@@ -348,18 +352,28 @@ def _warn_on_unusable_trusted_config(config: dict[str, Any]) -> None:
             if not isinstance(spec, dict) or mapping_key not in spec
         )
         if malformed:
-            logger.warning(
-                "trusted_config.%s: entr(ies) %s have no '%s'. Section 84 keys each "
-                "entry by the SOURCE TERM as it appears in the policy text, with the "
-                "FEEL target inside — e.g. {'age of the worker': {'%s': "
-                "'worker.ageYears', 'type': 'number'}}. Keying by the FEEL path "
-                "instead leaves the agent unable to map wording onto it, and it will "
-                "still report the enrichment as missing.",
-                model_key,
-                ", ".join(malformed),
-                mapping_key,
-                mapping_key,
+            warnings.append(
+                f"{model_key}: entr(ies) {', '.join(malformed)} have no '{mapping_key}'. "
+                "Section 84 keys each entry by the SOURCE TERM as it appears in the "
+                "policy text, with the FEEL target inside — e.g. {'age of the worker': "
+                f"{{'{mapping_key}': 'worker.ageYears', 'type': 'number'}}}}. Keying by "
+                "the FEEL path instead leaves the agent unable to map wording onto it, "
+                "and it will still report the enrichment as missing."
             )
+
+    return warnings
+
+
+def _warn_on_unusable_trusted_config(config: dict[str, Any]) -> None:
+    """Log the warnings from `check_trusted_config`.
+
+    Warnings rather than errors: Section 83 is the spec's list, not the model's,
+    and a future spec revision adding a key should not stop an extraction. Being
+    wrong here costs a log line; refusing to run costs a job.
+    """
+
+    for warning in check_trusted_config(config):
+        logger.warning("trusted_config: %s", warning)
 
 
 class PolicyFormulatorAgent:

@@ -83,6 +83,25 @@ class PolicySet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     consulted_parties_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     informed_parties_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
+    # The specification's Section 83 trusted configuration (`fact_model`,
+    # `output_model`, `value_normalization`, ...) for this policy set.
+    #
+    # This is the *only* sanctioned source of technical detail that is not
+    # present in the source text. Without it the formulator agent must not
+    # invent FEEL fact paths and instead returns `enrichment_required` with
+    # `FACT_MODEL_REQUIRED`, which makes every rule it produces
+    # `machine_executable=False`. Non-executable rules are then skipped by
+    # `evaluator.engine`, which in turn means no rule can contribute to an
+    # aggregate limit and every policy test evaluates to NOT_APPLICABLE.
+    #
+    # The config lives on the policy set rather than on a single extraction
+    # request because it is the *domain's* vocabulary: the same terms recur
+    # across every document and every re-run in the set, and a reviewer needs
+    # to see the mapping that made a rule executable. Previously it could only
+    # be supplied per-request, and no caller ever did, so every extraction in
+    # this platform's history took the empty-config path.
+    trusted_config_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
     approved_versions: Mapped[list["ApprovedPolicyVersion"]] = relationship(
         back_populates="policy_set", order_by="ApprovedPolicyVersion.created_at"
     )
@@ -216,7 +235,29 @@ class ExtractionRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    candidate_rules: Mapped[list["CandidateRule"]] = relationship(back_populates="extraction_run")
+    candidate_rules: Mapped[list["CandidateRule"]] = relationship(
+        back_populates="extraction_run",
+        foreign_keys="CandidateRule.extraction_run_id",
+    )
+
+    @property
+    def reference(self) -> str | None:
+        """Short, stable, human-quotable reference for this run.
+
+        A run is the unit a reviewer reasons about — "these 44 rules came from
+        that run", "re-run and compare". A raw UUID is unusable for that in
+        conversation or a ticket, so this derives a compact form from it.
+        Deliberately derived rather than stored: it needs no column, no
+        migration and no sequence, and it round-trips back to the row because
+        the UUID prefix is preserved verbatim.
+
+        Returns None before the row has an id. A reference is a promise that
+        the run can be looked up; emitting "RUN-NONE" for an unflushed object
+        would hand a reviewer a citation that resolves to nothing.
+        """
+        if self.id is None:
+            return None
+        return f"RUN-{str(self.id)[:8].upper()}"
 
 
 class CandidateRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -246,7 +287,43 @@ class CandidateRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("approved_policy_versions.id"), nullable=True
     )
 
-    extraction_run: Mapped["ExtractionRun"] = relationship(back_populates="candidate_rules")
+    extraction_run: Mapped["ExtractionRun"] = relationship(
+        back_populates="candidate_rules",
+        foreign_keys=[extraction_run_id],
+    )
+
+    # --- Cross-run identity (Milestone 51) -------------------------------
+    # Re-extracting a document must show only what changed. Neither `rule_id`
+    # (a fresh random per rule) nor the prose (regenerated every run) is stable
+    # enough to answer "have we seen this before", so identity is derived and
+    # stored here at insert time. Stored rather than computed on read because
+    # the comparison is against runs that may be months old, and recomputing it
+    # would silently re-interpret history if the fingerprint definition ever
+    # changes.
+    content_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    anchor_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    #: 'baseline' (first run of this document), 'new', 'changed', 'unchanged'.
+    delta_status: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    #: The rule in the previous run that this one continues, when matched.
+    baseline_candidate_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("candidate_rules.id"), nullable=True
+    )
+    #: Semantics identical to the baseline but the model reworded it. Not a
+    #: change, but a reviewer comparing text side by side will notice, so it is
+    #: recorded rather than silently discarded.
+    reworded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # --- Soft supersession ------------------------------------------------
+    # A later run of the same document replaces this row's *currency*, not its
+    # existence. Deleting superseded candidates (the previous behaviour) made
+    # three things impossible: computing a delta against the prior run, telling
+    # a reviewer that a rule is no longer being extracted, and filtering the
+    # review queue by run. Consumers that want "the current set" filter on
+    # `superseded_at IS NULL`, which is what every existing read already means.
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    superseded_by_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("extraction_runs.id"), nullable=True
+    )
 
 
 class CorrelationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -447,6 +524,15 @@ class ApprovedRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # rule's decision, distinct from `effect_json` (the mandatory
     # Obligation-equivalent action). See `contracts.policy.Advice`.
     advice_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    # The policy-formulator agent's record (canonical decomposition + DMN
+    # projection) for this rule, carried verbatim from the candidate row. The
+    # columns above are a *lossy* executable projection of it, so the contract
+    # (`CanonicalRule.formulation`) requires it be retained rather than
+    # regenerated. Omitting this column silently destroyed the record at
+    # publish time — the same defect ADR-0009 records for the precedence
+    # fields; see migration e4c7a2b8d190. Nullable because it is genuinely
+    # absent for hand-authored rules and rules drafted before the agent.
+    formulation_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     policy_version: Mapped["ApprovedPolicyVersion"] = relationship(back_populates="rules")
     authority: Mapped["PolicyAuthority"] = relationship()

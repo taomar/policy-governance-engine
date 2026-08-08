@@ -37,10 +37,11 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -53,6 +54,8 @@ from policy_platform.domain.models import (
     ExtractionRun,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure import extraction_progress
+from policy_platform.infrastructure import rule_delta
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
@@ -111,6 +114,20 @@ def _batch_clauses(clauses: list[Clause]) -> list[list[Clause]]:
     return batches
 
 
+def _page_label(clauses: list[Clause]) -> str:
+    """A `" · page 7"` / `" · pages 7–9"` suffix for the progress stage line.
+
+    Clause pages are optional (a DOCX has no fixed pagination), so this returns
+    an empty string rather than a misleading "page 0" when they are absent.
+    """
+    pages = sorted({c.page for c in clauses if c.page is not None})
+    if not pages:
+        return ""
+    if len(pages) == 1 or pages[0] == pages[-1]:
+        return f" · page {pages[0]}"
+    return f" · pages {pages[0]}–{pages[-1]}"
+
+
 def _render_batch(clauses: list[Clause]) -> str:
     """Render clauses with an unambiguous addressing marker.
 
@@ -147,10 +164,105 @@ def _render_passages(passages: list[PolicyPassage]) -> str:
 
 
 
+async def _document_run_ids(
+    session: AsyncSession, document_version_id: uuid.UUID, *, exclude_run_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """Every prior extraction run for the *document*, not just this version.
+
+    A document is a container and its versions are variants of it. Re-uploading
+    a revised contract creates a new `DocumentVersion` (they are unique on
+    content hash), so scoping run history to one version would treat the second
+    variant as a first-ever extraction and present all of its rules as new —
+    exactly the situation a delta is supposed to eliminate. Walking up to the
+    owning `SourceDocument` keeps the comparison across variants.
+    """
+
+    document_id = (
+        await session.execute(
+            select(DocumentVersion.document_id).where(DocumentVersion.id == document_version_id)
+        )
+    ).scalar_one_or_none()
+    if document_id is None:
+        return []
+
+    return list(
+        (
+            await session.execute(
+                select(ExtractionRun.id)
+                .join(DocumentVersion, DocumentVersion.id == ExtractionRun.document_version_id)
+                .where(
+                    DocumentVersion.document_id == document_id,
+                    ExtractionRun.id != exclude_run_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _load_baseline_candidates(
+    session: AsyncSession,
+    document_version_id: uuid.UUID,
+    policy_set_id: uuid.UUID,
+    *,
+    exclude_run_id: uuid.UUID,
+) -> list[CandidateRule]:
+    """The previous generation of rules for this document, to compare against.
+
+    "Previous generation" is the most recent prior run that actually produced
+    rules — not simply the most recent run, because a run that failed or found
+    nothing must not become a baseline of zero rules and make the whole document
+    look brand new.
+
+    Reviewed rules are included. They are the ones whose decisions are most
+    worth carrying forward: a rule the reviewer already approved and that this
+    run reproduces identically should not be asked about a second time.
+    """
+
+    prior_runs = await _document_run_ids(session, document_version_id, exclude_run_id=exclude_run_id)
+    if not prior_runs:
+        return []
+
+    latest_run_id = (
+        await session.execute(
+            select(CandidateRule.extraction_run_id)
+            .join(ExtractionRun, ExtractionRun.id == CandidateRule.extraction_run_id)
+            .where(
+                CandidateRule.extraction_run_id.in_(prior_runs),
+                CandidateRule.policy_set_id == policy_set_id,
+                # Only a run that finished is a trustworthy reference. A run that
+                # failed or was interrupted holds however many rules it managed
+                # to commit before it stopped, and comparing against that partial
+                # set would report every rule it never reached as brand new —
+                # the exact noise this is meant to remove.
+                ExtractionRun.status == "completed",
+            )
+            .order_by(ExtractionRun.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_run_id is None:
+        return []
+
+    return list(
+        (
+            await session.execute(
+                select(CandidateRule).where(CandidateRule.extraction_run_id == latest_run_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def _supersede_prior_candidates(
-    session: AsyncSession, document_version_id: uuid.UUID
+    session: AsyncSession,
+    document_version_id: uuid.UUID,
+    *,
+    exclude_run_id: uuid.UUID,
 ) -> int:
-    """Clear machine output from earlier extractions of the same document.
+    """Retire machine output from earlier extractions of the same document.
 
     Extraction was previously append-only, so re-running it on a document — a
     retry after a crash, a rerun with a better prompt, or a user clicking
@@ -159,45 +271,126 @@ async def _supersede_prior_candidates(
     copy and the correlation agent would dutifully report them as DUPLICATE,
     burying real findings under noise the system created itself.
 
-    Only rows still in `candidate` status are removed. A candidate a human has
-    approved, rejected or annotated is that person's decision and part of the
-    audit trail; a re-run is a machine action and must never erase it. Those
-    rows are left alone, which means a re-run after review can still produce a
-    near-duplicate of a reviewed rule — that is the correct trade, because the
-    alternative destroys evidence.
+    This used to DELETE those rows. It no longer does, and that change is the
+    foundation of delta extraction: you cannot compute what changed against a
+    set you destroyed, you cannot tell a reviewer a rule is *no longer* being
+    extracted if its only record is gone, and filtering the review queue by run
+    is meaningless when only one run's rows ever survive. Superseded rows are
+    marked, not removed, and every existing read that means "the current set"
+    now says `superseded_at IS NULL` — which is what it already meant.
 
-    Returns the number of rows removed.
+    Only rows still in `candidate` status are retired. A candidate a human has
+    approved, rejected or annotated is that person's decision and part of the
+    audit trail; a re-run is a machine action and must never bury it. An
+    approved-but-unpublished rule in particular has to stay in the queue or the
+    reviewer loses the ability to publish work they already accepted.
+
+    `exclude_run_id` is the run currently writing. It is mandatory because this
+    is called *after* that run's row exists and mid-way through its inserts, so
+    an unfiltered "all prior runs for this document" would match the caller's
+    own output and retire the rules it just wrote.
+
+    Returns the number of rows retired.
     """
 
-    prior_runs = (
-        await session.execute(
-            select(ExtractionRun.id).where(
-                ExtractionRun.document_version_id == document_version_id
-            )
-        )
-    ).scalars().all()
+    prior_runs = await _document_run_ids(session, document_version_id, exclude_run_id=exclude_run_id)
     if not prior_runs:
         return 0
 
-    stale = (
-        await session.execute(
-            select(CandidateRule).where(
-                CandidateRule.extraction_run_id.in_(prior_runs),
-                CandidateRule.review_status == "candidate",
-                CandidateRule.published_version_id.is_(None),
-            )
+    result = await session.execute(
+        update(CandidateRule)
+        .where(
+            CandidateRule.extraction_run_id.in_(prior_runs),
+            CandidateRule.review_status == "candidate",
+            CandidateRule.published_version_id.is_(None),
+            CandidateRule.superseded_at.is_(None),
         )
-    ).scalars().all()
-    if not stale:
-        return 0
-
-    stale_ids = [row.id for row in stale]
-    # Nothing holds a foreign key to candidate_rules (evidence rows are written
-    # against approved_rules at publish time, and a candidate's provenance lives
-    # inside its own payload_json), so the delete needs no cascade.
-    await session.execute(delete(CandidateRule).where(CandidateRule.id.in_(stale_ids)))
+        .values(superseded_at=datetime.now(UTC), superseded_by_run_id=exclude_run_id)
+    )
     await session.flush()
-    return len(stale_ids)
+    return int(result.rowcount or 0)
+
+
+async def _classify_run_delta(
+    session: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    document_version_id: uuid.UUID,
+    policy_set_id: uuid.UUID,
+) -> dict[str, int]:
+    """Record how this run's rules differ from the previous generation.
+
+    Runs once at the end of the run rather than per batch. Matching is
+    one-to-one — each prior rule can be continued by exactly one new rule — and
+    that constraint is only correct when the whole run is compared at once; a
+    per-batch pass would let an early batch claim a prior rule that a later
+    batch matched far better.
+
+    Decisions carry forward on an exact match. If a reviewer approved a rule and
+    this run produced the identical rule from the same passage, re-asking is
+    pure friction, and the carried decision is annotated with the run that
+    inherited it so the audit trail still shows where it came from.
+    """
+
+    current = list(
+        (
+            await session.execute(select(CandidateRule).where(CandidateRule.extraction_run_id == run_id))
+        )
+        .scalars()
+        .all()
+    )
+    if not current:
+        return {"new": 0, "changed": 0, "unchanged": 0, "baseline": 0, "removed": 0, "reworded": 0}
+
+    baseline = await _load_baseline_candidates(
+        session, document_version_id, policy_set_id, exclude_run_id=run_id
+    )
+    baseline_by_id = {str(row.id): row for row in baseline}
+
+    result = rule_delta.diff_runs(
+        [(str(row.id), row.payload_json or {}) for row in current],
+        [(str(row.id), row.payload_json or {}) for row in baseline],
+    )
+
+    for row in current:
+        match = result.matches[str(row.id)]
+        identity = rule_delta.identify(row.payload_json or {})
+        row.content_fingerprint = identity.content_fingerprint
+        row.anchor_fingerprint = identity.anchor_fingerprint
+        row.delta_status = match.delta_status
+        row.reworded = match.reworded
+        row.baseline_candidate_id = (
+            uuid.UUID(match.baseline_key) if match.baseline_key is not None else None
+        )
+
+        prior = baseline_by_id.get(match.baseline_key or "")
+        if match.delta_status != "unchanged" or prior is None:
+            continue
+        if prior.review_status in {"approved", "rejected"}:
+            # The reviewer already decided this exact rule and the document has
+            # not moved. Asking again is pure friction, so the decision follows
+            # the rule forward — annotated, so the audit trail still shows that
+            # a machine carried it rather than a human re-made it.
+            row.review_status = prior.review_status
+            row.reviewed_by = prior.reviewed_by
+            row.reviewed_at = prior.reviewed_at
+            carried = (
+                f"Decision carried forward from {prior.id} — rule unchanged since the previous extraction."
+            )
+            row.review_notes = f"{prior.review_notes}\n\n{carried}" if prior.review_notes else carried
+        elif prior.review_status == "published":
+            # Deliberately NOT marked published: this row was never part of a
+            # published version, and claiming otherwise would forge a link to a
+            # version it does not belong to. It stays a candidate, but the note
+            # tells the reviewer that approving it would duplicate a rule that is
+            # already live.
+            row.review_notes = (
+                f"Identical to candidate {prior.id}, which is already published. "
+                "Approving this again would duplicate a live rule."
+            )
+
+    await session.flush()
+    return result.counts
 
 
 async def extract_candidate_rules(
@@ -216,6 +409,14 @@ async def extract_candidate_rules(
     it is valid: the agent then returns faithful canonical records with
     candidly non-executable DMN projections carrying requirement codes, rather
     than inventing fact paths to look complete.
+
+    When omitted, the owning policy set's stored `trusted_config_json` is used.
+    That default is what makes an executable extraction reproducible: the
+    config is the *domain's* vocabulary, so it must apply to every document and
+    every re-run in the set rather than having to be re-supplied by whichever
+    caller happens to trigger extraction. An explicit argument still wins, so a
+    caller can override for a one-off run; passing `{}` deliberately opts out
+    and takes the empty-config path even when the set has one stored.
 
     `max_clauses` caps how many of the document's clauses (in document order)
     are sent to the agents this run. Intended for a small-batch validation
@@ -237,6 +438,14 @@ async def extract_candidate_rules(
     policy_set = await policy_set_repo.get_by_key(policy_set_key)
     if policy_set is None:
         raise ValueError(f"policy set '{policy_set_key}' not found")
+
+    # Fall back to the policy set's own fact model. `is None` rather than a
+    # truthiness check on purpose: an explicit `{}` is a caller deliberately
+    # requesting the empty-config path, which is a meaningful choice (it yields
+    # honest non-executable projections) and must not be silently overridden by
+    # the stored config.
+    if trusted_config is None:
+        trusted_config = policy_set.trusted_config_json or None
 
     doc_version_result = await session.execute(
         select(DocumentVersion)
@@ -265,13 +474,22 @@ async def extract_candidate_rules(
     clauses_by_ref = {c.clause_ref: c for c in clauses}
 
     run_repo = ExtractionRunRepository(session)
-    superseded = await _supersede_prior_candidates(session, document_version_id)
     run = await run_repo.create(
         document_version_id=document_version_id,
         deployment_name=settings.azure_openai_deployment,
         prompt_version=PROMPT_VERSION,
         parser_version=PARSER_VERSION,
     )
+    # Superseding prior candidates is deferred until this run has rules to put
+    # in their place (see the first-batch commit below). It used to happen here,
+    # before a single model call — which meant a run where every batch failed
+    # (expired credentials, a degraded endpoint, rate limiting) deleted the
+    # previous run's output and replaced it with nothing. Those per-batch
+    # failures are caught and recorded as skips, so the run still finished
+    # "completed" and committed the delete. Re-running extraction could
+    # therefore leave a reviewer with strictly less than they started with.
+    superseded = 0
+    superseded_done = False
 
     ai_client = AzureOpenAIClient(settings)
     candidate_repo = CandidateRuleRepository(session)
@@ -285,9 +503,37 @@ async def extract_candidate_rules(
     #: can update rows that were already committed.
     persisted: dict[str, object] = {}
 
+    # Publish progress for the whole run up front. Totals are knowable here:
+    # batching is deterministic and the clause list is already narrowed by
+    # `max_clauses`, so the UI can show "batch 3 of 17" rather than an
+    # open-ended spinner. See `extraction_progress` for why this is in-memory.
+    batches = _batch_clauses(clauses)
+    progress_key = str(document_version_id)
+    all_pages = sorted({c.page for c in clauses if c.page is not None})
+    extraction_progress.start(
+        progress_key,
+        total_clauses=len(clauses),
+        total_batches=len(batches),
+        total_pages=len(all_pages),
+    )
+    extraction_progress.update(progress_key, run_reference=run.reference)
+    seen_pages: set[int] = set()
+
     try:
-        for batch in _batch_clauses(clauses):
+        for batch_index, batch in enumerate(batches, start=1):
             batch_ref = batch[0].clause_ref if batch else ""
+            seen_pages.update(c.page for c in batch if c.page is not None)
+            page_label = _page_label(batch)
+            extraction_progress.update(
+                progress_key,
+                processed_batches=batch_index - 1,
+                stage=f"Reading batch {batch_index} of {len(batches)}{page_label} — finding policy statements",
+            )
+            # Count the batch's clauses as processed here rather than at the end
+            # of the body: several paths below `continue`, and a clause that was
+            # sent to the agents has been processed regardless of whether it
+            # yielded a rule.
+            extraction_progress.advance(progress_key, clauses=len(batch), pages=len(seen_pages))
 
             clause_texts = {c.clause_ref: c.text for c in batch}
             clause_order = [c.clause_ref for c in batch]
@@ -312,6 +558,7 @@ async def extract_candidate_rules(
                 skipped.append(
                     {"item": batch_ref, "reason": f"passage extractor failed for this batch: {exc}"}
                 )
+                extraction_progress.advance(progress_key, skipped=1)
                 continue
 
             for bad in fabricated:
@@ -321,6 +568,7 @@ async def extract_candidate_rules(
                         "reason": "passage discarded: not a verbatim substring of the source",
                     }
                 )
+            extraction_progress.advance(progress_key, skipped=len(fabricated))
 
             if not passages:
                 # A batch of pure boilerplate legitimately yields nothing. This
@@ -364,6 +612,14 @@ async def extract_candidate_rules(
 
             # Stage 2 (formulate): the agent's job. Only the verbatim policy
             # text is piped to it. Extraction owns no prompt.
+            extraction_progress.advance(progress_key, passages=len(passages))
+            extraction_progress.update(
+                progress_key,
+                stage=(
+                    f"Formulating rules from batch {batch_index} of {len(batches)}"
+                    f"{page_label} — {len(passages)} policy statement(s) found"
+                ),
+            )
             try:
                 formulation = await formulator.formulate(_render_passages(passages))
             except PolicyFormulationError as exc:
@@ -373,6 +629,7 @@ async def extract_candidate_rules(
                         "reason": f"formulator agent failed for this batch: {exc}",
                     }
                 )
+                extraction_progress.advance(progress_key, skipped=1)
                 continue
 
             batch_evidence = [
@@ -396,10 +653,12 @@ async def extract_candidate_rules(
                 passages=passages,
                 passage_clause_refs=passage_clause_refs,
                 clause_evidence_by_ref=clause_evidence_by_ref,
+                clause_texts_by_ref=clause_texts,
                 source_note="; ".join(c.clause_ref for c in cited),
             )
             drafted.extend(rules)
             skipped.extend(batch_skipped)
+            extraction_progress.advance(progress_key, drafted=len(rules), skipped=len(batch_skipped))
 
             # Persist and commit per batch rather than once at the end. These
             # runs are long (tens of model calls over tens of minutes), so an
@@ -408,6 +667,16 @@ async def extract_candidate_rules(
             # no way to tell progress from failure. Candidates are drafts under
             # review, not authoritative rules, so partial results are a valid
             # intermediate state.
+            if rules and not superseded_done:
+                # First real output of this run. Clear the previous run's
+                # unreviewed candidates in the *same transaction* as this
+                # batch's inserts, so the queue never contains both runs at once
+                # and never loses the old set without gaining a new one.
+                superseded = await _supersede_prior_candidates(
+                    session, document_version_id, exclude_run_id=run.id
+                )
+                superseded_done = True
+                extraction_progress.update(progress_key, superseded=superseded)
             for rule in rules:
                 candidate = await candidate_repo.create(
                     policy_set_id=policy_set.id,
@@ -418,6 +687,17 @@ async def extract_candidate_rules(
                 created_ids.append(str(candidate.id))
                 persisted[rule.rule_id] = candidate
             await session.commit()
+            # Published only after the commit succeeds: this counter is the
+            # answer to "how many rules are in my review queue right now", and
+            # a batch that drafts rules but fails to persist them must not
+            # inflate it. It is deliberately distinct from `rules_drafted`.
+            extraction_progress.update(progress_key, rules_committed=len(created_ids))
+
+        extraction_progress.update(
+            progress_key,
+            processed_batches=len(batches),
+            stage="Linking rule variations across the document…",
+        )
 
         # Cross-batch linking: rules sharing a group_label (derived from a
         # shared DMN decision table, see formulation_mapping._group_labels) are
@@ -441,17 +721,61 @@ async def extract_candidate_rules(
             if candidate is not None:
                 candidate.payload_json = rule.model_dump(mode="json")
 
+        # Delta last, after the linking pass has settled every payload. Related
+        # rule ids are deliberately not part of a rule's fingerprint, but
+        # classifying before linking would still mean fingerprinting a payload
+        # the run had not finished writing.
+        extraction_progress.update(progress_key, stage="Comparing against the previous extraction…")
+        delta_counts = await _classify_run_delta(
+            session,
+            run_id=run.id,
+            document_version_id=document_version_id,
+            policy_set_id=policy_set.id,
+        )
+        extraction_progress.update(
+            progress_key,
+            delta_new=delta_counts.get("new", 0),
+            delta_changed=delta_counts.get("changed", 0),
+            delta_unchanged=delta_counts.get("unchanged", 0),
+            delta_removed=delta_counts.get("removed", 0),
+        )
+
         await run_repo.mark_completed(run)
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
         await run_repo.mark_failed(run, error_message=str(exc))
         await session.commit()
+        extraction_progress.finish(
+            progress_key, status="failed", stage="Extraction failed", error=str(exc)
+        )
         raise
 
     await session.commit()
+    # Report the delta, not the volume. "190 rules created" is technically true
+    # on a re-run of an unchanged document and completely misleading: it reads
+    # as 190 things to review when the answer is none. The headline is what
+    # changed; the raw count stays available in the run record.
+    changed_total = (
+        delta_counts.get("new", 0) + delta_counts.get("changed", 0) + delta_counts.get("removed", 0)
+    )
+    if delta_counts.get("baseline", 0):
+        summary = f"Done — {len(created_ids)} candidate rule(s) from {len(clauses)} clause(s). First extraction of this document."
+    elif changed_total == 0:
+        summary = f"Done — no changes. All {len(created_ids)} rule(s) match the previous extraction."
+    else:
+        parts = []
+        if delta_counts.get("new"):
+            parts.append(f"{delta_counts['new']} new")
+        if delta_counts.get("changed"):
+            parts.append(f"{delta_counts['changed']} changed")
+        if delta_counts.get("removed"):
+            parts.append(f"{delta_counts['removed']} no longer found")
+        summary = f"Done — {', '.join(parts)} since the previous extraction."
+    extraction_progress.finish(progress_key, status="completed", stage=summary)
     return {
         "extraction_run_id": str(run.id),
         "created": created_ids,
         "skipped": skipped,
         "superseded": superseded,
+        "delta": delta_counts,
     }

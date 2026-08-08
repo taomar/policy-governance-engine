@@ -849,6 +849,140 @@ def test_evidence_falls_back_to_whole_batch_when_no_passage_matches():
     assert [ev.clause_id for ev in rule.evidence] == ["c-fallback"]
 
 
+# --------------------------------------------------------------------------
+# Evidence precision, second level: narrowing a passage's clause span down to
+# the clause(s) that actually carry the rule.
+#
+# Matching a rule to its passage is not sufficient on its own. One Stage-1
+# passage routinely covers a contiguous block that ingestion split into several
+# clauses — a definitions article, an eligibility section — so every rule
+# formulated from that block inherits the block's whole span. Observed on the
+# Saudi Labor Law corpus: 21 separate definition rules all cited the identical
+# four clauses, which reads to a reviewer as the platform claiming each rule
+# came from all four.
+# --------------------------------------------------------------------------
+
+_DEFINITIONS_BLOB = (
+    "In this Law, the following terms shall have the meanings assigned thereto, "
+    "unless the context requires otherwise: Ministry: Ministry of Labor. "
+    "Minor: Any person of 15 and below 18 years of age. "
+    "Service shall be deemed continuous if interrupted by the following:"
+)
+_CONTINUOUS_SERVICE_TEXT = (
+    "Service shall be deemed continuous if interrupted by the following: "
+    "1. Official holidays and vacations. "
+    "2. Interruptions for sitting for examinations in accordance with the provisions of this Law."
+)
+
+_DEFINITIONS_CLAUSE_TEXTS = {
+    "p3-E000016": _DEFINITIONS_BLOB,
+    "p3-E000017": "1. Official holidays and vacations.",
+    "p3-E000018": "2. Interruptions for sitting for examinations in accordance with the provisions of this Law.",
+    "p4-E000019": "3. Worker's unpaid absences from work for intermittent periods not exceeding 20 days per work year.",
+}
+
+_DEFINITIONS_EVIDENCE = {
+    ref: {"document_version_id": "doc-1", "source_hash": "h", "clause_id": f"c-{ref[-2:]}"}
+    for ref in _DEFINITIONS_CLAUSE_TEXTS
+}
+
+
+def _definitions_block_formulation() -> PolicyFormulation:
+    return parse_formulation(
+        _envelope(
+            [
+                {
+                    "source_text": "Minor: Any person of 15 and below 18 years of age.",
+                    "extraction_status": "complete",
+                    "rule": {
+                        "rule_type": "definition",
+                        "subject": "Minor",
+                        "predicate": "means",
+                        "object": "Any person of 15 and below 18 years of age",
+                    },
+                },
+                {
+                    "source_text": _CONTINUOUS_SERVICE_TEXT,
+                    "extraction_status": "complete",
+                    "rule": {
+                        "rule_type": "definition",
+                        "subject": "Continuous service",
+                        "predicate": "includes",
+                        "object": "listed interruptions",
+                    },
+                },
+            ],
+            [],
+        )
+    )
+
+
+def _definitions_block_call(**overrides):
+    """One Stage-1 passage spanning the whole four-clause definitions block."""
+
+    passage = PolicyPassage(
+        passage_id="p1",
+        text=_DEFINITIONS_BLOB + " " + _CONTINUOUS_SERVICE_TEXT,
+        source=PassageSource(
+            clause_ref="p3-E000016", end_clause_ref="p4-E000019", section="Article 2"
+        ),
+    )
+    kwargs = {
+        "policy_set_id": "ps-1",
+        "extraction_run_id": "run-1",
+        "deployment_name": "test-deployment",
+        "prompt_version": "dmn-formulator-v1",
+        "parser_version": "dmn-formulator-v1",
+        "evidence": list(_DEFINITIONS_EVIDENCE.values()),
+        "passages": [passage],
+        "passage_clause_refs": [list(_DEFINITIONS_CLAUSE_TEXTS)],
+        "clause_evidence_by_ref": _DEFINITIONS_EVIDENCE,
+        "source_note": "; ".join(_DEFINITIONS_CLAUSE_TEXTS),
+    }
+    kwargs.update(overrides)
+    return formulation_to_candidate_rules(_definitions_block_formulation(), **kwargs)
+
+
+def test_evidence_narrows_to_the_clause_that_actually_contains_the_rule():
+    rules, skipped = _definitions_block_call(clause_texts_by_ref=_DEFINITIONS_CLAUSE_TEXTS)
+
+    assert skipped == []
+    minor_rule, continuous_service_rule = rules
+
+    # "Minor" is defined inside the first clause only. Its three neighbours in
+    # the same passage span are other provisions, not this rule's source.
+    assert [ev.clause_id for ev in minor_rule.evidence] == ["c-16"]
+    assert "p3-E000017" not in minor_rule.description
+
+    # The continuous-service rule legitimately spans the numbered items, so it
+    # keeps exactly those — the converse containment direction — and does not
+    # pick up the unrelated third item.
+    assert [ev.clause_id for ev in continuous_service_rule.evidence] == ["c-17", "c-18"]
+
+
+def test_evidence_keeps_the_full_span_when_clause_texts_are_not_supplied():
+    """Narrowing is additive: callers that pass no clause text are unaffected."""
+
+    rules, _ = _definitions_block_call()
+
+    for rule in rules:
+        assert [ev.clause_id for ev in rule.evidence] == ["c-16", "c-17", "c-18", "c-19"]
+
+
+def test_evidence_falls_back_to_the_span_when_no_clause_matches():
+    """A rule the mapper cannot pin to one clause keeps the coarser span.
+
+    Same principle as the whole-batch fallback: an imprecise citation beats an
+    empty one, so narrowing must never be able to delete a rule's evidence.
+    """
+
+    unrelated = {ref: "Text sharing no wording at all." for ref in _DEFINITIONS_CLAUSE_TEXTS}
+    rules, _ = _definitions_block_call(clause_texts_by_ref=unrelated)
+
+    for rule in rules:
+        assert [ev.clause_id for ev in rule.evidence] == ["c-16", "c-17", "c-18", "c-19"]
+
+
 class TestPartialBatchRecovery:
     """A malformed canonical policy must not take its valid siblings with it.
 
