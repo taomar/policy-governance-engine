@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
-from policy_platform.contracts.policy import AmbiguityStatus
+from policy_platform.contracts.policy import AmbiguityStatus, EffectType, RuleType
 from policy_platform.infrastructure import ai_quality
 from tests.fixtures.factories import make_rule
 
@@ -208,3 +208,72 @@ class TestSystemicCausesAreReportedOnce:
         findings = ai_quality._deterministic_findings([_rule("R1"), _rule("R2")])
         assert [f for f in findings if f["category"] == "not_machine_executable"] == []
         assert [f for f in findings if f["category"] == "ambiguity"] == []
+
+
+class TestDefinitionsCarryingEffects:
+    """A definition authorizes nothing, and a negative one inverts its source."""
+
+    @staticmethod
+    def _rule(rid: str, rule_type: str, effect: str, executable: bool = False):
+        return make_rule(
+            rid,
+            FactComparisonCondition(
+                fact="x", operator=ConditionOperator.EQUALS, value=1
+            ),
+            effect_action="be included",
+            effect_type=EffectType(effect),
+            rule_type=RuleType(rule_type),
+            machine_executable=executable,
+        )
+
+    def _findings(self, rules):
+        return [
+            f
+            for f in ai_quality._deterministic_findings(rules)
+            if f["category"] == "definition_carries_effect"
+        ]
+
+    def test_a_definition_with_an_allow_effect_is_reported(self) -> None:
+        found = self._findings([self._rule("R1", "definition", "allow")])
+
+        assert len(found) == 1
+        assert "R1" in found[0]["affected_rule_ids"]
+
+    def test_all_offenders_collapse_into_one_finding(self) -> None:
+        """Consistent with the rest of this module: name the cause once."""
+
+        rules = [self._rule(f"R{i}", "definition", "allow") for i in range(25)]
+
+        found = self._findings(rules)
+
+        assert len(found) == 1
+        assert "25 definition rule(s)" in found[0]["finding"]
+
+    def test_a_latent_defect_is_medium_and_says_so(self) -> None:
+        found = self._findings([self._rule("R1", "definition", "allow")])
+
+        assert found[0]["severity"] == "medium"
+        assert "None are machine-executable" in found[0]["finding"]
+
+    def test_an_executable_definition_is_high_and_says_so(self) -> None:
+        """Executability is what turns the labelling error into a wrong answer."""
+
+        found = self._findings(
+            [self._rule("R1", "definition", "allow", executable=True)]
+        )
+
+        assert found[0]["severity"] == "high"
+        assert "evaluator can" in found[0]["finding"]
+
+    def test_non_definition_rules_are_left_alone(self) -> None:
+        """A permission is supposed to allow; only definitions are the concern."""
+
+        found = self._findings(
+            [
+                self._rule("R1", "permission", "allow"),
+                self._rule("R2", "prohibition", "deny"),
+            ]
+        )
+
+        assert found == []
+

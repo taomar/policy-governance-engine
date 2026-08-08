@@ -126,8 +126,90 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
 
     findings.extend(_non_blocking_ambiguity_findings(rules))
     findings.extend(_machine_executability_findings(rules))
+    findings.extend(_definition_effect_findings(rules))
 
     return findings
+
+
+def _definition_effect_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Report definitions that carry an authorization effect.
+
+    A definition establishes vocabulary; it authorizes nothing. `EffectType`
+    offers only allow/deny/require_action, so `_RULE_TYPE_MAP` has nowhere
+    truthful to send `definition` and sends it to `allow`. The rule then asserts
+    a permission its source never granted.
+
+    That is not merely untidy, because a definition is often phrased negatively.
+    Observed in the Saudi Labor Law extraction: "The periods designated for
+    rest, prayers, and meals SHALL NOT BE INCLUDED in the actual working hours"
+    became `allow: "be included in the actual working hours"` — the exact
+    inverse of the source. Two separate AI reviews reported this as two findings
+    ("definitions modeled with allow effects" and "semantic polarity errors");
+    they are one defect, and the polarity reversal is the symptom rather than
+    the cause.
+
+    Severity distinguishes latent from active, because the difference is real.
+    While a definition stays non-executable the evaluator returns NOT_APPLICABLE
+    and nothing acts on the false permission. Supplying a `trusted_config` is
+    what makes a rule executable, so the first config that covers a definition's
+    vocabulary is also what turns this from a labelling error into an evaluator
+    returning ALLOW for text that says "shall not".
+
+    Reported here rather than fixed in the mapping deliberately: a truthful
+    effect needs a fourth `EffectType`, which changes a published contract, the
+    evaluator's outcome vocabulary and the effect badges in the UI. That is a
+    design decision, not a defect fix. Surfacing it at the review boundary
+    stops the rules being approved unnoticed in the meantime, which is what the
+    review stage exists for.
+    """
+
+    offenders = [
+        r
+        for r in rules
+        if r.rule_type.value == "definition" and r.effect.type.value in {"allow", "deny"}
+    ]
+    if not offenders:
+        return []
+
+    executable = [r for r in offenders if r.machine_executable]
+    by_effect = collections.Counter(r.effect.type.value for r in offenders)
+    effects = ", ".join(f"{name} ({count})" for name, count in by_effect.most_common())
+
+    if executable:
+        exposure = (
+            f"{len(executable)} of them are machine-executable, so the evaluator can "
+            f"already return that effect for text that may say the opposite."
+        )
+    else:
+        exposure = (
+            "None are machine-executable yet, so the evaluator returns not_applicable "
+            "and nothing acts on the effect today. Supplying a trusted_config that "
+            "covers their vocabulary is what would activate it."
+        )
+
+    return [
+        {
+            "severity": "high" if executable else "medium",
+            "category": "definition_carries_effect",
+            "finding": (
+                f"{len(offenders)} definition rule(s) carry an authorization effect "
+                f"[{effects}]. A definition establishes vocabulary and authorizes "
+                f"nothing, and where its source is phrased negatively the effect "
+                f"states the inverse of the text. {exposure}"
+            ),
+            "affected_rule_ids": [r.rule_id for r in offenders[:20]],
+            "recommendation": (
+                "Check these against their source text first: a definition whose "
+                "wording is negative ('shall not be included', 'may not be deemed') "
+                "now reads as a permission to do the thing the source excludes. "
+                "The effect vocabulary has no neutral member, so a durable fix means "
+                "adding one to EffectType and deciding what the evaluator returns for "
+                "a definitional rule — a contract change worth making before any "
+                "trusted_config lets these become executable."
+            ),
+            "source": "deterministic",
+        }
+    ]
 
 
 def _non_blocking_ambiguity_findings(rules: list[CanonicalRule]) -> list[dict]:
