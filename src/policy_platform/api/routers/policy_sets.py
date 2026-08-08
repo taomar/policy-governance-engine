@@ -8,6 +8,7 @@ deferred (see docs/known-limitations.md). It still enforces Rule 5.3
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from policy_platform.api.schemas import (
     CreateAggregateLimitRequest,
     CreatePolicySetRequest,
     ImportPolicyVersionRequest,
+    MarkPolicySetReviewedRequest,
     PolicySetResponse,
     UpdateAggregateLimitRequest,
     UpdatePolicySetRequest,
@@ -51,6 +53,14 @@ def _to_response(ps) -> PolicySetResponse:
         description=ps.description,
         category=ps.category,
         tags=list(ps.tags_json or []),
+        review_due_date=ps.review_due_date,
+        last_reviewed_at=ps.last_reviewed_at,
+        is_review_overdue=ps.review_due_date is not None and ps.review_due_date < date.today(),
+        accountable_owner=ps.accountable_owner,
+        delegate_approver=ps.delegate_approver,
+        escalation_contact=ps.escalation_contact,
+        consulted_parties=list(ps.consulted_parties_json or []),
+        informed_parties=list(ps.informed_parties_json or []),
     )
 
 
@@ -88,6 +98,11 @@ async def create_policy_set(
         description=body.description,
         category=body.category,
         tags=body.tags,
+        accountable_owner=body.accountable_owner,
+        delegate_approver=body.delegate_approver,
+        escalation_contact=body.escalation_contact,
+        consulted_parties=body.consulted_parties,
+        informed_parties=body.informed_parties,
     )
     await session.commit()
     return _to_response(policy_set)
@@ -107,7 +122,33 @@ async def update_policy_set(
         description=body.description,
         category=body.category,
         tags=body.tags,
+        review_due_date=body.review_due_date,
+        clear_review_due_date=body.clear_review_due_date,
+        accountable_owner=body.accountable_owner,
+        delegate_approver=body.delegate_approver,
+        escalation_contact=body.escalation_contact,
+        consulted_parties=body.consulted_parties,
+        informed_parties=body.informed_parties,
     )
+    await session.commit()
+    return _to_response(policy_set)
+
+
+@router.post("/{key}/review", response_model=PolicySetResponse)
+async def mark_policy_set_reviewed(
+    key: str, body: MarkPolicySetReviewedRequest, session: AsyncSession = Depends(get_session)
+) -> PolicySetResponse:
+    """Attest that a human just reviewed this policy set (ISO 37301 §9.3).
+
+    Stamps `last_reviewed_at` to now and, if `next_due_date` is supplied,
+    advances `review_due_date` to the next cycle in the same call — so
+    "reviewed today, next check in a year" is one request, not two.
+    """
+    repo = PolicySetRepository(session)
+    policy_set = await repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+    policy_set = await repo.mark_reviewed(policy_set, next_due_date=body.next_due_date)
     await session.commit()
     return _to_response(policy_set)
 

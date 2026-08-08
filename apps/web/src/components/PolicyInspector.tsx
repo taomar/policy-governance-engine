@@ -109,8 +109,12 @@ export function PolicyInspector({
     return () => {
       cancelled = true;
     };
+    // rule_revision (not evidence.length) is the correct re-fetch trigger: a rule's evidence
+    // is immutable within a revision and only ever changes together with a revision bump, so
+    // this correctly re-resolves clauses/doc-meta even when a new revision happens to carry
+    // the same evidence *count* but different citations.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rule?.rule_id, rule?.evidence.length]);
+  }, [rule?.rule_id, rule?.rule_revision]);
 
   const primaryEvidence = useMemo(() => {
     if (!rule) return undefined;
@@ -154,7 +158,9 @@ export function PolicyInspector({
         }
         return (
           <Text key={rid} code copyable={{ text: rid }} type="secondary">
-            {rid}
+            <Tooltip title="Referenced rule not found in this version (renamed, superseded, or from a different policy set)">
+              {rid}
+            </Tooltip>
           </Text>
         );
       })}

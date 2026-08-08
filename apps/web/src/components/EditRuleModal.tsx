@@ -167,6 +167,12 @@ export function EditRuleModal(props: EditRuleModalProps) {
   const [scope, setScope] = useState<PolicyScope>(normalizeScope(rule.scope));
   const [isExplicitOverride, setIsExplicitOverride] = useState(rule.is_explicit_override ?? false);
   const [supersedesRuleIds, setSupersedesRuleIds] = useState<string[]>(rule.supersedes_rule_ids ?? []);
+  const [groupLabel, setGroupLabel] = useState(rule.group_label ?? "");
+  const [relatedRuleIds, setRelatedRuleIds] = useState<string[]>(rule.related_rule_ids ?? []);
+  const existingGroupLabels = useMemo(
+    () => (props.allRules ?? []).map((r) => r.group_label).filter((label): label is string => !!label),
+    [props.allRules]
+  );
   const [conditionRows, setConditionRows] = useState<ConditionRow[]>(
     rowsFromCondition ?? [{ fact: "", operator: "greaterThan", value: "" }]
   );
@@ -222,6 +228,8 @@ export function EditRuleModal(props: EditRuleModalProps) {
       scope,
       is_explicit_override: isExplicitOverride,
       supersedes_rule_ids: supersedesRuleIds,
+      group_label: groupLabel,
+      related_rule_ids: relatedRuleIds,
       condition: filteredRows.length > 0 ? buildCondition(filteredRows) : rule.condition,
       required_facts:
         filteredRows.length > 0
@@ -232,7 +240,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
             }))
           : rule.required_facts,
     };
-  }, [advancedMode, advancedJson, rule, isRevise, title, description, ruleType, effectType, effectAction, priority, effectiveFrom, effectiveTo, category, tagsText, scope, isExplicitOverride, supersedesRuleIds, conditionRows]);
+  }, [advancedMode, advancedJson, rule, isRevise, title, description, ruleType, effectType, effectAction, priority, effectiveFrom, effectiveTo, category, tagsText, scope, isExplicitOverride, supersedesRuleIds, groupLabel, relatedRuleIds, conditionRows]);
 
   const handleSave = async () => {
     setError(null);
@@ -540,6 +548,11 @@ export function EditRuleModal(props: EditRuleModalProps) {
                 supersedesRuleIds={supersedesRuleIds}
                 onSupersedesRuleIdsChange={setSupersedesRuleIds}
                 supersedeCandidates={supersedeCandidates}
+                groupLabel={groupLabel}
+                onGroupLabelChange={setGroupLabel}
+                existingGroupLabels={existingGroupLabels}
+                relatedRuleIds={relatedRuleIds}
+                onRelatedRuleIdsChange={setRelatedRuleIds}
               />
 
               <Form.Item label="Condition (AND of comparisons — switch to Advanced mode for OR/NOT/nested logic)">

@@ -58,6 +58,11 @@ export interface PolicySet {
   review_due_date: string | null;
   last_reviewed_at: string | null;
   is_review_overdue: boolean;
+  accountable_owner: string;
+  delegate_approver: string;
+  escalation_contact: string;
+  consulted_parties: string[];
+  informed_parties: string[];
 }
 
 export interface CreatePolicySetRequest {
@@ -67,6 +72,11 @@ export interface CreatePolicySetRequest {
   description?: string;
   category?: string;
   tags?: string[];
+  accountable_owner?: string;
+  delegate_approver?: string;
+  escalation_contact?: string;
+  consulted_parties?: string[];
+  informed_parties?: string[];
 }
 
 export interface UpdatePolicySetRequest {
@@ -76,6 +86,11 @@ export interface UpdatePolicySetRequest {
   tags?: string[];
   review_due_date?: string | null;
   clear_review_due_date?: boolean;
+  accountable_owner?: string;
+  delegate_approver?: string;
+  escalation_contact?: string;
+  consulted_parties?: string[];
+  informed_parties?: string[];
 }
 
 export interface MarkPolicySetReviewedRequest {
@@ -476,6 +491,62 @@ export interface EvaluationRequest {
   calling_system_identity?: string | null;
 }
 
+// ---------- Decision Log (ADR-0009: OPA Decision-Log parity) ----------
+//
+// Every POST /api/evaluations call is persisted append-only as an `Evaluation`
+// row. This is the read-only browse path over that history — same posture as
+// `auditApi` above (governance actions) but for runtime evaluation calls
+// (the deterministic engine's actual decisions for calling systems).
+
+/** One row of the decision log. Omits the full facts/response — see
+ * `EvaluationLogDetail` for the single-record view that includes them. */
+export interface EvaluationLogSummary {
+  id: string;
+  policy_set_id: string;
+  policy_version_id: string;
+  correlation_id: string | null;
+  calling_system_identity: string | null;
+  overall_status: EvaluationStatus;
+  result_hash: string;
+  evaluation_timestamp: string;
+}
+
+export interface EvaluationLogDetail extends EvaluationLogSummary {
+  request_facts: Record<string, unknown>;
+  response: EvaluationResponse;
+}
+
+export interface EvaluationLogPage {
+  evaluations: EvaluationLogSummary[];
+  count: number;
+  truncated: boolean;
+}
+
+export const evaluationLogApi = {
+  list: (
+    policySetKey: string,
+    params: {
+      overallStatus?: string;
+      correlationId?: string;
+      callingSystemIdentity?: string;
+      limit?: number;
+    } = {}
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.overallStatus) qs.set("overall_status", params.overallStatus);
+    if (params.correlationId) qs.set("correlation_id", params.correlationId);
+    if (params.callingSystemIdentity) qs.set("calling_system_identity", params.callingSystemIdentity);
+    if (params.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString();
+    return request<EvaluationLogPage>(
+      `/api/evaluations/policy-sets/${encodeURIComponent(policySetKey)}${suffix ? `?${suffix}` : ""}`
+    );
+  },
+
+  getDetail: (evaluationId: string) =>
+    request<EvaluationLogDetail>(`/api/evaluations/${encodeURIComponent(evaluationId)}`),
+};
+
 // ---------- AI features ----------
 
 export interface AiStatus {
@@ -834,6 +905,76 @@ export const policyExceptionApi = {
 
   decide: (exceptionId: string, body: DecidePolicyExceptionRequest) =>
     request<PolicyException>(`/api/policy-exceptions/${encodeURIComponent(exceptionId)}/decide`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
+// ---------- Policy Attestations (ADR-0012) ----------
+//
+// Employee attestation/acknowledgment tracking (ISO 37301 §7.3): a Policy
+// Manager launches a campaign assigning one published policy version's
+// acknowledgment obligation to a batch of employees sharing one due date.
+// Employees are explicitly not one of this app's 3 governance actors (see
+// ActorContext) — there's no login for them, so they find their own pending
+// items via a name/identifier search instead.
+
+export type PolicyAttestationStatus = "pending" | "acknowledged" | "overdue";
+
+export interface AttestationAssignee {
+  name: string;
+  identifier?: string | null;
+}
+
+export interface PolicyAttestation {
+  id: string;
+  policy_set_id: string;
+  policy_version_id: string;
+  version_number: number;
+  employee_name: string;
+  employee_identifier: string | null;
+  due_date: string;
+  assigned_by: string;
+  acknowledged_at: string | null;
+  acknowledgment_notes: string | null;
+  status: PolicyAttestationStatus;
+  created_at: string;
+}
+
+export interface CreatePolicyAttestationCampaignRequest {
+  policy_version_id: string;
+  employees: AttestationAssignee[];
+  due_date: string;
+  assigned_by: string;
+  actor_role: string;
+}
+
+export interface AcknowledgePolicyAttestationRequest {
+  acknowledgment_notes?: string | null;
+}
+
+export const policyAttestationApi = {
+  list: (policySetKey: string, status?: PolicyAttestationStatus) => {
+    const qs = status ? `?status=${status}` : "";
+    return request<PolicyAttestation[]>(
+      `/api/policy-attestations/policy-sets/${encodeURIComponent(policySetKey)}${qs}`
+    );
+  },
+
+  createCampaign: (policySetKey: string, body: CreatePolicyAttestationCampaignRequest) =>
+    request<PolicyAttestation[]>(
+      `/api/policy-attestations/policy-sets/${encodeURIComponent(policySetKey)}/campaigns`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
+
+  /** No-login, self-service lookup: matches `q` against name or identifier across every policy set. */
+  search: (q: string) => request<PolicyAttestation[]>(`/api/policy-attestations/search?q=${encodeURIComponent(q)}`),
+
+  acknowledge: (attestationId: string, body: AcknowledgePolicyAttestationRequest) =>
+    request<PolicyAttestation>(`/api/policy-attestations/${encodeURIComponent(attestationId)}/acknowledge`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

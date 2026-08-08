@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +22,7 @@ from policy_platform.domain.models import (
     ExtractionRun,
     Note,
     PolicyAggregateLimit,
+    PolicyAttestation,
     PolicyAuthority,
     PolicyException,
     PolicySet,
@@ -52,6 +53,11 @@ class PolicySetRepository:
         description: str = "",
         category: str = "",
         tags: list[str] | None = None,
+        accountable_owner: str = "",
+        delegate_approver: str = "",
+        escalation_contact: str = "",
+        consulted_parties: list[str] | None = None,
+        informed_parties: list[str] | None = None,
     ) -> PolicySet:
         policy_set = PolicySet(
             key=key,
@@ -60,6 +66,11 @@ class PolicySetRepository:
             description=description,
             category=category,
             tags_json=list(tags or []),
+            accountable_owner=accountable_owner,
+            delegate_approver=delegate_approver,
+            escalation_contact=escalation_contact,
+            consulted_parties_json=list(consulted_parties or []),
+            informed_parties_json=list(informed_parties or []),
         )
         self._session.add(policy_set)
         await self._session.flush()
@@ -73,6 +84,13 @@ class PolicySetRepository:
         description: str | None = None,
         category: str | None = None,
         tags: list[str] | None = None,
+        review_due_date: date | None = None,
+        clear_review_due_date: bool = False,
+        accountable_owner: str | None = None,
+        delegate_approver: str | None = None,
+        escalation_contact: str | None = None,
+        consulted_parties: list[str] | None = None,
+        informed_parties: list[str] | None = None,
     ) -> PolicySet:
         if name is not None:
             policy_set.name = name
@@ -82,6 +100,44 @@ class PolicySetRepository:
             policy_set.category = category
         if tags is not None:
             policy_set.tags_json = list(tags)
+        # `review_due_date` needs a way to be cleared back to null (unlike the
+        # fields above, which are never meaningfully "unset"), so it uses an
+        # explicit clear flag rather than overloading `None` as "not provided".
+        if clear_review_due_date:
+            policy_set.review_due_date = None
+        elif review_due_date is not None:
+            policy_set.review_due_date = review_due_date
+        # RACI ownership metadata (ADR-0013) — same "empty string is a valid
+        # value, None means not provided" convention as `description`/`category`.
+        if accountable_owner is not None:
+            policy_set.accountable_owner = accountable_owner
+        if delegate_approver is not None:
+            policy_set.delegate_approver = delegate_approver
+        if escalation_contact is not None:
+            policy_set.escalation_contact = escalation_contact
+        if consulted_parties is not None:
+            policy_set.consulted_parties_json = list(consulted_parties)
+        if informed_parties is not None:
+            policy_set.informed_parties_json = list(informed_parties)
+        await self._session.flush()
+        return policy_set
+
+    async def mark_reviewed(
+        self,
+        policy_set: PolicySet,
+        *,
+        next_due_date: date | None = None,
+    ) -> PolicySet:
+        """Record that a human just reviewed this policy set (ISO 37301 §9.3).
+
+        Distinct from `update_metadata`: this always stamps `last_reviewed_at`
+        to now, and optionally advances `review_due_date` to the next cycle in
+        the same call, so "I reviewed this, next check is in a year" is one
+        request rather than two.
+        """
+        policy_set.last_reviewed_at = datetime.now(timezone.utc)
+        if next_due_date is not None:
+            policy_set.review_due_date = next_due_date
         await self._session.flush()
         return policy_set
 
@@ -228,6 +284,37 @@ class EvaluationRepository:
         self._session.add(evaluation)
         await self._session.flush()
         return evaluation
+
+    async def list_by_policy_set(
+        self,
+        policy_set_id: uuid.UUID,
+        *,
+        overall_status: str | None = None,
+        correlation_id: str | None = None,
+        calling_system_identity: str | None = None,
+        limit: int = 100,
+    ) -> list[Evaluation]:
+        """Most recent evaluation calls first — the decision-log read path.
+
+        Mirrors `audit.py`'s `list_audit_events`: optional AND-combined
+        filters plus a hard `limit`, no separate COUNT(*) query, since the
+        caller only needs to know "is there more than fits on one page"
+        (see the `truncated` flag the router derives from `len(rows) == limit`).
+        """
+        stmt = select(Evaluation).where(Evaluation.policy_set_id == policy_set_id)
+        if overall_status:
+            stmt = stmt.where(Evaluation.overall_status == overall_status)
+        if correlation_id:
+            stmt = stmt.where(Evaluation.correlation_id == correlation_id)
+        if calling_system_identity:
+            stmt = stmt.where(Evaluation.calling_system_identity == calling_system_identity)
+        stmt = stmt.order_by(Evaluation.evaluation_timestamp.desc()).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_id(self, evaluation_id: uuid.UUID) -> Evaluation | None:
+        result = await self._session.execute(select(Evaluation).where(Evaluation.id == evaluation_id))
+        return result.scalar_one_or_none()
 
 
 class CandidateRuleRepository:
@@ -855,3 +942,106 @@ class PolicyExceptionRepository:
         row.decision_notes = decision_notes
         await self._session.flush()
         return row
+
+
+class PolicyAttestationRepository:
+    """CRUD + acknowledge workflow for employee attestation tracking
+    (ADR-0012; see domain.models.PolicyAttestation for the full design
+    rationale — free-text employee identity, version-binding, computed
+    status).
+
+    Mutable in place for the acknowledge step (`acknowledged_at`
+    /`acknowledgment_notes`) — same posture as `PolicyExceptionRepository`
+    /`PolicyTestRepository`: a request/assignment record, not an immutable
+    governance artifact.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def bulk_create(
+        self,
+        *,
+        policy_set_id: uuid.UUID,
+        policy_version_id: uuid.UUID,
+        employees: list[tuple[str, str | None]],
+        due_date: date,
+        assigned_by: str,
+    ) -> list[PolicyAttestation]:
+        rows = [
+            PolicyAttestation(
+                policy_set_id=policy_set_id,
+                policy_version_id=policy_version_id,
+                employee_name=name,
+                employee_identifier=identifier,
+                due_date=due_date,
+                assigned_by=assigned_by,
+            )
+            for name, identifier in employees
+        ]
+        self._session.add_all(rows)
+        await self._session.flush()
+        return rows
+
+    async def list_by_policy_set(
+        self, policy_set_id: uuid.UUID, *, status: str | None = None
+    ) -> list[PolicyAttestation]:
+        stmt = select(PolicyAttestation).where(PolicyAttestation.policy_set_id == policy_set_id)
+        stmt = self._apply_status_filter(stmt, status)
+        stmt = stmt.order_by(PolicyAttestation.due_date.asc(), PolicyAttestation.employee_name.asc())
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def search_by_employee(self, query: str) -> list[PolicyAttestation]:
+        """Cross-policy-set, no-login self-service lookup: matches `query`
+        as a case-insensitive substring of either `employee_name` or
+        `employee_identifier`. This is the employee-facing counterpart to
+        `list_by_policy_set` (the manager oversight view) — see
+        domain.models.PolicyAttestation docstring for why there's no real
+        login to key this off instead.
+        """
+        like = f"%{query.strip()}%"
+        stmt = (
+            select(PolicyAttestation)
+            .where(
+                or_(
+                    PolicyAttestation.employee_name.ilike(like),
+                    PolicyAttestation.employee_identifier.ilike(like),
+                )
+            )
+            .order_by(PolicyAttestation.due_date.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_id(self, attestation_id: uuid.UUID) -> PolicyAttestation | None:
+        result = await self._session.execute(
+            select(PolicyAttestation).where(PolicyAttestation.id == attestation_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def acknowledge(
+        self, row: PolicyAttestation, *, acknowledgment_notes: str | None
+    ) -> PolicyAttestation:
+        row.acknowledged_at = datetime.now(timezone.utc)
+        row.acknowledgment_notes = acknowledgment_notes
+        await self._session.flush()
+        return row
+
+    @staticmethod
+    def _apply_status_filter(stmt, status: str | None):
+        if status is None:
+            return stmt
+        if status == "acknowledged":
+            return stmt.where(PolicyAttestation.acknowledged_at.is_not(None))
+        if status == "pending":
+            return stmt.where(
+                PolicyAttestation.acknowledged_at.is_(None),
+                PolicyAttestation.due_date >= date.today(),
+            )
+        if status == "overdue":
+            return stmt.where(
+                PolicyAttestation.acknowledged_at.is_(None),
+                PolicyAttestation.due_date < date.today(),
+            )
+        return stmt

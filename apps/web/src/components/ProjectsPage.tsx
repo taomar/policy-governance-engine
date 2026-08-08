@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, AutoComplete, Button, Card, Col, Empty, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
-import { CheckCircleOutlined, ClockCircleOutlined, FileTextOutlined, PlusOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, ClockCircleOutlined, FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type PolicySet } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { ProjectWorkspace } from "./ProjectWorkspace";
@@ -167,7 +167,14 @@ export function ProjectsPage({
                     <Title level={5} style={{ marginBottom: 4 }}>
                       {ps.name}
                     </Title>
-                    {ps.category && <Tag color={colorForCategory(ps.category)}>{ps.category}</Tag>}
+                    <Space size={4} wrap style={{ flexShrink: 0 }}>
+                      {ps.category && <Tag color={colorForCategory(ps.category)}>{ps.category}</Tag>}
+                      {ps.is_review_overdue && (
+                        <Tag color="error" icon={<WarningOutlined />}>
+                          Review overdue
+                        </Tag>
+                      )}
+                    </Space>
                   </div>
                   <Text
                     type="secondary"

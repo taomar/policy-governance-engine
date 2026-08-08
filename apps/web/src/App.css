@@ -2180,6 +2180,34 @@
   background: transparent;
 }
 
+/* ---------- Governance & ownership card (project Overview tab) ----------
+   RACI ownership metadata (accountable owner, delegate approver, escalation
+   contact) — same label/value grid convention as `.inspector-scope-grid`,
+   kept as its own class since this lives in a plain Card, not the inspector. */
+
+.governance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px 20px;
+}
+
+.governance-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.governance-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.governance-value-default {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
 /* ---------- Rule version history (History tab) ----------
    Before/after pairs for a single rule's changed fields between the previous
    and current published version — a compact strike-through/new-value pair

@@ -6,6 +6,7 @@ import {
   HomeOutlined,
   InboxOutlined,
   PlayCircleOutlined,
+  SolutionOutlined,
   ThunderboltOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -15,19 +16,21 @@ import { Dashboard } from "./components/Dashboard";
 import { ProjectsPage } from "./components/ProjectsPage";
 import { DocumentsPage } from "./components/DocumentsPage";
 import { EvaluatePage } from "./components/EvaluatePage";
+import { MyAttestationsPage } from "./components/MyAttestationsPage";
 import { AskAiDrawer } from "./components/AskAiDrawer";
 import "./App.css";
 
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
 
-type Page = "dashboard" | "projects" | "document-inbox" | "evaluate";
+type Page = "dashboard" | "projects" | "document-inbox" | "evaluate" | "my-attestations";
 
 const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Dashboard", icon: <HomeOutlined /> },
   { id: "projects", label: "Projects", icon: <FolderOutlined /> },
   { id: "document-inbox", label: "Document Inbox", icon: <InboxOutlined /> },
   { id: "evaluate", label: "Evaluate", icon: <PlayCircleOutlined /> },
+  { id: "my-attestations", label: "My Attestations", icon: <SolutionOutlined /> },
 ];
 
 function ActorSwitcher() {
@@ -205,6 +208,7 @@ function App() {
             )}
             {page === "document-inbox" && <DocumentsPage onNavigate={handleNavigate} />}
             {page === "evaluate" && <EvaluatePage />}
+            {page === "my-attestations" && <MyAttestationsPage />}
           </div>
         </Content>
       </Layout>

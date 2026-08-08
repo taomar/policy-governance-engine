@@ -209,7 +209,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         r.description.toLowerCase().includes(q) ||
         r.rule_id.toLowerCase().includes(q) ||
         r.category.toLowerCase().includes(q) ||
-        r.group_label.toLowerCase().includes(q) ||
+        (r.group_label ?? "").toLowerCase().includes(q) ||
         r.tags.some((t) => t.toLowerCase().includes(q))
     );
   }, [rules, search]);

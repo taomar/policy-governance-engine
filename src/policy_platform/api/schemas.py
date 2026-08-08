@@ -20,6 +20,14 @@ class CreatePolicySetRequest(BaseModel):
     description: str = ""
     category: str = ""
     tags: list[str] = Field(default_factory=list)
+    # RACI ownership metadata (ADR-0013) — optional at creation time, same
+    # precedent as `review_due_date` (added later via update), since a new
+    # project usually starts from just "what is it, who's the department".
+    accountable_owner: str = ""
+    delegate_approver: str = ""
+    escalation_contact: str = ""
+    consulted_parties: list[str] = Field(default_factory=list)
+    informed_parties: list[str] = Field(default_factory=list)
 
 
 class UpdatePolicySetRequest(BaseModel):
@@ -27,6 +35,26 @@ class UpdatePolicySetRequest(BaseModel):
     description: str | None = None
     category: str | None = None
     tags: list[str] | None = None
+    review_due_date: date | None = None
+    # Explicit clear flag rather than overloading `review_due_date: None` —
+    # unlike the fields above (which have sensible non-null "empty" states),
+    # `None` is the meaningful "no due date set" value for this field, so
+    # "not provided" and "clear it" must be distinguishable.
+    clear_review_due_date: bool = False
+    # RACI ownership metadata (ADR-0013). Like `owner`/`category`, these all
+    # have a sensible non-null "empty" state ("") so plain `None` safely means
+    # "not provided" — no clear-flag needed, unlike `review_due_date`.
+    accountable_owner: str | None = None
+    delegate_approver: str | None = None
+    escalation_contact: str | None = None
+    consulted_parties: list[str] | None = None
+    informed_parties: list[str] | None = None
+
+
+class MarkPolicySetReviewedRequest(BaseModel):
+    """Attest that a human just reviewed this policy set (ISO 37301 §9.3)."""
+
+    next_due_date: date | None = None
 
 
 class PolicySetResponse(BaseModel):
@@ -37,6 +65,14 @@ class PolicySetResponse(BaseModel):
     description: str
     category: str = ""
     tags: list[str] = Field(default_factory=list)
+    review_due_date: date | None = None
+    last_reviewed_at: datetime | None = None
+    is_review_overdue: bool = False
+    accountable_owner: str = ""
+    delegate_approver: str = ""
+    escalation_contact: str = ""
+    consulted_parties: list[str] = Field(default_factory=list)
+    informed_parties: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -399,4 +435,75 @@ class PolicyExceptionResponse(BaseModel):
     # Computed at response time, not stored — see domain.models.PolicyException
     # docstring for why (no background job exists to flip a stored status).
     is_expired: bool
+    created_at: datetime
+
+
+class EvaluationLogSummary(BaseModel):
+    """One row of the decision log (ADR-0009 "Adopt, incremental": OPA
+    Decision-Log parity). Omits `request_facts`/`response` — the full
+    input/output pair — to keep a page of history light; see
+    `EvaluationLogDetail` for the single-record view that includes them.
+    """
+
+    id: str
+    policy_set_id: str
+    policy_version_id: str
+    correlation_id: str | None
+    calling_system_identity: str | None
+    overall_status: str
+    result_hash: str
+    evaluation_timestamp: datetime
+
+
+class EvaluationLogDetail(EvaluationLogSummary):
+    request_facts: dict
+    response: dict
+
+
+class AttestationAssignee(BaseModel):
+    """One recipient of an attestation campaign (ADR-0012). `identifier` is
+    typically an email — optional, but is what the no-login self-service
+    "find my attestations" search matches in addition to name.
+    """
+
+    name: str
+    identifier: str | None = None
+
+
+class CreatePolicyAttestationCampaignRequest(BaseModel):
+    """Launch an attestation campaign: assign one published policy version's
+    acknowledgment obligation to a batch of employees, all sharing one due
+    date. Manager-only (see `_require_manager` in the router) — assigning a
+    compliance obligation to personnel is a policy-manager decision, the
+    same authority level `PolicySet.review_due_date` and `PolicyException
+    .decide` already require.
+    """
+
+    policy_version_id: str
+    employees: list[AttestationAssignee] = Field(min_length=1)
+    due_date: date
+    assigned_by: str
+    actor_role: str
+
+
+class AcknowledgePolicyAttestationRequest(BaseModel):
+    acknowledgment_notes: str | None = None
+
+
+class PolicyAttestationResponse(BaseModel):
+    id: str
+    policy_set_id: str
+    policy_version_id: str
+    version_number: int
+    employee_name: str
+    employee_identifier: str | None
+    due_date: date
+    assigned_by: str
+    acknowledged_at: datetime | None
+    acknowledgment_notes: str | None
+    # Computed at response time, not stored — see
+    # domain.models.PolicyAttestation docstring for why (no background job
+    # exists to flip a stored status). One of: "pending", "acknowledged",
+    # "overdue".
+    status: Literal["pending", "acknowledged", "overdue"]
     created_at: datetime

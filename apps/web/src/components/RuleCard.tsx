@@ -65,8 +65,10 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
     return () => {
       cancelled = true;
     };
+    // rule_revision (not evidence.length) is the correct re-fetch trigger — see PolicyInspector's
+    // identical effect for the rationale (evidence only changes together with a revision bump).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rule.rule_id, rule.evidence.length]);
+  }, [rule.rule_id, rule.rule_revision]);
 
   // The evidence item the always-visible "View source" header action jumps
   // to. Prefer one with a resolvable clause (jumps straight to the

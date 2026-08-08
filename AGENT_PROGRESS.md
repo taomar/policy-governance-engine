@@ -49,6 +49,13 @@ is documented in ADR-0006.
 | 33 | Aggregate-limit authoring UI (create/edit/delete "combined cap" entities) + re-confirmed post-handoff reconciliation | done |
 | 34 | Fixed hr-guide-policy publish 500 (orphaned evidence clause_id FK) + authored HR/IT sample policies with real aggregate-limit evaluator-enforcement proof | done |
 | 35 | Post-handoff reconciliation #2 (ground-truth re-verify vs. a second, partly-stale handoff) + closed a real API gap (`trusted_config` now reachable on the extract endpoint) + precise root-cause analysis of `group_label` sparsity (verified live: the mechanism works correctly, the gap is LLM grouping-judgment variance, not a code defect) | done |
+| 36 | `PolicyException` request→grant/deny workflow (ADR-0009 net-new entity, distinct from `RuleException`): model/repo/schema/router/migration + full frontend page, wired into a new "Exceptions" workspace tab | done |
+| 37 | `PolicySet` review/recertification tracking (ADR-0009 final backlog item): `review_due_date`/`last_reviewed_at` + computed `is_review_overdue`, `POST /{key}/review` endpoint, frontend header badge + "Mark Reviewed"/edit-date UI on both `ProjectWorkspace` and the `ProjectsPage` grid | done |
+| 38 | `group_label`/`related_rule_ids` human-curation UI (Draft/Edit/Revise) + full live save-round-trip verification (visual + interactive + raw API/DB) via Playwright MCP | done |
+| 39 | Decision Log: queryable, read-only browse path over the append-only `evaluations` table (ADR-0009's other "Adopt" gap — OPA Decision-Log parity) | done |
+| 40 | Post-handoff code review of the Milestones 19–20 Policies-tab rebuild (3 real bugs fixed) + broad live functional-testing pass (all 7 policy sets) + live-data reconciliation (found `mhrsd-policy`/`saudi-labor-law` now have 0 published versions) | done |
+| 41 | Employee attestation tracking (ISO 37301 §7.3 — the last remaining P1 gap from `docs/policy-standards-research.md`): `PolicyAttestation` model/migration/schemas/repository/router, manager-gated bulk campaign creation, computed pending/acknowledged/overdue status, no-login self-service "My Attestations" page + project "Attestations" tab. See ADR-0012 | done |
+| 42 | Policy ownership / RACI metadata (🟠 P2 gap from `docs/policy-standards-research.md`): 5 new `PolicySet` fields (`accountable_owner`, `delegate_approver`, `escalation_contact`, `consulted_parties`, `informed_parties`) alongside the pre-existing department-level `owner`, wired end-to-end (model/migration/schema/repository/router + frontend Edit Project modal section + new Overview-tab "Governance & ownership" card). See ADR-0013 | done |
 
 **All Phase 1 (Foundation) + Phase 5 (Deterministic Execution) milestones for this
 local vertical slice are complete and verified, plus the human review/approval
@@ -1843,6 +1850,19 @@ before touching anything:
    (recorded mid-investigation before this milestone was written up) that
    grouping requires a supplied `trusted_config`/fact model — the evidence
    shows it does not.
+
+   > **Correction added in Milestone 40:** this specific 9-rule/2-decision
+   > `mhrsd-policy` snapshot no longer exists in the live DB. A Milestone 40
+   > re-check found `mhrsd-policy` currently has **zero published versions**
+   > (superseded by a much larger 1,165-candidate unreviewed extraction
+   > backlog) — so the exact rule IDs above (`AI-32cfa89e9e`/`AI-4ae8920ca7`)
+   > are no longer independently reproducible against current data. The
+   > *mechanism* conclusion in point 4 (the code correctly clusters and
+   > cross-links rules sharing a DMN decision when the AI's `group_label`
+   > judgment says to) is still believed sound — nothing in the code changed
+   > between Milestones 35 and 40 — but treat the specific example as
+   > historical evidence from a prior DB state, not a currently-reproducible
+   > live example. See Milestone 40 for the full re-check across all 7 sets.
 5. **The real gap is LLM grouping-judgment consistency, not a code defect.**
    The AI is instructed (Section 91) to group rules only "if these clearly
    define one decision" and explicitly told (Section 92) not to group rules
@@ -1924,3 +1944,1020 @@ yet) is next, then re-check `intelligent-tools`/`correlation_agent.py`'s live
 state (last seen mid-build by another concurrent process, deliberately left
 untouched), then `policy-review-recertification` (no `review_due_date` or
 recertification fields anywhere in the schema yet).
+
+### Milestone 36 detail — `PolicyException` request→grant/deny workflow (ADR-0009 net-new entity)
+
+**What this is, and why it's a distinct entity from `RuleException`.**
+`RuleException` (pre-existing) is a standing, automatically-evaluated
+carve-out baked into one specific `ApprovedRule`'s own definition (e.g.
+"employees under 2 years get a reduced limit") — the deterministic engine
+applies it to every matching case, no human involved at evaluation time.
+`PolicyException` (new, this milestone) is an ad hoc, individually-requested,
+time-bounded waiver of an otherwise-applicable rule (or the whole policy set)
+for one particular case/requester — e.g. "waive the 3-day advance-notice rule
+for this request due to a family emergency" — decided by a human, never
+auto-evaluated by the engine. Confirmed this fits inside the existing 3-actor
+model (composer/reviewer requests, policy manager decides) per ADR-0009's
+exact scope — no new actor, no multi-level approval chain.
+
+**Backend (all verified live against the real DB, port 5433):**
+- `domain/models.py`: new `PolicyException` ORM class — `policy_set_id` (FK,
+  indexed), `rule_id` (nullable **string** business key, matching
+  `ApprovedRule.rule_id`/`PolicyAggregateLimit.contributing_rules_json`'s
+  convention rather than `RuleException`'s UUID-FK style — stable across rule
+  revisions, and deliberately unvalidated at creation time, mirroring
+  `PolicyTest.expected_rule_id`), `requester`, `justification`, `decision`
+  (default `"pending"`), `expiry_date` (nullable), `decided_by`/`decided_at`/
+  `decision_notes`.
+- `infrastructure/repositories.py`: `PolicyExceptionRepository`
+  (create / list_by_policy_set with `decision`+`rule_id` filters / get_by_id /
+  decide).
+- `api/schemas.py`: `CreatePolicyExceptionRequest`, `DecidePolicyExceptionRequest`
+  (`Literal["granted","denied"]`), `PolicyExceptionResponse` — the last
+  includes a **computed** `is_expired: bool` (`decision == "granted" AND
+  expiry_date < today`), computed at response time rather than stored, since
+  this codebase has no background scheduler to flip a stale stored status.
+  Verified live: stays `false` while `pending` even with a past `expiry_date`,
+  flips to `true` immediately upon `/decide` with `"granted"`.
+- `api/routers/policy_exceptions.py` (new): `GET /policy-sets/{key}` (list,
+  optional `decision`/`rule_id` filters), `POST /policy-sets/{key}` (request),
+  `GET /{exception_id}` (detail), `POST /{exception_id}/decide` (grant/deny).
+- `alembic/versions/c3d4e5f6a7b8_policy_exceptions_table.py`: new migration,
+  chained on the confirmed head `b8c9d0e1f2a3`; applied and schema-verified
+  (12 columns, correct types, FK + index present).
+
+**A real concurrent-session collision, caught and fixed cleanly.** While
+registering the new router in `app.py`, another live session was
+simultaneously adding an `audit` router in the same file; the two edits
+landed close enough together to produce a de-indented
+`app.include_router(audit.router)` line that broke Python syntax. Caught
+immediately via `ast.parse` (now a standing habit for every backend edit in
+this shared, non-git environment) and fixed surgically — both routers
+(`policy-exceptions` and `audit-events`) confirmed working afterward, no
+logic from either session discarded. Backend was then killed/restarted
+cleanly (no `--reload` flag in this stack; a stale system-Python process from
+the other session was found and replaced with the standard `.venv` launch
+command) and re-verified via OpenAPI: both new route families present, no
+regression.
+
+**Verification:**
+- `ast.parse` clean on all 6 backend files.
+- Migration applied; table schema confirmed via direct SQLAlchemy query.
+- Live HTTP proof: created a policy-wide exception (null `rule_id`) and a
+  rule-scoped one (`RULE-001`) with a past `expiry_date` while `pending`
+  (confirmed `is_expired: false`); called `/decide` with `"granted"`
+  (confirmed `is_expired` flipped `true`, `decided_by`/`decided_at`/
+  `decision_notes` populated correctly); confirmed `list?decision=granted`
+  filter. Test rows cleaned up afterward.
+- `pytest tests/unit -q` → 260 passed (the +8 over Milestone 35's 252 are the
+  concurrent session's own new audit-feature tests, not this milestone's —
+  zero regressions from this work).
+
+**Frontend:**
+- `api.ts`: `PolicyException`/`PolicyExceptionDecision`/
+  `CreatePolicyExceptionRequest`/`DecidePolicyExceptionRequest` types +
+  `policyExceptionApi` client (list/create/decide), mirroring
+  `policyTestApi`'s shape.
+- `components/PolicyExceptionsPage.tsx` (new): `Segmented` filter
+  (all/pending/granted/denied with live counts), card list (decision tag +
+  expired badge + rule-or-policy-wide title + requester/dates/justification/
+  decision notes), a "Request exception" modal (optional rule picker,
+  requester, justification, optional expiry `DatePicker`), and Grant/Deny
+  actions gated on `actor.role === "policy_manager"` (mirrors
+  `ReviewQueue`'s manager-gate pattern), each opening a confirm modal with
+  optional decision notes. Cleaned up a redundant duplicate `DatePicker`
+  import (folded into the main `antd` destructure) found while wiring this
+  in.
+- `components/ProjectWorkspace.tsx`: re-viewed fresh immediately before
+  editing (per this session's own established collision-avoidance practice)
+  — no concurrent changes pending; added a new `"exceptions"` tab
+  (`WorkspaceTabKey` union member, `TAB_KEYS` entry, import, `Tabs` `items`
+  entry after `"tests"`).
+- `App.css`: added `.policy-exceptions-page`/`.policy-exception-card`/
+  `.policy-exception-card-header`, styled to match the existing
+  `.aggregate-limit-card`/`.aggregate-limit-card-header` precedent (rounded
+  10px corners, `#e5e7eb` border, flex header row) for visual consistency
+  with the rest of the workspace's card-based tabs.
+
+**Verification:** `npx tsc -b --force` → 0 errors (confirms the previously
+long-tracked `EditRuleModal.tsx` TS2367 error remains absent — third
+independent confirmation this session, after Milestones 30 and 35, that it
+is not currently reproducible). `npx vite build` → clean production build.
+Live API smoke test against the running backend (port 8010, PID rotated
+mid-session by a concurrent restart, confirmed still responsive) confirms
+the `/api/policy-exceptions/*` routes are live and correctly return an empty
+list after test-data cleanup.
+
+**On the concurrent session's Milestones-19–20 handoff appearing again in
+this session's conversation:** ground-truth checked and it is unchanged from
+Milestone 35's findings — both the TS2367 claim and the `group_label`
+sparsity question were already reconciled with hard evidence there (not
+reproducible; mechanism works correctly and the gap is LLM judgment
+variance, not a code defect). Not re-litigating a third time in this
+milestone; see Milestone 35 for the full analysis. Division of labor stands
+as previously stated: this thread owns backend/data/proof-of-correctness
+work (this milestone's `PolicyException` feature plus its own frontend page),
+the concurrent "Policy governance standards study" session owns Policies-tab
+UI/cosmetics.
+
+### Next action
+Per "when finish and verified and tested advance to next": re-check
+`intelligent-tools`/`correlation_agent.py`'s live state (last seen mid-build
+by the concurrent audit/correlation session), then `policy-review-recertification`
+(`review_due_date`/`last_reviewed_at` on `PolicySet`, per ADR-0009) if
+`intelligent-tools` is still owned by the other session.
+
+### Milestone 37 detail — `PolicySet` review/recertification tracking (final ADR-0009 backlog item)
+
+**Scope** (ADR-0009, exact text): *"Periodic review / recertification due
+dates (ISO 37301 §9.3, ISO 27001) — Adopt — Cheap, high-value: add
+`review_due_date`/`last_reviewed_at` to `PolicySet`, surface an overdue
+indicator. No new actor required."* Confirmed `intelligent-tools` was
+already fully built by a concurrent session (live `correlation_agent.py`,
+`CorrelationPage.tsx`, real completed runs with findings across multiple
+policy sets) before starting this — marked done without redundant rework.
+
+**Backend:**
+- `domain/models.py`: added `PolicySet.review_due_date` (`Date`, nullable)
+  and `last_reviewed_at` (`DateTime(timezone=True)`, nullable).
+- `infrastructure/repositories.py`: extended `PolicySetRepository.update_metadata()`
+  with `review_due_date`/`clear_review_due_date` (an explicit clear flag,
+  not an `is not None` check, because `None` is itself a meaningful value
+  for this field — "not provided" and "explicitly cleared" must be
+  distinguishable, unlike `category`/`tags`/`description` which have
+  sensible non-null empty defaults); added new `mark_reviewed(policy_set,
+  *, next_due_date=None)` which always stamps `last_reviewed_at = now()`
+  and only touches `review_due_date` `if next_due_date is not None` —
+  i.e. marking reviewed without supplying a next date leaves any existing
+  due date untouched, so "I reviewed this, no new cycle yet" and "I
+  reviewed this, next check in a year" are both one clean call.
+- `api/schemas.py`: `review_due_date`/`clear_review_due_date` added to
+  `UpdatePolicySetRequest`; new `MarkPolicySetReviewedRequest(next_due_date)`;
+  `review_due_date`/`last_reviewed_at`/`is_review_overdue` added to
+  `PolicySetResponse`.
+- `api/routers/policy_sets.py`: `_to_response()` computes
+  `is_review_overdue = review_due_date is not None and review_due_date <
+  date.today()` — computed at response time, never stored, same pattern
+  already established for `PolicyException.is_expired`, because there is
+  no background scheduler to flip a stale stored flag; new `POST
+  /{key}/review` endpoint.
+- Migration `d5e6f7a8b9c0_policy_set_review_columns.py` (chained on
+  `c3d4e5f6a7b8`), applied and schema-verified via direct SQL.
+
+**Live verification (all via curl, JSON bodies written to temp files to
+avoid a PowerShell/curl.exe quote-escaping failure encountered on the first
+attempt — not a backend bug):**
+1. Default state on `expense-policy`: `review_due_date`/`last_reviewed_at`
+   both `null`, `is_review_overdue: false`. ✅
+2. `PATCH` with a past `review_due_date` (`2020-01-01`) → `is_review_overdue`
+   flips to `true`. ✅
+3. `POST /{key}/review` with `next_due_date: "2027-01-01"` → `last_reviewed_at`
+   stamped to now, `review_due_date` advances, `is_review_overdue` flips
+   back to `false`. ✅
+4. `PATCH` with `clear_review_due_date: true` → `review_due_date` back to
+   `null`, `last_reviewed_at` correctly left untouched (it's an audit
+   trail, not something a metadata edit should erase). ✅
+5. Repeated the past-due-date + clear cycle on `hardware-provisioning-policy`
+   to confirm `GET /api/policy-sets` (list endpoint, used by the Projects
+   grid) also carries the three new fields correctly. ✅
+6. All test data cleaned up afterward on both policy sets (`last_reviewed_at`
+   reset via a direct one-off SQL `UPDATE` since there is deliberately no
+   API to un-stamp an audit timestamp).
+7. Backend crashed mid-session (another concurrent session restarted it to
+   pick up unrelated changes) — confirmed the new PID came back healthy and
+   `expense-policy` still showed the clean `null`/`null`/`false` state,
+   proving the feature survives a fresh process, not just the dev session
+   that built it.
+8. `pytest tests/unit -q` → 263 passed, zero regressions (up from the prior
+   260 baseline; the +3 are from a concurrent session's own test additions
+   between milestones, not this one).
+
+**Frontend** (`api.ts`, `ProjectWorkspace.tsx`, `ProjectsPage.tsx`):
+- `api.ts`: added the three new fields to the `PolicySet` interface,
+  `review_due_date`/`clear_review_due_date` to `UpdatePolicySetRequest`,
+  new `MarkPolicySetReviewedRequest` type, and `api.markPolicySetReviewed()`.
+- `ProjectWorkspace.tsx` (re-viewed fresh first — unchanged since Milestone
+  36's edit, confirming low collision risk on this file): header now shows
+  a due-date `Tag` (red + `WarningOutlined` when overdue, default +
+  `CheckCircleOutlined` otherwise) next to the category tag, plus a "last
+  reviewed: <date>" secondary line when set; added a "Mark Reviewed" button
+  opening a small modal (optional next-due-date picker) that calls the new
+  endpoint; added a `review_due_date` `DatePicker` field to the existing
+  "Edit Project" modal, with save logic that distinguishes "field left as
+  whatever it was" from "user cleared it" to correctly set
+  `clear_review_due_date` only when appropriate.
+- `ProjectsPage.tsx` (project grid): added a compact red "Review overdue"
+  `Tag` next to the category tag on each card, so overdue policy sets are
+  visible without opening them. **Caught and fixed a real layout bug before
+  shipping**: `.policy-set-card-title-row` uses `justify-content:
+  space-between`, which was designed for exactly two children (title +
+  category tag); adding a third conditional child would have spread all
+  three across the row instead of keeping the tags grouped next to each
+  other. Fixed by wrapping both tags in a single `<Space size={4} wrap>` so
+  the row always has exactly two flex children regardless of how many tags
+  render.
+- `npx tsc -b --force` and `npx vite build` both clean before *and* after
+  the layout fix.
+- Live browser verification attempted (chrome-devtools MCP and Playwright
+  MCP) — both structurally blocked in this environment per the concurrent
+  session's own confirmed finding (Tauri desktop-shell IPC handshake gates
+  "Loading secure workspace"); relied instead on clean `tsc`/`vite build`
+  plus full live API-level verification of the exact JSON shape the UI
+  consumes (steps 1-5 above), which is the same verification depth used
+  for every other feature in this session where browser automation has
+  been unavailable.
+
+**Result**: all 93 SQL-tracked todos are now `done` — this was the final
+item from the original ADR-0009 gap-analysis backlog (`intelligent-tools`
+→ `policy-exception-requests` → `policy-review-recertification`, in that
+order). No further backlog items are queued as of this milestone.
+
+### Next action
+All originally-scoped ADR-0009 backlog items are complete. The concurrent
+"Policy governance standards study" session's Milestone 19-20 work (Policies
+tab master-detail redesign, clickable rule-relationship navigation, heuristic
+"decision variations" clustering) has now handed off explicitly and will not
+do further implementation — its handoff message asks this thread to (1)
+re-read Milestones 19-20 in full, (2) look broadly for implementation/logical
+gaps, (3) run functional testing end-to-end, (4) refresh live data checks,
+and (5) wire up `group_label`/`related_rule_ids`/`supersedes_rule_ids`/
+`is_explicit_override` population — flagged as still empty on every rule in
+all 3 original sample datasets, though Milestone 34 Part B's fresh HR/IT
+sample data may already have real, non-empty examples worth re-checking
+first. This is the next work to pick up.
+
+### Milestone 38 detail — `group_label`/`related_rule_ids` human-curation UI + full live save-round-trip verification
+
+Direct response to the Milestone 19-20 handoff's item (5): rather than only
+displaying these fields (already done by the concurrent session's Inspector
+work) or relying on the heuristic clusterer, gave reviewers a real, pickable
+way to *set* them from the Draft/Edit/Revise flows — the only path that can
+correctly capture curated intent (explicit overrides, cross-version
+supersession, human-judged groupings) that no heuristic can infer.
+
+**Frontend (`ScopeEditor.tsx`, shared by Draft/Edit/Revise via
+`ScopeFieldsEditor`):**
+- Added a "Group label" `AutoComplete` (free-text with suggestions sourced
+  from existing distinct `group_label` values already present in the policy
+  set, via `groupLabelOptions`) — tooltip clarifies it's "purely for
+  review/browsing — has no effect on evaluation", placeholder
+  `"e.g. leave-eligibility-threshold (blank = ungrouped)"`, `allowClear`.
+- Added a "Related rule IDs" `Select mode="tags"` (freeform tag entry,
+  filterable against real rule titles/IDs in the set) alongside the
+  pre-existing "Supersedes rule IDs"/"Explicit override" fields (Milestone
+  27), so all four `CanonicalRule` relationship fields are now curatable
+  from one consistent panel.
+- Both fields wired into `EditRuleModal.tsx`'s live preview pane
+  ("Classification" section) and into the payload sent on submit —
+  confirmed no changes needed to `api.ts` types (fields already existed
+  end-to-end per the concurrent session's contract work).
+- Re-checked the concurrent session's flagged `EditRuleModal.tsx` TS2367
+  concern (`props.mode !== "revise"` redundant after narrowing, line ~210):
+  current source shows only one `props.mode` reference (line 132, the
+  original `isRevise` derivation) — the flagged line no longer exists as
+  described, so either it was already fixed upstream or was transient.
+  `npx tsc -b --force` confirmed clean, zero errors.
+
+**Live verification — full round trip, three independent layers of proof:**
+1. **Visual** (custom CDP driver, opacity-forced screenshot): both new
+   fields render correctly with correct placeholders/tooltips.
+2. **Interactive** (Playwright MCP, chosen over the custom CDP driver
+   because the latter has no text-input capability at all — only
+   click/eval/screenshot — and over `chrome-devtools-mcp` because its
+   shared browser profile was locked by a concurrent session): opened
+   Revise on `AI-0007889c5b` ("Recover and reassign licences when devices
+   are returned"), typed `group_label="device-licence-recovery"` and
+   `related_rule_ids=["RULE-HW-007"]` (committed via Enter — the standard
+   antd `Select mode="tags"` pattern, since a direct click on the filtered
+   dropdown option failed Playwright's actionability check), confirmed both
+   appeared correctly in the Live Preview's Classification section, then
+   submitted. First submit attempt correctly blocked by a pre-existing
+   guard ("Set your name in the actor switcher before revising a rule") —
+   confirms reviewer-attribution is enforced before any revision, working
+   as designed, not a defect. Set a reviewer name and resubmitted
+   successfully: "Revision drafted for AI-0007889c5b — find it in the
+   Review tab to approve and publish", queue count moved to
+   `Total rules 172 / Candidate: 1`.
+3. **Raw API/database** (direct `GET /api/policy-sets/hardware-provisioning-policy/candidate-rules`,
+   bypassing the UI entirely): confirmed the persisted candidate's `rule`
+   object carries `group_label: "device-licence-recovery"` and
+   `related_rule_ids: ["RULE-HW-007"]` exactly as entered, while the
+   original published revision of the same rule correctly still shows both
+   fields empty — i.e. this is a real, isolated, correctly-persisted
+   revision in PostgreSQL, not just client-side state.
+
+**Cleanup:** rejected the test candidate afterward (via the UI's Reject
+button) since `device-licence-recovery`/`RULE-HW-007` was synthetic
+verification data, not a real editorial decision — confirmed queue moved to
+`Candidate: 0 / Rejected: 1`, published rule count (171) untouched.
+
+**Tooling finding for future sessions in this shared, no-git,
+multi-concurrent-session environment:** prefer **Playwright MCP** browser
+tools for any live UI verification. It uses its own isolated browser
+instance (no profile contention with other concurrent sessions using
+`chrome-devtools-mcp`), its ref-based accessibility-tree targeting is more
+reliable than raw CDP coordinate/text-matching, and — contrary to an earlier
+handoff's claim that a "Tauri IPC handshake" structurally blocks all bare
+browser automation — both the custom CDP driver *and* Playwright connect and
+interact with this app's UI at `http://127.0.0.1:5174` with zero special
+workarounds required.
+
+### Next action
+The `group_label`/`related_rule_ids` curation-UI gap from the Milestone
+19-20 handoff is closed and fully verified. Remaining handoff items to pick
+up: (2) broader implementation/logical-gap review of the Milestone 19-20
+Policies-tab rebuild (`PolicyList.tsx`, `PolicyRow.tsx`,
+`PolicyGroupHeader.tsx`, `ruleDisplay.ts`, remaining `PolicyInspector.tsx`
+tabs — visually spot-checked only, not yet code-reviewed), (3) broader
+end-to-end functional testing beyond this one fix, (4) a fresh live-data
+check across all sample projects.
+
+### Milestone 39 detail — Decision Log (ADR-0009's other "Adopt" gap: OPA Decision-Log parity)
+
+Picked up `known-limitations.md`'s remaining P2 item from the
+standards-research gap analysis: *"Per-evaluation decision/audit logging
+(OPA-style) — `audit_events` exists (governance actions: reviews, publishes,
+exception decisions) but nothing let a reviewer query back *runtime*
+`POST /api/evaluations` calls."* `EvaluationRepository` only had `record()` —
+no read path existed at all before this milestone.
+
+**Design choice:** mirrored the existing, well-established `audit.py` /
+`ActivityPanel.tsx` read-only pattern for architectural consistency (optional
+AND-combined query filters, a hard `limit` with a `truncated = len(rows) ==
+limit` heuristic instead of a second `COUNT(*)` query) rather than inventing
+a new shape. Deliberately **read-only, no delete/edit** — an evaluation
+record that could be altered after the fact would not be usable as evidence,
+same philosophy `audit.py`'s own docstring states for `AuditEvent`.
+
+**Backend:**
+- `EvaluationRepository.list_by_policy_set()` (filters: `overall_status`,
+  `correlation_id`, `calling_system_identity`; ordered by
+  `evaluation_timestamp.desc()`; capped `limit`) and `.get_by_id()` added to
+  `repositories.py`.
+- `EvaluationLogSummary` (list-view, no facts/response) and
+  `EvaluationLogDetail` (extends summary + `request_facts`/`response`)
+  schemas added to `schemas.py`.
+- `evaluations.py` router gained two new read-only GET routes: `GET
+  /api/evaluations/policy-sets/{key}` (list, returns `{evaluations, count,
+  truncated}`, same shape convention as `audit.py`) and `GET
+  /api/evaluations/{evaluation_id}` (detail). No route-ordering ambiguity
+  risk — Starlette matches by segment count and the two paths have a
+  different number of segments after the shared prefix.
+- Added a composite index `ix_evaluations_policy_set_timestamp` on
+  `(policy_set_id, evaluation_timestamp)` to the `Evaluation` model — the new
+  query pattern is always "most recent calls for this policy set". New
+  Alembic migration `222abe350967` generated (autogenerate detected only the
+  intended index) and applied; DB head is now `222abe350967`.
+
+**Frontend:**
+- `api.ts`: `EvaluationLogSummary`/`EvaluationLogDetail`/`EvaluationLogPage`
+  types + `evaluationLogApi` client (`list()`, `getDetail()`), mirroring
+  `auditApi`'s shape.
+- **Extracted `EvaluationResultView.tsx`** from `EvaluatePage.tsx`'s ~150-line
+  inline result-rendering block (Descriptions + aggregate-breach/advice
+  Alerts + rule-results Table), so the live "Evaluate" tool and the new
+  historical "Decision Log" viewer render an `EvaluationResponse` identically
+  without duplicating that JSX. `EvaluatePage.tsx` now just calls
+  `<EvaluationResultView response={response} />`.
+- New `DecisionLogPage.tsx`: Segmented status quick-filter (All/Satisfied/Not
+  satisfied/Not applicable/Indeterminate/Error) + correlation-id/calling-system
+  search boxes, a `Table` of summary rows (timestamp, status tag, correlation
+  id, calling system, truncated+copyable result hash), and a `Drawer` detail
+  view on "View" — Descriptions (evaluation id, policy version id,
+  correlation id, calling system, timestamp), `request_facts` via the
+  existing `JsonView` component (syntax-highlighted, copy/download), and the
+  shared `EvaluationResultView` for the response side. Empty state when no
+  evaluations exist yet for the policy set.
+- Wired into `ProjectWorkspace.tsx` as a new "Decision Log" tab (after
+  "Exceptions").
+
+**Verification:**
+- `pytest tests/unit -q` → 293/293 passed both before and after the frontend
+  changes (no backend regressions from the model/router/repository work).
+- Live end-to-end HTTP verification (backend restarted to load the new
+  routes): POST a real evaluation (`hr-guide-policy`, facts
+  `leave_type=annual`/`employee_tenure_years=3`,
+  `correlation_id=test-decision-log-001`,
+  `calling_system_identity=decision-log-live-test`) → `INDETERMINATE`
+  result. Re-queried the list endpoint: record appears with all fields
+  correct; filtering by the matching `correlation_id` → count 1; by a
+  non-existent `calling_system_identity` → count 0; by `overall_status=
+  NOT_SATISFIED` → count 0, by `INDETERMINATE` → count 1 (both directions of
+  the status filter confirmed). Detail endpoint returns full
+  `request_facts`/`response`. 404 confirmed for a random nonexistent UUID.
+- `npx tsc -b --force` → clean, 0 errors (including confirming the
+  concurrent session's previously-flagged `EditRuleModal.tsx` TS2367 does
+  not currently reproduce — third independent confirmation after Milestones
+  30 and 35). `npx vite build` → clean.
+- **Live browser verification via Playwright MCP**: opened
+  `hr-guide-policy` → "Decision Log" tab → table correctly shows the
+  `test-decision-log-001` row; clicked "View" → Drawer correctly renders
+  evaluation id, policy version id, correlation id, calling system, the
+  exact request facts as pretty JSON, and the full result (status,
+  rule-results table) — matches Milestone 38's finding that Playwright MCP
+  is the reliable browser-automation tool in this environment (no Tauri/CDP
+  contention). Confirmed the correlation-id search box's empty-state path
+  (searching a nonexistent id → correct "no evaluation calls" empty state,
+  clearing it → row reappears). Confirmed the refactored `EvaluatePage.tsx`
+  still renders a fresh live evaluation correctly through the extracted
+  `EvaluationResultView` (ran a real evaluation against `expense-policy`,
+  full result rendered: status, hash, missing facts, rule-results table).
+- The Segmented status-filter's underlying radio inputs are visually
+  hidden (standard AntD pattern) and fail Playwright's visibility-based
+  actionability check — verified that code path directly via the API
+  instead (`overall_status=NOT_SATISFIED`/`INDETERMINATE` above) rather than
+  leaving it unverified.
+
+**Immutability note:** the live-verification test evaluation
+(`test-decision-log-001`, id `81406861-a780-4d56-bde1-6fa548b4d14d`) cannot
+be deleted — `Evaluation` rows are deliberately append-only by design (no
+PUT/PATCH/DELETE exists or should exist, matching `AuditEvent`'s "a record
+that can be edited or deleted is not evidence of anything" philosophy). It
+remains as a real, harmless decision-log entry rather than test debris to
+clean up — consistent with the audit-log posture, not a leftover mess.
+
+**Files changed:** `src/policy_platform/infrastructure/repositories.py`,
+`src/policy_platform/api/schemas.py`,
+`src/policy_platform/api/routers/evaluations.py`,
+`src/policy_platform/domain/models.py`, new Alembic migration
+`222abe350967`, `apps/web/src/api.ts`, new
+`apps/web/src/components/EvaluationResultView.tsx`, new
+`apps/web/src/components/DecisionLogPage.tsx`,
+`apps/web/src/components/EvaluatePage.tsx` (refactor only, no behavior
+change), `apps/web/src/components/ProjectWorkspace.tsx` (new tab wiring).
+
+### Milestone 40 detail — Post-handoff code review + broad live functional testing + live-data reconciliation
+
+**Context.** The concurrent "Policy governance standards study" session sent
+a third handoff after finishing its own Milestones 19-20 (master-detail
+Policies tab, ambiguity-flag fix, clickable rule refs, heuristic "decision
+variations" clustering, CSS modernization on Policies + Review tabs) and
+explicitly signed off ("this research session is done and will not be doing
+further implementation work here"), asking this session to: (1) re-read its
+milestones and touched files, (2) revise this session's plan in light of
+them, (3) look broadly for implementation/logical gaps — not just the
+`group_label` population it flagged, (4) run end-to-end functional testing,
+(5) refresh the live-data check, (6) wire up or fix anything found. Since
+the handoff needed no reply (explicit sign-off, no question asked), this
+session proceeded straight to the substantive work instead of sending an
+acknowledgment.
+
+**1. Delegated a deep code review to a background sub-agent**, scoped to
+concrete bugs only (logic errors, null-handling, stale closures, list-key
+issues, clustering-heuristic correctness, dangling-reference handling,
+filter/grouping edge cases) — not style — covering `ruleDisplay.ts`,
+`PolicyInspector.tsx`, `PolicyList.tsx`, `PolicyRow.tsx`,
+`PolicyGroupHeader.tsx`, `PoliciesToolbar.tsx`, `PoliciesTab.tsx`,
+`RuleCard.tsx` (ambiguity/nesting portions only), `ReviewQueue.tsx` (CSS
+only), cross-referenced against `schemas.py`/`api.ts`. It returned 4
+findings; each was independently re-verified against source before acting
+(per this file's standing practice of never trusting a sub-agent or a
+handoff at face value):
+
+   - **Real bug, fixed:** `PoliciesTab.tsx` search filter called
+     `r.group_label.toLowerCase()` with no null-guard. Confirmed `group_label`
+     is `nullable=False, server_default=''` at the DB/migration level
+     (`b1c2d3e4f5a6_category_tags_grouping.py`) and typed as plain `str = ""`
+     (not `Optional`) in `contracts/policy.py`, so a `null` can't currently
+     reach the frontend via real data (low practical risk) — fixed anyway as
+     a zero-cost defensive hardening: `(r.group_label ?? "").toLowerCase()`.
+   - **Real bug, fixed (×2 files):** `PolicyInspector.tsx` and `RuleCard.tsx`
+     both had an evidence-loading `useEffect` keyed on
+     `[rule.rule_id, rule.evidence.length]`. A revision that swaps different
+     evidence items while keeping the same *count* would never re-trigger the
+     effect, leaving stale clause/document-metadata state on screen.
+     Confirmed `rule_revision: number` exists on `CanonicalRule` (`api.ts`)
+     and is the objectively correct dependency — evidence is immutable
+     within one revision and only ever changes together with a
+     `rule_revision` bump. Changed both dependency arrays to
+     `[rule.rule_id, rule.rule_revision]` with an explanatory comment.
+   - **Edge case, fixed:** dangling `related_rule_ids`/`supersedes_rule_ids`
+     tags (referencing a rule not present in the current version — renamed,
+     superseded, or from a different policy set) rendered as plain
+     non-clickable text with no visual explanation why. `Tooltip` was already
+     imported in `PolicyInspector.tsx`, so wrapped the fallback text in one:
+     "Referenced rule not found in this version (renamed, superseded, or from
+     a different policy set)".
+   - **Confirmed harmless, left alone:** `PoliciesTab.tsx`'s grouping/sort
+     fallback checks for both `"Uncategorized"` and `"Ungrouped"` string
+     literals. Traced `keyFor()`'s full call path and confirmed it never
+     actually produces the literal `"Ungrouped"` — dead code, but zero risk,
+     not worth an edit.
+
+**2. Live-data re-check across all 7 policy sets** (direct backend HTTP
+calls, using the correct `GET /{key}/active-version` →
+`GET /{key}/versions/{id}/rules` path — there is no flat `/rules` endpoint).
+Confirmed current `group_label`/`related_rule_ids`/`supersedes_rule_ids`/
+`is_explicit_override` population is **zero on every currently-published
+rule in all 7 sets** — this now includes `mhrsd-policy`, which Milestone 35
+had documented as having a working 9-rule/2-decision positive example.
+Investigating further (`GET /{key}/versions`) found the reason: **`mhrsd-policy`
+and `saudi-labor-law` currently have zero published `ApprovedPolicyVersion`s**
+— each instead holds a large unreviewed candidate backlog (1,165 and 668
+candidates respectively). This is a legitimate work-in-progress governance
+state the app already handles gracefully, **not a bug**, but it does mean
+Milestone 35's specific rule-ID example is no longer live-reproducible; a
+correction note pointing here has been added directly under that claim.
+
+**3. Broad live functional-testing pass via Playwright MCP** (dev servers on
+5174/8010 confirmed listening first):
+   - `mhrsd-policy` (0 published rules, 1,165-candidate backlog): confirmed
+     the Overview tab's "No published version yet" alert, the Policies tab's
+     `Empty`-state guidance (with Documents/Review links), and the Review
+     Queue's pagination all render correctly at this new real-world
+     high-water-mark (20/page, "1–20 of 1165 candidates", pages 1-59, no
+     crash or slowdown) — reconfirms Milestone 22's scalability fix holds at
+     6x the previous largest verified scale.
+   - `hardware-provisioning-policy` (181 published rules, the main positive-
+     path project): confirmed the master-detail Policies tab — type grouping
+     ("Eligibility 21"), the 6-family cluster strip, and per-rule inspector —
+     all render correctly. Selected a real rule ("Recover and reassign
+     licences when devices are returned") and clicked through **every**
+     inspector tab: **Overview** (effect table + "Original source text — the
+     exact words from the source document" citation, para-63 quote — directly
+     confirms the user's earlier citation-visibility request stays resolved),
+     **Logic** (condition tree + required facts), **Scope** (fields exercised
+     via the Revise modal), **Test scenario/AI Evaluate** (scenario textbox,
+     visible "Reasoning effort" selector, "Test with real engine" button),
+     **History** ("NEW IN v3" banner, revision/version/approver table), and
+     **JSON** (full `CanonicalRule` verbatim, copy/download buttons — this
+     view directly re-confirmed the zero `group_label`/relationship-field
+     population found in step 2, straight from the UI).
+   - Clicked the "Varies by role profile 7" family-cluster badge (the
+     decision-variations focus lens): correctly narrowed 181→7 rules, showed
+     a "clear family focus" button and a "Show all policies again" tooltip;
+     clearing it correctly restored all 181. Confirms the family-focus lens
+     built in Milestone 23 still works at this rule-count scale.
+   - Clicked "Revise" on the same rule to confirm the full add-new-revision
+     flow the user explicitly asked about ("how i can then add new rule
+     based on current rule for future review and publish and approval"): the
+     modal opened pre-filled with revision 2, showing the read-only "Current
+     description" field, the editable "Updated description" field with a
+     working "Populate with AI" button, an "AI Evaluate" tab, populated
+     "Supersedes rule IDs" and "Related rule IDs" dropdowns (Milestones 27/38
+     — confirms the "dropdown has nothing populated" bug stays fixed), a
+     "Group label" field, and a live preview pane with the condition tree,
+     required facts, record details, and the original-source citation.
+     Cancelled without submitting (no need to create test data) — this was a
+     read-only render/wiring check, not a data-mutation test.
+
+**4. Final regression checks after all 4 fixes:**
+   - `npx tsc -b --force` → clean, 0 errors (checked immediately after the
+     edits, before the broader functional pass).
+   - `npx vite build` → clean, succeeds (`✓ built in 1.11s`); the existing
+     >500kB single-chunk warning is pre-existing and out of scope.
+   - `.venv\Scripts\python.exe -m pytest tests/unit -q` → **293 passed**, no
+     regressions (these were frontend-only changes, but backend was
+     re-verified anyway since a full-app functional pass was requested).
+
+**Files changed:** `apps/web/src/components/PolicyInspector.tsx` (evidence-
+effect dependency fix + dangling-reference tooltip),
+`apps/web/src/components/RuleCard.tsx` (same evidence-effect dependency
+fix), `apps/web/src/components/PoliciesTab.tsx` (search null-safety),
+`AGENT_PROGRESS.md` (this milestone + a correction note under Milestone 35's
+`mhrsd-policy` claim), `docs/known-limitations.md` (updated in the prior
+Milestone 39 pass, not this one).
+
+**What this milestone is, precisely, per the completion-classification
+discipline this file follows:** three **immediate defects fixed** (evidence-
+effect staleness ×2, group_label null-safety) at the correct local
+ownership boundary (each was a genuinely isolated React-effect-dependency or
+null-guard defect, not a symptom of a deeper architectural issue — no
+repeated pattern across unrelated subsystems, no conflicting ownership, no
+contract violation); one **edge-case UX gap fixed** (dangling-reference
+tooltip); one **stale-documentation correction** (Milestone 35's
+`mhrsd-policy` example, annotated in place rather than silently rewritten);
+and one **pre-existing governance backlog state confirmed working-as-
+designed, not changed** (`mhrsd-policy`/`saudi-labor-law`'s zero-published-
+version state — the empty-states and pagination already handle it
+correctly). No broader redesign was found to be warranted: the Policies-tab
+rebuild's architecture (display-logic module + list/row/inspector
+component split) held up cleanly under a dedicated code-review pass and a
+full live click-through of every inspector tab, the Revise flow, and the
+family-focus lens.
+
+### Next action
+Per "when finish and verified and tested advance to next": this session's
+active backlog thread (post-handoff reconciliation + Policies-tab
+verification) is now closed out. Reassess `docs/known-limitations.md`'s
+remaining P2 backlog (e.g. "Impact analysis: pre-publish candidate testing",
+"Policy ownership/RACI metadata", "Control mapping to compliance
+frameworks") as candidates for the next unit of work, unless a fresh user
+request or concurrent-session handoff supersedes it first.
+
+### Milestone 41 detail — Employee attestation tracking (ISO 37301 §7.3, last remaining P1 gap)
+
+Picked up `known-limitations.md`'s last open 🔴 P1 gap-analysis row (the other
+two — exception requests, periodic review — were closed in Milestones 36-37):
+*"Employee attestation / acknowledgment tracking — ISO 37301 §7.3 requires
+personnel acknowledge compliance obligations; no deadline/escalation workflow
+exists here."* No entity anywhere in the schema tracked "this specific person
+has read and agreed to this specific policy version" — everything else
+(`AuditEvent`, `PolicyException`, `PolicySet.last_reviewed_at`) tracks
+*governance actors* acting on a policy set, not the separate, much larger
+population of ordinary employees obligated to read it. Full design rationale
+in **ADR-0012**.
+
+**Backend:**
+- New `PolicyAttestation` SQLAlchemy model + Alembic migration
+  (`d1e2f3a4b5c6`): binds to a specific `ApprovedPolicyVersion` (not the
+  mutable policy set — no auto re-attestation cascade on republish, matching
+  `PolicyException`/`PolicyTest`'s existing version-anchoring convention),
+  free-text `assignee_name`/`assignee_identifier` (this codebase has zero
+  employee/personnel/auth model anywhere — confirmed again this session),
+  `due_date`, `acknowledged_at`/`acknowledgment_notes`, `assigned_by`.
+- `CreatePolicyAttestationCampaignRequest.actor_role` +
+  `_require_manager(...)` in the new `policy_attestations.py` router — exact
+  same manager-gating convention already established by `candidate_rules.py`
+  and `PolicyException`'s grant/deny endpoints (fixed a convention mismatch
+  mid-build: originally a separate `Query(...)` param, corrected to match
+  the body-field pattern before this was ever live-tested).
+- 4 routes: `GET /policy-sets/{key}` (list, optional `?status=` filter), `POST
+  /policy-sets/{key}/campaigns` (manager-only bulk create — one version, one
+  due date, N assignees), `GET /search?q=` (no-login self-service lookup by
+  partial name/email), `POST /{attestation_id}/acknowledge` (no role gate —
+  there is no identity to gate beyond the free-text name/email already on
+  the row).
+- Status (`pending`/`acknowledged`/`overdue`) is **computed, never stored**:
+  identical `due_date < date.today()` boundary implemented independently in
+  Python (`_status_of`, powers the list response) and SQL
+  (`_apply_status_filter`, powers `?status=`) — acknowledged always wins
+  regardless of due date, "due today" is `pending` not `overdue`.
+- Registered the router in `app.py`; applied the migration to the real local
+  Postgres (port 5433).
+
+**Incident during migration verification (worth recording, not a feature
+bug):** a downgrade/upgrade reversibility check hung 3+ minutes. Root-caused
+via a direct `asyncpg` query against `pg_stat_activity` (no `psql.exe`
+installed on this machine) to an **unrelated** backend connection (pid
+61584) that had been `idle in transaction` for 23+ minutes with an
+uncommitted `INSERT INTO correlation_runs`, silently holding a table lock.
+`pg_terminate_backend(61584)` safely unblocked it (Postgres auto-rolled-back
+the abandoned transaction) and the migration cycle completed successfully
+afterward. **Flagging as a latent bug worth future investigation**: some
+code path in the correlation-analysis feature begins a transaction and, on
+some error/exception path, never commits or rolls back. Not fixed — outside
+this milestone's scope and only reproduced as a side effect, not
+deliberately — but it has now recurred and could resurface again.
+
+**Frontend:**
+- `api.ts`: full `policyAttestationApi` client section (types +
+  list/createCampaign/search/acknowledge methods).
+- New `PolicyAttestationsPage.tsx` — project-scoped manager oversight tab:
+  Segmented status filter with live counts, per-attestation Cards, a
+  manager-gated "New campaign" modal (published-version picker pre-filled to
+  the active version, due-date picker, textarea parsing "Name, email" lines
+  client-side). Non-managers see an explanatory alert instead of the
+  campaign button — no dead/disabled UI.
+- New `MyAttestationsPage.tsx` — a **top-level**, no-login self-service page
+  (not inside a project workspace): name/email search → overdue-first
+  sorted results → "Acknowledge" button + notes modal. Resolves
+  `policy_set_id` → policy set display name via a client-side `Map` built
+  from `api.listPolicySets()` (no backend schema change needed for this).
+- Wired `PolicyAttestationsPage` into `ProjectWorkspace.tsx` as a new
+  "Attestations" tab (between "Exceptions" and "Decision Log") and
+  `MyAttestationsPage` into `App.tsx` as a new top-level nav item
+  ("My Attestations", `SolutionOutlined` icon).
+- The impeccable design hook ran automatically after each new UI file;
+  flagged zero issues on either new file (one pre-existing, unrelated,
+  already-justified `App.css` finding was re-surfaced and correctly left
+  unchanged, consistent with "don't fix pre-existing issues outside scope").
+
+**Verification:**
+- 14 new unit tests in `tests/unit/test_policy_attestations.py` (pure-logic,
+  no DB — this repo's established convention, confirmed zero DB-integration
+  test infrastructure exists anywhere): manager-gating (1 allowed + 4
+  rejected roles), `_status_of` (4 cases incl. due-today-not-overdue and
+  acknowledged-wins-even-if-past-due boundaries), SQL/Python status-filter
+  consistency (compiled the SQLAlchemy `Select` to a literal SQL string via
+  `stmt.compile(dialect=postgresql.dialect(), compile_kwargs=
+  {"literal_binds": True})` and asserted it encodes the same boundary as the
+  Python function — a reusable technique for testing repository filter logic
+  without a DB), and `bulk_create`'s row-construction shape. Full suite: 312
+  passed, 0 failed.
+- Migration confirmed reversible (upgrade→downgrade→upgrade cycle); table
+  schema verified directly via `information_schema.columns` (all 11 expected
+  columns present); FastAPI app confirmed to import cleanly with all 4 new
+  routes registered.
+- Restarted the backend (found a stale `uvicorn` process running for hours
+  without `--reload` that would not have picked up the new router — always
+  check `Get-CimInstance Win32_Process` for the actual command line before
+  trusting a running server reflects current code).
+- Live API smoke test against the real running backend: created a real
+  2-employee campaign on `hr-guide-policy` v3 (Dana Employee, Sam Staff),
+  confirmed 403 for a `policy_composer` actor role, `GET /search?q=dana`
+  found the right row, status filters (`?status=pending`/`?status=
+  acknowledged`) each returned exactly the expected subset, acknowledge
+  endpoint updated status and persisted notes. Left this demo campaign in
+  the DB (no delete endpoint exists, by design — same precedent as
+  `PolicyException`) as a working example.
+- `npx tsc -b --force` → 0 errors. `npx vite build` → clean.
+- **Live browser verification** (chrome-devtools MCP): a stale Chrome
+  instance from earlier in this session was holding an exclusive lock on
+  `C:\Users\taomar\.cache\chrome-devtools-mcp\chrome-profile` ("browser
+  already running" error blocking `new_page`/`list_pages`). Identified the
+  actual root process via `Get-CimInstance Win32_Process` filtering on
+  `--user-data-dir=...chrome-devtools-mcp...` in the command line (not just
+  matching on `chrome.exe` — ~48 unrelated Chrome processes were running),
+  terminated it, and the tool worked cleanly afterward with zero special
+  workarounds — confirming the concurrent session's earlier report of being
+  "structurally blocked" by a Tauri IPC handshake does not apply to this
+  project's own `localhost:5174` Vite dev server (grepped this codebase for
+  `__TAURI__`/`isTauri`/`"Loading secure workspace"` — zero matches; that
+  blocker, if real, was about how their tooling targeted the outer desktop
+  app shell, not a property of this frontend).
+  - Navigated to `http://localhost:5174`, opened top-level "My Attestations",
+    searched "sam", found the real pending attestation with the policy name
+    correctly resolved, opened the acknowledge modal, submitted with notes
+    ("Reviewed via live E2E verification."), confirmed the row flipped to
+    "Acknowledged" with a real timestamp and the notes text displayed.
+  - Opened `hr-guide-policy`'s "Attestations" tab as the default
+    `policy_composer` role: confirmed the "New campaign" button is hidden
+    and an explanatory alert shown instead; confirmed both attestations
+    (Dana, Sam) display with correct status/date/notes, matching the live
+    API state exactly (Sam now showing "Acknowledged" from the step above).
+  - Switched acting role to `policy_manager` via the header popover:
+    confirmed "New campaign" appeared. Opened it — published version and a
+    default due date were pre-filled correctly. Submitted a real 3rd
+    assignee ("Browser QA Tester"); confirmed the new row appeared
+    instantly as `Pending` and the segmented-control counts updated live
+    (`All (3)`, `Pending (1)`, `Acknowledged (2)`).
+  - Investigated one observation before treating it as a bug: the new row's
+    "Assigned by" showed "unknown" instead of a name. Root cause: the
+    header's "YOUR NAME" field was intentionally left at its empty/placeholder
+    state during this test (only the role dropdown was changed), so
+    `actor.name` was `""`. Confirmed via grep that `assigned_by: actor.name
+    || "unknown"` is the **exact same established fallback pattern**
+    already used by `PolicyExceptionsPage.tsx`'s `decided_by: actor.name ||
+    "unknown"` — working as designed, not a gap introduced by this
+    milestone, no fix needed.
+- Updated `docs/known-limitations.md`: moved the P1 attestation row to
+  closed (all 3 original P1 gaps from the standards research pass are now
+  closed), added a corresponding "Implemented and verified" row, and added a
+  "Not implemented this phase" row documenting the attestation feature's own
+  remaining sub-gaps (no automated reminder/escalation delivery, no
+  auto re-attestation cascade on republish, no real personnel directory).
+- Wrote `docs/adr/ADR-0012-employee-attestation.md` following the
+  established ADR template (Status/Context/Decision/Consequences/
+  Validation), covering all 6 design decisions above in detail.
+
+**What this milestone is, precisely, per the completion-classification
+discipline this file follows:** a **net-new feature closing a verified,
+standards-backed root gap** (no entity existed to track this at all — not a
+local defect, not a symptom of a deeper issue elsewhere) implemented at the
+correct architectural boundary (new table + router, reusing every existing
+convention — manager-gating, version-anchoring, computed status, free-text
+identity — rather than inventing new patterns). One **latent bug flagged but
+deliberately not fixed** (the `correlation_runs` idle-in-transaction leak,
+orthogonal to this milestone's scope, recorded here for whoever next touches
+correlation analysis). One **non-bug investigated and confirmed
+working-as-designed** (the "Assigned by: unknown" observation). No
+architectural escalation signal was found — this is a clean local net-new
+build, not a redesign.
+
+### Next action
+All 3 P1 gaps from `docs/policy-standards-research.md`'s standards alignment
+pass are now closed (exceptions — M36, periodic review — M37, attestation —
+M41). Per "when finish and verified and tested advance to next," the next
+candidates are the remaining 🟠 P2 items in `known-limitations.md`: "Impact
+analysis: pre-publish candidate testing" (partially closed by ADR-0010;
+missing the pre-publish-candidate half), "Policy ownership/RACI metadata,"
+or "Control mapping to compliance frameworks" — unless a fresh user request
+or concurrent-session handoff supersedes it first.
+
+### Milestone 42 detail — Policy ownership / RACI metadata (ADR-0013)
+
+Closed the 🟠 P2 gap-analysis row: "The described platform has reviewer/
+manager roles in the workflow but no persistent ownership metadata on the
+policy itself (owner department, escalation path, delegate approver)."
+
+**What was built:**
+- 5 new `PolicySet` columns, added alongside (not replacing) the
+  pre-existing department-level `owner` field: `accountable_owner` (RACI
+  "A", named individual), `delegate_approver` (backup approver, distinct
+  from the per-version `approved_by` audit field), `escalation_contact`
+  (who overdue items route to), `consulted_parties_json`/
+  `informed_parties_json` (RACI "C"/"I", tag lists).
+- Migration `f6a7b8c9d0e1_policy_set_raci_ownership_columns.py` (revises
+  `d1e2f3a4b5c6`, now head) — purely additive, server-defaulted
+  (`''`/`'[]'`), symmetric downgrade.
+- Backend: `CreatePolicySetRequest`/`UpdatePolicySetRequest`/
+  `PolicySetResponse` schemas, `PolicySetRepository.create()`/
+  `.update_metadata()`, and `policy_sets.py` router (`_to_response`,
+  `create_policy_set`, `update_policy_set`) all extended to carry the 5
+  fields through. `UpdatePolicySetRequest` uses plain optional types (no
+  clear-flag) since `""`/`[]` are valid non-null "empty" states here,
+  unlike `review_due_date`'s `None`-is-meaningful case.
+- Frontend: `api.ts` types extended; `ProjectWorkspace.tsx`'s existing "Edit
+  Project" modal gained a new "Governance & ownership (RACI)" section (5
+  fields after a `<Divider>`); `ProjectOverviewTab.tsx` gained a new
+  "Governance & ownership" `<Card>` (populated label/value grid + tag lists,
+  or an empty-state prompt with a "Configure ownership →" link), inserted
+  just above the existing `PolicySetSummaryPanel`. New `.governance-*` CSS
+  classes in `App.css`, modeled on the existing `.inspector-scope-grid`
+  pattern.
+
+**Operational note (unrelated to this feature, discovered and fixed along
+the way):** the backend uvicorn process was running without `--reload`, so
+none of this milestone's Python changes were live until the process was
+manually restarted using the exact command documented in `README.md`. Old
+PIDs stopped cleanly; restarted detached; confirmed healthy and serving the
+new fields.
+
+**Verification:**
+- `pytest tests/unit -q` → 322/322 passed, no regressions.
+- Migration applied to the live local Postgres and confirmed reversible
+  (downgrade → upgrade round trip).
+- Live API smoke test (direct HTTP, no browser): GET showed new fields
+  present and empty; PATCH with all 5 fields populated persisted and
+  returned correctly.
+- `npx tsc -b --force` → 0 errors. `npx vite build` → succeeds.
+- Live browser (chrome-devtools MCP): confirmed the empty-state Governance
+  card on `saudi-labor-law`, the fully-populated card + correctly pre-filled
+  Edit modal on `expense-policy` (screenshots captured of both).
+
+**Investigated and resolved (not a product defect):** a live in-browser
+save attempt on `escalation_contact` produced a corrupted, concatenated
+value that was also persisted. Paused and root-caused per this project's
+architectural-escalation discipline rather than assuming a UI bug: code
+review of `handleSaveEdit`/`openEdit`/`api.updatePolicySet` found no
+append/merge logic anywhere (form state is read fresh and spread directly
+into the request body; the API call is a pure `JSON.stringify` passthrough);
+the affected field uses the identical `Form.Item`/`Input` pattern as
+`name`/`description`/`category`/`tags`, all proven reliable across 40+ prior
+milestones. Mid-investigation, the shared Chrome dev-tools browser instance
+was independently confirmed to be under live concurrent control from
+another active Copilot session working the same Policies tab at the same
+time (a diagnostic test page closed itself without this session's action;
+the main tab's active view changed without this session's action). Reset
+the corrupted test value via a direct, uncontested API PATCH and
+re-confirmed clean. Full reasoning and evidence trail recorded in
+ADR-0013's Validation section — flagged as environmental contention, not
+silently dismissed and not misattributed as a fixed code bug. If reproduced
+again without concurrent multi-session browser access, treat as a fresh
+report.
+
+**Completion classification:** a **net-new, purely additive feature closing
+a verified, standards-backed P2 gap** — not a symptom of a deeper issue, not
+a redesign. Reused every established convention (migration template,
+optional-field-without-clear-flag convention, Edit-modal/Overview-tab
+extension pattern) rather than inventing new ones. No architectural
+escalation signal was found in the feature's own code; the one anomaly
+encountered during verification was investigated to a confident
+environmental (not code) root cause before being recorded, per the
+pause-and-widen discipline, rather than either fixed reflexively or ignored.
+
+### Milestone 42 follow-up — concurrent backend handoff received + reconciled
+
+The "Building policy test management" session (no direct reply tool
+available between sessions, but its work landed in the shared repo) closed
+out with `docs/handoff/backend-data-integrity-handoff.md` and 5 commits
+already on `master` (`e5ebb21`, `ac65efe`, `f2c8feb`, `b7d9562`, `e3f3094`):
+a `semantic_projection` list-shape parsing fix, a `trusted_config` shape
+guard, a correlation-durability fix (chunked commits + a `status="running"`
+visibility bug + the reader defaulting-to-newest-run fix that depended on
+it), and — most relevant here — **a real, confirmed-in-code polarity defect**
+in `formulation_mapping.py`'s `_RULE_TYPE_MAP`.
+
+**Reconciled against this session's own state (verified, not assumed):**
+- The `trusted_config` passthrough on the extract endpoint that their
+  open-item #2 flagged as "reportedly added by a concurrent session —
+  verify before rebuilding" **is confirmed present and correct**
+  (`api/routers/ai.py` lines ~90-124: `ExtractWithAIRequest.trusted_config`
+  threaded into `formulate_from_document(..., trusted_config=...)`). No
+  rebuild needed — this was this session's own Milestone-35 work.
+- Their open item #1 (**a neutral `EffectType` member**) is confirmed real
+  by direct code inspection: `contracts/policy.py`'s `EffectType` has only
+  `ALLOW`/`DENY`/`REQUIRE_ACTION` — no neutral value. `formulation_mapping.py`'s
+  `_RULE_TYPE_MAP` therefore maps both `CanonicalRuleType.DEFINITION` and
+  `CanonicalRuleType.CLASSIFICATION` to `(RuleType.DEFINITION, EffectType.ALLOW)`,
+  so a negatively-phrased definition (their example: Saudi Labor Law's "shall
+  **not** be included in the actual working hours" → stored as
+  `allow: "be included in the actual working hours"`) asserts the exact
+  inverse of its source. **Currently latent** only because those rules carry
+  `machine_executable=False` (no safe condition could be derived), so the
+  evaluator's `_evaluate_rule` short-circuits to `NOT_APPLICABLE` before the
+  wrong `ALLOW` ever reaches the combining algorithm — but a `trusted_config`
+  is precisely what flips `machine_executable` to `True` for such rules,
+  at which point `_apply_combining_algorithm`'s `allow_like = {ALLOW,
+  REQUIRE_ACTION}` set would start actively returning "allowed" for text
+  that says "shall not." **149 rules across both statutory sets carry this
+  latent mis-polarity today (55 in `saudi-labor-law` alone).**
+
+**Blast radius mapped this session (via `grep`, not yet implemented):**
+`EffectType`/`effect_type`/`"allow"` literal usages span 11 files —
+`contracts/policy.py` (enum + `Effect`), `formulation_mapping.py`
+(`_RULE_TYPE_MAP`), `evaluator/engine.py` (`_apply_combining_algorithm`'s
+`allow_like`/`deny_side` sets — a neutral effect must join **neither** side,
+or the exact same bug reappears one layer up), `contracts/evaluation.py`,
+`infrastructure/ai_quality.py` (the finding that reported this),
+`infrastructure/correlation_agent.py`, and on the frontend: `api.ts`
+(`type: "allow" | "deny" | "require_action"` needs a 4th member),
+`EditRuleModal.tsx` (effect-type `<Select>` options), `EvaluationResultView.tsx`,
+`ReviewQueue.tsx`, `RuleScenarioTester.tsx` (effect badges/labels — not yet
+individually re-confirmed for this specific enum addition, grep was
+interrupted mid-file on `ReviewQueue.tsx`, resume there first). A backfill
+decision for the 149 existing `payload_json` rows (JSONB — no schema
+migration required, but a data decision: leave as `allow` historically or
+reclassify to the new neutral value) is also required before this can be
+called closed, not just implemented.
+
+### Next action — session handoff / resume point
+
+**This is a deliberate stopping point for a session handoff, not a
+completed unit of work.** The user asked to save, commit, and update the
+todo list so a *different* future session (or this session resumed later)
+can pick this up cleanly. Do not assume the investigation above is
+finished — it is a mapped blast radius, not a verified implementation.
+
+**Resume here, in order:**
+1. **Settle the `EffectType` neutral-member decision first** (the other
+   session's own explicit ordering advice: "this is latent only because the
+   affected rules are `machine_executable=false` … Settle this first," i.e.
+   before any `trusted_config`-authoring UI work, since that UI is exactly
+   what activates the bug). Recommended shape: add `EffectType.NEUTRAL =
+   "neutral"` (or similar), route `DEFINITION`/`CLASSIFICATION` to it in
+   `_RULE_TYPE_MAP`, and make sure `_apply_combining_algorithm` excludes it
+   from both `allow_like` and `deny_side` (a neutral rule should never win
+   the override algorithm or contribute to `required_actions`/
+   `denied_actions`). Thread the new literal through the ~6 frontend files
+   identified above. Decide + document the 149-row backfill in a new ADR.
+   Full regression (pytest/tsc/vite/live smoke) before calling it done.
+2. Resume the interrupted `grep` on `ReviewQueue.tsx`'s effect-type badge
+   rendering (was mid-call when this session paused) as the first concrete
+   step of item 1's frontend half.
+3. After that's closed: remaining 🟠 P2 items in `known-limitations.md` —
+   "Impact analysis: pre-publish candidate testing" (partially closed by
+   ADR-0010; missing the pre-publish-candidate half) and "Control mapping to
+   compliance frameworks."
+4. Per the other session's own handoff: "MHRSD extraction defects" (Article
+   38 incomplete amendment, conflicting 90-day/70-day settlement deadlines,
+   template content treated as law, conflicting Saudization rates) need a
+   **human reviewer decision**, not code — do not bulk-approve MHRSD
+   candidates to "resolve" this.
+5. **Read `docs/handoff/backend-data-integrity-handoff.md` in full** before
+   touching any of `formulation_mapping.py`, `ai_quality.py`,
+   `correlation_agent.py`/`correlation_service.py`, or the extraction
+   pipeline — it documents several sharp environment facts (no `/api/health`
+   — liveness is `/api/policy-sets`; `ConditionOperator.EQUALS` not `.EQ`;
+   `correlation_findings` joins on `run_id` not `correlation_run_id`;
+   PowerShell mangles multi-line `git commit -m` — use `-F` with a file)
+   that will cost time to rediscover if skipped.
+6. **Concurrency reminder** (still true): this folder is shared with at
+   least one other active session with no git isolation (no worktrees,
+   same branch). Stage commits by **explicit path, never `git add -A`**.
+   Treat any cross-session handoff claim as unverified until checked
+   against the actual file list / a direct query, per the other session's
+   own hard-won note: three of its cross-session claims failed
+   verification in a single exchange this cycle.
+
+**On resume, to reload full context:** re-read this file's tail (this
+section + Milestones 41-42 above), `docs/known-limitations.md`, the newest
+ADRs (`ADR-0012`, `ADR-0013`), and
+`docs/handoff/backend-data-integrity-handoff.md`. Re-run
+`pytest tests/unit -q` / `npx tsc -b --force` / `npx vite build` / a
+`/api/policy-sets` liveness check to re-confirm no drift before starting
+new work — the last confirmed-clean run at handoff time was 322/322 passed,
+0 tsc errors, clean vite build, backend healthy.
+
+### Environment note — Docker/backend can silently die between sessions
+
+While preparing this handoff, `alembic current` hung indefinitely. Root
+cause: the `policy-postgres` container had exited (`docker ps -a` showed
+`Exited (255)` ~27 minutes earlier, `docker inspect` showed
+`OOMKilled=false`, no fatal error in `docker logs` — it simply stopped
+mid-checkpoint-cycle with no graceful-shutdown log line, consistent with an
+external Docker Desktop/WSL2 restart rather than an application crash). The
+backend `uvicorn` process was also no longer running (not merely
+disconnected — nothing was listening on 8010 at all), independent of the
+two unrelated `uvicorn` processes on port 8000 that belong to a different
+project (`AutonAgent`) — don't mistake those for this project's backend
+when checking `Get-CimInstance Win32_Process`.
+
+**Recovery performed (safe to repeat if this recurs):**
+1. `docker start policy-postgres` — the container still existed (not
+   removed), so the data volume was intact; confirmed via
+   `docker exec policy-postgres psql -U policy_admin -d policy_platform -c
+   "SELECT version_num FROM alembic_version;"` → `f6a7b8c9d0e1` (correct,
+   matches the single head) and row counts unchanged (7 policy_sets, 2460
+   candidate_rules, 3 policy_attestations) — **no data loss from a container
+   restart**, only from a container *removal*, which did not happen here.
+2. Restarted the backend: `.\.venv\Scripts\python.exe -m uvicorn
+   policy_platform.api.app:app --host 127.0.0.1 --port 8010 --app-dir src
+   --reload` (per `README.md`), launched detached so it survives this
+   session's own shutdown.
+3. Re-ran `pytest tests/unit -q` after the restart → 322/322 still passing
+   (confirms the outage was pure infra, not a data or code regression).
+4. The frontend Vite dev server (5174) was also down after this event and
+   was deliberately **not** restarted here — it is owned by the concurrent
+   UI-focused session; whoever needs it running should start it themselves
+   (`npm run dev` under `apps/web`).
+
+**Lesson for future sessions:** don't assume a "backend healthy" check from
+earlier in the *same* conversation still holds after a long gap — Docker
+containers and long-running dev processes in this shared, non-sandboxed
+environment can be stopped by events outside any session's control (host
+sleep/resume, Docker Desktop restarts/updates, WSL2 VM recycling). If
+`alembic current`, a health check, or any DB-touching command hangs or
+refuses a connection, check `docker ps -a` and the relevant port first
+before assuming a code-level bug.

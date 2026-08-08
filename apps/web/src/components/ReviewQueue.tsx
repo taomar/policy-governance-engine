@@ -176,6 +176,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [draftScope, setDraftScope] = useState<PolicyScope>(EMPTY_SCOPE);
   const [draftIsExplicitOverride, setDraftIsExplicitOverride] = useState(false);
   const [draftSupersedesRuleIds, setDraftSupersedesRuleIds] = useState<string[]>([]);
+  const [draftGroupLabel, setDraftGroupLabel] = useState("");
+  const [draftRelatedRuleIds, setDraftRelatedRuleIds] = useState<string[]>([]);
   const [advancedJson, setAdvancedJson] = useState("{}");
   const [draftError, setDraftError] = useState<string | null>(null);
 
@@ -420,6 +422,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           scope: draftScope,
           is_explicit_override: draftIsExplicitOverride,
           supersedes_rule_ids: draftSupersedesRuleIds,
+          group_label: draftGroupLabel,
+          related_rule_ids: draftRelatedRuleIds,
           condition: buildCondition(conditionRows.filter((r) => r.fact.trim() !== "")),
           effect: { type: effectType, action: effectAction },
           required_facts: conditionRows
@@ -440,6 +444,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       setDraftScope(EMPTY_SCOPE);
       setDraftIsExplicitOverride(false);
       setDraftSupersedesRuleIds([]);
+      setDraftGroupLabel("");
+      setDraftRelatedRuleIds([]);
       await loadCandidates();
     } catch (e) {
       setDraftError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
@@ -627,6 +633,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                       supersedesRuleIds={draftSupersedesRuleIds}
                       onSupersedesRuleIdsChange={setDraftSupersedesRuleIds}
                       supersedeCandidates={(activeVersionRules ?? []).map((r) => ({ rule_id: r.rule_id, title: r.title }))}
+                      groupLabel={draftGroupLabel}
+                      onGroupLabelChange={setDraftGroupLabel}
+                      existingGroupLabels={(activeVersionRules ?? []).map((r) => r.group_label).filter(Boolean)}
+                      relatedRuleIds={draftRelatedRuleIds}
+                      onRelatedRuleIdsChange={setDraftRelatedRuleIds}
                     />
 
                     <Form.Item label="Condition (AND of comparisons — use Advanced mode for OR/NOT/nested logic)">

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { Alert, Card, Space, Typography } from "antd";
+import { Alert, Card, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  EditOutlined,
   FileTextOutlined,
+  SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicySet } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
@@ -30,9 +32,12 @@ interface Stats {
 export function ProjectOverviewTab({
   policySet,
   onNavigate,
+  onEditProject,
 }: {
   policySet: PolicySet;
   onNavigate: (page: string) => void;
+  /** Opens the project's Edit modal (RACI/ownership fields live there) — omitted hides the "Configure" action. */
+  onEditProject?: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +70,30 @@ export function ProjectOverviewTab({
   }, [policySet.key]);
 
   const pending = stats?.pendingCandidateCount ?? 0;
+  const raciEntries: { label: string; value: string; isDefault: boolean }[] = [
+    { label: "Owning department", value: policySet.owner || "Not set", isDefault: !policySet.owner },
+    {
+      label: "Accountable owner",
+      value: policySet.accountable_owner || "Not set",
+      isDefault: !policySet.accountable_owner,
+    },
+    {
+      label: "Delegate approver",
+      value: policySet.delegate_approver || "Not set",
+      isDefault: !policySet.delegate_approver,
+    },
+    {
+      label: "Escalation contact",
+      value: policySet.escalation_contact || "Not set",
+      isDefault: !policySet.escalation_contact,
+    },
+  ];
+  const hasRaciConfigured =
+    !!policySet.accountable_owner ||
+    !!policySet.delegate_approver ||
+    !!policySet.escalation_contact ||
+    policySet.consulted_parties.length > 0 ||
+    policySet.informed_parties.length > 0;
   const steps = [
     {
       key: "documents",
@@ -151,6 +180,77 @@ export function ProjectOverviewTab({
             style={{ marginTop: 16 }}
           />
         ))}
+
+      <Card
+        title={
+          <Space size={8}>
+            <SafetyCertificateOutlined />
+            Governance &amp; ownership
+          </Space>
+        }
+        extra={
+          onEditProject && (
+            <a onClick={onEditProject}>
+              <EditOutlined /> Configure
+            </a>
+          )
+        }
+        style={{ marginTop: 16 }}
+      >
+        {hasRaciConfigured ? (
+          <>
+            <div className="governance-grid">
+              {raciEntries.map((entry) => (
+                <div key={entry.label} className="governance-item">
+                  <Text type="secondary" className="governance-label">
+                    {entry.label}
+                  </Text>
+                  <Text className={entry.isDefault ? "governance-value-default" : undefined}>{entry.value}</Text>
+                </div>
+              ))}
+            </div>
+            {(policySet.consulted_parties.length > 0 || policySet.informed_parties.length > 0) && (
+              <Space direction="vertical" size={10} style={{ marginTop: 16 }}>
+                {policySet.consulted_parties.length > 0 && (
+                  <div>
+                    <Text type="secondary" className="governance-label">
+                      Consulted (RACI "C")
+                    </Text>
+                    <br />
+                    <Space size={4} wrap style={{ marginTop: 4 }}>
+                      {policySet.consulted_parties.map((p) => (
+                        <Tag key={p} bordered={false} className="fact-tag">
+                          {p}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </div>
+                )}
+                {policySet.informed_parties.length > 0 && (
+                  <div>
+                    <Text type="secondary" className="governance-label">
+                      Informed (RACI "I")
+                    </Text>
+                    <br />
+                    <Space size={4} wrap style={{ marginTop: 4 }}>
+                      {policySet.informed_parties.map((p) => (
+                        <Tag key={p} bordered={false} className="fact-tag">
+                          {p}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </div>
+                )}
+              </Space>
+            )}
+          </>
+        ) : (
+          <Space direction="vertical" size={4}>
+            <Text type="secondary">No accountable owner, delegate approver, or escalation contact set yet.</Text>
+            {onEditProject && <a onClick={onEditProject}>Configure ownership →</a>}
+          </Space>
+        )}
+      </Card>
 
       {stats?.activeVersion && <PolicySetSummaryPanel policySetKey={policySet.key} />}
 

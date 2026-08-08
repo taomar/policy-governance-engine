@@ -59,6 +59,30 @@ class PolicySet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     review_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Ownership / RACI metadata (ISO 37301, standard GRC practice) — ADR-0013.
+    # `owner` above is deliberately kept as-is (the owning department/team,
+    # e.g. "hr-team"); these fields add the *individual*-level accountability
+    # a RACI model requires without overloading that existing field's meaning:
+    #   - accountable_owner: the single named person/role ultimately
+    #     answerable for this policy set (RACI "A").
+    #   - delegate_approver: backup who can approve on the accountable
+    #     owner's behalf (e.g. while they are out); distinct from the
+    #     per-rule/version `approved_by` audit field, which just records who
+    #     actually clicked approve.
+    #   - escalation_contact: who overdue reviews/exceptions should be
+    #     routed to if the accountable owner is unresponsive.
+    #   - consulted_parties_json / informed_parties_json: free-form lists of
+    #     stakeholders (RACI "C" / "I") — subject-matter experts consulted
+    #     before a change, and parties merely informed once one lands.
+    # All five are optional free text/lists (no new workflow/routing engine
+    # exists yet to *use* escalation_contact automatically — see
+    # docs/known-limitations.md); they are persisted metadata a human reads.
+    accountable_owner: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    delegate_approver: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    escalation_contact: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    consulted_parties_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    informed_parties_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+
     approved_versions: Mapped[list["ApprovedPolicyVersion"]] = relationship(
         back_populates="policy_set", order_by="ApprovedPolicyVersion.created_at"
     )
@@ -525,10 +549,14 @@ class EvidenceReference(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 class Evaluation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """A recorded runtime evaluation request/response pair with result hash.
 
-    Append-only audit record of runtime evaluator calls (never updated).
+    Append-only audit record of runtime evaluator calls (never updated). Read
+    back through the "Decision Log" (see `api/routers/evaluations.py`'s
+    `list_evaluation_log`/`get_evaluation_log_detail`) — the query pattern is
+    always "most recent calls for this policy set", hence the composite index.
     """
 
     __tablename__ = "evaluations"
+    __table_args__ = (Index("ix_evaluations_policy_set_timestamp", "policy_set_id", "evaluation_timestamp"),)
 
     policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False)
     policy_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("approved_policy_versions.id"), nullable=False)
@@ -734,4 +762,70 @@ class PolicyTestRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     policy_test: Mapped["PolicyTest"] = relationship(back_populates="runs")
+    policy_version: Mapped["ApprovedPolicyVersion"] = relationship()
+
+
+class PolicyAttestation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One employee's obligation to acknowledge one published policy version
+    (ISO 37301 §7.3 "personnel shall be made aware of ... and shall be
+    required to demonstrate their awareness of, and commitment to comply
+    with" — ADR-0012).
+
+    Bound to `policy_version_id` (not just `policy_set_id`), the same
+    choice `PolicyTestRun` makes: the whole point is recording that a
+    specific person acknowledged the specific obligations that were in
+    force at a specific time, so the audit trail stays meaningful even
+    after the policy set republishes under a new version. Republishing
+    does NOT auto-create new attestation rows against the new version —
+    that would silently invent an obligation nobody actually assigned. A
+    Policy Manager launches a new campaign against the new version
+    explicitly, the same way they must explicitly decide `PolicySet
+    .review_due_date` rather than have it auto-recompute.
+
+    `employee_name`/`employee_identifier` are free strings, not a FK to a
+    user/employee table — this codebase has no personnel directory or
+    authentication system (see `ActorContext.tsx`: only 3 governance
+    actors — system_admin/policy_composer/policy_manager — are modeled at
+    all, and personnel acknowledging a policy are explicitly NOT one of
+    those actors). This mirrors the existing convention of `requester`
+    (`PolicyException`) and `approved_by`/`reviewed_by` elsewhere: identity
+    is asserted, not authenticated, consistent with this platform's local,
+    trust-based posture end to end. `employee_identifier` (typically an
+    email) is optional but is what the no-login self-service "find my
+    attestations" lookup matches against in addition to name, so an
+    employee can find their own pending items without a policy-set-scoped
+    login.
+
+    Mutable in place for the acknowledge step (`acknowledged_at`
+    /`acknowledgment_notes`) — a request/assignment record, not an
+    immutable governance artifact, the same posture as `PolicyException`
+    /`PolicyTest`.
+
+    `status` (pending/acknowledged/overdue) is deliberately NOT a stored
+    column, for the same reason `PolicyException.is_expired` and
+    `PolicySet.is_review_overdue` aren't: this codebase has no background
+    scheduler to flip a stale value, so it's computed at API-response time
+    from `acknowledged_at`/`due_date` (see
+    api/routers/policy_attestations.py). This also means "escalation" here
+    is a computed, queryable, always-fresh Overdue view a Policy Manager
+    checks and acts on manually — there is no email/notification
+    integration in this platform (see docs/known-limitations.md), so
+    automatic escalation delivery is explicitly out of scope, not an
+    oversight.
+    """
+
+    __tablename__ = "policy_attestations"
+
+    policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False, index=True)
+    policy_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("approved_policy_versions.id"), nullable=False, index=True
+    )
+    employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    employee_identifier: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    assigned_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledgment_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    policy_set: Mapped["PolicySet"] = relationship()
     policy_version: Mapped["ApprovedPolicyVersion"] = relationship()
