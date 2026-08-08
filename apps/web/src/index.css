@@ -90,8 +90,12 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   font-family: var(--font-sans);
-  font-size: 14.5px;
-  line-height: 1.55;
+  /* 14.5px was set for comfortable prose, but this is a workbench where people
+     process hundreds of rules per session — the extra 1.5px multiplied across
+     every row, chip and label is a large part of why screens felt oversized.
+     13px keeps antd's own token (main.tsx) and the document in agreement. */
+  font-size: 13px;
+  line-height: 1.5;
   font-weight: 400;
   color: var(--text-primary);
   background-color: var(--bg-app);
@@ -149,7 +153,7 @@ h2 {
 }
 
 h3 {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 650;
 }
 

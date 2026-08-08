@@ -4,6 +4,44 @@
    (that AntD doesn't cover) lives in each component's own class names below.
    ========================================================================== */
 
+/* ---------- Design tokens ----------
+   There were none, which is why every page had drifted to its own spacing,
+   radius and heading size: with nothing to be consistent *with*, each new
+   screen re-invented the rhythm and the sum read as amateur. One 4px scale,
+   one border colour, two shadows. Prefer these over literals in new work. */
+
+:root {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 28px;
+
+  --surface: #ffffff;
+  --surface-sunken: #f6f7fb;
+  --surface-inset: #f1f3f9;
+
+  --border: rgba(15, 23, 42, 0.09);
+  --border-strong: rgba(15, 23, 42, 0.16);
+
+  --text: #0f172a;
+  --text-muted: #5b6779;
+  --text-faint: #8b97a8;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
+  --shadow-pop: 0 8px 28px rgba(15, 23, 42, 0.11);
+
+  /* Density. This is a review tool where people work through hundreds of
+     rules, so it should read like a workbench, not a marketing page. */
+  --card-pad: 16px;
+  --section-gap: 14px;
+}
+
 .app-shell {
   height: 100vh;
   width: 100%;
@@ -289,10 +327,10 @@
 .page-inner {
   max-width: 1320px;
   margin: 0 auto;
-  padding: 26px 32px 56px;
+  padding: var(--sp-5) var(--sp-6) 48px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--section-gap);
 }
 
 /* The Policies workspace is a two-pane data view, not prose — the 1320px
@@ -884,15 +922,100 @@
 
 /* ---------- Policy Sets / shared page bits ---------- */
 
-.back-btn {
-  align-self: flex-start;
+/* ---------- Project workspace bar ----------
+   Identity, metadata, actions and the tab strip were three separately floating
+   bands stacked above the content, costing ~256px of chrome before a user saw
+   anything. They are one thing conceptually — "which project am I in, and which
+   view of it" — so they are now one surface. The back button was removed
+   outright: the sider lists every project and the header breadcrumb already
+   walks back, so it was a third route to the same place. */
+
+.ws-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.ws-bar__id {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 12px var(--sp-4) 11px;
+}
+
+.ws-bar__name {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text);
+  margin: 0;
+}
+
+.ws-bar__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* Metadata is reference material, not headline: one quiet line with dot
+   separators rather than a second row of competing chips. */
+.ws-bar__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px var(--sp-2);
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.ws-bar__meta .ant-typography {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.ws-bar__sep {
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.ws-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: 0 0 auto;
+}
+
+/* The tab strip is the bar's own footer, so it needs no second container of
+   its own — a box inside a box is what made this look stacked and loose. */
+.ws-bar__tabs {
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  padding: 6px var(--sp-2);
+}
+
+.ws-bar__tabs .workspace-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.ws-bar__tabs .workspace-tabs > .ant-tabs-nav .ant-tabs-nav-list {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .page-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--sp-4);
 }
 
 /* ---------- Page & section titles ----------
@@ -913,11 +1036,28 @@
    element here rather than in 11 call sites keeps the treatment in one
    place and means new pages inherit it for free. */
 .page-inner h3.ant-typography {
-  font-size: 25px;
+  font-size: 21px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
-  color: #0f172a;
+  color: var(--text);
+  margin-bottom: var(--sp-1) !important;
+}
+
+/* Inside a project the tab strip already names the view, so repeating it at
+   full page-title size was duplicated chrome that pushed content down on every
+   single tab. It still earns a heading — orientation matters when scrolled —
+   just one clear step below the project name that owns the screen. */
+.ws-tab-panel h3.ant-typography {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px !important;
+}
+
+/* The one-line purpose statement under a page title. */
+.ws-tab-panel > .ant-typography:not(h1):not(h2):not(h3):not(h4):not(h5) {
+  margin-bottom: var(--sp-3);
 }
 
 /* Section headings inside a page sit a clear step below the page title. */
@@ -4519,4 +4659,218 @@
   .tests-triage-actions .ant-btn {
     flex: 1 1 auto;
   }
+}
+
+/* ---------- Density layer ----------
+   Applied globally rather than per page: the airiness was not one bad card, it
+   was antd's 24px body padding plus generous section gaps repeated on every
+   surface, which is what made two lines of text occupy 200px. Tightening the
+   default fixes all pages at once and stops the next page from re-inheriting
+   the problem. Cards that genuinely need room can opt back up locally. */
+
+.page-inner .ant-card > .ant-card-body {
+  padding: var(--card-pad);
+}
+
+.page-inner .ant-card > .ant-card-head {
+  min-height: 0;
+  padding: 10px var(--card-pad);
+  border-bottom-color: var(--border);
+}
+
+.page-inner .ant-card > .ant-card-head .ant-card-head-title {
+  padding: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.page-inner .ant-card > .ant-card-head .ant-card-extra {
+  padding: 0;
+}
+
+/* antd's default vertical Space between stacked sections compounded with the
+   page gap, producing two competing rhythms on the same column. */
+.page-inner .ant-space-vertical > .ant-space-item:not(:last-child) {
+  margin-bottom: var(--sp-3) !important;
+}
+
+.page-inner .ant-alert {
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-md);
+}
+
+.page-inner .ant-empty {
+  margin: var(--sp-5) 0;
+}
+
+.page-inner .ant-empty-normal .ant-empty-image {
+  height: 34px;
+}
+
+/* A tab panel owns the page gap; its own first heading should not add to it. */
+.ws-tab-panel > *:first-child {
+  margin-top: 0;
+}
+
+/* The bar renders the tab *nav* only; panels are siblings below it, so antd's
+   content holder inside the bar is always empty and would otherwise add a
+   stray gap to the bar's footer. */
+.ws-bar__tabs .workspace-tabs > .ant-tabs-content-holder {
+  display: none;
+}
+
+/* ---------- Review queue density ----------
+   What replaced the 170px "Total rules" card. Publish progress was the only
+   thing on that band the interactive status tiles below don't already show. */
+
+.review-progress-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 2px 2px 0;
+}
+
+.review-progress-line__total {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.review-progress-line__total strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.review-progress-line__bar {
+  flex: 1 1 auto;
+  margin: 0 !important;
+}
+
+.review-progress-line__bar .ant-progress-inner {
+  background: var(--surface-inset);
+}
+
+.review-progress-line__label {
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+/* The filter bar measured 228px tall while its only child measured 203px, and
+   that child was a vertical antd Space whose items collapse to nothing when a
+   facet has no options — leaving a large empty well under the controls. Laying
+   the row out with flex/wrap means an absent facet takes no space at all. */
+.review-filter-bar .ant-card-body > .ant-space-vertical {
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  width: 100%;
+}
+
+.review-filter-bar .ant-card-body > .ant-space-vertical > .ant-space-item {
+  margin-bottom: 0 !important;
+}
+
+.review-filter-bar .ant-card-body > .ant-space-vertical > .ant-space-item:empty {
+  display: none;
+}
+
+.review-filter-bar .ant-card-body {
+  padding: var(--sp-2) var(--sp-3) !important;
+}
+
+/* Status tiles: the count is the payload, but at 17px in a 100px-tall tile it
+   read as a dashboard KPI rather than a filter. */
+.review-status-tab-count {
+  font-size: 14px !important;
+  font-weight: 650;
+}
+
+.bulk-bar .ant-card-body {
+  padding: var(--sp-2) var(--sp-3) !important;
+}
+
+.progress-stats-bar {
+  display: none;
+}
+
+/* ---------- Status filters: chips, not KPI tiles ----------
+   These are filters. Rendered as 49px cards with a decorative icon badge and a
+   stacked count-over-label, six of them formed a 220px dashboard band above the
+   queue and competed with the rules for attention. As a single row of chips the
+   same six affordances cost ~30px and read as what they are: a segmented
+   control. The icon is dropped rather than shrunk — it carried no information
+   the label doesn't already give. */
+
+.review-status-tabs {
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+  padding: 3px;
+  background: var(--surface-inset);
+  border-radius: var(--r-md);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.review-status-tab {
+  min-width: 0;
+  gap: var(--sp-2);
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  box-shadow: none;
+}
+
+.review-status-tab-icon {
+  display: none;
+}
+
+.review-status-tab:hover {
+  transform: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.7);
+  border-color: transparent;
+}
+
+.review-status-tab-active {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+/* Count and label sit on one line; the stacked arrangement is what forced the
+   tile to be tall in the first place. */
+.review-status-tab > span:not(.review-status-tab-icon) {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.review-status-tab-count {
+  font-size: 13px !important;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.review-status-tab-label {
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* A filter that matches nothing is still worth showing (it tells you the queue
+   is clean) but it should not draw the eye like an active one. */
+.review-status-tab-empty,
+.review-status-tab:has(.review-status-tab-count:only-child) {
+  opacity: 0.55;
+}
+
+/* The trailing Space item is rendered even when its facet has no options,
+   leaving a ~20px empty well under the controls. Hide any trailing item that
+   contains no actual control rather than guessing at fixed heights. */
+.review-filter-bar .ant-card-body .ant-space-item:last-child:not(:has(.ant-select)):not(:has(.ant-btn)):not(:has(.ant-input)):not(:has(.ant-segmented)):not(:has(.ant-tag)) {
+  display: none;
 }

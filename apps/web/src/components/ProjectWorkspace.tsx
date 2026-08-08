@@ -16,7 +16,6 @@ import {
   Typography,
 } from "antd";
 import {
-  ArrowLeftOutlined,
   AuditOutlined,
   CheckCircleOutlined,
   ControlOutlined,
@@ -29,7 +28,6 @@ import {
   NodeIndexOutlined,
   SafetyCertificateOutlined,
   SolutionOutlined,
-  ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
@@ -54,7 +52,7 @@ import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 
 type WorkspaceTabKey =
   | "overview"
@@ -263,13 +261,16 @@ const GROUP_DIVIDER_CSS = GROUP_DIVIDER_KEYS.map(
  */
 export function ProjectWorkspace({
   policySet,
-  onBack,
-  onOpenAskAi,
   onUpdated,
 }: {
   policySet: PolicySet;
-  onBack: () => void;
-  /** Opens the app-level Ask AI drawer, pre-scoped to this project. Omitted when AI is disabled. */
+  /** Retained so ProjectsPage keeps a programmatic way out (e.g. after a delete).
+      No longer surfaced as a button: the sider lists every project and the header
+      breadcrumb walks back, so an in-page "Back to Projects" was a third route to
+      the same place occupying a full row above the fold. */
+  onBack?: () => void;
+  /** The header's Ask AI is already scoped to the active project, so this
+      component no longer renders its own duplicate trigger. */
   onOpenAskAi?: () => void;
   /** Reports a successful metadata edit so the parent (ProjectsPage) can refresh its list/selection. */
   onUpdated?: (ps: PolicySet) => void;
@@ -416,87 +417,85 @@ export function ProjectWorkspace({
 
   return (
     <>
-      <Button icon={<ArrowLeftOutlined />} onClick={onBack} className="back-btn">
-        Back to Projects
-      </Button>
-
-      <div className="page-header-row">
-        <div>
-          <Space size={8} align="center" wrap>
-            <Title level={3} style={{ marginBottom: 4 }}>
-              {policySet.name}
-            </Title>
-            {policySet.category && (
-              <Tag color={colorForCategory(policySet.category)} style={{ marginBottom: 4 }}>
-                {policySet.category}
-              </Tag>
-            )}
-            {policySet.review_due_date && (
-              <Tag
-                color={policySet.is_review_overdue ? "error" : "default"}
-                icon={policySet.is_review_overdue ? <WarningOutlined /> : <CheckCircleOutlined />}
-                style={{ marginBottom: 4 }}
-              >
-                {policySet.is_review_overdue ? "Review overdue · due " : "Review due "}
-                {dayjs(policySet.review_due_date).format("MMM D, YYYY")}
-              </Tag>
-            )}
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={openEdit}
-              style={{ marginBottom: 4 }}
-              aria-label="Edit project details"
-            >
+      <div className="ws-bar">
+        <div className="ws-bar__id">
+          <div>
+            <div className="ws-bar__title-row">
+              <h1 className="ws-bar__name">{policySet.name}</h1>
+              {policySet.category && (
+                <Tag color={colorForCategory(policySet.category)} bordered={false}>
+                  {policySet.category}
+                </Tag>
+              )}
+              {policySet.review_due_date && (
+                <Tag
+                  color={policySet.is_review_overdue ? "error" : "default"}
+                  bordered={false}
+                  icon={policySet.is_review_overdue ? <WarningOutlined /> : <CheckCircleOutlined />}
+                >
+                  {policySet.is_review_overdue ? "Review overdue · due " : "Review due "}
+                  {dayjs(policySet.review_due_date).format("MMM D, YYYY")}
+                </Tag>
+              )}
+            </div>
+            <div className="ws-bar__meta">
+              <Text type="secondary" className="entity-id-row" copyable={{ text: policySet.key }}>
+                {policySet.key}
+              </Text>
+              <span className="ws-bar__sep">·</span>
+              <Text type="secondary">owner: {policySet.owner}</Text>
+              {policySet.last_reviewed_at && (
+                <>
+                  <span className="ws-bar__sep">·</span>
+                  <Text type="secondary">
+                    last reviewed {dayjs(policySet.last_reviewed_at).format("MMM D, YYYY")}
+                  </Text>
+                </>
+              )}
+              {policySet.description && (
+                <>
+                  <span className="ws-bar__sep">·</span>
+                  <Text type="secondary" ellipsis={{ tooltip: policySet.description }} style={{ maxWidth: 380 }}>
+                    {policySet.description}
+                  </Text>
+                </>
+              )}
+              {policySet.tags.length > 0 && (
+                <Space size={4} wrap>
+                  {policySet.tags.map((t) => (
+                    <Tag key={t} bordered={false} className="fact-tag">
+                      {t}
+                    </Tag>
+                  ))}
+                </Space>
+              )}
+            </div>
+          </div>
+          <div className="ws-bar__actions">
+            <Button size="small" icon={<EditOutlined />} onClick={openEdit} aria-label="Edit project details">
               Edit
             </Button>
-            <Button type="text" size="small" onClick={openReview} style={{ marginBottom: 4 }}>
+            <Button size="small" onClick={openReview}>
               Mark Reviewed
             </Button>
-          </Space>
-          <br />
-          <Space size={10} wrap>
-            <Text type="secondary" className="entity-id-row" copyable={{ text: policySet.key }}>
-              {policySet.key}
-            </Text>
-            <Text type="secondary">owner: {policySet.owner}</Text>
-            {policySet.last_reviewed_at && (
-              <Text type="secondary">last reviewed: {dayjs(policySet.last_reviewed_at).format("MMM D, YYYY")}</Text>
-            )}
-            {policySet.tags.length > 0 && (
-              <Space size={4} wrap>
-                {policySet.tags.map((t) => (
-                  <Tag key={t} bordered={false} className="fact-tag">
-                    {t}
-                  </Tag>
-                ))}
-              </Space>
-            )}
-          </Space>
+          </div>
         </div>
-        {onOpenAskAi && (
-          <Button type="primary" icon={<ThunderboltOutlined />} onClick={onOpenAskAi}>
-            Ask AI about this project
-          </Button>
-        )}
-      </div>
-      {policySet.description && <Paragraph type="secondary">{policySet.description}</Paragraph>}
 
-      {/* Group dividers, derived from TAB_META so hiding a tab cannot strand one.
-          Drawn as a pseudo-element in the gap *between* two tabs, so unlike the
-          caption text this replaces it can never be enclosed by the active tab's
-          white pill. */}
-      <style>{`${GROUP_DIVIDER_CSS} { margin-left: 13px !important; }
+        {/* Group dividers, derived from TAB_META so hiding a tab cannot strand one.
+            Drawn as a pseudo-element in the gap *between* two tabs, so unlike the
+            caption text this replaces it can never be enclosed by the active tab's
+            white pill. */}
+        <style>{`${GROUP_DIVIDER_CSS} { margin-left: 13px !important; }
 ${GROUP_DIVIDER_CSS.split(",\n")
   .map((s) => `${s}::after`)
   .join(",\n")} { content: ""; position: absolute; left: -7px; top: 50%; transform: translateY(-50%); width: 1px; height: 15px; background: rgba(15,23,42,0.15); }`}</style>
 
-      <Tabs
-        className="workspace-tabs"
-        activeKey={activeTab}
-        onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
-        items={VISIBLE_TAB_META.map((meta) => {
+        <div className="ws-bar__tabs">
+          <Tabs
+            className="workspace-tabs"
+            activeKey={activeTab}
+            onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
+            items={VISIBLE_TAB_META.map((meta) => {
           const value = meta.count ? counts?.[meta.count] : undefined;
           return {
             key: meta.key,
@@ -514,10 +513,16 @@ ${GROUP_DIVIDER_CSS.split(",\n")
                 </span>
               </Tooltip>
             ),
-            children: TAB_CONTENT[meta.key],
+            /* Panels are rendered outside the bar (see below): the bar is
+               navigation, and nesting page content inside its footer strip
+               would trap every tab's body in a sunken 6px-padded rail. */
           };
         })}
-      />
+          />
+        </div>
+      </div>
+
+      <div className="ws-tab-panel">{TAB_CONTENT[activeTab]}</div>
 
       <Modal
         title="Edit Project"

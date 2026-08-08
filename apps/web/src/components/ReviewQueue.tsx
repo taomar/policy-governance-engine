@@ -766,30 +766,28 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         />
       )}
 
+      {/* The six status counts that used to sit here as read-only tags are
+          already rendered directly below by ReviewStatusTabs — where they are
+          also clickable filters. Duplicating them cost 170px above the fold and
+          gave the reviewer a second, dumber copy of the same numbers. Only the
+          publish progress was unique to this band, so that is all that remains,
+          as a single slim line. */}
       {selectedKey && totalCandidates > 0 && (
-        <Card size="small" className="progress-stats-bar" style={{ marginBottom: 16 }}>
-          <Row gutter={24} align="middle">
-            <Col flex="220px">
-              <Statistic title="Total rules" value={totalCandidates} />
-            </Col>
-            <Col flex="auto">
-              <Progress
-                percent={publishedPct}
-                success={{ percent: publishedPct }}
-                format={() => `${statusCounts.published ?? 0} published`}
-              />
-            </Col>
-            <Col>
-              <Space size={[6, 6]} wrap>
-                {STATUS_FILTERS.filter((s) => s !== "all").map((s) => (
-                  <Tag key={s} color={STATUS_COLOR[s]} style={{ margin: 0 }}>
-                    {STATUS_LABEL[s]}: {statusCounts[s] ?? 0}
-                  </Tag>
-                ))}
-              </Space>
-            </Col>
-          </Row>
-        </Card>
+        <div className="review-progress-line">
+          <Text className="review-progress-line__total">
+            <strong>{totalCandidates}</strong> rules
+          </Text>
+          <Progress
+            percent={publishedPct}
+            size="small"
+            showInfo={false}
+            strokeColor="#16a34a"
+            className="review-progress-line__bar"
+          />
+          <Text type="secondary" className="review-progress-line__label">
+            {statusCounts.published ?? 0} published · {publishedPct}%
+          </Text>
+        </div>
       )}
 
       {selectedKey && (

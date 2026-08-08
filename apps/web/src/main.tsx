@@ -13,7 +13,20 @@ const theme = {
     borderRadius: 10,
     fontFamily:
       '"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-    fontSize: 14,
+    fontSize: 13,
+    // A review tool is read at desk distance for long sessions, so the type
+    // scale is set here rather than patched in CSS: antd derives heading sizes,
+    // control heights and line-heights from these tokens, so overriding only
+    // font-size downstream gives you small text inside unchanged 40px controls.
+    fontSizeSM: 12,
+    fontSizeLG: 15,
+    fontSizeHeading3: 19,
+    fontSizeHeading4: 15,
+    fontSizeHeading5: 14,
+    lineHeight: 1.5,
+    controlHeight: 30,
+    controlHeightSM: 24,
+    controlHeightLG: 36,
     colorBgLayout: '#f7f7fb',
   },
   components: {
@@ -32,6 +45,9 @@ const theme = {
     },
     Card: {
       borderRadiusLG: 14,
+    },
+    Statistic: {
+      contentFontSize: 20,
     },
   },
 }
