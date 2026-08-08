@@ -92,6 +92,13 @@ async def _load_rules(
         .where(
             CandidateRule.policy_set_id == policy_set_id,
             CandidateRule.review_status.in_(statuses),
+            # Superseded rows are the *previous* extraction of a document, kept
+            # for delta comparison. They must never reach correlation: dedupe
+            # below keys on `rule_id`, which is regenerated on every run, so an
+            # unchanged rule and its own predecessor carry different ids and
+            # would be reported to the reviewer as a DUPLICATE the system
+            # manufactured itself.
+            CandidateRule.superseded_at.is_(None),
         )
         .order_by(CandidateRule.revision)
     )

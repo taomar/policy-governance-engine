@@ -34,7 +34,7 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai-test-proposal-v1"
+PROMPT_VERSION = "ai-test-proposal-v2"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 _VALID_TEST_KINDS = {k.value for k in PolicyTestKind}
@@ -72,6 +72,23 @@ Facts you invent for input_facts must use the same dotted key convention shown i
 and required_facts (e.g. "employee.tenureYears", "subject.persona"). Only ever reference rule_id values \
 that were given to you.
 
+CRITICAL — read "machine_executable" on every rule before predicting anything about it. The engine checks \
+that flag FIRST and, when it is false, returns NOT_APPLICABLE for that rule immediately without ever \
+looking at its scope, its condition or its exceptions. A rule with machine_executable=false is documented \
+prose that has not been reduced to executable logic; it can NEVER return SATISFIED, NOT_SATISFIED or \
+INDETERMINATE no matter how obviously true its condition text looks, and an empty condition like \
+{"all": []} on such a rule is NOT a rule that always passes. For those rules the only correct \
+expected_rule_status is "NOT_APPLICABLE". If every rule you were given has machine_executable=false, then \
+every evaluation of this policy set returns overall_status=NOT_APPLICABLE, so do not propose "positive", \
+"boundary" or "exception" tests expecting SATISFIED — propose the NOT_APPLICABLE expectations that are \
+actually true, and say plainly in each description that the rule is not machine-executable yet.
+
+If the user message contains a "reviewer_guidance" field, treat it as a priority steer from the policy \
+reviewer: bias your coverage toward the areas, rules, or risks it names, and propose more tests there. It \
+never overrides the rules you were given, the output contract below, or the requirement that expectations \
+be correct predictions — if the guidance asks for something the rule set cannot support, cover what it \
+can support instead of inventing rules.
+
 Respond with a JSON object: {"tests": [ { "name": str, "description": str, "test_kind": one of \
 "positive"|"negative"|"boundary"|"missing_fact"|"scope"|"effective_date"|"exception"|"precedence", \
 "input_facts": {fact_name: literal_value_or_null, ...}, "evaluation_timestamp": "YYYY-MM-DD" or null, \
@@ -84,6 +101,13 @@ If nothing meaningful can be proposed, return {"tests": []}."""
 def _rule_summary(rule: CanonicalRule) -> dict:
     return {
         "rule_id": rule.rule_id,
+        # `machine_executable` short-circuits `_evaluate_rule` before scope,
+        # condition or exceptions are ever consulted, so a model that reasons
+        # carefully about all of those and never sees this flag will confidently
+        # predict SATISFIED for a rule the engine can only ever return
+        # NOT_APPLICABLE for. It is the single most outcome-determining field in
+        # this payload and must never be omitted from it again.
+        "machine_executable": rule.machine_executable,
         "title": rule.title,
         "description": rule.description,
         "rule_type": rule.rule_type.value,
@@ -168,13 +192,21 @@ def _validate_proposed_test(raw: dict, valid_rule_ids: set[str]) -> tuple[dict |
 
 
 async def propose_policy_tests(
-    session: AsyncSession, *, policy_set_key: str, reasoning_effort: str = "medium"
+    session: AsyncSession, *, policy_set_key: str, reasoning_effort: str = "medium", guidance: str = ""
 ) -> dict:
     """Ask Azure OpenAI to propose `PolicyTest` candidates for the policy
     set's currently active approved version. Returns validated payloads
     ready for `PolicyTestRepository.create(...)` (still to be persisted by
     the caller with proposed_by="ai" and pending-review status), plus a
     list of any proposals that were skipped and why.
+
+    `guidance` is an optional plain-English steer from the reviewer ("focus on
+    overtime thresholds", "we care most about termination cases"). It is passed
+    as *user* content rather than folded into the system prompt, so it can bias
+    which scenarios are chosen but cannot silently redefine the output contract
+    or the validation rules applied to each proposal below. Every proposal is
+    still validated against the real rule ids and enum values regardless of what
+    the guidance asked for.
     """
 
     settings = get_settings()
@@ -204,7 +236,11 @@ async def propose_policy_tests(
         }
 
     ai_client = AzureOpenAIClient(settings)
-    user_content = json.dumps({"approved_rules": [_rule_summary(r) for r in package.rules]}, indent=2, default=str)
+    request_payload: dict = {"approved_rules": [_rule_summary(r) for r in package.rules]}
+    steer = guidance.strip()
+    if steer:
+        request_payload["reviewer_guidance"] = steer
+    user_content = json.dumps(request_payload, indent=2, default=str)
 
     # See openai_client.chat() docstring: gpt-5.6-sol is a reasoning model
     # and silently returns empty content if max_tokens is too small.

@@ -171,7 +171,7 @@ async def propose_policy_tests(
     await _require_policy_set(session, key)
     try:
         result = await ai_test_proposal.propose_policy_tests(
-            session, policy_set_key=key, reasoning_effort=body.reasoning_effort
+            session, policy_set_key=key, reasoning_effort=body.reasoning_effort, guidance=body.guidance
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

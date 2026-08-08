@@ -17,12 +17,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.infrastructure import (
     ai_chat,
     ai_compare,
+    ai_draft,
     ai_extraction,
     ai_quality,
     ai_rewrite,
@@ -30,8 +31,16 @@ from policy_platform.infrastructure import (
     ai_scenario_engine,
     ai_summary,
     correlation_service,
+    extraction_progress,
+    rule_change_explainer,
 )
-from policy_platform.domain.models import CorrelationFindingRow, CorrelationRun, PolicySet
+from policy_platform.domain.models import (
+    CandidateRule,
+    CorrelationFindingRow,
+    CorrelationRun,
+    ExtractionRun,
+    PolicySet,
+)
 from policy_platform.infrastructure.audit import FINDING_DISPOSED, record_audit_event
 from policy_platform.infrastructure.db import get_session
 from policy_platform.infrastructure.repositories import (
@@ -134,6 +143,112 @@ async def extract_with_ai(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/candidate-rules/{candidate_id}/explain-change")
+async def explain_candidate_change(
+    candidate_id: uuid.UUID,
+    narrative: bool = True,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """What changed between this candidate and the rule it continues.
+
+    Answers the question the `Changed` badge creates. The field-level diff is
+    computed from the two persisted payloads and is exact; the narrative is an
+    optional plain-English reading of that diff and is omitted rather than
+    guessed if the model is unavailable. Pass `narrative=false` to skip the
+    model call entirely.
+
+    A candidate with no predecessor is a normal state, not an error, so this
+    returns `comparable: false` with an explanation instead of a 404.
+    """
+    try:
+        return await rule_change_explainer.explain_candidate_change(
+            session, candidate_id=candidate_id, use_ai_narrative=narrative
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/documents/{document_version_id}/extraction-progress")
+async def extraction_progress_status(document_version_id: uuid.UUID) -> dict:
+    """Live counters for an in-flight (or just-finished) extraction.
+
+    Deliberately keyed on the document version rather than the run id: the
+    client cannot learn a run id until the extract POST returns, which is after
+    the run it wanted to watch has already ended.
+
+    Returns `{"active": false}` when nothing is tracked — a poll for a document
+    that was never extracted, or whose progress record has since been pruned, is
+    a normal state and not an error.
+    """
+    record = extraction_progress.get(str(document_version_id))
+    if record is None:
+        return {"active": False}
+    return {"active": True, **record}
+
+
+@router.get("/documents/{document_version_id}/extraction-runs")
+async def list_extraction_runs(
+    document_version_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[dict]:
+    """Every extraction attempt against a document version, newest first.
+
+    A reviewer looking at 363 candidates needs to know which run produced them
+    and what re-running would do. Counts are derived from `candidate_rules`
+    rather than stored on the run, so they stay true as rules are reviewed —
+    a stored count would drift the moment somebody approved something.
+    """
+    runs = (
+        await session.execute(
+            select(ExtractionRun)
+            .where(ExtractionRun.document_version_id == document_version_id)
+            .order_by(desc(ExtractionRun.started_at))
+        )
+    ).scalars().all()
+    if not runs:
+        return []
+
+    counts = dict(
+        (
+            await session.execute(
+                select(CandidateRule.extraction_run_id, func.count())
+                .where(CandidateRule.extraction_run_id.in_([r.id for r in runs]))
+                .group_by(CandidateRule.extraction_run_id)
+            )
+        ).all()
+    )
+    reviewed = dict(
+        (
+            await session.execute(
+                select(CandidateRule.extraction_run_id, func.count())
+                .where(
+                    CandidateRule.extraction_run_id.in_([r.id for r in runs]),
+                    CandidateRule.review_status != "candidate",
+                )
+                .group_by(CandidateRule.extraction_run_id)
+            )
+        ).all()
+    )
+
+    return [
+        {
+            "id": str(run.id),
+            "reference": run.reference,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "error_message": run.error_message,
+            "prompt_version": run.prompt_version,
+            "deployment_name": run.deployment_name,
+            "rules_total": counts.get(run.id, 0),
+            "rules_reviewed": reviewed.get(run.id, 0),
+            # The newest run that produced anything is the one whose rules are
+            # actually in the queue; older runs' unreviewed rules were cleared.
+            "is_current": run.id == next((r.id for r in runs if counts.get(r.id, 0) > 0), None),
+        }
+        for run in runs
+    ]
+
+
 class RewriteRequest(BaseModel):
     instruction: str
 
@@ -181,6 +296,47 @@ async def rewrite_preview(body: RewritePreviewRequest) -> dict:
     _require_ai_configured()
     try:
         return await ai_rewrite.suggest_rewrite_for_payload(body.rule, instruction=body.instruction)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class DraftFromTextRequest(BaseModel):
+    """Authored policy text to formulate into draft rules."""
+
+    text: str
+    trusted_config: dict[str, Any] | None = None
+
+
+@router.post("/policy-sets/{key}/rules/draft-from-text")
+async def draft_from_text(
+    key: str, body: DraftFromTextRequest, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Turn a policy statement a human typed into draft `CanonicalRule`s.
+
+    The document-extraction counterpart of this endpoint reads clauses out of
+    an ingested file; this one takes the author's own words. Both hand the text
+    to the same policy formulator agent and the same deterministic mapper, so a
+    rule drafted here is structurally identical to one extracted from a
+    document — it simply cites no clause, because none exists.
+
+    Returns unsaved drafts plus a `trace` of what the pipeline did. Nothing is
+    persisted: the caller reviews and edits the result, then submits it through
+    `POST /api/policy-sets/{key}/candidate-rules` like any other draft, which
+    keeps a single, human-operated door into the review queue.
+    """
+
+    _require_ai_configured()
+    try:
+        return await ai_draft.draft_rules_from_text(
+            session,
+            policy_set_key=key,
+            text=body.text,
+            trusted_config=body.trusted_config,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
