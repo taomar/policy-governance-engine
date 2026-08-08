@@ -3977,3 +3977,80 @@ historical because its neutral-`EffectType` open item is now resolved by
 the stale `effecttype-neutral-member` item was marked done, and two pending
 architecture-decision items were added for applicability classification and
 scope population.
+
+## Milestone 47 - Refresh first-50 extraction and move UI to port 5789
+
+**Status:** Complete
+
+### Objective
+
+Replace the current unreviewed machine output for `saudi-labor-law` with a
+fresh run of the latest committed extraction pipeline, bounded to the first
+50 source clauses, and serve the frontend at `http://127.0.0.1:5789`.
+
+### Architectural Context
+
+- **System boundary:** AI-assisted candidate drafting for one existing source
+  document; no approved or published policy data is in scope.
+- **Owning boundary:** `extract_candidate_rules()` owns rerun supersession and
+  removes only `candidate` rows with no published version from prior runs of
+  the same document.
+- **Invariant:** a machine rerun must not erase a human review decision or
+  published rule. The current 47 rows are all unreviewed `candidate` rows, so
+  the requested refresh stays within that invariant.
+- **Runtime boundary:** the API remains on port 8010; only the Vite development
+  server moves from 5178 to the user-requested port 5789.
+
+### Architectural Signals
+
+- **Signal observed:** none requiring a structural change. The existing
+  supersession behavior is already located at the correct write boundary.
+- **Decision:** use the extraction endpoint with `{"max_clauses": 50}` rather
+  than direct database deletion, preserving extraction-run audit history and
+  the service's reviewed-row safeguards.
+
+### Impact Analysis
+
+- **Data impact:** the 47 current unreviewed candidates will be superseded;
+  document, clauses, policy set, historical extraction runs, and any approved
+  or published data remain unchanged.
+- **Contract impact:** none.
+- **Security/operational impact:** local services only; `.env` credentials
+  remain process-local and must not be copied into output.
+- **Rollback approach:** because candidate rows are persisted per batch during
+  a long extraction, a failed run may leave partial new draft output. Verify
+  final run status and candidate ownership before declaring completion.
+
+### Exact next action
+
+Verify API and port 5789 readiness, invoke the extraction endpoint for document
+version `0fbf7f9c-a386-41ab-87f4-8b0ac64f8c1a`, then validate the resulting
+candidate set and retire the previous port-5178 Vite process.
+
+### Completion
+
+- Latest committed pipeline at `91cf192` ran through extraction run
+  `61e7b4e1-7748-4ffa-a586-efe4b6d663fb`.
+- Request scope was `{"max_clauses": 50}`. The run superseded all 47 prior
+  unreviewed candidates, created 44 fresh candidates, skipped 0 batches, and
+  completed successfully in 262.2 seconds. The output count is intentionally
+  not forced to 50 because Stage 1 rejects non-policy-bearing source content.
+- All 44 current rows are `candidate`, none are published, and they all belong
+  to the new extraction run. The policy set still has no approved version.
+- All 178 stored evidence links resolve to the bounded source range (clause
+  sequences 0 through 49); none point outside the first 50 clauses.
+- Effect distribution is 29 `informational`, 8 `allow`, 4 `require_action`,
+  and 3 `deny`.
+- Regression-sensitive data checks passed: exemption-derived output has 6
+  `allow` and 0 `deny` rules; the longest action is 1,383 characters and no
+  action is exactly 200 characters.
+- Frontend is healthy at `http://127.0.0.1:5789`; API health and policy-set
+  endpoints are healthy at port 8010. The prior Vite process was stopped and
+  port 5178 is free.
+- No candidate was approved or published, and no application code was changed.
+
+### Exact next action
+
+Review the 44 fresh candidates in the Review Queue at port 5789. Do not approve,
+publish, or expand extraction beyond the first 50 clauses without explicit user
+authorization.
