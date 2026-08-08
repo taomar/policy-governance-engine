@@ -96,10 +96,11 @@ cd apps\web
 npm run dev -- --host 127.0.0.1 --port 5789
 ```
 
-Important: `.env` currently has a historical `WEB_DEV_SERVER_PORT=5174`, and
-`apps/web/vite.config.ts` does not read that variable. Do not assume the env value
-controls Vite; use the explicit `--port 5789` argument unless the configuration is
-deliberately wired later.
+The ignored local `.env` now sets `WEB_DEV_SERVER_PORT=5789` so the backend CORS
+allowlist includes the browser origin. `apps/web/vite.config.ts` does not read that
+variable, so still start Vite with the explicit `--port 5789` argument. If the
+frontend port changes again, update the local setting and restart the API; middleware
+origins are constructed at process startup.
 
 The backend runs without `--reload`. Prompt and Python changes require a process
 restart. `load_formulator_prompt()` is additionally cached with

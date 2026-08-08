@@ -4054,3 +4054,69 @@ candidate set and retire the previous port-5178 Vite process.
 Review the 44 fresh candidates in the Review Queue at port 5789. Do not approve,
 publish, or expand extraction beyond the first 50 clauses without explicit user
 authorization.
+
+## Milestone 48 - Restore browser API access on port 5789
+
+**Status:** Complete
+
+### Visible symptom
+
+The frontend loaded at `http://127.0.0.1:5789`, but the dashboard reported
+`API unreachable` and `TypeError: Failed to fetch`.
+
+### Architectural Signals
+
+- **Signal observed:** runtime configuration and the selected frontend port
+  disagreed about the expected browser origin.
+- **Evidence:** direct API requests returned 200, while an OPTIONS request with
+  origin `http://127.0.0.1:5789` returned 400 without an
+  `Access-Control-Allow-Origin` header.
+- **Scope decision:** local runtime configuration defect, not an API or
+  frontend implementation defect.
+
+### Root-Cause Analysis
+
+- **Immediate cause:** browser CORS enforcement blocked calls from port 5789.
+- **Violated assumption:** moving Vite to a new explicit port also requires the
+  backend's configured development origin to move with it.
+- **Root cause:** `.env` still set `WEB_DEV_SERVER_PORT=5174`.
+  `create_app()` allows the configured port plus the narrow 5173-5179 fallback
+  range, so 5789 was correctly excluded from the running API's allowlist.
+- **Owning boundary:** local environment configuration consumed by the backend
+  application factory.
+- **Chosen correction level:** update the existing
+  `WEB_DEV_SERVER_PORT` setting to 5789 and restart the API. Do not broaden CORS
+  in application code.
+
+### Impact Analysis
+
+- **Data impact:** none.
+- **Contract impact:** none.
+- **Security impact:** preserves the narrow explicit-origin policy instead of
+  introducing a wildcard or broad port range.
+- **Operational impact:** API restart required because middleware origins are
+  constructed at process startup.
+- **Rollback approach:** restore the previous setting and restart the API if
+  the frontend returns to port 5174.
+
+### Completion
+
+- Updated the ignored local `.env` to `WEB_DEV_SERVER_PORT=5789`; no secret or
+  environment file was staged.
+- Restarted the API so `create_app()` rebuilt CORS middleware from the updated
+  origin configuration.
+- OPTIONS from origin `http://127.0.0.1:5789` now returns 200 with
+  `Access-Control-Allow-Origin: http://127.0.0.1:5789`.
+- Browser validation at port 5789 shows `API connected`, `AI enabled`, 1
+  project, 44 pending candidates, and 1 source document.
+- All 14 observed fetch/XHR requests returned 200, including health, AI status,
+  policy sets, versions, candidates, and documents.
+- Port 5178 remains free. No application code or policy data changed.
+- Remaining browser-console messages are unrelated pre-existing Ant Design
+  deprecation warnings, not API or CORS failures.
+
+### Exact next action
+
+Review the 44 fresh candidates in the Review Queue at port 5789. Do not approve,
+publish, or expand extraction beyond the first 50 clauses without explicit user
+authorization.
