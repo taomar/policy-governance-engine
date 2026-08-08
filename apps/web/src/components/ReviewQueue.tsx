@@ -24,6 +24,7 @@ import {
 } from "antd";
 import {
   BulbOutlined,
+  ClusterOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
   PlusOutlined,
@@ -31,6 +32,7 @@ import {
   SearchOutlined,
   SendOutlined,
   ThunderboltOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -40,9 +42,8 @@ import {
   type ApprovedPolicyVersion,
   type CandidateRule,
   type CanonicalRule,
-  type ConditionNode,
-  type ConditionOperator,
   type PolicySet,
+  type ReviewFacets,
   type PolicyScope,
   type QualityFinding,
 } from "../api";
@@ -51,13 +52,30 @@ import { RewriteModal } from "./RewriteModal";
 import { EditRuleModal } from "./EditRuleModal";
 import { ManagerActionModal } from "./ManagerActionModal";
 import { AskAboutRuleModal } from "./AskAboutRuleModal";
+import { AiRuleComposer } from "./AiRuleComposer";
+import { ImmutableFieldsNotice } from "./ImmutableFieldsNotice";
 import { NotesPanel } from "./NotesPanel";
 import { ExportMenu } from "./ExportMenu";
 import { ScopeFieldsEditor } from "./ScopeEditor";
-import { EMPTY_SCOPE } from "../scopeUtils";
+import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
+import { candidateEditability } from "../candidateEditability";
+import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
+import { computeBandGeometry } from "../bandGeometry";
+import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
+import { FamilyReviewConfirm } from "./FamilyReviewConfirm";
+import {
+  buildCondition,
+  conditionToRows,
+  isVacuousCondition,
+  CONDITION_OPERATORS,
+  type ConditionRow,
+} from "../conditionRows";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
+import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
+import { ReviewStatusTabs } from "./ReviewStatusTabs";
+import { RuleChangeExplainer } from "./RuleChangeExplainer";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -81,52 +99,27 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
 };
 
-const OPERATORS = [
-  "equals",
-  "notEquals",
-  "greaterThan",
-  "greaterThanOrEqual",
-  "lessThan",
-  "lessThanOrEqual",
-  "in",
-  "notIn",
-  "contains",
-  "startsWith",
-  "endsWith",
-  "exists",
-  "isNull",
-];
-
-interface ConditionRow {
-  fact: string;
-  operator: string;
-  value: string;
-}
-
-function buildCondition(rows: ConditionRow[]): ConditionNode {
-  const leaves: ConditionNode[] = rows.map((r) => {
-    let value: unknown = r.value;
-    if (value !== "" && !isNaN(Number(value))) value = Number(value);
-    else if (value === "true") value = true;
-    else if (value === "false") value = false;
-    return { type: "factComparison", fact: r.fact, operator: r.operator as ConditionOperator, value };
-  }) as ConditionNode[];
-  if (leaves.length === 1) return leaves[0];
-  return { type: "all", all: leaves };
-}
+const OPERATORS = CONDITION_OPERATORS;
 
 export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const scoped = Boolean(policySetKey);
-  const { actor } = useActor();
+  const { actor, setActor } = useActor();
   const { message } = App.useApp();
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
   const [candidates, setCandidates] = useState<CandidateRule[]>([]);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
+  /** Filters that narrow the queue to what a reviewer is actually working on:
+   *  one document, one extraction run, or one kind of change. Held server-side
+   *  rather than filtering the loaded array, because the queue can run to
+   *  hundreds of rules and the point of a delta is to not ship them all. */
+  const [documentFilter, setDocumentFilter] = useState<string>("");
+  const [runFilter, setRunFilter] = useState<string>("");
+  const [deltaFilter, setDeltaFilter] = useState<string>("all");
+  const [facets, setFacets] = useState<ReviewFacets | null>(null);
+  const [showRemoved, setShowRemoved] = useState(false);
   const [contentKind, setContentKind] = useState<"policies" | "definitions">("policies");
   const [searchText, setSearchText] = useState("");
-  const [reviewer, setReviewer] = useState("");
-  const [publishedBy, setPublishedBy] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [publishResult, setPublishResult] = useState<ApprovedPolicyVersion | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +132,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [askTarget, setAskTarget] = useState<CandidateRule | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  /** A review the user asked for that would leave part of a rule family behind,
+   *  held until they say how to resolve the split. */
+  const [familyPrompt, setFamilyPrompt] = useState<{
+    ids: string[];
+    decision: "approve" | "reject";
+    gaps: FamilyGap[];
+  } | null>(null);
 
   // Candidate list rendering — each row starts collapsed (RuleCard's own
   // detail body, its per-evidence resolution effect, and the discussion
@@ -182,6 +182,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [draftRelatedRuleIds, setDraftRelatedRuleIds] = useState<string[]>([]);
   const [advancedJson, setAdvancedJson] = useState("{}");
   const [draftError, setDraftError] = useState<string | null>(null);
+  // The rule the composer produced, kept whole. `handleDraft` submits the form
+  // fields *over* this object rather than rebuilding from scratch, so the
+  // agent's formulation record, lineage and ambiguity status survive the round
+  // trip instead of being silently dropped by the form.
+  const [aiGeneratedRule, setAiGeneratedRule] = useState<CanonicalRule | null>(null);
+  const [loadedAiRuleId, setLoadedAiRuleId] = useState<string | null>(null);
 
   useEffect(() => {
     if (scoped) return; // scope is fixed by the embedding project; no picker/list needed
@@ -194,15 +200,22 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)));
   }, [scoped]);
 
-  // Autofill reviewer/publisher name from the active actor identity — the user can
-  // still override either field before submitting a review or publish action.
-  useEffect(() => {
-    if (actor.name.trim()) {
-      setReviewer((prev) => (prev.trim() ? prev : actor.name));
-      setPublishedBy((prev) => (prev.trim() ? prev : actor.name));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actor.name]);
+  // "Who is doing this" has exactly one home: the actor identity in the header.
+  //
+  // It used to have three — `actor.name`, a local `reviewer` field, and a local
+  // `publishedBy` field — kept in step by a one-way, fill-the-blanks effect that
+  // only ran when the actor already had a name. So a user who typed their name
+  // into the visible, red-asterisked "Approved by" box at the bottom of the page
+  // had, as far as the rest of the app was concerned, still not said who they
+  // were: approving a rule failed with "Enter a reviewer name" while their name
+  // sat on screen a few hundred pixels below the button.
+  //
+  // Binding both fields to the actor removes that class of bug instead of adding
+  // a third sync to paper over it: identity is entered once, anywhere, applies
+  // everywhere, and persists across reloads. `actor.role` still carries the
+  // reviewer-vs-manager distinction, which is the part that genuinely differs.
+  const identity = actor.name;
+  const setIdentity = (name: string) => setActor({ ...actor, name });
 
   const loadCandidates = async () => {
     if (!selectedKey) return;
@@ -210,12 +223,28 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setLoading(true);
     try {
       const status = statusFilter === "all" ? undefined : statusFilter;
-      const list = await api.listCandidateRules(selectedKey, status);
+      const list = await api.listCandidateRules(selectedKey, status, {
+        document_id: documentFilter || undefined,
+        extraction_run_id: runFilter || undefined,
+        delta_status: deltaFilter === "all" ? undefined : deltaFilter,
+        // Opening a historical run means asking for rules a later run retired,
+        // so those rows have to be included or the run would look empty.
+        include_superseded: Boolean(runFilter),
+      });
       setCandidates(list);
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadFacets = async () => {
+    if (!selectedKey) return;
+    try {
+      setFacets(await api.reviewFacets(selectedKey));
+    } catch {
+      setFacets(null); // filters degrade to "no options", the queue itself still works
     }
   };
 
@@ -225,7 +254,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setExpandedIds(new Set());
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, statusFilter]);
+  }, [selectedKey, statusFilter, documentFilter, runFilter, deltaFilter]);
+
+  useEffect(() => {
+    void loadFacets();
+    // Filters are scoped to the policy set; carrying a document or run selection
+    // across a switch would silently filter the new set to nothing.
+    setDocumentFilter("");
+    setRunFilter("");
+    setDeltaFilter("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
 
   // Load the current active version's rules once per policy set, purely to compute the
   // pre-publish diff summary below — a plain deterministic DB read, safe to fetch eagerly
@@ -270,27 +309,72 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     }
   };
 
-  const handleReview = async (candidateId: string, decision: "approve" | "reject") => {
+  /** Perform the review. Accepts one or many ids so the single-row buttons, the
+   *  bulk bar, and the family-confirmation dialog all commit through one path
+   *  and therefore cannot drift in what they send or how they report it. */
+  const runReview = async (ids: string[], decision: "approve" | "reject") => {
+    if (ids.length === 0) return;
     setError(null);
-    // The reviewer name is required because an approval with no attributable
-    // author is not an audit trail. Reported through `message` rather than the
-    // page-top Alert: the buttons are in a long scrolling list, and an error
-    // rendered off-screen is indistinguishable from the button not working —
-    // which is exactly how this was reported.
-    if (!reviewer.trim()) {
-      message.warning("Enter a reviewer name before approving or rejecting.");
-      return;
-    }
+    setFamilyPrompt(null);
+    setBulkBusy(true);
     try {
-      await api.reviewCandidateRule(selectedKey, candidateId, { decision, reviewer });
-      message.success(decision === "approve" ? "Rule approved" : "Rule rejected");
+      if (ids.length === 1) {
+        await api.reviewCandidateRule(selectedKey, ids[0], { decision, reviewer: identity });
+        message.success(decision === "approve" ? "Rule approved" : "Rule rejected");
+      } else {
+        const result = await api.bulkReviewCandidateRules(selectedKey, {
+          candidate_ids: ids,
+          decision,
+          reviewer: identity,
+          notes: "bulk review",
+        });
+        if (result.skipped.length > 0) {
+          // A partial result is not an error: the reviewed rules were reviewed.
+          // Reporting it as one made reviewers re-run the action.
+          message.warning(
+            `${result.reviewed} reviewed; ${result.skipped.length} skipped (already reviewed or published).`
+          );
+        } else {
+          message.success(`${result.reviewed} rule${result.reviewed === 1 ? "" : "s"} ${decision}d`);
+        }
+      }
+      setSelectedIds(new Set());
       await loadCandidates();
     } catch (e) {
       const detail = e instanceof PolicyPlatformApiError ? e.detail : String(e);
       setError(detail);
       message.error(detail);
+    } finally {
+      setBulkBusy(false);
     }
   };
+
+  /** Gate every review through the same two checks: attributable author, and
+   *  no silently-split rule family. */
+  const requestReview = (ids: string[], decision: "approve" | "reject") => {
+    setError(null);
+    // An approval with no attributable author is not an audit trail. Reported
+    // through `message` rather than the page-top Alert: the buttons are in a
+    // long scrolling list, and an error rendered off-screen is indistinguishable
+    // from the button not working — which is exactly how this was reported.
+    if (!identity.trim()) {
+      message.warning("Set your name in the header before approving or rejecting.");
+      return;
+    }
+    if (ids.length === 0) {
+      message.warning("Select at least one candidate rule first.");
+      return;
+    }
+    const gaps = familyGaps(new Set(ids), clusterMap, candidates);
+    if (gaps.length > 0) {
+      setFamilyPrompt({ ids, decision, gaps });
+      return;
+    }
+    void runReview(ids, decision);
+  };
+
+  const handleReview = (candidateId: string, decision: "approve" | "reject") =>
+    requestReview([candidateId], decision);
 
   const toggleSelected = (candidateId: string) =>
     setSelectedIds((prev) => {
@@ -307,8 +391,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       else next.add(candidateId);
       return next;
     });
-
-  const REVIEWABLE_STATUSES = new Set(["candidate", "rejected", "changes_requested"]);
 
   // Definitions/glossary entries (rule_type "definition" — both the AI's
   // "definition" and "classification" canonical types map here in
@@ -358,54 +440,72 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [filteredCandidates, page]
   );
 
+  // Family banding, by the same criterion the Policies view uses: a curated
+  // `group_label`, else rules of one type testing the same fact. Clustering runs
+  // over *all* loaded candidates rather than the current filter, so a family's
+  // identity and colour don't shift when a reviewer searches or changes tabs.
+  const clusterMap = useMemo(
+    () => buildVariationClusters(candidates.map((c) => c.rule)),
+    [candidates]
+  );
+
+  // Geometry is computed over the whole filtered list, not just the visible
+  // page: a family split across a page boundary must still say "continues
+  // below" rather than silently presenting a fragment as the complete set.
+  const bandInfo = useMemo(
+    () =>
+      computeBandGeometry(
+        filteredCandidates.map((c) => ({ kind: "rule" as const, ruleId: c.rule.rule_id })),
+        clusterMap
+      ),
+    [filteredCandidates, clusterMap]
+  );
+
+  const bandedFamilyCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of filteredCandidates) {
+      const cluster = clusterMap.get(c.rule.rule_id);
+      if (cluster) ids.add(clusterIdentity(cluster));
+    }
+    return ids.size;
+  }, [filteredCandidates, clusterMap]);
+
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of candidates) counts[c.review_status] = (counts[c.review_status] ?? 0) + 1;
     return counts;
   }, [candidates]);
 
-  const selectableIds = filteredCandidates.filter((c) => REVIEWABLE_STATUSES.has(c.review_status)).map((c) => c.id);
+  const selectableIds = filteredCandidates
+    .filter((c) => candidateEditability(c.review_status).canReview)
+    .map((c) => c.id);
 
   const toggleSelectAllVisible = () =>
     setSelectedIds((prev) => (prev.size === selectableIds.length ? new Set() : new Set(selectableIds)));
 
-  const handleBulkReview = async (decision: "approve" | "reject") => {
-    setError(null);
-    if (!reviewer.trim()) {
-      message.warning("Enter a reviewer name before approving or rejecting.");
-      return;
-    }
-    if (selectedIds.size === 0) {
-      message.warning("Select at least one candidate rule first.");
-      return;
-    }
-    setBulkBusy(true);
-    try {
-      const result = await api.bulkReviewCandidateRules(selectedKey, {
-        candidate_ids: Array.from(selectedIds),
-        decision,
-        reviewer,
-        notes: "bulk review",
-      });
-      setSelectedIds(new Set());
-      await loadCandidates();
-      if (result.skipped.length > 0) {
-        // A partial result is not an error: the reviewed rules were reviewed.
-        // Reporting it as one made reviewers re-run the action.
-        message.warning(
-          `${result.reviewed} reviewed; ${result.skipped.length} skipped (already reviewed or published).`
-        );
-      } else {
-        message.success(`${result.reviewed} rule${result.reviewed === 1 ? "" : "s"} ${decision}d`);
+  /** Add every open member of a rule's family to the bulk selection.
+   *
+   * Reviewing a family is the common case once you notice one — the members say
+   * the same thing at different thresholds, so they are read together and
+   * decided together. Selecting them one checkbox at a time invites exactly the
+   * partial approval the confirmation dialog then has to warn about. */
+  const selectFamily = (ruleId: string) => {
+    const members = familyMembers(ruleId, clusterMap, candidates);
+    if (members.length === 0) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      // Already all selected → treat the chip as a toggle and clear them.
+      const allSelected = members.every((m) => next.has(m.id));
+      for (const m of members) {
+        if (allSelected) next.delete(m.id);
+        else next.add(m.id);
       }
-    } catch (e) {
-      const detail = e instanceof PolicyPlatformApiError ? e.detail : String(e);
-      setError(detail);
-      message.error(detail);
-    } finally {
-      setBulkBusy(false);
-    }
+      return next;
+    });
   };
+
+  const handleBulkReview = (decision: "approve" | "reject") =>
+    requestReview(Array.from(selectedIds), decision);
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,7 +513,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setPublishResult(null);
     try {
       const version = await api.publishCandidates(selectedKey, {
-        approved_by: publishedBy,
+        approved_by: identity,
         effective_from: effectiveFrom,
         is_active: true,
       });
@@ -424,6 +524,67 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     }
   };
 
+  /** Copy a composer-generated rule into the form so the human can adjust it.
+   *
+   * The whole rule is retained separately (`aiGeneratedRule`) because the form
+   * only surfaces the fields a person edits; the formulation record, lineage
+   * and executability flags the agent produced have no widgets and would be
+   * lost if the payload were rebuilt from the visible fields alone. */
+  const applyGeneratedRule = (rule: CanonicalRule) => {
+    setAiGeneratedRule(rule);
+    setLoadedAiRuleId(rule.rule_id);
+    setDraftError(null);
+    setRuleId(rule.rule_id);
+    setTitle(rule.title);
+    setDescription(rule.description);
+    setRuleType(rule.rule_type);
+    setEffectType(rule.effect.type);
+    setEffectAction(rule.effect.action);
+    setPriority(rule.priority);
+    setAuthorityOwner(rule.authority.owner);
+    setAuthorityLevel(rule.authority.level);
+    setAuthorityRank(rule.authority.rank);
+    setDraftEffectiveFrom(rule.effective_from.slice(0, 10));
+    setDraftScope(normalizeScope(rule.scope));
+    setDraftIsExplicitOverride(rule.is_explicit_override ?? false);
+    setDraftSupersedesRuleIds(rule.supersedes_rule_ids ?? []);
+    setDraftGroupLabel(rule.group_label ?? "");
+    setDraftRelatedRuleIds(rule.related_rule_ids ?? []);
+    setAdvancedJson(JSON.stringify(rule, null, 2));
+
+    const rows = conditionToRows(rule.condition);
+    if (isVacuousCondition(rule.condition)) {
+      // Nothing machine-checkable was extracted. Show an empty row so the user
+      // is invited to add logic, rather than dropping them into raw JSON.
+      setConditionRows([{ fact: "", operator: "greaterThan", value: "" }]);
+      setAdvancedMode(false);
+    } else if (rows && rows.length > 0) {
+      setConditionRows(rows);
+      setAdvancedMode(false);
+    } else {
+      // Richer logic than the row editor can express — show it honestly as JSON
+      // instead of flattening it into something that means something else.
+      setAdvancedMode(true);
+    }
+  };
+
+  const resetDraftForm = () => {
+    setRuleId("");
+    setTitle("");
+    setDescription("");
+    setEffectAction("");
+    setAuthorityOwner("");
+    setConditionRows([{ fact: "", operator: "greaterThan", value: "" }]);
+    setDraftScope(EMPTY_SCOPE);
+    setDraftIsExplicitOverride(false);
+    setDraftSupersedesRuleIds([]);
+    setDraftGroupLabel("");
+    setDraftRelatedRuleIds([]);
+    setAdvancedJson("{}");
+    setAiGeneratedRule(null);
+    setLoadedAiRuleId(null);
+  };
+
   const handleDraft = async (e: React.FormEvent) => {
     e.preventDefault();
     setDraftError(null);
@@ -432,7 +593,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       if (advancedMode) {
         rule = JSON.parse(advancedJson);
       } else {
+        const filledRows = conditionRows.filter((r) => r.fact.trim() !== "");
         rule = {
+          // Start from the generated rule (when there is one) so agent-authored
+          // fields without a widget — formulation, lineage, ambiguity status —
+          // are carried through instead of being dropped on submit.
+          ...(aiGeneratedRule ?? {}),
           policy_set_id: "placeholder",
           policy_version_id: "placeholder",
           rule_id: ruleId,
@@ -446,28 +612,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           supersedes_rule_ids: draftSupersedesRuleIds,
           group_label: draftGroupLabel,
           related_rule_ids: draftRelatedRuleIds,
-          condition: buildCondition(conditionRows.filter((r) => r.fact.trim() !== "")),
+          // Only override the generated condition once the user has actually
+          // entered one; an untouched form must not silently replace extracted
+          // logic with an empty conjunction.
+          condition:
+            filledRows.length > 0
+              ? buildCondition(filledRows)
+              : (aiGeneratedRule?.condition ?? buildCondition([])),
           effect: { type: effectType, action: effectAction },
-          required_facts: conditionRows
-            .filter((r) => r.fact.trim() !== "")
-            .map((r) => ({ name: r.fact, data_type: isNaN(Number(r.value)) ? "string" : "number", required: true })),
+          required_facts:
+            filledRows.length > 0
+              ? filledRows.map((r) => ({
+                  name: r.fact,
+                  data_type: isNaN(Number(r.value)) ? "string" : "number",
+                  required: true,
+                }))
+              : (aiGeneratedRule?.required_facts ?? []),
           priority,
           effective_from: draftEffectiveFrom,
         };
       }
       await api.draftCandidateRule(selectedKey, { rule });
       setShowDraftForm(false);
-      setRuleId("");
-      setTitle("");
-      setDescription("");
-      setEffectAction("");
-      setAuthorityOwner("");
-      setConditionRows([{ fact: "", operator: "greaterThan", value: "" }]);
-      setDraftScope(EMPTY_SCOPE);
-      setDraftIsExplicitOverride(false);
-      setDraftSupersedesRuleIds([]);
-      setDraftGroupLabel("");
-      setDraftRelatedRuleIds([]);
+      resetDraftForm();
       await loadCandidates();
     } catch (e) {
       setDraftError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
@@ -481,6 +648,56 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   const approvedUnpublished = candidates.filter((c) => c.review_status === "approved");
   const totalCandidates = candidates.length;
+
+  /**
+   * An empty queue is ambiguous: it can mean "nothing matched" (a dead end)
+   * or "this run changed nothing" (a successful no-op). Re-extracting an
+   * unchanged document is the second case, and reading it as failure would
+   * push the reviewer to re-run the extraction pointlessly. Distinguish them.
+   */
+  const emptyState = useMemo(() => {
+    // Filters disagree on how "off" is spelled: document/run use "", delta uses
+    // "all". Normalise once here rather than testing truthiness per branch —
+    // treating "all" as an active filter is exactly the bug this avoids.
+    const activeDelta = deltaFilter && deltaFilter !== "all" ? deltaFilter : "";
+    if (searchText.trim()) {
+      return { status: "info" as const, title: "No rules match your search.", detail: null };
+    }
+    const run = runFilter ? facets?.runs.find((r) => r.id === runFilter) : null;
+    if (run && !activeDelta && statusFilter === "all") {
+      const changed = run.delta.new + run.delta.changed;
+      if (changed === 0 && run.total > 0) {
+        return {
+          status: "success" as const,
+          title: `No changes in ${run.reference ?? "this run"}.`,
+          detail: `All ${run.total} rule(s) extracted from ${run.document_title} were identical to the previous run, so nothing new needs review. The run is kept in history as evidence the document was re-checked.`,
+        };
+      }
+      if (run.total === 0) {
+        return {
+          status: "warning" as const,
+          title: `${run.reference ?? "This run"} produced no rules.`,
+          detail: "The extraction completed but found nothing to formalize in this document.",
+        };
+      }
+    }
+    if (activeDelta) {
+      return {
+        status: "info" as const,
+        title: `Nothing classified as “${DELTA_META[activeDelta]?.label ?? activeDelta}” under the current filters.`,
+        detail: "Clear the change filter to see the rest of the queue.",
+      };
+    }
+    if (statusFilter !== "all") {
+      return {
+        status: "info" as const,
+        title: `Nothing is currently ${STATUS_LABEL[statusFilter]?.toLowerCase() ?? statusFilter}.`,
+        detail: null,
+      };
+    }
+    return { status: "info" as const, title: "No candidate rules found for this filter.", detail: null };
+  }, [searchText, runFilter, deltaFilter, statusFilter, facets]);
+
   const publishedPct = totalCandidates ? Math.round(((statusCounts.published ?? 0) / totalCandidates) * 100) : 0;
   const isManager = actor.role === "policy_manager";
 
@@ -513,6 +730,40 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
       {!scoped && policySets.length === 0 && (
         <Text type="secondary">Create a policy set first (Policy Sets page).</Text>
+      )}
+
+      {/* Approving records a decision; it does not change the live policy. With a
+          long queue the publish form sits hundreds of rows down, so approvals
+          could pile up with no visible consequence and the Policies tab stayed
+          empty. Surface the pending state where the approving happens. */}
+      {selectedKey && approvedUnpublished.length > 0 && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${approvedUnpublished.length} approved rule${
+            approvedUnpublished.length === 1 ? "" : "s"
+          } ready to publish`}
+          description={
+            <Text type="secondary">
+              Approved rules are not live yet. Publishing creates an immutable, numbered version — that is what the{" "}
+              <strong>Policies</strong> tab shows.
+            </Text>
+          }
+          action={
+            <Button
+              size="small"
+              type="primary"
+              onClick={() =>
+                document
+                  .querySelector(".publish-card")
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+            >
+              Publish now →
+            </Button>
+          }
+        />
       )}
 
       {selectedKey && totalCandidates > 0 && (
@@ -557,8 +808,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             }
           >
             {showDraftForm && (
-              <Form layout="vertical" onSubmitCapture={handleDraft} style={{ marginBottom: 8 }}>
+              <Row gutter={20} style={{ marginBottom: 8 }}>
+                <Col xs={24} xl={9} style={{ marginBottom: 16 }}>
+                  <AiRuleComposer
+                    policySetKey={selectedKey}
+                    onLoadRule={applyGeneratedRule}
+                    loadedRuleId={loadedAiRuleId}
+                  />
+                </Col>
+                <Col xs={24} xl={15}>
+              <Form layout="vertical" onSubmitCapture={handleDraft}>
                 {draftError && <Alert type="error" showIcon message={draftError} style={{ marginBottom: 16 }} />}
+                {loadedAiRuleId && (
+                  <Alert
+                    type="success"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Filled in from your description"
+                    description="Every field below is yours to change. Nothing is saved until you submit it for review."
+                    closable
+                    onClose={() => setLoadedAiRuleId(null)}
+                  />
+                )}
+                <ImmutableFieldsNotice ruleId={advancedMode ? undefined : ruleId} />
                 <Checkbox checked={advancedMode} onChange={(e) => setAdvancedMode(e.target.checked)} style={{ marginBottom: 16 }}>
                   Advanced (raw JSON) mode
                 </Checkbox>
@@ -702,12 +974,41 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                   Submit for Review
                 </Button>
               </Form>
+                </Col>
+              </Row>
             )}
+
+            <ReviewStatusTabs
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+              counts={facets?.status_totals ?? statusCounts}
+              total={
+                facets
+                  ? Object.values(facets.status_totals).reduce((a, b) => a + b, 0)
+                  : totalCandidates
+              }
+            />
+
+            <ReviewFilterBar
+              facets={facets}
+              documentFilter={documentFilter}
+              runFilter={runFilter}
+              deltaFilter={deltaFilter}
+              showRemoved={showRemoved}
+              onDocument={setDocumentFilter}
+              onRun={setRunFilter}
+              onDelta={setDeltaFilter}
+              onToggleRemoved={() => setShowRemoved((v) => !v)}
+              onRefresh={() => {
+                void loadCandidates();
+                void loadFacets();
+              }}
+            />
 
             <Segmented
               value={contentKind}
               onChange={(v) => setContentKind(v as typeof contentKind)}
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 16, marginTop: 16 }}
               options={[
                 { label: `Policies & Rules (${contentKindCounts.policies})`, value: "policies" },
                 { label: `Definitions & Glossary (${contentKindCounts.definitions})`, value: "definitions" },
@@ -715,12 +1016,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             />
 
             <Space size={16} wrap className="review-controls-bar" style={{ marginBottom: 16 }}>
-              <Select
-                value={statusFilter}
-                onChange={(v) => setStatusFilter(v as typeof statusFilter)}
-                style={{ width: 190 }}
-                options={STATUS_FILTERS.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
-              />
               <Input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
@@ -730,8 +1025,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 style={{ width: 300 }}
               />
               <Space>
-                <Text>Reviewer name</Text>
-                <Input value={reviewer} onChange={(e) => setReviewer(e.target.value)} placeholder="jane.doe" style={{ width: 160 }} />
+                <Text>Reviewing as</Text>
+                <Tooltip title="This is your identity across the whole app — the same name shown in the header and used when publishing a version. Set it once here or there.">
+                  <Input
+                    value={identity}
+                    onChange={(e) => setIdentity(e.target.value)}
+                    placeholder="your name"
+                    prefix={<UserOutlined />}
+                    status={identity.trim() ? undefined : "warning"}
+                    style={{ width: 180 }}
+                  />
+                </Tooltip>
               </Space>
               <Tooltip title="Run an AI + deterministic quality scan over unpublished candidates (findings appear as badges below)">
                 <Button icon={<SafetyCertificateOutlined />} onClick={runQualityCheck} loading={qualityLoading}>
@@ -745,6 +1049,26 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                   api.exportCandidateRules(selectedKey, format, statusFilter === "all" ? undefined : statusFilter)
                 }
               />
+              {bandedFamilyCount > 0 && (
+                <Tooltip
+                  title={
+                    <>
+                      <div>
+                        Rules that are variations of one decision share a coloured spine on the left edge, using
+                        the same criterion as the Policies view:
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        1. a curated <b>variation group</b> on the rule, when set; otherwise
+                      </div>
+                      <div>2. same rule type testing the same fact with differing values.</div>
+                    </>
+                  }
+                >
+                  <Tag icon={<ClusterOutlined />} color="blue" style={{ cursor: "help", marginInlineEnd: 0 }}>
+                    {bandedFamilyCount} banded {bandedFamilyCount === 1 ? "family" : "families"}
+                  </Tag>
+                </Tooltip>
+              )}
             </Space>
 
             {qualityError && <Alert type="warning" showIcon message={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
@@ -782,7 +1106,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 <Space direction="vertical" style={{ width: "100%" }} size={8} className="candidate-list">
                   {pagedCandidates.map((c) => {
                     const findings = qualityFindings?.get(c.rule.rule_id) ?? [];
-                    const isReviewable = REVIEWABLE_STATUSES.has(c.review_status);
+                    const editability = candidateEditability(c.review_status);
+                    const isReviewable = editability.canReview;
+                    const cluster = clusterMap.get(c.rule.rule_id);
                     const isExpanded = expandedIds.has(c.id);
                     return (
                       <div key={c.id} className="candidate-item">
@@ -791,17 +1117,26 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                           expanded={isExpanded}
                           selected={selectedIds.has(c.id)}
                           selectable={isReviewable}
+                          cluster={cluster}
+                          clusterColor={cluster ? clusterColor(cluster) : undefined}
+                          band={bandInfo.get(c.rule.rule_id)}
                           findingsCount={findings.length}
                           statusColor={STATUS_COLOR[c.review_status] ?? "default"}
                           statusLabel={STATUS_LABEL[c.review_status] ?? c.review_status}
                           onToggleExpand={() => toggleExpanded(c.id)}
                           onToggleSelect={() => toggleSelected(c.id)}
+                          onSelectFamily={cluster && editability.canReview ? () => selectFamily(c.rule.rule_id) : undefined}
                           onApprove={isReviewable ? () => handleReview(c.id, "approve") : undefined}
                           onReject={isReviewable ? () => handleReview(c.id, "reject") : undefined}
                         />
                         {isExpanded && (
                           <div className="candidate-item-detail">
                             <RuleCard rule={c.rule} defaultExpanded hideNotes />
+                            {c.baseline_candidate_id && (
+                              <div className="candidate-change-slot">
+                                <RuleChangeExplainer candidateId={c.id} />
+                              </div>
+                            )}
                             {findings.length > 0 && (
                               <div className="readiness-badges">
                                 {findings.map((f, fi) => (
@@ -828,11 +1163,18 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                                 <Button size="small" icon={<BulbOutlined />} onClick={() => setAskTarget(c)}>
                                   Ask AI about this rule
                                 </Button>
+                                <Tooltip title={editability.editBlockedReason ?? "Change this rule's wording, conditions or effect"}>
+                                  <Button
+                                    size="small"
+                                    icon={<EditOutlined />}
+                                    disabled={!editability.canEdit}
+                                    onClick={() => setEditTarget(c)}
+                                  >
+                                    Edit
+                                  </Button>
+                                </Tooltip>
                                 {isReviewable && (
                                   <>
-                                    <Button size="small" icon={<EditOutlined />} onClick={() => setEditTarget(c)}>
-                                      Edit
-                                    </Button>
                                     <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setRewriteTarget(c)}>
                                       Suggest Rewrite
                                     </Button>
@@ -887,9 +1229,20 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     );
                   })}
                   {filteredCandidates.length === 0 && (
-                    <Empty
-                      description={searchText ? "No candidate rules match your search." : "No candidate rules found for this filter."}
-                    />
+                    <div className="review-empty-state">
+                      {emptyState.status === "success" ? (
+                        <Alert
+                          type="success"
+                          showIcon
+                          message={emptyState.title}
+                          description={emptyState.detail}
+                        />
+                      ) : (
+                        <Empty description={emptyState.title}>
+                          {emptyState.detail && <Text type="secondary">{emptyState.detail}</Text>}
+                        </Empty>
+                      )}
+                    </div>
                   )}
                 </Space>
                 {filteredCandidates.length > PAGE_SIZE && (
@@ -908,7 +1261,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             )}
           </Card>
 
-          <Card title="Publish Approved Candidates" className="modern-card">
+          <Card title="Publish Approved Candidates" className="modern-card publish-card">
             <Paragraph type="secondary">
               {approvedUnpublished.length} approved candidate(s) ready to publish into a new version, carrying forward
               all rules from the current active version.
@@ -923,8 +1276,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             <Form layout="vertical" onSubmitCapture={handlePublish}>
               <Row gutter={16}>
                 <Col span={12}>
-                  <Form.Item label="Approved by" required>
-                    <Input value={publishedBy} onChange={(e) => setPublishedBy(e.target.value)} placeholder="jane.doe" />
+                  <Form.Item
+                    label="Approved by"
+                    required
+                    extra="Your identity across the app — the same name you review under."
+                  >
+                    <Input
+                      value={identity}
+                      onChange={(e) => setIdentity(e.target.value)}
+                      placeholder="your name"
+                      prefix={<UserOutlined />}
+                    />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -975,6 +1337,19 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         />
       )}
       {askTarget && <AskAboutRuleModal candidate={askTarget} onClose={() => setAskTarget(null)} />}
+      <FamilyReviewConfirm
+        open={familyPrompt !== null}
+        gaps={familyPrompt?.gaps ?? []}
+        decision={familyPrompt?.decision ?? "approve"}
+        busy={bulkBusy}
+        onCancel={() => setFamilyPrompt(null)}
+        onProceedPartial={() => familyPrompt && void runReview(familyPrompt.ids, familyPrompt.decision)}
+        onProceedWholeFamily={() => {
+          if (!familyPrompt) return;
+          const whole = new Set([...familyPrompt.ids, ...idsCoveringFamilies(familyPrompt.gaps)]);
+          void runReview(Array.from(whole), familyPrompt.decision);
+        }}
+      />
     </>
   );
 }

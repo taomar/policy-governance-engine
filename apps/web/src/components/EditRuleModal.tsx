@@ -24,8 +24,6 @@ import {
   PolicyPlatformApiError,
   type CandidateRule,
   type CanonicalRule,
-  type ConditionNode,
-  type ConditionOperator,
   type PolicyScope,
   type ScenarioEvaluation,
 } from "../api";
@@ -34,62 +32,18 @@ import { ScopeFieldsEditor } from "./ScopeEditor";
 import { normalizeScope } from "../scopeUtils";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
+import { ImmutableFieldsNotice } from "./ImmutableFieldsNotice";
+import {
+  buildCondition,
+  conditionToRows,
+  CONDITION_OPERATORS,
+  type ConditionRow,
+} from "../conditionRows";
 
 const { TextArea } = Input;
 const { Text, Paragraph } = Typography;
 
-const OPERATORS: ConditionOperator[] = [
-  "equals",
-  "notEquals",
-  "greaterThan",
-  "greaterThanOrEqual",
-  "lessThan",
-  "lessThanOrEqual",
-  "in",
-  "notIn",
-  "contains",
-  "startsWith",
-  "endsWith",
-  "exists",
-  "isNull",
-];
-
-interface ConditionRow {
-  fact: string;
-  operator: string;
-  value: string;
-}
-
-function conditionToRows(node: ConditionNode | undefined): ConditionRow[] | null {
-  if (!node) return null;
-  const flatten = (n: ConditionNode): ConditionRow[] | null => {
-    if (n.type === "factComparison") {
-      return [{ fact: n.fact, operator: n.operator, value: n.value === null || n.value === undefined ? "" : String(n.value) }];
-    }
-    if (n.type === "all") {
-      const rows: ConditionRow[] = [];
-      for (const child of n.all) {
-        if (child.type !== "factComparison") return null; // nested logic — fall back to advanced mode
-        rows.push({ fact: child.fact, operator: child.operator, value: child.value === null || child.value === undefined ? "" : String(child.value) });
-      }
-      return rows;
-    }
-    return null; // any/not — too complex for the row editor, use advanced mode
-  };
-  return flatten(node);
-}
-
-function buildCondition(rows: ConditionRow[]): ConditionNode {
-  const leaves: ConditionNode[] = rows.map((r) => {
-    let value: unknown = r.value;
-    if (value !== "" && !isNaN(Number(value))) value = Number(value);
-    else if (value === "true") value = true;
-    else if (value === "false") value = false;
-    return { type: "factComparison", fact: r.fact, operator: r.operator as ConditionOperator, value };
-  }) as ConditionNode[];
-  if (leaves.length === 1) return leaves[0];
-  return { type: "all", all: leaves };
-}
+const OPERATORS = CONDITION_OPERATORS;
 
 type EditRuleModalProps =
   | {
@@ -385,6 +339,8 @@ export function EditRuleModal(props: EditRuleModalProps) {
           }
         />
       )}
+
+      <ImmutableFieldsNotice mode="edit" />
 
       <Checkbox
         checked={advancedMode}

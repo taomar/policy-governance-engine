@@ -2,6 +2,7 @@ import { Button, Checkbox, Space, Tag, Tooltip } from "antd";
 import {
   CheckOutlined,
   CloseOutlined,
+  ClusterOutlined,
   CrownOutlined,
   DownOutlined,
   ExclamationCircleOutlined,
@@ -9,10 +10,19 @@ import {
   UpOutlined,
 } from "@ant-design/icons";
 import type { CandidateRule } from "../api";
-import { ambiguityMeta, hasAmbiguityFlag, ruleConditionLine } from "../ruleDisplay";
+import {
+  ambiguityMeta,
+  clusterLabel,
+  hasAmbiguityFlag,
+  hexToRgba,
+  ruleConditionLine,
+  type RuleVariationGroup,
+} from "../ruleDisplay";
+import type { BandGeometry } from "../bandGeometry";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { DELTA_META } from "./ReviewFilterBar";
 
 interface CandidateRowProps {
   candidate: CandidateRule;
@@ -23,6 +33,16 @@ interface CandidateRowProps {
   findingsCount: number;
   statusColor: string;
   statusLabel: string;
+  /** Variation family this candidate belongs to, or undefined when it stands
+   * alone. Same clustering criterion as the Policies view, so a rule that reads
+   * as part of a family after publication also reads that way while pending. */
+  cluster?: RuleVariationGroup;
+  /** Accent color for the family band, keyed by cluster identity. */
+  clusterColor?: string;
+  band?: BandGeometry;
+  /** Select every open sibling in this rule's family for bulk review. Absent
+   *  when the row isn't selectable, so the chip stays purely informational. */
+  onSelectFamily?: () => void;
   onToggleExpand: () => void;
   onToggleSelect: () => void;
   onApprove?: () => void;
@@ -49,6 +69,10 @@ export function CandidateRow({
   findingsCount,
   statusColor,
   statusLabel,
+  cluster,
+  clusterColor,
+  band,
+  onSelectFamily,
   onToggleExpand,
   onToggleSelect,
   onApprove,
@@ -56,6 +80,18 @@ export function CandidateRow({
 }: CandidateRowProps) {
   const rule = candidate.rule;
   const line = ruleConditionLine(rule);
+  const isBandStart = band?.isStart ?? true;
+  const isBandEnd = band?.isEnd ?? true;
+
+  // Same custom properties PolicyRow sets, so the family spine, node, resting
+  // wash and hover tint all read identically in the queue and after publication.
+  const rowStyle: React.CSSProperties = {};
+  if (clusterColor) {
+    const vars = rowStyle as Record<string, string>;
+    vars["--cluster-accent"] = clusterColor;
+    vars["--cluster-tint"] = hexToRgba(clusterColor, 0.1);
+    vars["--cluster-wash"] = hexToRgba(clusterColor, 0.055);
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -69,10 +105,28 @@ export function CandidateRow({
       role="button"
       tabIndex={0}
       aria-pressed={expanded}
-      className={`policy-row candidate-row${expanded ? " policy-row-selected" : ""}`}
+      className={`policy-row candidate-row${expanded ? " policy-row-selected" : ""}${
+        cluster ? " policy-row--family" : ""
+      }${cluster && isBandStart ? " policy-row--family-start" : ""}${
+        cluster && isBandEnd ? " policy-row--family-end" : ""
+      }`}
+      style={clusterColor ? rowStyle : undefined}
       onClick={onToggleExpand}
       onKeyDown={handleKeyDown}
     >
+      {cluster && (
+        <>
+          <span
+            className={`policy-row-band${isBandStart ? " policy-row-band--start" : ""}${
+              isBandEnd ? " policy-row-band--end" : ""
+            }${band?.continuesAbove ? " policy-row-band--continues-up" : ""}${
+              band?.continuesBelow ? " policy-row-band--continues-down" : ""
+            }`}
+            aria-hidden="true"
+          />
+          <span className="policy-row-band-node" aria-hidden="true" />
+        </>
+      )}
       {selectable && (
         <Checkbox
           checked={selected}
@@ -107,6 +161,23 @@ export function CandidateRow({
           <Tag color={statusColor} className="candidate-row-status-tag">
             {statusLabel}
           </Tag>
+          {candidate.delta_status && candidate.delta_status !== "baseline" && (
+            <Tooltip
+              title={
+                candidate.delta_status === "unchanged" && candidate.reworded
+                  ? "Identical in meaning to the previous extraction, but the wording was regenerated. Nothing to review."
+                  : DELTA_META[candidate.delta_status]?.help
+              }
+            >
+              <Tag
+                color={DELTA_META[candidate.delta_status]?.color}
+                className="candidate-row-delta-tag"
+              >
+                {DELTA_META[candidate.delta_status]?.label}
+                {candidate.delta_status === "unchanged" && candidate.reworded ? " · reworded" : ""}
+              </Tag>
+            </Tooltip>
+          )}
           {findingsCount > 0 && (
             <Tooltip title={`${findingsCount} quality finding(s) from the last AI readiness check`}>
               <Tag color="volcano" icon={<ExclamationCircleOutlined />}>
@@ -121,6 +192,80 @@ export function CandidateRow({
               {line.text}
             </div>
             <div className="policy-row-line3">
+              {cluster && (
+                <Tooltip
+                  title={
+                    <>
+                      <div className="policy-row-cluster-tip-title">{clusterLabel(cluster)}</div>
+                      <div className="policy-row-cluster-tip-sub">
+                        {cluster.kind === "group"
+                          ? "Grouped by the curated variation group on each rule"
+                          : "Grouped automatically because these rules test the same fact"}
+                      </div>
+                      {cluster.members
+                        .filter((m) => m.rule_id !== rule.rule_id)
+                        .slice(0, 8)
+                        .map((m) => (
+                          <div key={m.rule_id}>{m.title}</div>
+                        ))}
+                      {cluster.members.length > 9 && <div>…and {cluster.members.length - 9} more</div>}
+                      {onSelectFamily && (
+                        <div className="policy-row-cluster-tip-action">
+                          Click to select all {cluster.members.length} for bulk review
+                        </div>
+                      )}
+                    </>
+                  }
+                >
+                  <span
+                    className={`policy-row-family-chip${isBandStart ? "" : " policy-row-family-chip--continuation"}${
+                      onSelectFamily ? " policy-row-family-chip--actionable" : ""
+                    }`}
+                    role={onSelectFamily ? "button" : undefined}
+                    tabIndex={onSelectFamily ? 0 : undefined}
+                    onClick={
+                      onSelectFamily
+                        ? (e) => {
+                            // The row itself toggles expand — a chip click means
+                            // "act on the family", not "open this one rule".
+                            e.stopPropagation();
+                            onSelectFamily();
+                          }
+                        : undefined
+                    }
+                    onKeyDown={
+                      onSelectFamily
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onSelectFamily();
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    <ClusterOutlined className="policy-row-family-chip-icon" />
+                    {isBandStart ? (
+                      <>
+                        <span className="policy-row-family-chip-name">{clusterLabel(cluster)}</span>
+                        {/* When the family is split across the list this run is only
+                            part of it, so the head carries position as well as size —
+                            a bare total would imply "these are all of them". */}
+                        <span className="policy-row-family-chip-count">
+                          {band?.fragmented && band.ordinal && band.total
+                            ? `${band.ordinal}/${band.total}`
+                            : (band && band.total > 1 ? band.total : cluster.members.length)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="policy-row-family-chip-name">
+                        {band?.ordinal} of {band?.total}
+                      </span>
+                    )}
+                  </span>
+                </Tooltip>
+              )}
               <span>{ruleTypeLabel(rule.rule_type)}</span>
               <span className="policy-row-dot">·</span>
               <span className="policy-row-mono">{rule.rule_id}</span>
