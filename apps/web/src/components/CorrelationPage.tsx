@@ -154,7 +154,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
       // rather than being buried in the success line.
       if (result.rules_budget_skipped > 0) {
         message.warning(
-          `${result.rules_budget_skipped} comparable rules fell outside the group budget and were not examined — raise the budget to cover them`,
+          `${result.rules_budget_skipped} comparable rules fell outside the group budget and were not examined — this run covered ${result.groups_analyzed} of ${result.groups_available} comparison groups`,
           6
         );
       }
@@ -227,13 +227,22 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
       ? Math.max(selectedRun.rules_uncompared - budgetSkipped, 0)
       : null;
 
+  // A truncated run should say how much it left behind, not only that it left
+  // something — otherwise the only remedy on offer is to guess a bigger number
+  // and re-run blind.
+  const groupsAvailable = selectedRun?.groups_available ?? null;
+  const coverageSuffix =
+    groupsAvailable !== null && selectedRun
+      ? ` This run covered ${selectedRun.groups_analyzed} of the ${groupsAvailable} comparison groups the rules yield.`
+      : "";
+
   const uncomparedExplanation = !selectedRun
     ? ""
     : budgetSkipped === null
       ? "Rules this run never compared. This run predates the breakdown, so how much of it was the group budget rather than rules genuinely standing alone is not recorded — re-run to find out."
       : truncated
-        ? `Rules this run never compared. ${budgetSkipped} of them could have been compared but fell outside the group budget, so this analysis is partial — re-run with a larger budget to cover them. The other ${standAlone} shared no signal with any rule and were never comparable.`
-        : "Rules this run never compared. All of them shared no comparison signal with any other rule, so there was nothing to compare them against — the group budget did not cut anything short.";
+        ? `Rules this run never compared. ${budgetSkipped} of them could have been compared but fell outside the group budget, so this analysis is partial — re-run with a larger budget to cover them. The other ${standAlone} shared no signal with any rule and were never comparable.${coverageSuffix}`
+        : `Rules this run never compared. All of them shared no comparison signal with any other rule, so there was nothing to compare them against — the group budget did not cut anything short.${coverageSuffix}`;
 
   return (
     <>

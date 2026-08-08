@@ -932,6 +932,11 @@ export interface CorrelationRunSummary {
   status: string;
   rules_analyzed: number;
   groups_analyzed: number;
+  /** Total groups the corpus yields, of which `groups_analyzed` is the portion
+   * the budget allowed. Lets a truncated run say how much it left behind rather
+   * than only that it left something. Null for runs recorded before this was
+   * tracked. */
+  groups_available: number | null;
   /** Rules this run never examined, for any reason. Surfaced because a coverage
    * gap the reviewer cannot see is one they will assume does not exist. See
    * `rules_budget_skipped` for the part of it that means the run was truncated
@@ -953,6 +958,7 @@ export interface CorrelationRunResult {
   policy_set_key: string;
   rules_analyzed: number;
   groups_analyzed: number;
+  groups_available: number;
   rules_uncompared: number;
   rules_budget_skipped: number;
   findings_stored: number;

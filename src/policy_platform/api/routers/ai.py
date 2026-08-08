@@ -453,6 +453,7 @@ async def correlation_runs(
             "status": r.status,
             "rules_analyzed": r.rules_analyzed,
             "groups_analyzed": r.groups_analyzed,
+            "groups_available": r.groups_available,
             "rules_uncompared": r.rules_uncompared,
             "rules_budget_skipped": r.rules_budget_skipped,
             "prompt_version": r.prompt_version,

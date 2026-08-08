@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import uuid
 from datetime import UTC, datetime
 
@@ -149,6 +150,16 @@ async def run_correlation_analysis(
         **({"max_groups": max_groups} if max_groups is not None else {}),
     )
 
+    # How many groups the corpus actually yields, so a truncated run can say how
+    # much it left behind rather than only that it left something. Without this
+    # an operator who sees "truncated" has to guess a larger budget and re-run
+    # blind. Grouping is pure and AI-free, so running it twice is negligible
+    # beside the per-group model calls that follow. Counted with an explicit
+    # unbounded call rather than by slicing the capped result, because the budget
+    # is checked once per signal and a signal may contribute several groups, so
+    # a capped run can overshoot its budget and the two are not interchangeable.
+    groups_available = len(group_rules_for_comparison(rules, max_groups=sys.maxsize))
+
     grouped_ids = {rule_id for group in groups for rule_id, _ in group}
     uncompared = len(rules) - len(grouped_ids)
     # Split the uncompared total by cause. A rule that shares no signal with any
@@ -167,15 +178,17 @@ async def run_correlation_analysis(
         groups_analyzed=len(groups),
         rules_uncompared=uncompared,
         rules_budget_skipped=budget_skipped,
+        groups_available=groups_available,
     )
     session.add(run)
     await session.flush()
 
     logger.info(
-        "correlation: set=%s rules=%d groups=%d uncompared=%d (budget_skipped=%d)",
+        "correlation: set=%s rules=%d groups=%d/%d uncompared=%d (budget_skipped=%d)",
         policy_set_key,
         len(rules),
         len(groups),
+        groups_available,
         uncompared,
         budget_skipped,
     )
@@ -252,6 +265,7 @@ async def run_correlation_analysis(
         "policy_set_key": policy_set_key,
         "rules_analyzed": len(rules),
         "groups_analyzed": len(groups),
+        "groups_available": groups_available,
         "rules_uncompared": uncompared,
         "rules_budget_skipped": budget_skipped,
         "findings_stored": stored,

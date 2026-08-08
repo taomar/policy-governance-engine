@@ -257,6 +257,13 @@ class CorrelationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: Nullable so runs recorded before this was tracked read as "unknown"
     #: rather than falsely claiming zero truncation.
     rules_budget_skipped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: Total groups this corpus yields, against which `groups_analyzed` is the
+    #: portion the budget allowed. Recorded so a truncated run can say how much
+    #: it left behind, not merely that it left something: without it an operator
+    #: told their run was truncated has to guess a larger budget and re-run
+    #: blind. Nullable for runs recorded before this was tracked.
+    groups_available: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

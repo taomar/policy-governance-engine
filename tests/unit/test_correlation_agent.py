@@ -9,6 +9,7 @@ at all, and they are decided before the model is ever asked.
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -501,3 +502,52 @@ class TestGroupableRuleIds:
         ]
 
         assert groupable_rule_ids(rules) == {"R1", "R2"}
+
+
+class TestGroupBudgetIsAdvisory:
+    """`max_groups` is checked once per signal, not once per group.
+
+    A single signal can contribute several groups, so a run can finish holding
+    more groups than its budget named. This is pinned because the correlation
+    service reports `groups_available` from a separate unbounded call rather
+    than by slicing the capped result, and that choice is only correct if the
+    two are genuinely not interchangeable.
+    """
+
+    @staticmethod
+    def _many_rules_sharing_one_signal(count: int) -> list[tuple[str, dict]]:
+        return [rule(f"R{i}", tags=["shared"]) for i in range(count)]
+
+    def test_a_run_can_hold_more_groups_than_its_budget(self) -> None:
+        rules = self._many_rules_sharing_one_signal(30)
+
+        groups = group_rules_for_comparison(rules, max_group_size=4, max_groups=1)
+
+        assert len(groups) > 1
+
+    def test_slicing_a_capped_result_is_not_the_same_as_capping(self) -> None:
+        """The reason `groups_available` needs its own unbounded call."""
+
+        rules = self._many_rules_sharing_one_signal(30)
+
+        capped = group_rules_for_comparison(rules, max_group_size=4, max_groups=1)
+        unbounded = group_rules_for_comparison(
+            rules, max_group_size=4, max_groups=sys.maxsize
+        )
+
+        assert unbounded[:1] != capped
+        assert len(unbounded) >= len(capped)
+
+    def test_an_unbounded_call_reports_the_full_group_count(self) -> None:
+        """What the service stores as `groups_available`."""
+
+        rules = [
+            rule("R1", tags=["a"]),
+            rule("R2", tags=["a"]),
+            rule("R3", tags=["b"]),
+            rule("R4", tags=["b"]),
+        ]
+
+        unbounded = group_rules_for_comparison(rules, max_groups=sys.maxsize)
+
+        assert len(unbounded) >= len(group_rules_for_comparison(rules, max_groups=1))
