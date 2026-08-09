@@ -45,7 +45,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 - **JSON in, JSON out**, except document upload (`multipart/form-data`) and
   export endpoints (which return JSON, JSONL or CSV as an attachment, selected
   with a `format` query parameter). See
-  [Outputs and how to use them](../README.md#outputs-and-how-to-use-them) for
+  [Capabilities](../README.md#capabilities) for
   what each output is for.
 - **Policy sets are addressed by `key`** — a stable slug such as
   `expense-policy` — while most other resources use UUIDs.

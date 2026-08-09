@@ -131,7 +131,7 @@ Solid arrows are the governed path. The dotted arrow is best-effort: a search
 indexing failure is logged and swallowed so an upload never fails because Azure
 is unavailable. That resilience is deliberate, but it means a document can be
 fully usable while being invisible to retrieval — see
-[grounding limitations](ai-assistance.md#grounding-limitations-and-failure-modes).
+[grounding limitations](ai-assistance.md#limitations).
 
 ## Where the trust boundary sits
 
