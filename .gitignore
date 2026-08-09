@@ -26,6 +26,7 @@ docs/SESSION_HANDOFF.md
 docs/adr/
 docs/handoff/
 docs/security-rbac-azure-readiness-plan.md
+.impeccable/
 
 # Azure Developer CLI local environments may contain secrets.
 .azure/*
