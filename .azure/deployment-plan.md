@@ -34,7 +34,7 @@ The Azure environment starts empty. `alembic upgrade head` initializes the Postg
 | Data start | Fresh PostgreSQL schema and empty document share |
 | AI | Required Azure OpenAI plus Azure AI Search grounding |
 | Authentication | Microsoft Entra ID gate on the public web entry point; API has internal ingress only |
-| Availability | Single-region, non-HA baseline; documented production variant increases redundancy |
+| Availability | Single-region, non-HA baseline; documented resilient option increases redundancy |
 | Deployment execution | Explicitly out of scope for this task |
 
 ### Application constraints discovered
@@ -77,7 +77,7 @@ The Azure environment starts empty. `alembic upgrade head` initializes the Postg
 
 ## 5. Architecture Decision
 
-### Recommended variant: Azure Container Apps
+### Recommended option: Azure Container Apps
 
 Container Apps is the best fit because the application is a two-service container workload, benefits from internal API ingress, supports VNet injection and independent resource sizing, and does not need Kubernetes administration.
 
@@ -94,7 +94,7 @@ The web app is the only public endpoint. The API uses internal Container Apps in
 
 ### Why not App Service as the default
 
-App Service is viable and is documented as Variant B, using two Linux Web Apps on one Standard S1 plan, VNet integration, and a private endpoint for the API. It provides deployment slots and a familiar fixed-capacity model, but it requires more explicit private-endpoint/DNS wiring between the web proxy and API and cannot size the two components independently within one plan. Container Apps gives the cleaner internal-service boundary for this application.
+App Service is viable and is documented as Option B, using two Linux Web Apps on one Standard S1 plan, VNet integration, and a private endpoint for the API. It provides deployment slots and a familiar fixed-capacity model, but it requires more explicit private-endpoint/DNS wiring between the web proxy and API and cannot size the two components independently within one plan. Container Apps gives the cleaner internal-service boundary for this application.
 
 ### Why not AKS
 
@@ -113,7 +113,7 @@ The deployment architecture does not introduce MAF. Existing AI flows are fixed 
 | Web UI | Azure Container Apps | Consumption workload profile, 0.25 vCPU, 0.5 GiB, min 1/max 2 replicas | Low baseline cost, no free tier, always warm, external HTTPS ingress |
 | API | Azure Container Apps | Consumption workload profile, 1 vCPU, 2 GiB, min 1/max 3 replicas | PDF/DOCX parsing and AI orchestration need more memory; internal ingress |
 | Schema/search initialization | Container Apps Job | Manual trigger, 0.5 vCPU, 1 GiB | Runs Alembic and index initialization from inside the VNet |
-| Image registry | Azure Container Registry | Standard, admin disabled | Lower standard tier; managed-identity image pulls. Private Link requires Premium and is reserved for hardened variant |
+| Image registry | Azure Container Registry | Standard, admin disabled | Lower standard tier; managed-identity image pulls. Private Link requires Premium and is reserved for the private-network option |
 | Relational database | Azure Database for PostgreSQL Flexible Server | Burstable `Standard_B1ms`, PostgreSQL 16, 32 GiB, 7-day backup, no HA | User-approved entry tier for a fresh small database |
 | Uploaded documents | StorageV2 + Azure Files | `Standard_LRS`, 10 GiB share | Persists the existing `data/documents` filesystem contract |
 | Secrets | Azure Key Vault | Standard, RBAC, purge protection, private endpoint | Keeps DB/OpenAI/Search keys out of source and Container App plain configuration |
@@ -144,7 +144,7 @@ One VNet is required. Multiple subnets are necessary because Container Apps and 
 ### Routing and controls
 
 - The baseline uses Azure system routes plus a NAT Gateway on the Container Apps subnet for stable internet egress needed by the public Standard ACR endpoint and Azure control-plane dependencies.
-- No forced-tunnel UDR or Azure Firewall is included in the lower-cost baseline. A firewall route is an enterprise variant because it adds cost and requires the full Container Apps outbound allowlist.
+- No forced-tunnel UDR or Azure Firewall is included in the lower-cost baseline. A firewall route is an enterprise option because it adds cost and requires the full Container Apps outbound allowlist.
 - PostgreSQL has private VNet access through its delegated subnet and private DNS; public access is disabled.
 - Key Vault, Storage file, Azure OpenAI, and AI Search expose private endpoints only; public network access is disabled.
 - ACR Standard remains public-network reachable but accepts managed-identity authenticated pulls over TLS and has the admin account disabled. The hardened profile uses ACR Premium plus Private Link.
@@ -224,16 +224,16 @@ The application then starts with zero policies and an empty Azure Files share.
 
 ---
 
-## 11. Deployment Variants to Document
+## 11. Deployment Options to Document
 
-| Variant | Hosting | Best for | Main trade-off |
+| Option | Hosting | Best for | Main trade-off |
 |---|---|---|---|
 | A - Recommended baseline | Two Azure Container Apps + manual bootstrap job | Small secure deployment with internal API and independent scaling | No deployment slots; synchronous long requests remain an app constraint |
 | B - App Service alternative | Two Linux custom-container Web Apps on Standard S1 plan | Teams preferring fixed capacity, deployment slots, and App Service operations | Shared plan sizing and more private endpoint/DNS wiring |
 | C - Hardened private ingress | Internal Container Apps environment + WAF/Application Gateway, Premium ACR | Regulated/private-access environments | Significantly higher networking and operations cost |
 | D - Foundry IQ grounding | Replace direct Search calls with a Foundry IQ adapter | Future managed knowledge/agentic retrieval | Not deployable by current code; requires application integration first |
 
-Only Variant A receives executable Bicep in this delivery. Other variants receive architecture, SKU, parameter, security, and migration guidance so they are not confused with implemented deployment paths.
+Only Option A receives executable Bicep in this delivery. Other options receive architecture, SKU, parameter, security, and migration guidance so they are not confused with implemented deployment paths.
 
 ---
 
@@ -294,7 +294,7 @@ The preflight uses `az quota` first for supported providers, falls back to Azure
 | `apps/web/Dockerfile` | React/Nginx container build | Pending approval |
 | `apps/web/nginx.conf.template` | SPA routing and same-origin API proxy | Pending approval |
 | `docs/azure-deployment.md` | Complete recommended deployment guide | Pending approval |
-| `docs/azure-deployment-variants.md` | Container Apps, App Service, hardened, Foundry IQ comparisons | Pending approval |
+| `docs/azure-deployment-options.md` | Container Apps, App Service, private-network, Foundry IQ comparisons | Pending approval |
 | `docs/azure-prerequisites.md` | Tools, roles, providers, Entra, quotas, DNS and region checks | Pending approval |
 | `docs/azure-operations.md` | Initialization, scaling, backup, restore, rotation, troubleshooting | Pending approval |
 
@@ -363,14 +363,14 @@ Validated: 2026-08-09T07:30:33+03:00
 - [x] Gather scale, budget, networking, AI, and fresh-data requirements
 - [x] Select azd + Bicep recipe
 - [x] Select Container Apps as recommended hosting
-- [x] Define resource inventory, SKU defaults, security, and variants
+- [x] Define resource inventory, SKU defaults, security, and options
 - [x] Define deployment-time quota and region preflight
 - [x] User approved the plan and confirmed Azure assets belong under `infra/`
 
 ### Artifact generation
 
 - [x] Generate azd/Bicep/Docker/bootstrap artifacts
-- [x] Generate Azure deployment and variant documentation
+- [x] Generate Azure deployment and option documentation
 - [x] Update plan status to `Ready for Validation`
 
 ### Validation

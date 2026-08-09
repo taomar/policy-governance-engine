@@ -1,7 +1,7 @@
 # Azure operations
 
-This runbook applies after a future deployment of the generated Container Apps
-variant. It does not imply that an Azure environment currently exists.
+This runbook applies after the pending Azure Container Apps deployment is
+provisioned. It does not imply that an Azure environment currently exists.
 
 ## Initialization
 
@@ -131,7 +131,7 @@ portal drift.
 - audit Entra app owners, credentials and redirect URIs
 - remember that infrastructure authentication does not yet make application
   actor roles authoritative
-- use the hardened variant when private ingress, WAF or centralized egress
+- use the private-network deployment option when private ingress, WAF or centralized egress
   inspection is a real requirement
 
 ## Official references

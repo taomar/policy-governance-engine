@@ -9,9 +9,11 @@ Python engine — with no model call anywhere in its path — makes the actual
 decision. Published policy versions are immutable snapshots that can always be
 traced back to the verbatim sentence they came from.
 
-> **Maturity: working prototype with a prepared Azure deployment kit.** The
-> application remains single tenant and its actor roles are not production
-> authorization. No Azure environment was deployed while preparing this repository.
+> **Deployment status:** the **Local deployment is available**. It may use
+> configured Azure OpenAI and Azure AI Search endpoints while the application
+> itself runs locally. **Azure deployment is pending**: the deployment kit is
+> prepared, but no Azure-hosted environment has been provisioned from this
+> repository.
 
 ---
 
@@ -176,7 +178,12 @@ Full detail — what each framework is responsible for, where it is configured, 
 what is deliberately *not* used — is in
 [`docs/frameworks.md`](docs/frameworks.md).
 
-## Azure deployment preparation
+## Deployment status
+
+| Deployment | Status | Description |
+|---|---|---|
+| **Local deployment** | `AVAILABLE` | Web, API, and PostgreSQL run locally; the API may call configured Azure OpenAI and Azure AI Search endpoints. |
+| **Azure deployment** | `PENDING` | Container, Bicep, azd, network, and operations assets are prepared and statically validated; live provisioning is not validated. |
 
 A deployment-ready **Azure Container Apps + Bicep + azd** kit is available under
 `infra/`. It provisions a VNet-integrated public web app and internal API,
@@ -192,7 +199,7 @@ Start with:
 
 - [Azure deployment](docs/azure-deployment.md)
 - [Prerequisites](docs/azure-prerequisites.md)
-- [Deployment variants](docs/azure-deployment-variants.md)
+- [Deployment options](docs/azure-deployment-options.md)
 - [Azure operations](docs/azure-operations.md)
 
 The documented future entry point is `azd up`; it was **not** executed during
@@ -307,8 +314,8 @@ Start at the **[documentation index](docs/README.md)**.
 | [User guide](docs/user-guide.md) | Illustrated instructions for document intake, AI extraction, review, publication, quality, tests, evaluation, and grounded chat |
 | [Architecture](docs/architecture.md) | Components, boundaries, invocation paths |
 | [Capability flows](docs/capability-flows.md) | Selected high-impact diagrams for document control, provenance, evaluation, assurance, grounding, and audit |
-| [Azure deployment](docs/azure-deployment.md) | Recommended Container Apps architecture, SKUs, network, parameters and future azd flow |
-| [Azure variants](docs/azure-deployment-variants.md) | Container Apps, App Service, hardened-private and Foundry IQ alternatives |
+| [Azure deployment](docs/azure-deployment.md) | Pending Azure-hosted deployment: Container Apps architecture, SKUs, network, parameters and future azd flow |
+| [Azure deployment options](docs/azure-deployment-options.md) | Container Apps, App Service, private-network, and Foundry IQ alternatives |
 | [Azure prerequisites](docs/azure-prerequisites.md) | Tools, roles, providers, quotas, Entra, models and network inputs |
 | [Azure operations](docs/azure-operations.md) | Fresh initialization, scaling, backups, rotation and troubleshooting |
 | [Testing and scripts](docs/testing.md) | Active pytest capability groups, commands, expected behavior, isolation, and coverage gaps |

@@ -1,393 +1,344 @@
 # User guide
 
-This guide explains how to use the Policy Platform from document intake through
-review, publication, deterministic evaluation, quality assurance, and grounded
-AI assistance.
+This guide follows the user journey from source document to governed policy
+decision. Screenshots use the local **HR** and **Saudi Labor Law** demonstration
+projects. Counts and dates will differ in another environment.
 
-The screenshots use the local **HR** and **Saudi Labor Law** demonstration
-projects. Counts and timestamps will differ in another environment. Personal
-reviewer names have been replaced with **Demo Reviewer** in the screenshots.
+## Deployment status
 
-## Before you begin
+| Deployment | Status | Meaning |
+|---|---|---|
+| **Local deployment** | **Available** | The web app, API, and PostgreSQL run locally. The local API may call configured Azure OpenAI and Azure AI Search endpoints. |
+| **Azure deployment** | **Pending** | Docker, Bicep, azd, networking, and operations assets are prepared and statically validated, but no Azure-hosted environment has been provisioned from this repository. |
 
-The current application has three local working personas:
+Using Azure OpenAI or Azure AI Search endpoints from a locally running API is
+still a **Local deployment**. It becomes an **Azure deployment** only when the
+application itself is provisioned and running in Azure.
 
-| Persona | Main responsibilities |
+## Journey at a glance
+
+```text
+Set identity
+-> choose or create a project
+-> upload source
+-> extract candidate rules
+-> review source and logic
+-> run pre-publish quality
+-> approve and publish
+-> inspect the immutable package
+-> create tests and regression guards
+-> evaluate live behavior
+-> monitor evidence and governance
+```
+
+## 1. Set your identity and understand the dashboard
+
+The top-right identity control is the single place to set:
+
+- your display name;
+- the persona you are acting as.
+
+| Persona | Main responsibility |
 |---|---|
-| **System Admin** | Source documents, project setup, and platform configuration |
-| **Policy Composer / Reviewer** | Document extraction, candidate drafting, review, quality, and tests |
-| **Policy Manager** | Publication, manager overrides, governed exports, and lifecycle oversight |
+| **System Admin** | Project setup, source documents, and platform configuration |
+| **Policy Composer / Reviewer** | Extraction, drafting, review, quality, and tests |
+| **Policy Manager** | Publication, overrides, exports, and lifecycle oversight |
 
-Select your name and acting persona from the identity control in the top-right
-corner. This value is used for attribution in the local application.
-
-> **Current security limitation**
->
-> The acting-persona selector is not authentication. It is stored in browser
-> `localStorage`, and some manager actions trust a role sent by the client. Do
-> not expose the current build to untrusted users. Entra authentication,
-> server-side RBAC, managed users, and an administration page remain pending
-> implementation work.
+The identity is used for attribution. In the current Local deployment it is not
+authentication or trusted authorization.
 
 Confirm the header shows:
 
-- **API connected** — the FastAPI backend is reachable.
-- **AI enabled** — Azure OpenAI is configured.
+- **API connected**;
+- **AI enabled** when Azure OpenAI is configured.
 
-Azure AI Search is also required for retrieval-grounded features such as
-Ask AI and AI-proposed policy tests.
+![Policy operations dashboard showing project readiness](images/user-guide/01-dashboard.png)
 
-## 1. Start from the dashboard
+The dashboard leads with work that needs attention:
 
-The dashboard summarizes work across all projects:
-
-- candidates awaiting a decision;
-- high-severity quality findings;
+- candidates awaiting review;
+- high quality findings;
 - machine-executable coverage;
-- saved regression guards;
-- project readiness and the next actions for the selected persona.
+- regression guards;
+- project readiness.
 
-![Policy operations dashboard showing HR and Saudi Labor Law project readiness](images/user-guide/01-dashboard.png)
+## 2. Choose a project and assess readiness
 
-Use the sidebar to open:
+Open **Projects**, then select a policy set such as HR.
 
-| Destination | Use it for |
-|---|---|
-| **Dashboard** | Portfolio activity, readiness, and shortcuts |
-| **Projects** | The complete project register |
-| A named project | Direct access to that project's workspace |
-| **Document Inbox** | Uploaded files not yet assigned to a project |
-| **Evaluate** | Deterministic runtime evaluation of a published policy set |
-| **Ask AI** | Grounded questions across one project or the full portfolio |
+![HR project overview with publication and governance readiness](images/user-guide/02-hr-overview.png)
 
-## 2. Open a project workspace
+The Overview answers whether the current package is:
 
-A project is a policy set: it owns source documents, candidate rules, immutable
-published versions, quality history, policy tests, and evaluation history.
+- published and effective;
+- machine-executable;
+- linked to source evidence;
+- assigned to accountable owners;
+- scheduled for review.
 
-The HR overview shows:
+Use the tabs in journey order:
 
-- document and review counts;
-- the active published version;
-- machine-executable and source-evidence coverage;
-- ownership and review scheduling;
-- recent governance activity;
-- project notes.
+```text
+Documents -> Review -> Quality -> Policies -> Tests -> Regression
+```
 
-![HR project overview with publication and governance status](images/user-guide/02-hr-overview.png)
+Supporting tabs include Aggregate Limits, Compare, and Decision Log.
 
-### Project tabs
+## 3. Upload and control a source document
 
-| Tab | Purpose |
-|---|---|
-| **Overview** | Readiness, governance ownership, lifecycle dates, and recent activity |
-| **Documents** | Upload source files, inspect versions, view extracted text, and start AI extraction |
-| **Review** | Verify, edit, approve, reject, request changes, or override candidate rules |
-| **Policies** | Inspect the active immutable policy version |
-| **Aggregate Limits** | Define shared ceilings across multiple rules |
-| **Compare** | Compare two published versions |
-| **Quality** | Run and review deterministic and AI-assisted quality checks |
-| **Tests** | Generate, review, run, and preserve policy scenarios |
-| **Regression** | Review immutable test runs across versions |
-| **Decision Log** | Inspect recorded runtime evaluations |
+Open **Documents** inside the project.
 
-Additional Correlation, Exceptions, and Attestations workspaces are implemented
-but may be hidden behind the project overflow menu in the current UI.
+![HR Documents tab with upload and source history](images/user-guide/03-hr-documents.png)
 
-## 3. Upload and extract a policy document
+### Upload
 
-Open **Documents** inside the target project.
-
-![HR Documents tab with upload area and an existing source document](images/user-guide/03-hr-documents.png)
-
-### Upload a new source
-
-1. Enter a **Title** and **Owner**.
-2. Drop a PDF or DOCX into the upload area, or click the area to select a file.
+1. Enter the source title and owner.
+2. Select or drop a PDF/DOCX.
 3. Select **Upload**.
-4. Confirm the document appears under **Documents in this project**.
+4. Confirm the document appears in the project.
 
-Uploading another file under the same document title creates a new immutable
-document version instead of replacing the existing source.
+Uploading a replacement creates a new immutable document version; it does not
+overwrite the earlier source.
 
-### Inspect or extract
+### Inspect before extraction
 
-For a document version:
+Use **View full text** to confirm parsing quality. The system stores clauses with
+page, section, sequence, and source offsets. These references later connect a
+policy decision back to its exact wording.
 
-- select **View full text** to inspect parsed source text;
-- select **Extract with AI** to create candidate rules.
+## 4. Extract candidate rules
 
-Extraction is a long-running operation. The application:
+Select **Extract with AI** on the intended document version.
 
-1. parses the document into source-linked clauses;
-2. extracts verbatim policy passages;
-3. formulates structured candidate rules;
-4. verifies source evidence;
+The extraction process:
+
+1. selects verbatim policy passages;
+2. verifies each passage against the parsed source;
+3. formulates candidate rules;
+4. maps conditions, effects, facts, and executability;
 5. stores candidates for human review;
 6. indexes clauses into Azure AI Search when Search is available.
 
-Nothing is published automatically. If the API restarts during extraction, the
-run is marked failed; already committed candidates remain available for review.
+Nothing is published automatically. A long extraction uses many model calls. If
+the API restarts, the run is marked failed and already committed candidates stay
+available.
 
-## 4. Review candidate rules
+## 5. Review candidate rules against source evidence
 
-Open **Review** to decide which AI-drafted or manually drafted rules are suitable
-for publication.
+Open **Review**.
 
-![HR Review queue with candidate filters, list, and rule inspector](images/user-guide/04-hr-review-queue.png)
+![HR review queue with filters and candidate records](images/user-guide/04-hr-review-queue.png)
 
 ### Narrow the queue
 
-Use:
+Filter by:
 
-- document and extraction-run filters;
-- review-status filters;
-- **Policies & Rules** or **Definitions & Glossary**;
-- search by title, action, rule ID, or tag;
-- related-family grouping;
-- quality findings;
-- list, split, or detail view.
+- document and extraction run;
+- review status;
+- policy rules versus definitions/glossary;
+- title, action, rule ID, or tag;
+- related policy family;
+- quality findings.
 
 ### Inspect a candidate
 
-Select a candidate to review:
+Select a row and verify:
 
-- outcome/effect and rule type;
-- condition logic;
-- target scope;
+- `WHEN -> THEN` logic;
+- effect and rule type;
 - required facts;
+- target scope;
 - exceptions and advice;
-- relationship and precedence metadata;
-- source passage and evidence;
-- revision and review history;
+- precedence and relationships;
+- verbatim source text;
 - canonical JSON.
 
-Use **View source** before deciding. Source evidence is the authoritative basis
-for approving a candidate.
+Use **View source** before deciding. AI output is a proposal; source evidence and
+human judgement are authoritative.
 
 ### Decide
 
-A reviewer can:
+- **Approve** when the candidate is correct and publishable.
+- **Reject** when it should not enter policy.
+- **Edit/Revise** when logic or wording must change.
+- **Ask AI** for an advisory explanation or rewrite.
+- Use bulk actions only after filtering to the intended set.
 
-- **Approve** — ready for the next publication;
-- **Reject** — excluded from publication;
-- **Edit/Revise** — correct the candidate before deciding;
-- **Ask AI** — request a targeted explanation or rewrite;
-- apply a bulk decision to selected candidates.
+## 6. Run quality before publication
 
-A Policy Manager can additionally request changes or override a prior review
-decision with a recorded reason.
+Open **Quality** and choose **Rules still in review**.
 
-> AI output is advisory. Approval is a human governance decision.
+![Quality workspace with evaluation history and findings](images/user-guide/06-hr-quality.png)
 
-## 5. Publish and inspect governed policies
+Run the evaluation before approving a large batch. Review:
 
-Publishing creates a new immutable full snapshot. It does not edit the active
-version in place.
+- confirmed deterministic findings;
+- potential AI findings that need human confirmation;
+- affected policy records;
+- exact source evidence;
+- acceptable and unacceptable conditions;
+- reviewer questions and suggested correction.
 
-Before publishing:
+Quality does not modify rules. Fix the candidate in Review, then run Quality
+again.
 
-1. resolve or explicitly accept important quality findings;
-2. approve the intended candidates;
-3. check policy tests;
-4. confirm ownership and lifecycle metadata;
-5. switch to **Policy Manager**;
-6. publish the approved set.
+## 7. Approve and publish
 
-Publication activates one version and automatically reruns active policy tests.
+When the intended candidates are approved:
 
-Open **Policies** to inspect the active version.
+1. switch to **Policy Manager**;
+2. confirm your name in the header;
+3. review the publication summary;
+4. choose the effective date;
+5. publish the next version.
 
-![HR published-policy workspace with rule grouping and detailed inspector](images/user-guide/05-hr-published-policies.png)
+Publication creates a complete immutable snapshot. It carries forward unchanged
+rules, adds or supersedes approved candidates, records the approver, and reruns
+active regression guards.
+
+## 8. Inspect the governed policy package
+
+Open **Policies**.
+
+![Published policy workspace with rule register and inspector](images/user-guide/05-hr-published-policies.png)
 
 Use the workspace to:
 
 - switch retained versions;
-- search and filter rules;
-- group related policies;
-- inspect readable condition logic;
-- review source, scope, history, notes, and canonical JSON;
-- export governed rules as JSON, JSONL, or CSV.
+- search and filter;
+- isolate related policy families;
+- inspect `WHEN -> THEN` decisions;
+- review source, scope, history, and notes;
+- inspect evaluator, canonical, and DMN/FEEL JSON;
+- export selected or all rules as JSONL.
 
-Published versions are read-only. Create a revised candidate and publish a new
-version to change live behavior.
+Published versions are read-only. Change live behavior by revising a candidate
+and publishing another version.
 
-## 6. Check quality before and after publication
+## 9. Prove behavior with blind tests
 
-Open **Quality** and choose the evaluation scope:
+Open **Tests**.
 
-- **The published version** — can the current live version be relied on?
-- **Rules still in review** — are candidates safe to approve?
+![Policy validation lab with selected policies and scenario generator](images/user-guide/07-hr-policy-tests.png)
 
-![HR Quality tab with run controls and persisted evaluation history](images/user-guide/06-hr-quality.png)
+The four-stage flow is:
 
-Select **Run quality evaluation** to create a read-only quality run. The check
-does not modify rules or approvals.
+1. **Select policies** from a published version.
+2. **Generate & seal** AI-generated combinations or your own scenario.
+3. **Run blind** through the deterministic evaluator.
+4. **Reveal & preserve** expected-versus-actual evidence.
 
-Findings may come from:
+The page distinguishes:
 
-- deterministic structural checks;
-- AI review of ambiguity, gaps, overlaps, and conflicts;
-- failed policy tests.
+- the version used to generate scenarios;
+- the latest proof version;
+- the next run target;
+- JSON-only versus JSON + hybrid Search grounding;
+- exact tests per selected policy.
 
-Review findings against the canonical rule and source evidence. AI findings are
-potential risks, not automatically confirmed defects. Evaluation history lets
-you demonstrate whether later versions improved.
+AI may draft scenarios. Only the deterministic evaluator decides pass/fail.
 
-## 7. Create and run policy tests
+## 10. Preserve representative regression guards
 
-Open **Tests** to validate published behavior with sealed scenarios.
+After a scenario passes, select **Add passing to regression suite**.
 
-![HR Policy validation lab with executable policies and scenario generator](images/user-guide/07-hr-policy-tests.png)
+Open **Regression** to:
 
-The workflow has four stages:
+- run active guards against a retained version;
+- inspect exact versioned policy evidence;
+- review immutable run history;
+- retire or reactivate guards.
 
-1. **Select policies** — choose machine-executable rules from a published
-   version.
-2. **Generate & seal** — use generated combinations or your own scenario
-   statement. The expected result is committed and hidden.
-3. **Run blind** — execute facts through the deterministic engine.
-4. **Reveal & preserve** — compare expected and actual outcomes and retain the
-   evidence.
+Publishing automatically reruns active guards. A failure is evidence for review;
+it does not block publication.
 
-AI may propose scenarios, but it does not decide pass/fail. The deterministic
-evaluator executes the test.
-
-Use **Add passing to regression suite** to preserve representative behavior.
-Regression tests rerun automatically after publication and surface failures in
-Quality.
-
-## 8. Evaluate a published policy
+## 11. Evaluate live policy behavior
 
 Open the global **Evaluate** page.
 
-![Evaluate page with principal context and auto-generated required facts](images/user-guide/09-evaluate.png)
+![Evaluate page with principal context and required facts](images/user-guide/09-evaluate.png)
 
-1. Select the project.
-2. Optionally enter principal context:
-   - persona/role;
-   - organizational unit;
-   - jurisdiction;
-   - process.
-3. Select the active version or pin a retained version.
-4. Optionally enter a correlation ID for an upstream transaction.
-5. Complete the generated required-fact fields, or enable advanced JSON mode.
-6. Select **Run Evaluation**.
+1. Select the project and version.
+2. Enter principal context when scope requires it.
+3. Complete generated fact fields or use advanced JSON.
+4. Optionally add a correlation ID.
+5. Select **Run Evaluation**.
 
-The result includes:
+The result includes overall status, outcome, per-rule results, missing facts,
+exceptions, aggregate breaches, required actions, advice, source evidence, and a
+stable result hash.
 
-- overall status;
-- policy outcome;
-- rule-by-rule results;
-- missing facts;
-- triggered exceptions;
-- aggregate-limit breaches;
-- required actions and advice;
-- a stable result hash.
+Missing facts produce `INDETERMINATE`; the engine does not guess. Every call is
+stored in the project's **Decision Log**.
 
-Missing required facts produce `INDETERMINATE`; the engine does not guess.
-Every evaluation is appended to the project's **Decision Log**.
+## 12. Ask grounded questions
 
-## 9. Ask grounded questions
+Select **Ask AI** and choose the project scope.
 
-Select **Ask AI** in the header and choose a project scope.
+![Ask AI drawer scoped to HR](images/user-guide/10-ask-ai.png)
 
-![Ask AI drawer scoped to the HR project](images/user-guide/10-ask-ai.png)
+Useful questions ask for:
 
-Good questions ask for:
-
-- a policy threshold or approval requirement;
-- differences between two rules or versions;
-- the source wording behind a rule;
+- a threshold or approval requirement;
+- the source wording behind a policy;
+- differences between rules or versions;
 - a plain-language explanation of an evaluation;
-- gaps that should be reviewed.
+- a potential gap to review.
 
-Grounded answers separate:
+Grounded responses separate source facts from model synthesis. Follow citations
+before relying on an answer.
 
-- verbatim source facts and citations;
-- the model's explanatory synthesis.
+## 13. Monitor governance and improve the next version
 
-Follow each source citation before relying on an answer. If the required
-information is not in the indexed policy corpus, the expected behavior is to
-say that it could not be established—not to invent an answer.
+Return to Overview after publication.
 
-## 10. Use the overview for governance follow-up
+![Saudi Labor Law overview showing readiness gaps](images/user-guide/08-saudi-labor-law-overview.png)
 
-The Saudi Labor Law example shows the same workflow with a smaller active
-version and explicit evidence/ownership gaps.
-
-![Saudi Labor Law overview showing source coverage and governance gaps](images/user-guide/08-saudi-labor-law-overview.png)
-
-Use overview warnings as follow-up work:
+Use the readiness docket to:
 
 - assign accountable ownership and escalation contacts;
 - schedule the next review;
+- improve machine-executable coverage;
 - resolve missing source evidence;
-- increase machine-executable coverage where deterministic evaluation is
-  required;
-- review the candidate backlog;
-- rerun quality and regression checks after changes.
+- clear the review backlog;
+- rerun Quality and Regression after changes.
 
-## Supporting workflows
+Use **Compare** for exact rule-level changes between versions and **Decision Log**
+for runtime evidence.
 
-### Compare versions
+## Supporting tasks
 
-Open **Compare**, select two published versions, and review:
-
-- added rules;
-- removed rules;
-- changed fields;
-- unchanged rules;
-- optional AI narrative based on the deterministic diff.
-
-### Aggregate limits
-
-Use **Aggregate Limits** when multiple rules contribute to one shared ceiling.
-Preview eligibility before saving a limit, then verify it with a policy test.
-
-### Regression and Decision Log
-
-- **Regression** preserves versioned test executions and reveals behavior
-  changes.
-- **Decision Log** preserves runtime facts, status, outcome, and result hash for
-  each evaluation.
-
-### Export
-
-Candidate and published-rule exports support:
-
-- JSON for application integration;
-- JSONL for streaming/batch processing;
-- CSV for spreadsheet review.
-
-Exports are point-in-time downloads, not subscriptions or event streams.
+| Task | Workspace |
+|---|---|
+| Define a shared ceiling across rules | Aggregate Limits |
+| Export candidates for offline review | Review |
+| Export governed rules | Policies |
+| Compare two immutable packages | Compare |
+| Inspect runtime decisions | Decision Log |
 
 ## Troubleshooting
 
-| Symptom | What to check |
+| Symptom | Check |
 |---|---|
-| **API disconnected** | Confirm PostgreSQL and the FastAPI process are running and `VITE_API_BASE_URL` points to the API |
-| **AI disabled** | Confirm the required Azure OpenAI endpoint, credentials, reasoning/fast deployments, and embedding deployment |
-| Ask AI has no citations | Confirm Azure AI Search is configured and the source document was indexed |
-| Extraction appears slow | Large documents require many model calls; avoid API reload mode and watch extraction progress |
-| Extraction failed after restart | The run is intentionally marked failed; review committed candidates and rerun if needed |
-| Publish action unavailable | Switch to Policy Manager and confirm candidates are approved |
-| Manager action returns `403` | The request is not using the Policy Manager persona |
-| Evaluation returns `INDETERMINATE` | Supply the listed missing facts; do not reinterpret it as false |
-| No policies are testable | The active version contains definitions or documentation-only prose rather than executable conditions |
-| Quality finding looks incorrect | Compare the finding with the canonical rule and source evidence; AI findings require confirmation |
+| API disconnected | Local PostgreSQL/API processes and `VITE_API_BASE_URL` |
+| AI disabled | Azure OpenAI endpoint, key, chat deployments, and embedding deployment |
+| Ask AI has no citations | Azure AI Search configuration and indexed source clauses |
+| Extraction is slow | Large documents require many model calls; avoid API reload mode |
+| Publish unavailable | Policy Manager persona, header identity, approved candidates |
+| Evaluation is `INDETERMINATE` | Supply the listed missing facts |
+| No testable policies | Active rules may be definitions or documentation-only |
+| Quality finding seems wrong | Compare it with the exact versioned policy and source evidence |
 
 ## Safe operating rules
 
 1. Treat source evidence as authoritative.
-2. Treat AI output as a proposal, not a policy decision.
+2. Treat AI output as a proposal.
 3. Do not publish without human review.
-4. Do not edit a published version; create a new one.
+4. Never edit an immutable published version.
 5. Preserve representative tests before changing live policy.
-6. Investigate `INDETERMINATE` rather than forcing a result.
-7. Keep the current local-trust build on a trusted network.
-8. Use synthetic or approved policy content in demonstrations.
+6. Investigate `INDETERMINATE`; do not force a result.
+7. Keep the current Local deployment on a trusted network.
+8. Treat Azure deployment as pending until live validation is complete.
 
-For implementation-level flow diagrams, see
-[Capability flows](capability-flows.md). For the AI grounding boundary, see
-[AI assistance](ai-assistance.md#how-the-ai-is-grounded).
+For implementation-level diagrams, see
+[Capability flows](capability-flows.md).

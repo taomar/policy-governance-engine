@@ -269,7 +269,7 @@ Important qualifications:
 
 ## Grounding choice: Azure AI Search or Foundry IQ
 
-Grounding is not a hosting variant.
+Grounding is a separate decision from hosting.
 
 ### Azure AI Search - current implementation
 
@@ -311,7 +311,7 @@ runtime grounding path.
 
 ## Selection checklist
 
-Before choosing a variant:
+Before choosing an option:
 
 1. Confirm whether public Entra-protected web ingress is acceptable.
 2. Confirm whether deployment slots are mandatory.

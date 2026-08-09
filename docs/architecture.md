@@ -246,7 +246,7 @@ existing `data/documents` path.
 The initialization job creates a **fresh** PostgreSQL schema with Alembic and
 creates Search index definitions. It does not migrate local policy rows or
 files. See [Azure deployment](azure-deployment.md) and
-[deployment variants](azure-deployment-variants.md).
+[deployment options](azure-deployment-options.md).
 
 No Azure deployment was executed while preparing these assets. CI/CD remains
 outside this repository; a future operator invokes the documented `azd up`

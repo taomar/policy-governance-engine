@@ -104,10 +104,12 @@ Useful database access:
 docker exec policy-postgres psql -U policy_admin -d policy_platform -c "\dt"
 ```
 
-## Deployment shape
+## Deployment status
 
-Local development uses `infra/local/docker-compose.yml` for PostgreSQL and
-starts the API and Vite frontend manually.
+| Deployment | Status | Runtime |
+|---|---|---|
+| **Local deployment** | **Available** | PostgreSQL uses `infra/local/docker-compose.yml`; API and Vite run locally and may call configured Azure OpenAI/Search endpoints. |
+| **Azure deployment** | **Pending** | The azd/Bicep/container kit is prepared, but no Azure-hosted environment has been provisioned from this repository. |
 
 The repository also contains a deployment-ready Azure kit: root `azure.yaml`
 and Dockerfiles plus Bicep, parameter profiles, prerequisite hooks, Search
@@ -127,14 +129,14 @@ Read this before exposing the platform anywhere beyond a developer machine.
 
 | Aspect | Status |
 |---|---|
-| Authentication | The application has no login/token validation. The prepared Azure variant adds Microsoft Entra authentication at public web ingress; it does not make application actor roles authoritative. |
+| Authentication | The application has no login/token validation. The pending Azure deployment adds Microsoft Entra authentication at public web ingress; it does not make application actor roles authoritative. |
 | Identity | The "acting as" switcher (`ActorContext.tsx`) is a name and role held in browser `localStorage`. It is not an identity claim. |
 | Authorization | A lightweight local-trust check only: `request-changes`, `override` and attestation-campaign creation require `actor_role: "policy_manager"` in the request body and return `403` otherwise. It is trivially spoofable and is not a security boundary. |
 | Multi-tenancy | Not modelled. Single-tenant local assumption. |
-| Transport | Local development uses HTTP. The Azure variant enforces HTTPS ingress and TLS/private connectivity to data and AI services. |
+| Transport | Local deployment uses HTTP. The pending Azure deployment enforces HTTPS ingress and TLS/private connectivity to data and AI services. |
 | CORS | Restricted to the configured local Vite ports. |
-| Secrets | Local keys use ignored `.env`. The Azure variant stores database, Entra, OpenAI and Search secrets in private Key Vault and injects Key Vault references. |
-| Uploaded files | Local files use `data/documents`; the Azure variant mounts a private Azure Files share. Malware/content scanning is not implemented. |
+| Secrets | Local keys use ignored `.env`. The pending Azure deployment stores database, Entra, OpenAI and Search secrets in private Key Vault and injects Key Vault references. |
+| Uploaded files | Local files use `data/documents`; the pending Azure deployment mounts a private Azure Files share. Malware/content scanning is not implemented. |
 | Threat model | No security review has been performed. |
 
 The client-supplied actor role **must** be replaced by trusted Entra claims and server-side authorization before untrusted or production use. The prepared ingress gate authenticates users but does not complete that application change.

@@ -1,8 +1,12 @@
-# Azure deployment
+# Azure deployment (pending)
 
-This guide explains how the prepared Azure deployment works. It is a future
-operator procedure: **no Azure resources were deployed while this kit was
-generated**.
+**Status: pending.** This guide explains the prepared Azure deployment. It is a
+future operator procedure: **no Azure-hosted application environment has been
+provisioned from this repository**.
+
+The currently available path is the **Local deployment**. Calling Azure OpenAI
+or Azure AI Search endpoints from the local API does not make the application an
+Azure deployment.
 
 ## Recommended architecture
 
@@ -65,7 +69,7 @@ Azure OpenAI and Azure AI Search have public network access disabled.
 | Monitoring | Log Analytics pay-as-you-go + workspace Application Insights | Platform logs and monitoring surface |
 | Network egress | Standard NAT Gateway and public IP | Stable Container Apps outbound identity |
 
-See [deployment variants](azure-deployment-variants.md) for a resilient profile
+See [deployment options](azure-deployment-options.md) for a resilient profile
 and App Service alternative.
 
 ## Network design
@@ -78,7 +82,7 @@ and App Service alternative.
 
 The VNet defaults to `10.20.0.0/16`; every prefix is parameterized. The baseline
 uses Azure system routes plus NAT rather than forced tunneling. A firewall/UDR
-is part of the hardened variant because it adds cost and requires the complete
+is part of the private-network option because it adds cost and requires the complete
 Container Apps outbound allowlist.
 
 Private DNS zones are created and linked for PostgreSQL, Key Vault, Azure Files,

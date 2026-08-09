@@ -1,7 +1,7 @@
 # Documentation
 
-Documentation for the Policy Platform — a local-first system that turns policy
-documents into deterministic, machine-evaluable rules.
+Documentation for the Policy Platform. The **Local deployment is available**;
+the prepared **Azure deployment is pending** live provisioning and validation.
 
 New here? Read the [root README](../README.md) first, then
 [Architecture](architecture.md). For a specific feature, go straight to
@@ -14,8 +14,8 @@ New here? Read the [root README](../README.md) first, then
 | [User guide](user-guide.md) | Illustrated walkthrough of the dashboard, HR and Saudi Labor Law projects, document intake, review, publication, quality, tests, evaluation, and grounded Ask AI. |
 | [Architecture](architecture.md) | Runtime components, boundaries, how they are invoked, and where the deterministic/probabilistic line sits. |
 | [Capability flows](capability-flows.md) | A concise set of high-impact Mermaid diagrams for document control, evidence, evaluation, tests, quality, grounding, and outputs. |
-| [Azure deployment](azure-deployment.md) | Recommended Container Apps architecture, lower Standard SKUs, VNet/private connectivity, parameters and future `azd up` sequence. |
-| [Azure deployment variants](azure-deployment-variants.md) | App Service, hardened-private and Foundry IQ alternatives and their trade-offs. |
+| [Azure deployment](azure-deployment.md) | Pending Azure-hosted deployment: Container Apps architecture, lower Standard SKUs, VNet/private connectivity, and future `azd up` sequence. |
+| [Azure deployment options](azure-deployment-options.md) | App Service, private-network, and Foundry IQ alternatives and their trade-offs. |
 | [Azure prerequisites](azure-prerequisites.md) | Required tools, permissions, providers, quotas, Entra registration, models and address ranges. |
 | [Azure operations](azure-operations.md) | Fresh schema/index initialization, health, scaling, backup, rotation and rollback. |
 | [Testing and scripts](testing.md) | The active pytest process, capability groups it protects, invocation commands, expected behavior, and coverage gaps. |

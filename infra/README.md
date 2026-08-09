@@ -56,5 +56,5 @@ does not import local policies, documents, samples or database rows.
 
 See [Azure deployment](../docs/azure-deployment.md),
 [prerequisites](../docs/azure-prerequisites.md),
-[variants](../docs/azure-deployment-variants.md), and
+[deployment options](../docs/azure-deployment-options.md), and
 [operations](../docs/azure-operations.md).
