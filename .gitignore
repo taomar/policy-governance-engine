@@ -25,6 +25,7 @@ Instructions for Claude Opus 5_*.md
 docs/SESSION_HANDOFF.md
 docs/adr/
 docs/handoff/
+docs/security-rbac-azure-readiness-plan.md
 
 # Azure Developer CLI local environments may contain secrets.
 .azure/*

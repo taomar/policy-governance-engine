@@ -197,6 +197,22 @@ Start with:
 
 The documented future entry point is `azd up`; it was **not** executed during
 preparation.
+
+## Pending implementation
+
+Three requested workstreams are **pending**. Some enabling pieces already exist
+(the Entra web ingress gate and managed identities for ACR and Key Vault), but
+none of the workstreams is complete or ready to claim.
+
+| Workstream | Status | Why it matters |
+|---|---|---|
+| Application authentication, RBAC, user management and admin page | `PENDING` | The API does not validate caller identity. Authorization is a client-supplied `actor_role` field in the request body, and the acting role is a dropdown backed by browser `localStorage` — so a caller that can reach the API can claim `policy_manager`. This must be replaced by server-validated Microsoft Entra ID claims, an explicit role/permission model, and an admin page for application access. |
+| Azure security hardening with managed identities | `PENDING` | Managed identity currently covers only registry pulls and Key Vault secret reads. Azure OpenAI and Azure AI Search are called with API keys, PostgreSQL uses an administrator password, and the Azure Files mount uses a storage account key. The plan moves each supported dependency to managed identity and is explicit about the one that cannot become keyless without moving document storage to Blob Storage. |
+| Live Azure deployment validation | `PENDING` | The deployment kit has only been validated statically — schema, Bicep lint, container builds, parameter and secret scanning. No subscription has ever been provisioned from it, so identity, role enforcement, private DNS, quota, model availability, restore and rollback are all unproven. |
+
+The admin page in that plan manages **application access only**. It does not
+create, modify or delete Microsoft Entra tenant accounts.
+
 ## Quick start
 
 Prerequisites: Docker Desktop, Python 3.11+, Node.js 18+.
