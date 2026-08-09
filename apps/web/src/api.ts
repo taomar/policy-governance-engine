@@ -61,6 +61,23 @@ export interface WorkspaceCounts {
   decisions: number;
 }
 
+export interface ProjectPortfolioInsight {
+  key: string;
+  document_count: number;
+  review_pending: number;
+  version_count: number;
+  active_version_number: number | null;
+  last_published_at: string | null;
+  active_rule_count: number;
+  machine_executable_count: number;
+  test_count: number;
+  regression_test_count: number;
+  latest_quality_high: number | null;
+  latest_quality_medium: number | null;
+  latest_quality_low: number | null;
+  latest_quality_at: string | null;
+}
+
 export interface TrustedConfigResponse {
   policy_set_key: string;
   trusted_config: Record<string, unknown>;
@@ -952,9 +969,15 @@ export interface RuleScenarioTestResult {
 export interface QualityFinding {
   severity: "high" | "medium" | "low";
   category: string;
+  summary?: string;
   finding: string;
+  why_it_matters?: string;
+  acceptable_when?: string;
+  unacceptable_when?: string;
+  review_questions?: string[];
   affected_rule_ids: string[];
   recommendation: string;
+  analysis_status?: "confirmed" | "requires_human_confirmation";
   source: "deterministic" | "ai_review";
 }
 
@@ -965,6 +988,7 @@ export interface QualityReport {
   rule_count: number;
   candidate_statuses_included?: string[];
   findings: QualityFinding[];
+  methodology_version?: string;
 }
 
 /** One past evaluation, summarised. Findings are omitted so the history list
@@ -979,6 +1003,7 @@ export interface QualityRunSummary {
   low_count: number;
   finding_count: number;
   ai_review_used: boolean;
+  methodology_version: string;
   triggered_by: string | null;
   run_at: string;
 }
@@ -1391,16 +1416,22 @@ export const policyAttestationApi = {
 
 export type ExportFormat = "json" | "jsonl" | "csv";
 
-/** Triggers a browser "Save As" download for an already-fetched blob. */
-function downloadBlob(blob: Blob, filename: string) {
+/** Triggers a browser download for an already-fetched blob.
+ *
+ * The anchor must be connected to the document before click, and the object URL
+ * must survive beyond the current task. Chromium-based embedded webviews can
+ * otherwise cancel the navigation before the blob stream is opened.
+ */
+export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.style.display = "none";
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Parses `attachment; filename="..."` out of a Content-Disposition header. */
@@ -1737,6 +1768,9 @@ export const api = {
   health: () => request<{ status: string }>("/health"),
 
   listPolicySets: () => request<PolicySet[]>("/api/policy-sets"),
+
+  getProjectPortfolioSummary: () =>
+    request<ProjectPortfolioInsight[]>("/api/policy-sets/portfolio/summary"),
 
   getPolicySet: (key: string) => request<PolicySet>(`/api/policy-sets/${encodeURIComponent(key)}`),
 

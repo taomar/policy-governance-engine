@@ -3,23 +3,40 @@ import { Alert, Button, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
   CheckCircleOutlined,
+  ExperimentOutlined,
   FileTextOutlined,
   FolderOutlined,
   PlayCircleOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
   UploadOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
-import { api, PolicyPlatformApiError } from "../api";
+import {
+  api,
+  PolicyPlatformApiError,
+  type PolicySet,
+  type ProjectPortfolioInsight,
+} from "../api";
 import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
 
 const { Title, Text } = Typography;
 
 interface Summary {
   policySetCount: number;
-  activeVersionCount: number;
-  pendingCandidateCount: number;
+  activeVersionCount: number | null;
+  pendingCandidateCount: number | null;
   documentCount: number;
+  publishedRuleCount: number | null;
+  executableRuleCount: number | null;
+  regressionGuardCount: number | null;
+  validationCount: number | null;
+  highFindingCount: number | null;
+}
+
+interface ProjectReadiness {
+  project: PolicySet;
+  insight: ProjectPortfolioInsight;
 }
 
 interface ToolLink {
@@ -111,58 +128,65 @@ export function Dashboard({
 }) {
   const { actor } = useActor();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [readiness, setReadiness] = useState<ProjectReadiness[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const policySets = await api.listPolicySets();
-        let activeVersionCount = 0;
-        let pendingCandidateCount = 0;
-        for (const ps of policySets) {
-          try {
-            const versions = await api.listPolicyVersions(ps.key);
-            activeVersionCount += versions.filter((v) => v.is_active).length;
-            const candidates = await api.listCandidateRules(ps.key, "candidate");
-            pendingCandidateCount += candidates.length;
-          } catch {
-            // ignore per-policy-set errors, keep aggregating others
-          }
-        }
-        const documents = await api.listDocuments();
-        setSummary({
+        const [policySets, documents] = await Promise.all([
+          api.listPolicySets(),
+          api.listDocuments(),
+        ]);
+        const base: Summary = {
           policySetCount: policySets.length,
-          activeVersionCount,
-          pendingCandidateCount,
+          activeVersionCount: null,
+          pendingCandidateCount: null,
           documentCount: documents.length,
-        });
+          publishedRuleCount: null,
+          executableRuleCount: null,
+          regressionGuardCount: null,
+          validationCount: null,
+          highFindingCount: null,
+        };
+        setSummary(base);
+
+        try {
+          const insights = await api.getProjectPortfolioSummary();
+          const byKey = new Map(policySets.map((project) => [project.key, project]));
+          const joined = insights.flatMap((insight) => {
+            const project = byKey.get(insight.key);
+            return project ? [{ project, insight }] : [];
+          });
+          joined.sort(
+            (a, b) =>
+              (b.insight.latest_quality_high ?? -1) - (a.insight.latest_quality_high ?? -1) ||
+              b.insight.review_pending - a.insight.review_pending,
+          );
+          setReadiness(joined);
+          setSummary({
+            ...base,
+            activeVersionCount: insights.filter((item) => item.active_version_number !== null).length,
+            pendingCandidateCount: insights.reduce((total, item) => total + item.review_pending, 0),
+            publishedRuleCount: insights.reduce((total, item) => total + item.active_rule_count, 0),
+            executableRuleCount: insights.reduce((total, item) => total + item.machine_executable_count, 0),
+            regressionGuardCount: insights.reduce((total, item) => total + item.regression_test_count, 0),
+            validationCount: insights.reduce((total, item) => total + item.test_count, 0),
+            highFindingCount: insights.reduce((total, item) => total + (item.latest_quality_high ?? 0), 0),
+          });
+        } catch (caught) {
+          setError(
+            `Portfolio loaded, but readiness insights are unavailable: ${
+              caught instanceof PolicyPlatformApiError ? caught.detail : String(caught)
+            }`,
+          );
+        }
       } catch (e) {
         setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
       }
     };
     void load();
   }, []);
-
-  const portfolio = [
-    {
-      key: "projects",
-      value: summary?.policySetCount,
-      label: "Projects",
-      icon: <FolderOutlined />,
-    },
-    {
-      key: "projects",
-      value: summary?.activeVersionCount,
-      label: "Active versions",
-      icon: <CheckCircleOutlined />,
-    },
-    {
-      key: "document-inbox",
-      value: summary?.documentCount,
-      label: "Source documents",
-      icon: <FileTextOutlined />,
-    },
-  ];
 
   const toolkit = ROLE_TOOLKITS[actor.role];
 
@@ -172,6 +196,48 @@ export function Dashboard({
   };
 
   const pending = summary?.pendingCandidateCount;
+  const published = summary?.publishedRuleCount;
+  const executable = summary?.executableRuleCount;
+  const executablePercent =
+    published && executable !== null && executable !== undefined
+      ? Math.round((executable / published) * 100)
+      : null;
+  const pressure = [
+    {
+      label: "Awaiting review",
+      value: pending,
+      detail: "candidate decisions",
+      icon: <FileTextOutlined />,
+      tone: pending && pending > 0 ? "attention" : "neutral",
+    },
+    {
+      label: "High findings",
+      value: summary?.highFindingCount,
+      detail: "latest active-version checks",
+      icon: <WarningOutlined />,
+      tone: summary?.highFindingCount ? "risk" : "neutral",
+    },
+    {
+      label: "Machine-ready",
+      value:
+        published === null || published === undefined || executable === null || executable === undefined
+          ? null
+          : `${executable}/${published}`,
+      detail: executablePercent === null ? "coverage unavailable" : `${executablePercent}% of published rules`,
+      icon: <CheckCircleOutlined />,
+      tone: executablePercent !== null && executablePercent < 50 ? "attention" : "neutral",
+    },
+    {
+      label: "Regression guards",
+      value: summary?.regressionGuardCount,
+      detail:
+        summary?.validationCount === null || summary?.validationCount === undefined
+          ? "validation unavailable"
+          : `${summary.validationCount} saved scenarios`,
+      icon: <ExperimentOutlined />,
+      tone: "neutral",
+    },
+  ];
 
   return (
     <div className="dashboard-page">
@@ -197,6 +263,8 @@ export function Dashboard({
             <Title level={2} id="review-work-title">
               {pending === undefined
                 ? "Loading review workload…"
+                : pending === null
+                  ? "Review workload unavailable"
                 : pending > 0
                   ? `${pending} candidate rule${pending === 1 ? "" : "s"} need a decision`
                   : "Review queues are clear"}
@@ -205,6 +273,18 @@ export function Dashboard({
               Inspect the source, condition, outcome, and exceptions before approving anything for publication.
             </Text>
           </div>
+          <div className="dashboard-pressure-strip" aria-label="Portfolio assurance status">
+            {pressure.map((item) => (
+              <div key={item.label} className={`is-${item.tone}`}>
+                <span className="dashboard-pressure-icon">{item.icon}</span>
+                <span>
+                  <small>{item.label}</small>
+                  <strong>{item.value ?? "—"}</strong>
+                  <em>{item.detail}</em>
+                </span>
+              </div>
+            ))}
+          </div>
           <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => onNavigate("projects")}>
             Open project register
           </Button>
@@ -212,24 +292,50 @@ export function Dashboard({
 
         <section className="dashboard-portfolio" aria-label="Portfolio register">
           <div className="dashboard-panel-heading">
-            <Text strong>Portfolio register</Text>
-            <Text type="secondary">Current local instance</Text>
+            <Text strong>Project readiness</Text>
+            <Text type="secondary">
+              {summary
+                ? `${summary.policySetCount} projects · ${summary.activeVersionCount ?? "—"} live · ${summary.documentCount} sources`
+                : "Loading portfolio…"}
+            </Text>
           </div>
-          <div className="dashboard-metric-list" role="list">
-            {portfolio.map((item) => (
+          <div className="dashboard-readiness-list" role="list">
+            {readiness.map(({ project, insight }) => {
+              const coverage = insight.active_rule_count
+                ? Math.round((insight.machine_executable_count / insight.active_rule_count) * 100)
+                : 0;
+              return (
               <button
-                key={item.label}
+                key={project.key}
                 type="button"
                 role="listitem"
-                className="dashboard-metric-row"
-                onClick={() => onNavigate(item.key)}
+                className="dashboard-readiness-row"
+                onClick={() => onNavigate("projects")}
               >
-                <span className="dashboard-metric-icon">{item.icon}</span>
-                <span className="dashboard-metric-label">{item.label}</span>
-                <strong className="dashboard-metric-value">{item.value ?? "—"}</strong>
+                <span className="dashboard-metric-icon"><FolderOutlined /></span>
+                <span className="dashboard-readiness-copy">
+                  <strong>{project.name}</strong>
+                  <small>
+                    {insight.active_version_number ? `v${insight.active_version_number}` : "not published"} ·{" "}
+                    {insight.active_rule_count} rules · {coverage}% machine-ready
+                  </small>
+                </span>
+                <span className="dashboard-readiness-signals">
+                  {(insight.latest_quality_high ?? 0) > 0 && (
+                    <Tag color="red">{insight.latest_quality_high} high</Tag>
+                  )}
+                  {insight.review_pending > 0 && <Tag color="gold">{insight.review_pending} review</Tag>}
+                  {insight.regression_test_count > 0 && <Tag>{insight.regression_test_count} guards</Tag>}
+                </span>
                 <ArrowRightOutlined className="dashboard-metric-arrow" />
               </button>
-            ))}
+              );
+            })}
+            {summary && readiness.length === 0 && (
+              <div className="dashboard-readiness-empty">
+                <Text type="secondary">No project readiness evidence is available yet.</Text>
+              </div>
+            )}
           </div>
         </section>
       </div>

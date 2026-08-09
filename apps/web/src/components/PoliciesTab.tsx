@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Checkbox, Drawer, Empty, Grid, Segmented, Select, Space, Tag, Typography, message } from "antd";
 import { DownloadOutlined, FileSearchOutlined, LayoutOutlined, UnorderedListOutlined } from "@ant-design/icons";
-import { api, PolicyPlatformApiError, type AggregateLimit, type ApprovedPolicyVersion, type CanonicalRule } from "../api";
+import {
+  api,
+  downloadBlob,
+  PolicyPlatformApiError,
+  type AggregateLimit,
+  type ApprovedPolicyVersion,
+  type CanonicalRule,
+} from "../api";
 import { EditRuleModal } from "./EditRuleModal";
 import { RULE_TYPES, ruleTypeLabel } from "../ruleTypes";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
@@ -430,12 +437,9 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       return;
     }
     const jsonl = exportRules.map((rule) => JSON.stringify(rule)).join("\n") + "\n";
-    const url = URL.createObjectURL(new Blob([jsonl], { type: "application/x-ndjson" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${policySetKey}-v${selectedVersion?.version_number ?? "unknown"}-${scope}-policies.jsonl`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    const filename = `${policySetKey}-v${selectedVersion?.version_number ?? "unknown"}-${scope}-policies.jsonl`;
+    downloadBlob(new Blob([jsonl], { type: "application/x-ndjson;charset=utf-8" }), filename);
+    message.success(`${exportRules.length} complete polic${exportRules.length === 1 ? "y" : "ies"} exported to ${filename}.`);
   };
 
   const emptyMessage =

@@ -60,6 +60,7 @@ is documented in ADR-0006.
 | 44 | Generalized architectural fix for AI-extraction quality (user: "generalize the problem... revisit the full architecture"). Root-caused `ambiguity_status = human_judgment_required` on 100% of 500 rows to a conflation bug in `_ambiguity_for()` (content-ambiguity vs. technical-executability were the same flag); decoupled them so clear-but-non-executable rules now map to `NON_BLOCKING`. Rewrote formulator Section 36 (AMBIGUITY) from a bare 11-code enum into per-code definitions + worked pass/fail examples, closing the over-triggering gap that flagged "15 and below 18" as `AMBIGUOUS_RANGE` and "shall not exceed 90 days" as `AMBIGUOUS_THRESHOLD`. Added anaphora resolution guidance (dangling pronoun subjects like "It shall not exceed 90 days" now resolve to their antecedent in the structured `subject` field, `source_text` untouched, no conflict with Stage 1's verbatim-quote invariant). Closed the prompt gap Milestone 43's own code fix had explicitly flagged but left open ("the prompt gives it no better convention"): new Section 19.2 (DEFINITION) gives explicit subject/predicate/object decomposition rules so `definition` rules stop emitting `predicate: ":"`; added a deterministic `degenerate_predicate` dashboard finding (reusing the existing `_is_separator_predicate` helper for a single source of truth) as a regression/backfill guard. Full suite: 320 passed, 11 skipped. Re-extraction and dataset backfill explicitly deferred pending small-batch (~50 clause) validation, per user's standing instruction. | done |
 | 45 | Per-rule evidence scoping + "which law?" source-context fix + Definitions/Glossary content-kind split. Root-caused a live bug (both "null and void" rules citing 5 evidence entries spanning Articles 6/7/8, though each rule is only actually about Article 8) to `formulation_to_candidate_rules()` applying one flat batch-wide evidence list to every rule from a multi-topic batch. Fixed via passage-matching: each rule's evidence is now resolved from `CanonicalPolicy.source_text` against Stage-1 passages (normalized bidirectional substring containment), falling back to the coarse batch-wide list only when no passage matches. Validated the *pattern* against Akoma Ntoso (span-level references) and LegalRuleML (N:M rule↔provision linking) before implementing, kept domain-neutral. 2 new regression tests added; full suite 322 passed/11 skipped; re-ran a 50-clause extraction live and confirmed both "null and void" rules now cite exactly 1 evidence entry (Article 8 only). Separately, closed a distinct UI gap the user flagged via screenshot ("which law? :)"): the raw "AI EXTRACTION RECORD" JSON viewer (`PolicyInspector.tsx` and `RuleCard.tsx`, both render the same `formulation.canonical`/`formulation.dmn_decisions`) preserves source wording verbatim ("this Law", "this policy") but carried zero document/clause context of its own — added an "Extracted from: {document} ({version}) · {section}, p.{page} · clause {ref}" banner directly above the JSON toggles in both components, reusing each component's already-loaded `docMetaByVersionId`/`clausesById` (no new API calls). Also finished a previously-deferred, explicitly user-requested item that was left half-wired and was blocking `npm run build`: rendered the `Segmented` "Policies & Rules"/"Definitions & Glossary" content-kind toggle in `ReviewQueue.tsx` (state/filtering/counts already existed from earlier work, only the visual control was missing) — live-verified both tabs filter correctly (15 policies / 28 definitions on the current 43-row test set). `tsc --noEmit`, `npm run lint`, and `npm run build` all clean; all three fixes visually verified live in the browser. | done |
 | 46 | Two-bug quality-dashboard triage: (1) exemption-rule effect-polarity inversion (`high` severity, `semantic_modeling`) — 6 exemption rules ("shall be exempted from the implementation of this Law") were classified `rule_type: eligibility` + `effect.type: deny`, which the deterministic evaluator (`_apply_combining_algorithm`) composes literally into `outcome`, so a satisfied rule would report "denied: be exempted" — the *opposite* of the source text. Root cause: Stage 2's own formulator prompt (an example the agent itself added in Milestone 43) told the LLM to classify grant-shaped exemptions as `ineligibility`. Fixed by rewriting prompt Sections 14/15 (ELIGIBILITY/INELIGIBILITY) with explicit GAIN/LOSS semantics, correcting the wrong worked example, and adding new **Section 15.1 (POLARITY TEST)** generalizing a "grant-shaped negation" (exempt/excused/immune/not subject to → gain → eligibility/allow) vs. "loss-shaped negation" (not eligible for/excluded from/disqualified from → loss → ineligibility/deny) heuristic — directly addressing the user's standing "generalize, don't patch one example" instruction. Added a permanent deterministic regression guard, `_eligibility_polarity_findings()` in `ai_quality.py` (5 new unit tests). (2) `data_integrity` truncation defect (`high` severity) — `formulation_mapping.py`'s `_effect_action()` hard-cut every rule's evaluator-facing `effect.action` at exactly 200 characters with **no ellipsis marker**, silently dropping the tail of any longer clause (unlike its sibling `_title_for()`, which truncates-with-`"..."` for the same 200-char display budget). Confirmed via `correlation_agent.py`'s own code comment and a full caller audit (backend + frontend) that nothing consumes `effect.action` as a bounded/display-only string — it is evaluator-facing (`engine.py` returns it verbatim as the decision `outcome`) — so the cap was removed entirely rather than raised-with-ellipsis. Added a regression test (`test_effect_action_is_not_silently_truncated`) with a >200-char definition object. Both fixes required a full validation loop: prompt cache is `@lru_cache(maxsize=1)` (needs process restart) and `_effect_action` runs at extraction/write-time (baked into `payload_json`, not recomputed on read) — so verifying required deleting the 43/78 stale candidate rows, restarting the backend twice (once per fix), and re-running the same 50-clause extraction twice. Final state confirmed live against real data: all 6 exemption-derived rows (12 after re-extraction's slightly different rule count) show `eligibility`+`allow`, zero `deny`; longest `effect.action` in the fresh 47-row set is 1383 characters with no truncation; a re-pulled quality report shows **zero** `eligibility_polarity_inversion` or `data_integrity` findings. Full suite: 328 passed, 11 skipped (up from 327). Then triaged all 17 quality-dashboard findings on the fresh dataset: 13 are genuine `ai_review` human-review content signals (source-law imprecision / 50-of-743-clause sample incompleteness), 2 (`not_machine_executable`, `ambiguity`) are deterministic checks already working as designed post-Milestone-44, and 2 more (`rule_classification` — no `applicability` type exists in the closed vocabulary; `scope_risk` — `scope.jurisdictions`/etc. are unconditionally empty, `PolicyScope()`, confirmed permissive-default not an inversion) were root-caused but deliberately left unfixed as open product/schema decisions with candidate resolutions documented, since both require a business decision the user should make (not a mechanical bug fix). | done |
+| 47 | Standard GitHub documentation pass (docs only, no application code touched): rewrote `README.md` and added a small core docs set — `docs/README.md` (index), `docs/architecture.md`, `docs/workflows.md`, `docs/ai-assistance.md`, `docs/api.md`, `docs/configuration.md` — plus a rewrite of the stale `docs/data-model.md` (16 → 26 tables). Existing ADRs/specs/handoff/research docs preserved and linked as optional references, with historical/superseded material flagged. CI/CD status explicitly recorded as not implemented. Verified against the live implementation: 73 OpenAPI paths / 84 operations across 11 tags, 26 domain tables, 435 passed / 11 skipped unit tests. | done |
 
 **All Phase 1 (Foundation) + Phase 5 (Deterministic Execution) milestones for this
 local vertical slice are complete and verified, plus the human review/approval
@@ -5902,3 +5903,182 @@ published result.
   back navigation restore the same scenario. Desktop viewport has zero horizontal
   page overflow.
 - Impeccable static detector returns no findings for the changed TSX/CSS.
+
+## Milestone 65 - Explainable quality findings and portfolio readiness
+
+### Architectural Context
+
+- Quality findings are evidence about one immutable published version (or a
+  mutable candidate snapshot). The finding owns the accusation; the versioned
+  canonical rules own the policy text, decision logic, scope, priority, and
+  source evidence needed to judge that accusation.
+- The project register is a portfolio boundary. It must consume one cohesive
+  summary contract rather than fetching full documents, versions, and candidate
+  payloads independently for every project just to derive counts.
+
+### Architectural Signals
+
+- Signal observed: quality rows expose raw finding prose and rule IDs but no
+  navigable policy record, comparison, source text, precedence context, or
+  explanation of why the interaction matters.
+- Signal observed: the project register performs three collection fetches per
+  project and still reports inventory rather than readiness, quality, and
+  validation state.
+- Confirmed scope: component and API-contract defects. The underlying published
+  versions and affected rule IDs are sufficient; no additional AI inference is
+  required to explain a stored finding.
+- Decision: resolve finding IDs against the exact published version and add one
+  read-only evidence drawer with in-drawer policy drill-down/back navigation.
+  Add a single portfolio-summary endpoint for per-project operational insight.
+- Additional signal confirmed during live review: the AI quality contract itself
+  returns only free-form `finding` and `recommendation`, receives no exception,
+  precedence, effective-window, executability, or source-text context, and does
+  not validate referenced IDs before persisting the result.
+- Scope decision: extend the quality-analysis boundary with structured impact,
+  acceptance criteria, review questions, and an explicit confirmation status;
+  provide the model the complete decision context it needs; validate and
+  normalize its output before it becomes an immutable quality run. Keep these
+  fields additive so historic runs remain readable through deterministic UI
+  fallbacks.
+
+### Important Invariants
+
+- A historic published finding must resolve policies from the evaluated version,
+  never silently substitute the current active version.
+- AI-generated finding prose remains explicitly labeled as AI analysis; canonical
+  rule decisions and source text remain visually distinct as authoritative
+  evidence.
+- Opening a policy from a finding is read-only and must return to the same finding.
+- Portfolio counts are database-derived summaries; the UI must not download full
+  collections and infer authoritative counts.
+
+### Root-Cause Analysis
+
+- Visible symptom: the operator cannot tell what contradicts what or return from a
+  finding to the affected policy.
+- Immediate cause: findings render as static cards containing only prose, IDs,
+  and recommendation.
+- Violated assumption: a model-written sentence was treated as sufficient
+  evidence for a policy decision.
+- Root cause: Quality did not join its finding contract to the versioned policy
+  records it references; the AI review contract did not require a decision-grade
+  explanation or validate its evidence references; and Projects did not have a
+  portfolio insight contract.
+- Owning boundary: Quality composes finding plus versioned records; PolicyInspector
+  owns full record reading; policy-set API owns portfolio aggregation.
+- Chosen correction level: structural component/API correction.
+
+### Correction
+
+- Replaced static quality cards with a ruled decision register. Every row now
+  distinguishes confirmed deterministic checks from potential AI findings,
+  names affected policies, states the suggested correction, and exposes an
+  explicit `Review evidence` action.
+- Added a version-aware finding drawer that shows:
+  - exact evaluation boundary and confirmation status
+  - what the finding means and how it can fail operationally
+  - acceptable and unacceptable conditions
+  - reviewer questions and closure action
+  - shared facts, outcome directions, priority, and effective-window overlap
+  - each affected policy's canonical `WHEN → THEN`, source text, and full
+    read-only policy record with back navigation
+- Rebuilt the AI quality contract as methodology v2:
+  - supplies condition, scope, effect, exceptions, required facts, priority,
+    effective dates, executability, ambiguity, overrides, supersession,
+    relationships, and source text
+  - requires summary, concrete trigger state, consequence, acceptance boundary,
+    reviewer questions, and smallest correction
+  - labels results as requiring human confirmation
+  - rejects invalid severities, empty findings, and findings whose referenced
+    rule IDs are unsupported
+- Quality history persists methodology version on every run and compares trends
+  only within the same methodology. Migration `d2e3f4a5b6c7` backfills v1/v2
+  from existing immutable evidence, including clean runs with no findings. The
+  v2 run therefore starts a new baseline instead of falsely reporting improvement
+  against v1.
+- Added one `/api/policy-sets/portfolio/summary` query and redesigned Projects to
+  show active package/version, executable coverage, latest quality findings,
+  validation/regression coverage, and review workload. If insight loading fails,
+  projects remain visible with an explicit partial-data error.
+- Fixed selected/all JSONL downloads by connecting the download anchor before
+  click and delaying blob URL cleanup. Both scopes export complete CanonicalRule
+  records.
+- Removed duplicated effect and AI Search rows from the policy Overview. Rule ID,
+  policy-set ID, and published-version ID remain in Overview; Search provenance
+  remains in source evidence; extraction-run lineage remains under Technical
+  metadata.
+
+### Impact Analysis
+
+- API impact: additive portfolio summary endpoint and additive optional quality
+  fields/methodology version. Existing stored quality runs remain readable.
+- Data impact: migration `d2e3f4a5b6c7` adds the immutable
+  `quality_runs.methodology_version` discriminator and backfills existing runs.
+  A real methodology-v2 HR quality run was appended; finding payloads remain
+  unchanged.
+- Compatibility: historic v1 findings use deterministic UI fallbacks for the new
+  explanation fields. Published findings resolve against their exact immutable
+  version.
+- Remaining risk: candidate-scope historic runs do not snapshot the full mutable
+  candidate payload. If a candidate is later superseded or rejected, the drawer
+  retains the immutable finding and explicitly reports unresolved references,
+  but cannot reconstruct the original candidate record without a future
+  snapshot column.
+- Rollback: UI and additive endpoint can be removed without changing published
+  rules, quality runs, or exported policy data.
+
+### Validation
+
+- Real HR methodology-v2 run persisted 9 findings: 3 confirmed structural checks
+  and 6 structured AI findings. All 6 contain impact, acceptance boundaries,
+  reviewer questions, valid rule references, and confirmation status.
+- Browser verified exact v1 policy resolution, comparison mechanics, full source
+  evidence, full-policy drill-down/back navigation, method-v2 baseline behavior,
+  and zero horizontal overflow at 1600px and 667px.
+- Browser interception verified all-policy export at 83 JSONL records and selected
+  export at exactly 2 records; payloads retain condition, effect, evidence, and
+  formulation.
+- Portfolio endpoint returns both projects with authoritative package, quality,
+  validation, executability, and review counts.
+- Policy Overview retains Rule ID, policy-set ID, and published-version ID while
+  duplicated effect/Search provenance is removed.
+- Full backend suite passes: 435 tests, 11 skipped. Frontend lint and production
+  build pass. Impeccable detector returns no findings for all changed UI files.
+- Stability review corrections ensure portfolio quality belongs to the active
+  version, the portfolio route cannot shadow a valid project key, duplicate rule
+  IDs retain every affected record, and any unsupported AI rule reference rejects
+  the entire finding rather than silently changing its evidence set.
+
+## Milestone 66 - Portfolio operational brief and stable1 visual standard
+
+### Correction
+
+- Extended the Quality evidence treatment into the durable design system as the
+  `Decision Evidence Surface`: semantic icon masthead, 16px decision headline,
+  12px evidence copy, explicit acceptable/unacceptable states, reviewer questions,
+  closure action, and ruled canonical policy evidence.
+- Replaced repeated boxed `Open full policy` actions with quiet inline
+  `View policy record →` links so the affected policy evidence remains visually
+  primary.
+- Upgraded Dashboard from inventory totals to an operational brief using the
+  shared portfolio-summary contract:
+  - review workload
+  - active-version high findings
+  - machine-executable coverage
+  - regression guards and saved validation scenarios
+  - per-project readiness ranked by quality risk and review workload
+- Dashboard no longer downloads versions and candidate payloads project by
+  project to calculate totals. It loads policy-set/document identity once and
+  consumes the authoritative portfolio aggregation.
+
+### Validation
+
+- Wide dashboard: 1332px ruled docket, four 63px pressure cells, two 92px
+  readiness rows, zero horizontal overflow.
+- Narrow dashboard: single-column 776px docket, complete pressure/readiness
+  content, zero horizontal overflow.
+- Final policy evidence link is unboxed/transparent, 10.5px, keyboard-focusable,
+  and retains in-drawer policy/back navigation.
+- Full backend suite passes: 436 tests, 11 skipped. Frontend lint and production
+  build pass. Migration head/current both `d2e3f4a5b6c7`. Impeccable detector
+  returns no findings.

@@ -680,6 +680,7 @@ class QualityRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     medium_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     low_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ai_review_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    methodology_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1")
     findings_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     triggered_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

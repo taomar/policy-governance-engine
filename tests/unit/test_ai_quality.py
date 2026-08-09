@@ -49,6 +49,79 @@ class TestAiReviewOutcomeIsReported:
 
         assert used is True
         assert [f["source"] for f in findings] == ["ai_review"]
+        assert findings[0]["analysis_status"] == "requires_human_confirmation"
+        assert findings[0]["summary"] == "overlap"
+
+    @pytest.mark.asyncio
+    async def test_review_discards_findings_that_only_reference_unknown_rules(self, monkeypatch) -> None:
+        monkeypatch.setattr(ai_quality, "get_settings", lambda: _Settings())
+
+        class _Client:
+            def __init__(self, settings) -> None:
+                pass
+
+            async def chat(self, *args, **kwargs) -> str:
+                return (
+                    '{"findings": [{"severity": "high", "finding": "unsupported", '
+                    '"affected_rule_ids": ["NOT-A-REAL-RULE"]}]}'
+                )
+
+        monkeypatch.setattr(ai_quality, "AzureOpenAIClient", _Client)
+
+        findings: list[dict] = []
+        used = await ai_quality._run_ai_review([_rule("R1")], findings, "set-a")
+
+        assert used is True
+        assert findings == []
+
+    def test_review_discards_partially_unsupported_rule_references(self) -> None:
+        normalized = ai_quality._normalize_ai_finding(
+            {
+                "severity": "high",
+                "finding": "R1 conflicts with a fabricated rule.",
+                "affected_rule_ids": ["R1", "NOT-A-REAL-RULE"],
+            },
+            {"R1"},
+        )
+
+        assert normalized is None
+
+    def test_review_discards_non_array_rule_references(self) -> None:
+        normalized = ai_quality._normalize_ai_finding(
+            {
+                "severity": "high",
+                "finding": "Malformed evidence reference.",
+                "affected_rule_ids": "NOT-A-REAL-RULE",
+            },
+            {"R1"},
+        )
+
+        assert normalized is None
+
+    def test_structured_review_fields_are_preserved_and_bounded(self) -> None:
+        normalized = ai_quality._normalize_ai_finding(
+            {
+                "severity": "medium",
+                "category": "decision_gap",
+                "summary": "The equality boundary is undecided.",
+                "finding": "R1 covers below the boundary while R2 covers above it.",
+                "why_it_matters": "The evaluator can return no decision.",
+                "acceptable_when": "The equality input cannot occur.",
+                "unacceptable_when": "The equality input is reachable.",
+                "review_questions": ["Which outcome owns equality?"],
+                "affected_rule_ids": ["R1", "R2"],
+                "recommendation": "Assign equality to one rule.",
+            },
+            {"R1", "R2"},
+        )
+
+        assert normalized is not None
+        assert normalized["affected_rule_ids"] == ["R1", "R2"]
+        assert normalized["why_it_matters"] == "The evaluator can return no decision."
+        assert normalized["acceptable_when"] == "The equality input cannot occur."
+        assert normalized["unacceptable_when"] == "The equality input is reachable."
+        assert normalized["review_questions"] == ["Which outcome owns equality?"]
+        assert normalized["analysis_status"] == "requires_human_confirmation"
 
     @pytest.mark.asyncio
     async def test_failed_review_reports_false_and_says_so_in_the_report(self, monkeypatch) -> None:
@@ -208,7 +281,6 @@ class TestSystemicCausesAreReportedOnce:
         findings = ai_quality._deterministic_findings([_rule("R1"), _rule("R2")])
         assert [f for f in findings if f["category"] == "not_machine_executable"] == []
         assert [f for f in findings if f["category"] == "ambiguity"] == []
-
 
 class TestDefinitionsCarryingEffects:
     """A definition authorizes nothing, and a negative one inverts its source."""
@@ -410,4 +482,3 @@ class TestEligibilityPolarityFindings:
         )
 
         assert found == []
-

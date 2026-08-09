@@ -30,18 +30,134 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-_AI_REVIEW_SYSTEM_PROMPT = """You are a senior policy analyst reviewing a company's formalized \
-governance rules for quality issues. You are given: (1) the full list of currently-approved rules \
-(id, type, effect, condition, scope, description) and (2) a list of deterministic structural findings \
-already computed by code. Identify ADDITIONAL qualitative issues: gaps (an area the rules seem to leave \
-uncovered), redundancy (rules that overlap or restate each other), unclear/ambiguous wording remaining in \
-descriptions, missing exception handling, or business risk you notice. Do not repeat the deterministic \
-findings you were given verbatim — add analysis beyond them.
+QUALITY_METHODOLOGY_VERSION = "2"
 
-Respond with a JSON object: {"findings": [ {"severity": "high"|"medium"|"low", "category": str, \
-"finding": str, "affected_rule_ids": [str], "recommendation": str}, ... ]}. If you find nothing beyond \
-the deterministic findings, return {"findings": []}. Be specific and reference rule_id/title where \
-possible; do not fabricate rule ids that were not given to you."""
+_AI_REVIEW_SYSTEM_PROMPT = """You are a senior policy analyst reviewing a versioned package of formalized \
+governance rules. Deterministic structural findings are supplied separately. Identify only ADDITIONAL \
+qualitative issues that require human judgment: reachable decision gaps, overlapping rules with competing \
+outcomes and no precedence, material ambiguity, missing exception handling, unsafe governance boundaries, \
+or consequential redundancy.
+
+Accuracy rules:
+1. Treat every issue as a POTENTIAL quality finding requiring human confirmation, not as a proven defect.
+2. For a conflict, name the concrete input/state in which the affected rules can both apply, the outcome \
+each rule directs, and why scope, effective dates, priority, explicit overrides, or supersession do not \
+already resolve it.
+3. For a gap, name the exact reachable boundary or workflow state left without an outcome and the adjacent \
+rules that create the boundary.
+4. Do not report a conflict when scopes or effective windows do not overlap, or when explicit precedence \
+already identifies the controlling rule.
+5. Do not infer laws, controls, or business requirements that are absent from the supplied policy package. \
+You may report them as risks to confirm, never as violated requirements.
+6. Do not repeat deterministic findings. Do not fabricate or alter rule IDs.
+7. Explain the evaluator or operational failure mode, what would make the current state acceptable, what \
+would make it unacceptable, and the specific questions a reviewer must answer.
+
+Respond with one JSON object:
+{"findings": [{
+  "severity": "high"|"medium"|"low",
+  "category": "snake_case",
+  "summary": "one plain-language sentence",
+  "finding": "specific evidence-based explanation naming the interaction and concrete boundary/state",
+  "why_it_matters": "the evaluator, control, audit, or user consequence if confirmed",
+  "acceptable_when": "the factual condition under which no policy change is required",
+  "unacceptable_when": "the factual condition under which remediation is required",
+  "review_questions": ["specific decision question", "..."],
+  "affected_rule_ids": ["only IDs supplied in the input"],
+  "recommendation": "smallest policy correction that closes the issue"
+}]}
+
+If there is no additional evidence-based issue, return {"findings": []}."""
+
+
+def _quality_rule_context(rule: CanonicalRule) -> dict:
+    """Decision-grade, bounded context for the qualitative review.
+
+    Sending only title/description/condition made the model blind to the exact
+    precedence and lifecycle fields it was expected to reason about. This keeps
+    the payload bounded while including every field that can prove or disprove an
+    overlap, gap, or exception claim.
+    """
+    formulation = getattr(rule, "formulation", None)
+    canonical = getattr(formulation, "canonical", None)
+    return {
+        "rule_id": rule.rule_id,
+        "title": rule.title,
+        "description": rule.description,
+        "source_text": getattr(canonical, "source_text", "") if canonical else "",
+        "rule_type": rule.rule_type.value,
+        "effect": rule.effect.model_dump(mode="json"),
+        "condition": rule.condition.model_dump(mode="json"),
+        "scope": rule.scope.model_dump(mode="json"),
+        "exceptions": [item.model_dump(mode="json") for item in rule.exceptions],
+        "required_facts": [item.model_dump(mode="json") for item in rule.required_facts],
+        "priority": rule.priority,
+        "effective_from": rule.effective_from.isoformat(),
+        "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
+        "machine_executable": rule.machine_executable,
+        "ambiguity_status": rule.ambiguity_status.value,
+        "is_explicit_override": rule.is_explicit_override,
+        "supersedes_rule_ids": list(rule.supersedes_rule_ids),
+        "related_rule_ids": list(rule.related_rule_ids),
+    }
+
+
+def _normalize_ai_finding(raw: object, valid_rule_ids: set[str]) -> dict | None:
+    """Validate one model finding before it becomes immutable quality evidence."""
+    if not isinstance(raw, dict):
+        return None
+
+    severity = raw.get("severity")
+    if severity not in {"high", "medium", "low"}:
+        return None
+
+    finding = str(raw.get("finding") or "").strip()
+    if not finding:
+        return None
+
+    raw_references = raw.get("affected_rule_ids")
+    if raw_references is not None and not isinstance(raw_references, list):
+        logger.warning("Discarding AI quality finding with malformed rule references: %r", raw_references)
+        return None
+    references = raw_references if isinstance(raw_references, list) else []
+    requested_ids = [str(value).strip() for value in references if str(value).strip()]
+    unsupported_ids = [rule_id for rule_id in requested_ids if rule_id not in valid_rule_ids]
+    if unsupported_ids:
+        logger.warning("Discarding AI quality finding with unsupported rule references: %s", requested_ids)
+        return None
+    affected_rule_ids = list(dict.fromkeys(requested_ids))
+
+    summary = str(raw.get("summary") or "").strip()
+    if not summary:
+        summary = finding.split(".", 1)[0].strip()
+
+    review_questions = raw.get("review_questions")
+    questions = (
+        [str(value).strip() for value in review_questions if str(value).strip()][:6]
+        if isinstance(review_questions, list)
+        else []
+    )
+
+    return {
+        "severity": severity,
+        "category": str(raw.get("category") or "qualitative_risk").strip() or "qualitative_risk",
+        "summary": summary[:500],
+        "finding": finding[:4000],
+        "why_it_matters": str(raw.get("why_it_matters") or "").strip()[:2000],
+        "acceptable_when": str(raw.get("acceptable_when") or "").strip()[:2000],
+        "unacceptable_when": str(raw.get("unacceptable_when") or "").strip()[:2000],
+        "review_questions": questions,
+        "affected_rule_ids": affected_rule_ids,
+        "recommendation": str(raw.get("recommendation") or "").strip()[:3000],
+        "analysis_status": "requires_human_confirmation",
+        "source": "ai_review",
+    }
+
+
+def _mark_deterministic_findings(findings: list[dict]) -> None:
+    for finding in findings:
+        if finding.get("source") == "deterministic":
+            finding.setdefault("analysis_status", "confirmed")
 
 
 def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
@@ -471,19 +587,7 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
         return False
     try:
         ai_client = AzureOpenAIClient(settings)
-        rule_summaries = [
-            {
-                "rule_id": r.rule_id,
-                "title": r.title,
-                "description": r.description,
-                "rule_type": r.rule_type.value,
-                "effect": {"type": r.effect.type.value, "action": r.effect.action},
-                "scope": r.scope.model_dump(mode="json"),
-                "condition": r.condition,
-                "ambiguity_status": r.ambiguity_status.value,
-            }
-            for r in rules
-        ]
+        rule_summaries = [_quality_rule_context(rule) for rule in rules]
         user_content = json.dumps(
             {
                 "approved_rules": rule_summaries,
@@ -505,9 +609,13 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
             timeout=180.0,
         )
         parsed = json.loads(raw)
-        for f in parsed.get("findings", []):
-            f["source"] = "ai_review"
-            findings.append(f)
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
+            raise ValueError("AI quality review did not return a findings array")
+        valid_rule_ids = {rule.rule_id for rule in rules}
+        for raw_finding in parsed["findings"]:
+            normalized = _normalize_ai_finding(raw_finding, valid_rule_ids)
+            if normalized is not None:
+                findings.append(normalized)
         return True
     except Exception as exc:  # noqa: BLE001 - deterministic findings remain valid without AI review
         logger.warning("AI quality review failed for %s: %s", policy_set_key, exc)
@@ -567,6 +675,7 @@ async def evaluate_policy_set_quality(
         ai_review_used = await _run_ai_review(rules, findings, policy_set_key)
     else:
         ai_review_used = False
+    _mark_deterministic_findings(findings)
 
     run_id = None
     if record_run:
@@ -577,6 +686,7 @@ async def evaluate_policy_set_quality(
             rule_count=len(rules),
             findings=findings,
             ai_review_used=ai_review_used,
+            methodology_version=QUALITY_METHODOLOGY_VERSION,
             triggered_by=triggered_by,
         )
         await session.commit()
@@ -589,6 +699,7 @@ async def evaluate_policy_set_quality(
         "rule_count": len(rules),
         "findings": findings,
         "quality_run_id": run_id,
+        "methodology_version": QUALITY_METHODOLOGY_VERSION,
     }
 
 
@@ -642,6 +753,7 @@ async def evaluate_candidate_quality(
         ai_review_used = await _run_ai_review(rules, findings, policy_set_key)
     else:
         ai_review_used = False
+    _mark_deterministic_findings(findings)
 
     run_id = None
     if record_run:
@@ -652,6 +764,7 @@ async def evaluate_candidate_quality(
             rule_count=len(rules),
             findings=findings,
             ai_review_used=ai_review_used,
+            methodology_version=QUALITY_METHODOLOGY_VERSION,
             triggered_by=triggered_by,
         )
         await session.commit()
@@ -665,4 +778,5 @@ async def evaluate_candidate_quality(
         "candidate_statuses_included": list(review_statuses),
         "findings": findings,
         "quality_run_id": run_id,
+        "methodology_version": QUALITY_METHODOLOGY_VERSION,
     }

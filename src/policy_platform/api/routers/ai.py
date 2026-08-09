@@ -461,6 +461,7 @@ async def quality_history(
             "low_count": r.low_count,
             "finding_count": r.high_count + r.medium_count + r.low_count,
             "ai_review_used": r.ai_review_used,
+            "methodology_version": r.methodology_version,
             "triggered_by": r.triggered_by,
             "run_at": r.run_at.isoformat(),
         }
@@ -487,6 +488,7 @@ async def quality_history_detail(
         "rule_count": run.rule_count,
         "findings": run.findings_json,
         "ai_review_used": run.ai_review_used,
+        "methodology_version": run.methodology_version,
         "triggered_by": run.triggered_by,
         "run_at": run.run_at.isoformat(),
     }

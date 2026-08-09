@@ -36,7 +36,6 @@ import {
   findRuleVariations,
   formatConditionValue,
   hasAmbiguityFlag,
-  humanizeAction,
   ruleDecisionSummary,
   scopeEntries,
 } from "../ruleDisplay";
@@ -231,20 +230,6 @@ export function PolicyInspector({
     );
   }
 
-  const searchEntries: { id: string; index: string; clauseRef: string }[] = [];
-  const seenSearchEntries = new Set<string>();
-  for (const evidence of rule.evidence) {
-    const clause = evidence.clause_id ? clausesById.get(evidence.clause_id) : undefined;
-    if (!clause?.search_document_id || seenSearchEntries.has(clause.search_document_id)) continue;
-    seenSearchEntries.add(clause.search_document_id);
-    searchEntries.push({
-      id: clause.search_document_id,
-      index: clause.search_index,
-      clauseRef: clause.clause_ref,
-    });
-  }
-  const hasClauseEvidence = rule.evidence.some((evidence) => !!evidence.clause_id);
-
   const decision = ruleDecisionSummary(rule);
 
   // Rendered in two places on purpose: collapsed at the foot of Overview so
@@ -275,36 +260,6 @@ export function PolicyInspector({
             </Text>
           </Descriptions.Item>
         )}
-        {rule.lineage.extraction_run_id && (
-          <Descriptions.Item label="AI extraction run ID">
-            <Text code copyable={{ text: rule.lineage.extraction_run_id }}>
-              {rule.lineage.extraction_run_id}
-            </Text>
-          </Descriptions.Item>
-        )}
-        {hasClauseEvidence && (
-          <Descriptions.Item label="AI Search entry ID">
-            {searchEntries.length > 0 ? (
-              <Space direction="vertical" size={2}>
-                {searchEntries.map((entry) => (
-                  <div key={entry.id} className="inspector-search-entry">
-                    <Text code copyable={{ text: entry.id }}>
-                      {entry.id}
-                    </Text>
-                    <Text type="secondary">
-                      {entry.index} · clause {entry.clauseRef}
-                    </Text>
-                  </div>
-                ))}
-              </Space>
-            ) : (
-              <Text type="secondary">Resolving the indexed clause key…</Text>
-            )}
-          </Descriptions.Item>
-        )}
-        <Descriptions.Item label="Effect">
-          <PolicyEffectBadge effect={rule.effect} /> {humanizeAction(rule.effect.action)}
-        </Descriptions.Item>
         <Descriptions.Item label="Priority">{rule.priority}</Descriptions.Item>
         <Descriptions.Item label="Set by">
           {rule.authority.owner} <Text type="secondary">({rule.authority.level}, rank {rule.authority.rank})</Text>
@@ -683,6 +638,13 @@ export function PolicyInspector({
                     {rule.rule_id}
                   </Text>
                 </Descriptions.Item>
+                {rule.lineage.extraction_run_id && (
+                  <Descriptions.Item label="AI extraction run ID">
+                    <Text className="entity-id-row" copyable={{ text: rule.lineage.extraction_run_id }}>
+                      {rule.lineage.extraction_run_id}
+                    </Text>
+                  </Descriptions.Item>
+                )}
               </Descriptions>
             ),
           },

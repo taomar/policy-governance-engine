@@ -3,22 +3,23 @@ import { Alert, AutoComplete, Button, Empty, Form, Input, Modal, Select, Tag, Ty
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  ExperimentOutlined,
   FileTextOutlined,
   PlusOutlined,
   RightOutlined,
+  SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, PolicyPlatformApiError, type PolicySet } from "../api";
+import {
+  api,
+  PolicyPlatformApiError,
+  type PolicySet,
+  type ProjectPortfolioInsight,
+} from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
 const { Title, Text } = Typography;
-
-interface ProjectStats {
-  documentCount: number;
-  activeRuleCount: number;
-  pendingCount: number;
-}
 
 function projectInitials(name: string): string {
   return name
@@ -28,6 +29,26 @@ function projectInitials(name: string): string {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function qualityFindingCount(insight: ProjectPortfolioInsight): number {
+  return (
+    (insight.latest_quality_high ?? 0) +
+    (insight.latest_quality_medium ?? 0) +
+    (insight.latest_quality_low ?? 0)
+  );
+}
+
+function projectStatus(
+  project: PolicySet,
+  insight: ProjectPortfolioInsight,
+): { color: string; label: string } {
+  if (project.is_review_overdue) return { color: "error", label: "Review overdue" };
+  if (insight.active_rule_count === 0) return { color: "default", label: "Not published" };
+  if ((insight.latest_quality_high ?? 0) > 0) return { color: "error", label: "Quality action needed" };
+  if (insight.review_pending > 0) return { color: "gold", label: "Review in progress" };
+  if (insight.machine_executable_count === 0) return { color: "gold", label: "Manual-only package" };
+  return { color: "green", label: "Operational" };
 }
 
 /**
@@ -54,7 +75,7 @@ export function ProjectsPage({
   openRequest?: { key: string | null; nonce: number };
 }) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
-  const [stats, setStats] = useState<Record<string, ProjectStats>>({});
+  const [stats, setStats] = useState<Record<string, ProjectPortfolioInsight>>({});
   const [selected, setSelected] = useState<PolicySet | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,29 +89,17 @@ export function ProjectsPage({
     try {
       const sets = await api.listPolicySets();
       setPolicySets(sets);
-      const entries = await Promise.all(
-        sets.map(async (ps) => {
-          try {
-            const [documents, versions, candidates] = await Promise.all([
-              api.listDocuments(ps.key),
-              api.listPolicyVersions(ps.key),
-              api.listCandidateRules(ps.key, "candidate"),
-            ]);
-            const active = versions.find((v) => v.is_active);
-            return [
-              ps.key,
-              {
-                documentCount: documents.length,
-                activeRuleCount: active?.rule_count ?? 0,
-                pendingCount: candidates.length,
-              },
-            ] as const;
-          } catch {
-            return [ps.key, { documentCount: 0, activeRuleCount: 0, pendingCount: 0 }] as const;
-          }
-        })
-      );
-      setStats(Object.fromEntries(entries));
+      try {
+        const portfolio = await api.getProjectPortfolioSummary();
+        setStats(Object.fromEntries(portfolio.map((insight) => [insight.key, insight])));
+      } catch (caught) {
+        setStats({});
+        setError(
+          `Projects loaded, but operational insights are unavailable: ${
+            caught instanceof PolicyPlatformApiError ? caught.detail : String(caught)
+          }`,
+        );
+      }
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
@@ -168,12 +177,14 @@ export function ProjectsPage({
   const totals = policySets.reduce(
     (acc, ps) => {
       const current = stats[ps.key];
-      acc.documents += current?.documentCount ?? 0;
-      acc.published += current?.activeRuleCount ?? 0;
-      acc.pending += current?.pendingCount ?? 0;
+      acc.published += current?.active_rule_count ?? 0;
+      acc.executable += current?.machine_executable_count ?? 0;
+      acc.regression += current?.regression_test_count ?? 0;
+      acc.pending += current?.review_pending ?? 0;
+      acc.highFindings += current?.latest_quality_high ?? 0;
       return acc;
     },
-    { documents: 0, published: 0, pending: 0 },
+    { published: 0, executable: 0, regression: 0, pending: 0, highFindings: 0 },
   );
 
   return (
@@ -200,16 +211,24 @@ export function ProjectsPage({
             <dd>{policySets.length}</dd>
           </div>
           <div>
-            <dt>Source documents</dt>
-            <dd>{totals.documents}</dd>
-          </div>
-          <div>
             <dt>Published rules</dt>
             <dd>{totals.published}</dd>
+          </div>
+          <div>
+            <dt>Machine-executable</dt>
+            <dd>{totals.executable}</dd>
+          </div>
+          <div>
+            <dt>Regression guards</dt>
+            <dd>{totals.regression}</dd>
           </div>
           <div className={totals.pending > 0 ? "project-register-summary-attention" : undefined}>
             <dt>Awaiting review</dt>
             <dd>{totals.pending}</dd>
+          </div>
+          <div className={totals.highFindings > 0 ? "project-register-summary-risk" : undefined}>
+            <dt>High findings</dt>
+            <dd>{totals.highFindings}</dd>
           </div>
         </dl>
       )}
@@ -237,14 +256,20 @@ export function ProjectsPage({
         <div className="project-register" role="list" aria-label="Projects">
           <div className="project-register-columns" aria-hidden="true">
             <span>Project</span>
-            <span>Documents</span>
-            <span>Published</span>
-            <span>Review queue</span>
-            <span>Status</span>
+            <span>Published package</span>
+            <span>Executability</span>
+            <span>Quality</span>
+            <span>Validation</span>
+            <span>Review</span>
             <span />
           </div>
           {policySets.map((ps) => {
             const s = stats[ps.key];
+            const executablePercent =
+              s && s.active_rule_count > 0
+                ? Math.round((s.machine_executable_count / s.active_rule_count) * 100)
+                : 0;
+            const health = s ? projectStatus(ps, s) : null;
             return (
               <button key={ps.id} type="button" role="listitem" className="project-register-row" onClick={() => openProject(ps)}>
                 <span className="project-register-identity">
@@ -263,37 +288,56 @@ export function ProjectsPage({
                     <span className="project-register-meta">
                       <code>{ps.key}</code>
                       <span>Owned by {ps.owner}</span>
+                      {s && <span>{s.document_count} source document{s.document_count === 1 ? "" : "s"}</span>}
                     </span>
                     {ps.description && <span className="project-register-description">{ps.description}</span>}
                   </span>
                 </span>
-                <span className="project-register-stat" title="Documents uploaded">
+                <span className="project-register-insight" title="Active published policy package">
                   <FileTextOutlined />
-                  <strong>{s?.documentCount ?? "—"}</strong>
-                  <small>Documents</small>
+                  <span>
+                    <strong>{s?.active_version_number ? `v${s.active_version_number} · ${s.active_rule_count} rules` : "Not published"}</strong>
+                    <small>{s ? `${s.version_count} version${s.version_count === 1 ? "" : "s"} retained` : "Loading package"}</small>
+                  </span>
                 </span>
-                <span className="project-register-stat" title="Published rules in the active version">
+                <span className="project-register-insight" title="Rules the deterministic evaluator can execute">
                   <CheckCircleOutlined />
-                  <strong>{s?.activeRuleCount ?? "—"}</strong>
-                  <small>Published</small>
+                  <span>
+                    <strong>{s ? `${s.machine_executable_count} of ${s.active_rule_count}` : "—"}</strong>
+                    <small>{s?.active_rule_count ? `${executablePercent}% machine-ready` : "No active rules"}</small>
+                  </span>
                 </span>
-                <span
-                  className={`project-register-stat${s && s.pendingCount > 0 ? " project-register-stat-attention" : ""}`}
-                  title="Candidate rules awaiting review"
-                >
-                  <ClockCircleOutlined />
-                  <strong>{s?.pendingCount ?? "—"}</strong>
-                  <small>Awaiting</small>
+                <span className="project-register-insight" title="Latest published-version quality evaluation">
+                  <SafetyCertificateOutlined />
+                  <span>
+                    <strong className={s && (s.latest_quality_high ?? 0) > 0 ? "is-risk" : undefined}>
+                      {!s || s.latest_quality_at === null
+                        ? "Not evaluated"
+                        : `${s.latest_quality_high ?? 0} high · ${qualityFindingCount(s)} total`}
+                    </strong>
+                    <small>
+                      {s?.latest_quality_at
+                        ? `Checked ${new Date(s.latest_quality_at).toLocaleDateString()}`
+                        : "Run Quality to establish a baseline"}
+                    </small>
+                  </span>
                 </span>
-                <span className="project-register-health">
-                  {ps.is_review_overdue ? (
-                    <Tag color="error" icon={<WarningOutlined />}>
-                      Review overdue
+                <span className="project-register-insight" title="Saved validation evidence and active regression guards">
+                  <ExperimentOutlined />
+                  <span>
+                    <strong>{s ? `${s.regression_test_count} guard${s.regression_test_count === 1 ? "" : "s"}` : "—"}</strong>
+                    <small>{s ? `${s.test_count} validation scenario${s.test_count === 1 ? "" : "s"}` : "Loading validation"}</small>
+                  </span>
+                </span>
+                <span className="project-register-review" title="Current human review workload">
+                  <span className={s && s.review_pending > 0 ? "is-attention" : undefined}>
+                    <ClockCircleOutlined />
+                    <strong>{s?.review_pending ?? "—"} awaiting</strong>
+                  </span>
+                  {health && (
+                    <Tag color={health.color} icon={ps.is_review_overdue ? <WarningOutlined /> : undefined}>
+                      {health.label}
                     </Tag>
-                  ) : s && s.pendingCount > 0 ? (
-                    <Tag color="gold">Review in progress</Tag>
-                  ) : (
-                    <Tag color="green">No pending review</Tag>
                   )}
                 </span>
                 <RightOutlined className="project-register-open" aria-hidden="true" />

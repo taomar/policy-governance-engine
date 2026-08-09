@@ -119,6 +119,80 @@ async def create_policy_set(
     return _to_response(policy_set)
 
 
+@router.get("/portfolio/summary")
+async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """Decision-useful operational state for every project in one round trip.
+
+    The Projects register is a portfolio surface, so it should not download full
+    document, candidate, version, test, and quality collections per project merely
+    to discard every field except a count. Published-version and quality state are
+    resolved here at their owning persistence boundary.
+    """
+    rows = (
+        await session.execute(
+            text(
+                """
+                WITH active_versions AS (
+                  SELECT DISTINCT ON (policy_set_id)
+                    id,
+                    policy_set_id,
+                    version_number,
+                    approved_at
+                  FROM approved_policy_versions
+                  WHERE is_active
+                  ORDER BY policy_set_id, version_number DESC
+                ),
+                latest_quality AS (
+                  SELECT DISTINCT ON (policy_set_id)
+                    qr.policy_set_id,
+                    qr.high_count,
+                    qr.medium_count,
+                    qr.low_count,
+                    qr.run_at
+                  FROM quality_runs qr
+                  JOIN active_versions av
+                    ON av.policy_set_id = qr.policy_set_id
+                   AND av.version_number = qr.version_number
+                  WHERE qr.scope = 'published'
+                  ORDER BY qr.policy_set_id, qr.run_at DESC
+                )
+                SELECT
+                  ps.key,
+                  (SELECT count(*) FROM source_documents d
+                    WHERE d.policy_set_id = ps.id) AS document_count,
+                  (SELECT count(*) FROM candidate_rules c
+                    WHERE c.policy_set_id = ps.id
+                      AND c.review_status = 'candidate'
+                      AND c.superseded_at IS NULL) AS review_pending,
+                  (SELECT count(*) FROM approved_policy_versions v
+                    WHERE v.policy_set_id = ps.id) AS version_count,
+                  av.version_number AS active_version_number,
+                  av.approved_at AS last_published_at,
+                  (SELECT count(*) FROM approved_rules ar
+                    WHERE ar.policy_version_id = av.id) AS active_rule_count,
+                  (SELECT count(*) FROM approved_rules ar
+                    WHERE ar.policy_version_id = av.id
+                      AND ar.machine_executable) AS machine_executable_count,
+                  (SELECT count(*) FROM policy_tests t
+                    WHERE t.policy_set_id = ps.id) AS test_count,
+                  (SELECT count(*) FROM policy_tests t
+                    WHERE t.policy_set_id = ps.id
+                      AND t.is_active) AS regression_test_count,
+                  lq.high_count AS latest_quality_high,
+                  lq.medium_count AS latest_quality_medium,
+                  lq.low_count AS latest_quality_low,
+                  lq.run_at AS latest_quality_at
+                FROM policy_sets ps
+                LEFT JOIN active_versions av ON av.policy_set_id = ps.id
+                LEFT JOIN latest_quality lq ON lq.policy_set_id = ps.id
+                ORDER BY lower(ps.name), ps.key
+                """
+            )
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 @router.patch("/{key}", response_model=PolicySetResponse)
 async def update_policy_set(
     key: str, body: UpdatePolicySetRequest, session: AsyncSession = Depends(get_session)

@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
   Card,
-  Col,
   Empty,
-  Row,
   Segmented,
   Select,
   Space,
   Spin,
-  Statistic,
   Tag,
   Tooltip,
   Typography,
@@ -18,6 +15,7 @@ import {
 import {
   HistoryOutlined,
   PlayCircleOutlined,
+  RightOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -28,11 +26,15 @@ import {
   PolicyPlatformApiError,
   type PolicySet,
   type PolicyTestListItem,
+  type ApprovedPolicyVersion,
+  type CanonicalRule,
   type QualityFinding,
   type QualityReport,
   type QualityRunSummary,
 } from "../api";
 import { EvaluationTargetBanner, useEvaluationTarget } from "./EvaluationTarget";
+import { QualityFindingDrawer } from "./QualityFindingDrawer";
+import type { QualityRuleRecord } from "./QualityFindingDrawer";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -49,6 +51,19 @@ function formatCategory(cat: string): string {
     .split("_")
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function addRuleReference(
+  lookup: Map<string, QualityRuleRecord[]>,
+  reference: string,
+  rule: CanonicalRule,
+  recordKey: string,
+) {
+  const matches = lookup.get(reference) ?? [];
+  if (!matches.some((item) => item.key === recordKey)) {
+    matches.push({ key: recordKey, rule });
+    lookup.set(reference, matches);
+  }
 }
 
 /**
@@ -76,6 +91,14 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
+  const [reportEvaluatedAt, setReportEvaluatedAt] = useState<string | null>(null);
+  const [findingPreview, setFindingPreview] = useState<QualityFinding | null>(null);
+  const [findingRules, setFindingRules] = useState<CanonicalRule[]>([]);
+  const [findingRuleLookup, setFindingRuleLookup] = useState<Map<string, QualityRuleRecord[]>>(new Map());
+  const [findingVersions, setFindingVersions] = useState<ApprovedPolicyVersion[]>([]);
+  const [findingVersion, setFindingVersion] = useState<ApprovedPolicyVersion | null>(null);
+  const [findingContextLoading, setFindingContextLoading] = useState(false);
+  const [findingContextError, setFindingContextError] = useState<string | null>(null);
 
   const evaluationTarget = useEvaluationTarget(selectedKey);
 
@@ -134,6 +157,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     try {
       const result = scope === "published" ? await aiApi.getQuality(selectedKey) : await aiApi.getCandidateQuality(selectedKey);
       setReport(result);
+      setReportEvaluatedAt(new Date().toISOString());
       // The run has been persisted server-side; refresh so the new entry — and
       // therefore the comparison against the previous one — is visible without
       // a page reload.
@@ -152,6 +176,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     try {
       const detail = await aiApi.getQualityRun(selectedKey, runId);
       setReport(detail);
+      setReportEvaluatedAt(detail.run_at);
       setViewingRunId(runId);
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
@@ -159,6 +184,79 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setFindingPreview(null);
+    if (!selectedKey || !report) {
+      setFindingRules([]);
+      setFindingRuleLookup(new Map());
+      setFindingVersions([]);
+      setFindingVersion(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadFindingContext = async () => {
+      setFindingContextLoading(true);
+      setFindingContextError(null);
+      try {
+        if ((report.scope ?? scope) === "candidates") {
+          const [pending, approved] = await Promise.all([
+            api.listCandidateRules(selectedKey, "candidate"),
+            api.listCandidateRules(selectedKey, "approved"),
+          ]);
+          if (cancelled) return;
+          const candidates = [...pending, ...approved];
+          const rules = candidates.map((candidate) => candidate.rule);
+          const lookup = new Map<string, QualityRuleRecord[]>();
+          candidates.forEach((candidate) => {
+            addRuleReference(lookup, candidate.id, candidate.rule, candidate.id);
+            addRuleReference(lookup, candidate.rule.rule_id, candidate.rule, candidate.id);
+          });
+          setFindingRules(rules);
+          setFindingRuleLookup(lookup);
+          setFindingVersions([]);
+          setFindingVersion(null);
+          return;
+        }
+
+        const versions = await api.listPolicyVersions(selectedKey);
+        const version =
+          versions.find((item) => item.version_number === report.version_number) ??
+          versions.find((item) => item.is_active) ??
+          null;
+        const rules = version ? await api.getVersionRules(selectedKey, version.id) : [];
+        if (cancelled) return;
+        setFindingVersions(versions);
+        setFindingVersion(version);
+        setFindingRules(rules);
+        const lookup = new Map<string, QualityRuleRecord[]>();
+        rules.forEach((rule, index) =>
+          addRuleReference(
+            lookup,
+            rule.rule_id,
+            rule,
+            `${version?.id ?? "published"}:${rule.rule_id}:${rule.rule_revision}:${index}`,
+          ),
+        );
+        setFindingRuleLookup(lookup);
+      } catch (caught) {
+        if (cancelled) return;
+        setFindingContextError(caught instanceof PolicyPlatformApiError ? caught.detail : String(caught));
+        setFindingRules([]);
+        setFindingRuleLookup(new Map());
+        setFindingVersions([]);
+        setFindingVersion(null);
+      } finally {
+        if (!cancelled) setFindingContextLoading(false);
+      }
+    };
+
+    void loadFindingContext();
+    return () => {
+      cancelled = true;
+    };
+  }, [report, scope, selectedKey]);
 
   const findings = (report?.findings ?? [])
     .filter((f) => severityFilter === "all" || f.severity === severityFilter)
@@ -173,6 +271,21 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     },
     {} as Record<string, number>
   );
+
+  const affectedPolicyCount = useMemo(
+    () => new Set((report?.findings ?? []).flatMap((finding) => finding.affected_rule_ids)).size,
+    [report],
+  );
+  const aiFindingCount = (report?.findings ?? []).filter((finding) => finding.source === "ai_review").length;
+  const confirmedFindingCount = (report?.findings ?? []).length - aiFindingCount;
+  const categoryCounts = (report?.findings ?? []).reduce(
+    (acc, finding) => {
+      acc[finding.category] = (acc[finding.category] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+  const leadingCategory = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0];
 
   return (
     <>
@@ -190,10 +303,9 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
         )}
       </div>
       <Paragraph type="secondary">
-        Quality answers one question: <Text strong>are these rules safe to rely on?</Text> It runs deterministic
-        checks (duplicate IDs, ambiguity, conflicting effects, expired rules, review backlog) plus an AI review
-        pass, and reports every finding with its severity and a recommendation. Nothing is silently "fixed" for
-        you — you decide what to act on.
+        Quality answers one question: <Text strong>what prevents this exact policy version from being relied on?</Text>{" "}
+        Deterministic findings are confirmed structural checks. AI findings are potential gaps, conflicts, or risks
+        that must be confirmed against the canonical policies and source evidence before they are treated as defects.
       </Paragraph>
 
       {error && <Alert type="error" showIcon message={error} />}
@@ -245,6 +357,33 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                 Read-only. Running this never changes a rule, an approval, or a published version.
               </Text>
             </div>
+            <details className="quality-methodology">
+              <summary>How the quality evaluation works and what counts as acceptable</summary>
+              <div>
+                <article>
+                  <strong>Deterministic checks</strong>
+                  <span>
+                    Confirm duplicate IDs, invalid decision shapes, ambiguity flags, expired rules, missing executable
+                    mappings, conflicting formal effects, and review backlog from stored policy data.
+                  </span>
+                </article>
+                <article>
+                  <strong>AI qualitative analysis</strong>
+                  <span>
+                    Looks for potential gaps, overlaps, missing exceptions, and governance risks using condition, scope,
+                    outcome, exception, priority, effective-window, override, and source context. Every result still
+                    requires human confirmation.
+                  </span>
+                </article>
+                <article>
+                  <strong>Disposition standard</strong>
+                  <span>
+                    A finding is acceptable only when the scenario is impossible, intentionally manual, or explicitly
+                    resolved by scope or precedence. Otherwise assign an owner and correct or formally accept the risk.
+                  </span>
+                </article>
+              </div>
+            </details>
           </Card>
 
           <Card
@@ -277,10 +416,17 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
             {history.length > 0 && (
               <div className="quality-history-list">
                 {history.map((run, idx) => {
-                  // `history` is newest-first, so the previous run in time is the
-                  // *next* element. Comparing against it is what makes a number
-                  // mean something.
-                  const prior = history[idx + 1];
+                  // A trend is meaningful only when both runs used the same
+                  // quality method. Prompt/schema upgrades change what can be
+                  // discovered, so they establish a new baseline rather than
+                  // masquerading as policy improvement or regression.
+                  const prior = history
+                    .slice(idx + 1)
+                    .find(
+                      (candidate) =>
+                        candidate.scope === run.scope &&
+                        candidate.methodology_version === run.methodology_version,
+                    );
                   const delta = prior ? run.finding_count - prior.finding_count : null;
                   const isOpen = viewingRunId === run.id;
                   return (
@@ -297,6 +443,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                         {run.rule_count} rules
                         {run.version_number !== null && ` · v${run.version_number}`}
                         {run.ai_review_used ? " · AI review" : " · deterministic only"}
+                        {` · method v${run.methodology_version}`}
                       </span>
                       <span className="quality-history-counts">
                         <Tag color="red">{run.high_count} high</Tag>
@@ -304,9 +451,9 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                         <Tag>{run.low_count} low</Tag>
                       </span>
                       {delta === null ? (
-                        <Tag className="quality-history-delta">baseline</Tag>
+                        <Tag className="quality-history-delta">method baseline</Tag>
                       ) : (
-                        <Tooltip title={`Previous run had ${prior.finding_count} findings`}>
+                        <Tooltip title={`Previous comparable run had ${prior?.finding_count ?? 0} findings`}>
                           <Tag
                             className="quality-history-delta"
                             color={delta < 0 ? "green" : delta > 0 ? "red" : undefined}
@@ -324,6 +471,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
 
           {viewingRunId && report && (
             <Alert
+              className="quality-historic-banner"
               type="info"
               showIcon
               message="Viewing a past evaluation"
@@ -338,41 +486,62 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
 
           {report && (
             <>
-              <Row gutter={[16, 16]}>
-                <Col xs={12} lg={6}>
-                  <Card>
-                    <Statistic
-                      title={report.scope === "candidates" ? "Candidate rules evaluated" : `Rules in version ${report.version_number}`}
-                      value={report.rule_count}
-                    />
-                  </Card>
-                </Col>
-                <Col xs={12} lg={6}>
-                  <Card>
-                    <Statistic title="High severity" value={counts.high ?? 0} valueStyle={{ color: "#cf222e" }} />
-                  </Card>
-                </Col>
-                <Col xs={12} lg={6}>
-                  <Card>
-                    <Statistic title="Medium severity" value={counts.medium ?? 0} valueStyle={{ color: "#9a6700" }} />
-                  </Card>
-                </Col>
-                <Col xs={12} lg={6}>
-                  <Card>
-                    <Statistic title="Low severity" value={counts.low ?? 0} valueStyle={{ color: "#57606a" }} />
-                  </Card>
-                </Col>
-              </Row>
+              <section className="quality-report-summary">
+                <div className="quality-report-reading">
+                 <strong>
+                   {(counts.high ?? 0) > 0
+                     ? `${counts.high} high-priority finding${counts.high === 1 ? "" : "s"} need a policy decision`
+                     : "No high-priority findings in this evaluation"}
+                 </strong>
+                 <span>
+                   {leadingCategory && leadingCategory[1] > 1
+                     ? `${formatCategory(leadingCategory[0])} is the most frequent pattern (${leadingCategory[1]}). `
+                     : `${Object.keys(categoryCounts).length} distinct quality pattern${Object.keys(categoryCounts).length === 1 ? "" : "s"}. `}
+                   {confirmedFindingCount > 0
+                     ? `${confirmedFindingCount} confirmed structural check${confirmedFindingCount === 1 ? "" : "s"} · `
+                     : ""}
+                   {aiFindingCount > 0
+                     ? `${aiFindingCount} potential AI finding${aiFindingCount === 1 ? "" : "s"} require human confirmation.`
+                     : "Only deterministic checks contributed findings."}
+                 </span>
+                </div>
+                <dl aria-label="Quality evaluation summary">
+                 <div>
+                   <dt>{report.scope === "candidates" ? "Candidates checked" : `Rules in v${report.version_number}`}</dt>
+                   <dd>{report.rule_count}</dd>
+                 </div>
+                 <div className={(counts.high ?? 0) > 0 ? "is-high" : undefined}>
+                   <dt>High</dt>
+                   <dd>{counts.high ?? 0}</dd>
+                 </div>
+                 <div className={(counts.medium ?? 0) > 0 ? "is-medium" : undefined}>
+                   <dt>Medium</dt>
+                   <dd>{counts.medium ?? 0}</dd>
+                 </div>
+                 <div>
+                   <dt>Low</dt>
+                   <dd>{counts.low ?? 0}</dd>
+                 </div>
+                 <div>
+                   <dt>Policies referenced</dt>
+                   <dd>{affectedPolicyCount}</dd>
+                 </div>
+                 <div>
+                   <dt>AI to confirm</dt>
+                   <dd>{aiFindingCount}</dd>
+                 </div>
+                </dl>
+              </section>
 
-              <div className="page-header-row">
-                <Title level={5} style={{ margin: 0 }}>
+              <div className="quality-findings-toolbar">
+                <Title level={5}>
                   Findings ({findings.length})
                 </Title>
-                <Space>
+                <Space className="quality-findings-filters">
                   <Select
                     value={severityFilter}
                     onChange={setSeverityFilter}
-                    style={{ width: 150 }}
+                   className="quality-filter-select"
                     options={[
                       { value: "all", label: "All severities" },
                       { value: "high", label: "High" },
@@ -383,7 +552,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                   <Select
                     value={sourceFilter}
                     onChange={setSourceFilter}
-                    style={{ width: 160 }}
+                   className="quality-filter-select"
                     options={[
                       { value: "all", label: "All sources" },
                       { value: "deterministic", label: "Deterministic" },
@@ -393,40 +562,74 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                 </Space>
               </div>
 
-              <Space direction="vertical" style={{ width: "100%" }} size={12}>
-                {findings.map((f: QualityFinding, i: number) => (
-                  <Card key={i} size="small" className="finding-card">
-                    <Space size={8} wrap style={{ marginBottom: 8 }}>
-                      <Tag color={SEVERITY_COLOR[f.severity] ?? "default"}>{f.severity.toUpperCase()}</Tag>
-                      <Tag>{formatCategory(f.category)}</Tag>
-                      <Tag
-                        icon={f.source === "ai_review" ? <ThunderboltOutlined /> : undefined}
-                        color={f.source === "ai_review" ? "purple" : "blue"}
-                      >
-                        {f.source === "ai_review" ? "AI review" : "Deterministic"}
-                      </Tag>
-                    </Space>
-                    <Text>{f.finding}</Text>
-                    {f.affected_rule_ids.length > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        <Space size={6} wrap>
-                          {f.affected_rule_ids.map((rid) => (
-                            <Tag key={rid} bordered={false} className="fact-tag">
-                              {rid}
-                            </Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    )}
-                    {f.recommendation && (
-                      <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                        <strong>Recommendation:</strong> {f.recommendation}
-                      </Paragraph>
-                    )}
-                  </Card>
-                ))}
-                {findings.length === 0 && <Text type="secondary">No findings match this filter.</Text>}
-              </Space>
+              {findings.length > 0 ? (
+               <div className="quality-finding-register">
+                 <div className="quality-finding-register-head" aria-hidden="true">
+                   <span>Risk</span>
+                   <span>What the evaluation found</span>
+                   <span>Affected policies</span>
+                   <span>Recommended decision</span>
+                   <span>Evidence</span>
+                 </div>
+                 {findings.map((finding: QualityFinding, index: number) => {
+                   const affectedRecords = finding.affected_rule_ids.flatMap(
+                     (reference) => findingRuleLookup.get(reference) ?? [],
+                   );
+                   const affectedTitles = affectedRecords.map((record) => record.rule.title);
+                   const affectedLabel =
+                     affectedRecords.length > finding.affected_rule_ids.length
+                       ? `${affectedRecords.length} records`
+                       : finding.affected_rule_ids.length > 0
+                         ? `${finding.affected_rule_ids.length} polic${finding.affected_rule_ids.length === 1 ? "y" : "ies"}`
+                         : "Policy-set level";
+                   return (
+                     <button
+                       key={`${finding.category}:${index}`}
+                       type="button"
+                       className="quality-finding-row"
+                       onClick={() => setFindingPreview(finding)}
+                       aria-label={`Review ${formatCategory(finding.category)} finding`}
+                     >
+                       <span className="quality-finding-row-risk">
+                         <Tag color={SEVERITY_COLOR[finding.severity] ?? "default"}>
+                           {finding.severity.toUpperCase()}
+                         </Tag>
+                         <small>
+                           {finding.source === "ai_review" ? <ThunderboltOutlined /> : null}
+                           {finding.source === "ai_review" ? "Potential · confirm" : "Confirmed check"}
+                         </small>
+                       </span>
+                       <span className="quality-finding-row-copy">
+                         {finding.summary && <em>{formatCategory(finding.category)}</em>}
+                         <strong>{finding.summary || formatCategory(finding.category)}</strong>
+                         <small>{finding.finding}</small>
+                       </span>
+                       <span className="quality-finding-row-policies">
+                         <strong>
+                           {affectedLabel}
+                         </strong>
+                         <small>
+                           {affectedTitles.length > 0
+                             ? `${affectedTitles.slice(0, 2).join(" · ")}${affectedTitles.length > 2 ? ` +${affectedTitles.length - 2}` : ""}`
+                             : finding.affected_rule_ids.slice(0, 2).join(" · ") || "No single record"}
+                         </small>
+                       </span>
+                       <span className="quality-finding-row-action">
+                         <strong>Suggested correction</strong>
+                         <small>{finding.recommendation || "Review the finding evidence and document the intended behavior."}</small>
+                       </span>
+                       <span className="quality-finding-row-open">
+                         Review evidence <RightOutlined />
+                       </span>
+                     </button>
+                   );
+                 })}
+               </div>
+              ) : (
+               <div className="quality-findings-empty">
+                 <Text type="secondary">No findings match this filter.</Text>
+               </div>
+              )}
             </>
           )}
 
@@ -468,6 +671,21 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
             )}
           </Space>
         </>
+      )}
+      {selectedKey && (
+        <QualityFindingDrawer
+          finding={findingPreview}
+          onClose={() => setFindingPreview(null)}
+          policySetKey={selectedKey}
+          reportScope={(report?.scope ?? scope) as "published" | "candidates"}
+          runAt={reportEvaluatedAt}
+          version={findingVersion}
+          versions={findingVersions}
+          allRules={findingRules}
+          ruleLookup={findingRuleLookup}
+          loading={findingContextLoading}
+          error={findingContextError}
+        />
       )}
     </>
   );

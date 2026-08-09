@@ -959,6 +959,7 @@ class QualityRunRepository:
         rule_count: int,
         findings: list[dict],
         ai_review_used: bool,
+        methodology_version: str = "1",
         triggered_by: str = "",
     ) -> QualityRun:
         counts: dict[str, int] = {}
@@ -974,6 +975,7 @@ class QualityRunRepository:
             medium_count=counts.get("medium", 0),
             low_count=counts.get("low", 0),
             ai_review_used=ai_review_used,
+            methodology_version=methodology_version,
             findings_json=findings,
             triggered_by=triggered_by,
             run_at=datetime.now(timezone.utc),
