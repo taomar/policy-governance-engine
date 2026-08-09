@@ -264,31 +264,3 @@ goes.
 | **OMG DMN 1.3+ / FEEL** | The formulator's output shape, and the Collect + SUM hit policy behind aggregate limits. The FEEL parser in `formulation_mapping.py` is a deliberately strict subset. |
 | **ISO 37301 / ISO 27001 practice** | Periodic review dates, attestation campaigns, exception/waiver records and RACI ownership fields. |
 | **OPA decision logs** | The append-only `evaluations` table and its read-only Decision Log API. |
-
----
-
-## Proposed, deferred, or explicitly not used
-
-Do not assume any of these from the surrounding documentation — the code does
-not use them.
-
-| Technology | Status |
-|---|---|
-| **Microsoft Agent Framework** | **Not used.** `src/policy_platform/worker/` is an empty reserved package. No `agent-framework` dependency, import, workflow graph, checkpoint runtime or tool-registration layer exists. Current flows are explicit FastAPI services with PostgreSQL state and direct Azure OpenAI/Search calls. |
-| **Semantic Kernel** | **Not used.** No dependency, no import, no reference in code. |
-| **Microsoft.Extensions.AI** | **Not used.** This is a .NET library; the backend is Python. |
-| **Official `openai` / `azure-search-documents` SDKs** | **Not used**; thin `httpx` clients own the required REST calls. |
-| **Azure Blob Storage** | **Not used.** Documents are written to the local filesystem under `data/documents/`. |
-| **Microsoft Entra ID** | **Not used.** There is no authentication of any kind. |
-| **Azure Service Bus / eventing** | **Not used.** `outbox_messages` is modelled; no publisher exists. |
-| **Retry / circuit-breaker policies on outbound calls** | **Not implemented.** `httpx` calls use timeouts only. Some services retry a model call after a *schema-validation* failure, which is prompt correction, not transient-fault handling. |
-| **Redis, Celery, or any queue/scheduler** | **Not used.** Every flow is request-driven; long work runs in-process. |
-
-### When MAF would become justified
-
-MAF would add more machinery than value while each workflow has a fixed entry
-point, explicit service calls and durable business state in PostgreSQL. Revisit
-it if the platform introduces resumable multi-agent workflows, dynamic tool
-selection, parallel agent branches, cross-process checkpoints or
-framework-managed human pause/resume. Until then, the current explicit
-orchestration is simpler to audit and test.

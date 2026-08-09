@@ -57,23 +57,3 @@ does not prove the complete deployed system:
 
 See [Testing and scripts](testing.md#current-coverage-gaps) for the
 verified module-level inventory and commands.
-
-## Microsoft Agent Framework
-
-Microsoft Agent Framework (MAF) is **not used**. There is no MAF dependency,
-agent graph, checkpoint store, tool registry or framework-managed human
-pause/resume flow.
-
-That is not currently a functional gap. The platform's workflows have fixed
-entry points, explicit application-service calls and durable business state in
-PostgreSQL. Adding MAF now would duplicate understandable orchestration and make
-the trust boundary harder to audit.
-
-Reconsider MAF if the product introduces:
-
-- resumable multi-agent workflows that span requests or processes
-- dynamic tool selection and delegation
-- parallel agent branches with coordinated state
-- durable framework checkpoints and recovery
-- framework-managed human approval pauses
-- a need for standardized agent-run tracing and evaluation

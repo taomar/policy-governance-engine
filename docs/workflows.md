@@ -4,6 +4,9 @@ How people actually use the platform, and what happens behind each action.
 Each flow below has a matching diagram in
 [Capability flows](capability-flows.md).
 
+For a task-oriented walkthrough with screenshots from the HR and Saudi Labor
+Law demonstration projects, see the [User guide](user-guide.md).
+
 ## Navigation
 
 The web app is a sidebar shell with four visible destinations, grouped by intent

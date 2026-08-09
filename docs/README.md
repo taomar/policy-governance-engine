@@ -11,6 +11,7 @@ New here? Read the [root README](../README.md) first, then
 
 | Page | What it covers |
 |---|---|
+| [User guide](user-guide.md) | Illustrated walkthrough of the dashboard, HR and Saudi Labor Law projects, document intake, review, publication, quality, tests, evaluation, and grounded Ask AI. |
 | [Architecture](architecture.md) | Runtime components, boundaries, how they are invoked, and where the deterministic/probabilistic line sits. |
 | [Capability flows](capability-flows.md) | A Mermaid diagram per implemented capability — navigation, ingestion, extraction, evidence, review, publish, evaluate, tests, regression, quality, correlation, search, chat, aggregate limits, compare, exceptions, attestations, exports — each with its trigger, components, outputs and limits. |
 | [Azure deployment](azure-deployment.md) | Recommended Container Apps architecture, lower Standard SKUs, VNet/private connectivity, parameters and future `azd up` sequence. |

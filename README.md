@@ -304,6 +304,7 @@ Start at the **[documentation index](docs/README.md)**.
 
 | Page | For |
 |---|---|
+| [User guide](docs/user-guide.md) | Illustrated instructions for document intake, AI extraction, review, publication, quality, tests, evaluation, and grounded chat |
 | [Architecture](docs/architecture.md) | Components, boundaries, invocation paths |
 | [Capability flows](docs/capability-flows.md) | A diagram per capability — ingestion, review, publish, evaluate, test, quality, search, exports |
 | [Azure deployment](docs/azure-deployment.md) | Recommended Container Apps architecture, SKUs, network, parameters and future azd flow |
