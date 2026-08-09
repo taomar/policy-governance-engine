@@ -118,12 +118,33 @@ export function effectMeta(effectType: string): { label: string; color: string }
   return EFFECT_META[effectType] ?? { label: effectType.replace(/_/g, " ").toUpperCase(), color: "purple" };
 }
 
-/** The compact "WHEN ... → THEN ..." line shown under a rule's title in
- * list rows and search results. */
-export function ruleConditionLine(rule: CanonicalRule, maxTerms = 3): { text: string; truncated: boolean } {
+export interface RuleDecisionSummary {
+  condition: string;
+  action: string;
+  text: string;
+  truncated: boolean;
+}
+
+/** Structured decision summary shared by candidate rows, published-policy
+ * rows, and the inspector. Keeping WHEN and THEN separate lets the UI establish
+ * a real reading order without reparsing a display string. */
+export function ruleDecisionSummary(rule: CanonicalRule, maxTerms = 3): RuleDecisionSummary {
   const cond = summarizeCondition(rule.condition, maxTerms);
+  const condition = cond.text || "Always";
   const action = humanizeAction(rule.effect.action || rule.effect.type);
-  return { text: `${cond.text} → ${action}`, truncated: cond.truncated };
+  return {
+    condition,
+    action,
+    text: `${condition} → ${action}`,
+    truncated: cond.truncated,
+  };
+}
+
+/** Backward-compatible string form for search results and callers that do not
+ * need the structured WHEN / THEN presentation. */
+export function ruleConditionLine(rule: CanonicalRule, maxTerms = 3): { text: string; truncated: boolean } {
+  const summary = ruleDecisionSummary(rule, maxTerms);
+  return { text: summary.text, truncated: summary.truncated };
 }
 
 /** Same "who/where this rule applies to" phrase RuleCard has always shown,

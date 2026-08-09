@@ -28,6 +28,16 @@ logger = logging.getLogger(__name__)
 _BATCH_SIZE = 100
 
 
+def clause_search_document_id(document_version_id: str, clause_id: str) -> str:
+    """Canonical Azure AI Search key for one locally persisted clause.
+
+    Kept here beside the index writer so API provenance views and indexing
+    cannot drift into two different key formats.
+    """
+
+    return f"{document_version_id}_{clause_id}"
+
+
 async def index_clauses_best_effort(
     *,
     document_title: str,
@@ -53,7 +63,7 @@ async def index_clauses_best_effort(
         for clause, vector in zip(clauses, vectors):
             docs.append(
                 {
-                    "id": f"{document_version_id}_{clause.id}",
+                    "id": clause_search_document_id(document_version_id, str(clause.id)),
                     "policy_id": document_id,
                     "policy_version": str(version_number),
                     "policy_release_id": document_version_id,

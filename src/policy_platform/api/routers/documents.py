@@ -24,7 +24,8 @@ from policy_platform.domain.models import DocumentVersion, SourceDocument
 from policy_platform.infrastructure import document_extraction
 from policy_platform.infrastructure.db import get_session
 from policy_platform.infrastructure.repositories import ClauseRepository, PolicySetRepository
-from policy_platform.infrastructure.search.indexing import index_clauses_best_effort
+from policy_platform.infrastructure.search.indexing import clause_search_document_id, index_clauses_best_effort
+from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -212,9 +213,11 @@ async def list_document_clauses(
 ) -> list[ClauseResponse]:
     clause_repo = ClauseRepository(session)
     clauses = await clause_repo.list_by_document_version(document_version_id)
+    settings = get_settings()
     return [
         ClauseResponse(
             id=str(c.id),
+            document_version_id=str(c.document_version_id),
             clause_ref=c.clause_ref,
             section=c.section,
             page=c.page,
@@ -222,6 +225,8 @@ async def list_document_clauses(
             sequence=c.sequence,
             element_id=c.element_id,
             element_type=c.element_type,
+            search_document_id=clause_search_document_id(str(c.document_version_id), str(c.id)),
+            search_index=settings.azure_search_authoring_index,
         )
         for c in clauses
     ]

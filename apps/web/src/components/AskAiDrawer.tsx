@@ -125,7 +125,7 @@ export function AskAiDrawer({
     <Drawer
       title={
         <Space>
-          <ThunderboltOutlined style={{ color: "#7c3aed" }} />
+          <ThunderboltOutlined style={{ color: "#5b4db1" }} />
           <span>Ask AI</span>
         </Space>
       }

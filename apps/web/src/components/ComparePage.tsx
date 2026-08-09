@@ -147,7 +147,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
           {result.narrative && (
             <Card>
               <Space size={8} style={{ marginBottom: 8 }}>
-                <ThunderboltOutlined style={{ color: "#7c3aed" }} />
+                <ThunderboltOutlined style={{ color: "#5b4db1" }} />
                 <Text strong>AI Summary</Text>
               </Space>
               <Paragraph style={{ marginBottom: 0 }}>{result.narrative}</Paragraph>
@@ -209,7 +209,11 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
             <Card title="Changed Rules">
               <Space direction="vertical" style={{ width: "100%" }} size={16}>
                 {result.changed.map((c) => (
-                  <Card key={c.rule_id} type="inner" title={`${c.rule_id} — ${c.title}`}>
+                  <section key={c.rule_id} className="compare-change-record">
+                    <div className="compare-change-record__header">
+                      <Text strong>{c.rule_id}</Text>
+                      <Text>{c.title}</Text>
+                    </div>
                     <Table
                       size="small"
                       pagination={false}
@@ -225,7 +229,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
                         { title: "After", dataIndex: "after", render: (v) => JSON.stringify(v) },
                       ]}
                     />
-                  </Card>
+                  </section>
                 ))}
               </Space>
             </Card>

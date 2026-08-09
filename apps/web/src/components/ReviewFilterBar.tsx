@@ -17,7 +17,7 @@
  * `Unchanged` is offered but is deliberately not the default: the default view
  * is everything, so nothing is ever hidden from someone who has not opted in.
  */
-import { Badge, Button, Card, Empty, Segmented, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Badge, Button, Empty, Segmented, Select, Space, Tag, Tooltip, Typography } from "antd";
 import {
   ClockCircleOutlined,
   DeleteOutlined,
@@ -110,7 +110,7 @@ export function ReviewFilterBar({
   ];
 
   return (
-    <Card size="small" className="review-filter-bar" styles={{ body: { padding: "12px 16px" } }}>
+    <div className="review-filter-bar">
       <Space direction="vertical" size={10} style={{ width: "100%" }}>
         <Space wrap size={10} align="center">
           <FilterOutlined style={{ color: "#8c8c8c" }} />
@@ -222,16 +222,14 @@ export function ReviewFilterBar({
         </Space>
 
         {showRemoved && (
-          <Card
-            size="small"
-            className="review-removed-panel"
-            title={
+          <section className="review-removed-panel">
+            <div className="review-removed-panel__header">
               <Space size={6}>
                 <DeleteOutlined />
                 <span>Rules the latest extraction no longer produces</span>
               </Space>
-            }
-          >
+            </div>
+            <div className="review-removed-panel__body">
             <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 10 }}>
               A previous run found these; the most recent one did not. Either the clause was removed
               from the document, or the extractor missed it. They create no row in the queue, so this
@@ -269,9 +267,10 @@ export function ReviewFilterBar({
                 ))}
               </Space>
             )}
-          </Card>
+            </div>
+          </section>
         )}
       </Space>
-    </Card>
+    </div>
   );
 }

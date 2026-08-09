@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, Collapse, Space, Tag, Typography } from "antd";
+import { Alert, Button, Collapse, Space, Tag, Typography } from "antd";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { aiApi, PolicyPlatformApiError, type PolicySetSummary } from "../api";
 
@@ -116,21 +116,20 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
     : 0;
 
   return (
-    <Card
-      className="policy-summary-card"
-      title={
+    <section className="project-overview-panel policy-summary-card">
+      <div className="project-overview-panel__header">
+        <div>
         <Space size={8}>
-          <ThunderboltOutlined style={{ color: "#7c3aed" }} />
-          <span>Policy Set Summary</span>
+          <ThunderboltOutlined style={{ color: "#5b4db1" }} />
+          <Text strong>Policy set summary</Text>
         </Space>
-      }
-      extra={
+        <Text type="secondary">Deterministic coverage plus an optional grounded narrative</Text>
+        </div>
         <Button size="small" icon={summary ? <ReloadOutlined /> : <ThunderboltOutlined />} onClick={generate} loading={loading}>
-          {summary ? "Regenerate" : "Generate summary"}
+        {summary ? "Regenerate" : "Generate summary"}
         </Button>
-      }
-      style={{ marginTop: 16 }}
-    >
+      </div>
+      <div className="project-overview-panel__body">
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
 
       {!summary && !loading && !error && (
@@ -149,31 +148,31 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
               <div className="summary-stat-label">Rules (v{summary.version_number})</div>
             </div>
             <div className="summary-stat">
-              <div className="summary-stat-value" style={{ color: "#cf222e" }}>
+              <div className="summary-stat-value" style={{ color: "var(--danger)" }}>
                 {stats.by_effect.deny ?? 0}
               </div>
               <div className="summary-stat-label">Deny</div>
             </div>
             <div className="summary-stat">
-              <div className="summary-stat-value" style={{ color: "#059669" }}>
+              <div className="summary-stat-value" style={{ color: "var(--success)" }}>
                 {stats.by_effect.allow ?? 0}
               </div>
               <div className="summary-stat-label">Allow</div>
             </div>
             <div className="summary-stat">
-              <div className="summary-stat-value" style={{ color: "#2563eb" }}>
+              <div className="summary-stat-value" style={{ color: "var(--info)" }}>
                 {stats.by_effect.require_action ?? 0}
               </div>
               <div className="summary-stat-label">Require action</div>
             </div>
             <div className="summary-stat">
-              <div className="summary-stat-value" style={{ color: flaggedAmbiguous > 0 ? "#d97706" : "#94a3b8" }}>
+              <div className="summary-stat-value" style={{ color: flaggedAmbiguous > 0 ? "var(--warning)" : "var(--text-tertiary)" }}>
                 {flaggedAmbiguous}
               </div>
               <div className="summary-stat-label">Flagged ambiguous</div>
             </div>
             <div className="summary-stat">
-              <div className="summary-stat-value" style={{ color: stats.explicit_overrides_count > 0 ? "#7c3aed" : "#94a3b8" }}>
+              <div className="summary-stat-value" style={{ color: stats.explicit_overrides_count > 0 ? "#5b4db1" : "var(--text-tertiary)" }}>
                 {stats.explicit_overrides_count}
               </div>
               <div className="summary-stat-label">Explicit overrides</div>
@@ -265,6 +264,7 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
           />
         </>
       )}
-    </Card>
+      </div>
+    </section>
   );
 }

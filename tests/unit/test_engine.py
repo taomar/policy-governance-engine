@@ -98,6 +98,7 @@ class TestEvaluatePolicy:
         response = evaluate_policy(package, request)
 
         assert response.rule_results[0].status == EvaluationStatus.NOT_APPLICABLE
+        assert response.rule_results[0].not_applicable_reason == "rule_not_machine_executable"
 
     def test_determinism_same_input_same_hash(self):
         rule = make_rule("R1", _fc("amount", ConditionOperator.LESS_THAN_OR_EQUAL, 100))

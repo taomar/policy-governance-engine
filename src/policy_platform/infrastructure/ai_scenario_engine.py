@@ -102,6 +102,7 @@ Return ONLY the explanation text, no JSON, no preamble."""
 
 
 def _rule_context(rule: CanonicalRule) -> dict:
+    mapping_statuses, formulation_requirements = _formulation_status(rule)
     return {
         "rule_id": rule.rule_id,
         "title": rule.title,
@@ -112,7 +113,22 @@ def _rule_context(rule: CanonicalRule) -> dict:
         "scope": rule.scope.model_dump(mode="json"),
         "effect": rule.effect.model_dump(mode="json"),
         "exceptions": [e.model_dump(mode="json") for e in rule.exceptions],
+        "machine_executable": rule.machine_executable,
+        "dmn_mapping_statuses": mapping_statuses,
+        "formulation_requirements": formulation_requirements,
     }
+
+
+def _formulation_status(rule: CanonicalRule) -> tuple[list[str], list[str]]:
+    """Return the source-grounded DMN blockers carried on a formulated rule."""
+
+    if rule.formulation is None:
+        return [], []
+    statuses = sorted({decision.dmn_mapping_status.value for decision in rule.formulation.dmn_decisions})
+    requirements = sorted(
+        {requirement.value for decision in rule.formulation.dmn_decisions for requirement in decision.requirements}
+    )
+    return statuses, requirements
 
 
 async def infer_scenario_facts(rule: CanonicalRule, *, scenario: str, reasoning_effort: str = "medium") -> dict:
@@ -207,9 +223,6 @@ async def run_rule_scenario(
     result. Raises ValueError for a 404-worthy lookup problem, RuntimeError
     if AI isn't configured."""
 
-    settings = get_settings()
-    if not settings.ai_enabled:
-        raise RuntimeError("Azure OpenAI is not configured")
     if reasoning_effort not in VALID_REASONING_EFFORTS:
         reasoning_effort = "medium"
 
@@ -227,6 +240,55 @@ async def run_rule_scenario(
     rule = next((r for r in package.rules if r.rule_id == rule_id), None)
     if rule is None:
         raise ValueError(f"rule '{rule_id}' not found in the active approved version of '{policy_set_key}'")
+
+    mapping_statuses, formulation_requirements = _formulation_status(rule)
+
+    # A documentation-only rule is deliberately skipped by the evaluator before
+    # it reads facts. Do not spend two AI calls translating a scenario the real
+    # engine is contractually unable to evaluate, and do not let an explainer
+    # guess that the scenario merely omitted facts.
+    if not rule.machine_executable:
+        request = EvaluationRequest(
+            policy_set_id=package.policy_set_id,
+            policy_version_id=package.policy_version_id,
+            use_active_version=False,
+            facts={},
+            correlation_id=None,
+            calling_system_identity=f"ai-scenario-test:{rule_id}",
+        )
+        response = evaluate_policy(package, request)
+        rule_result = find_rule_result(rule_id, response.rule_results)
+        requirements = ", ".join(formulation_requirements) or "a formal fact/condition mapping"
+        mapping = ", ".join(mapping_statuses) or "not mapped"
+        return {
+            "rule_id": rule_id,
+            "rule_title": rule.title,
+            "scenario": scenario,
+            "inferred_facts": {},
+            "assumptions": [],
+            "rule_result": rule_result.model_dump(mode="json") if rule_result else None,
+            "not_in_effect": False,
+            "overall_evaluation_status": response.overall_status.value,
+            "missing_facts": [],
+            "explanation": (
+                "This is not a failed policy decision. The published rule is documentation-only "
+                "(machine_executable=false), so the deterministic evaluator returns NOT_APPLICABLE "
+                f"before reading scenario facts. Its DMN mapping is {mapping} and requires {requirements}. "
+                "Publish a revision with executable required facts and a formal condition before scenario "
+                "testing can produce SATISFIED or NOT_SATISFIED."
+            ),
+            "reasoning_effort": reasoning_effort,
+            "evaluation_timestamp": response.evaluation_timestamp.isoformat(),
+            "result_hash": response.result_hash,
+            "machine_executable": False,
+            "testability_reason": "rule_not_machine_executable",
+            "dmn_mapping_statuses": mapping_statuses,
+            "formulation_requirements": formulation_requirements,
+        }
+
+    settings = get_settings()
+    if not settings.ai_enabled:
+        raise RuntimeError("Azure OpenAI is not configured")
 
     inferred = await infer_scenario_facts(rule, scenario=scenario, reasoning_effort=reasoning_effort)
 
@@ -269,4 +331,8 @@ async def run_rule_scenario(
         "reasoning_effort": reasoning_effort,
         "evaluation_timestamp": response.evaluation_timestamp.isoformat(),
         "result_hash": response.result_hash,
+        "machine_executable": True,
+        "testability_reason": None,
+        "dmn_mapping_statuses": mapping_statuses,
+        "formulation_requirements": formulation_requirements,
     }

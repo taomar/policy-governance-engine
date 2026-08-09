@@ -20,16 +20,20 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.evaluation import EvaluationStatus
 from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.contracts.policy_test import PolicyTestKind
+from policy_platform.domain.models import DocumentVersion
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.repositories import ApprovedPolicyVersionRepository, PolicySetRepository
+from policy_platform.infrastructure.search.search_client import AzureSearchClient
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -89,13 +93,34 @@ never overrides the rules you were given, the output contract below, or the requ
 be correct predictions — if the guidance asks for something the rule set cannot support, cover what it \
 can support instead of inventing rules.
 
-Respond with a JSON object: {"tests": [ { "name": str, "description": str, "test_kind": one of \
+Respond with a JSON object: {"tests": [ { "name": str, "scenario_text": str, "description": str, "test_kind": one of \
 "positive"|"negative"|"boundary"|"missing_fact"|"scope"|"effective_date"|"exception"|"precedence", \
 "input_facts": {fact_name: literal_value_or_null, ...}, "evaluation_timestamp": "YYYY-MM-DD" or null, \
 "expected_overall_status": one of "SATISFIED"|"NOT_SATISFIED"|"NOT_APPLICABLE"|"INDETERMINATE"|"ERROR", \
 "expected_rule_id": rule_id string or null, "expected_rule_status": same status enum or null (only set \
 this if expected_rule_id is set), "expected_missing_facts": array of fact-name strings or null }, ... ]}. \
 If nothing meaningful can be proposed, return {"tests": []}."""
+
+_BLIND_BATCH_INSTRUCTIONS = """
+This request is for a BLIND validation batch over an explicit reviewer-selected rule set.
+- Return EXACTLY tests_per_policy scenarios for EACH selected rule, for exactly scenario_count scenarios in total.
+- Every test must include a plain-English "scenario_text" that a reviewer can understand without reading JSON.
+- Use neutral scenario names that do not reveal whether the case is positive, negative, boundary, or missing-fact.
+- Every test must target one of the selected rule IDs with expected_rule_id and expected_rule_status.
+- Vary each policy's combinations across match, non-match, boundary, missing-fact, scope, and exception cases where
+  its actual JSON supports them. Do not duplicate the same fact combination under different prose.
+- Expectations are committed before execution and hidden from the reviewer until the deterministic engine runs. Do not
+  use vague expectations: predict the exact result based only on the supplied JSON and optional Search grounding.
+- "json_only" means use only the complete selected rule JSON. "json_search" also includes hybrid Azure AI Search
+  passages from the selected source documents. Search passages are supporting source context; rule JSON remains the
+  executable contract.
+"""
+
+_USER_SCENARIO_INSTRUCTIONS = """
+The request contains reviewer_authored_scenario. Preserve that scenario text verbatim. Produce exactly one test for
+the single selected policy. Translate only facts explicitly stated or unambiguously implied by the reviewer, and
+commit the exact expected outcome based on the supplied policy JSON and optional Search grounding.
+"""
 
 
 def _rule_summary(rule: CanonicalRule) -> dict:
@@ -121,6 +146,8 @@ def _rule_summary(rule: CanonicalRule) -> dict:
         "supersedes_rule_ids": rule.supersedes_rule_ids,
         "effective_from": str(rule.effective_from),
         "effective_to": str(rule.effective_to) if rule.effective_to else None,
+        "evidence": [e.model_dump(mode="json") for e in rule.evidence],
+        "formulation": rule.formulation.model_dump(mode="json") if rule.formulation else None,
     }
 
 
@@ -128,10 +155,11 @@ def _parse_timestamp(value: object | None) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except ValueError:
         try:
-            return datetime.strptime(value, "%Y-%m-%d")
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except ValueError:
             return None
 
@@ -178,12 +206,21 @@ def _validate_proposed_test(raw: dict, valid_rule_ids: set[str]) -> tuple[dict |
     else:
         expected_missing_facts = [str(f) for f in expected_missing_facts]
 
+    evaluation_timestamp = _parse_timestamp(raw.get("evaluation_timestamp"))
+    # A timestamp override changes which published rule/version is in effect.
+    # It is meaningful only when the test explicitly targets effective dates;
+    # letting ordinary boundary/positive tests carry one made local timezone
+    # conversion silently move a scenario before the rule's activation date.
+    if test_kind != PolicyTestKind.EFFECTIVE_DATE.value:
+        evaluation_timestamp = None
+
     return {
         "name": name,
+        "scenario_text": str(raw.get("scenario_text") or raw.get("description") or name).strip(),
         "description": str(raw.get("description") or ""),
         "test_kind": test_kind,
         "input_facts_json": input_facts,
-        "evaluation_timestamp_override": _parse_timestamp(raw.get("evaluation_timestamp")),
+        "evaluation_timestamp_override": evaluation_timestamp,
         "expected_overall_status": expected_overall_status,
         "expected_rule_id": expected_rule_id,
         "expected_rule_status": expected_rule_status,
@@ -192,7 +229,16 @@ def _validate_proposed_test(raw: dict, valid_rule_ids: set[str]) -> tuple[dict |
 
 
 async def propose_policy_tests(
-    session: AsyncSession, *, policy_set_key: str, reasoning_effort: str = "medium", guidance: str = ""
+    session: AsyncSession,
+    *,
+    policy_set_key: str,
+    reasoning_effort: str = "medium",
+    guidance: str = "",
+    rule_ids: list[str] | None = None,
+    tests_per_policy: int | None = None,
+    grounding_mode: str = "json_only",
+    policy_version_id: str | None = None,
+    user_scenario: str = "",
 ) -> dict:
     """Ask Azure OpenAI to propose `PolicyTest` candidates for the policy
     set's currently active approved version. Returns validated payloads
@@ -221,22 +267,112 @@ async def propose_policy_tests(
         raise ValueError(f"policy set '{policy_set_key}' not found")
 
     version_repo = ApprovedPolicyVersionRepository(session)
-    active = await version_repo.get_active_version(policy_set.id)
-    if active is None:
+    version = (
+        await version_repo.get_by_id(uuid.UUID(policy_version_id))
+        if policy_version_id
+        else await version_repo.get_active_version(policy_set.id)
+    )
+    if version is None or version.policy_set_id != policy_set.id:
         raise ValueError(f"policy set '{policy_set_key}' has no active approved version to propose tests against")
 
-    package = approved_policy_version_to_package(active)
+    package = approved_policy_version_to_package(version)
     if not package.rules:
         return {
             "policy_set_key": policy_set_key,
-            "version_number": active.version_number,
+            "version_number": version.version_number,
             "reasoning_effort": reasoning_effort,
             "proposed_tests": [],
             "skipped": ["policy set has no rules in its active version; nothing to propose tests for"],
         }
 
+    selected_rules = package.rules
+    if rule_ids is not None:
+        requested_ids = list(dict.fromkeys(rule_ids))
+        rules_by_id = {rule.rule_id: rule for rule in package.rules}
+        missing_ids = [rule_id for rule_id in requested_ids if rule_id not in rules_by_id]
+        if missing_ids:
+            raise ValueError(f"selected rules are not in published version v{version.version_number}: {missing_ids}")
+        selected_rules = [rules_by_id[rule_id] for rule_id in requested_ids]
+        definitions = [rule.rule_id for rule in selected_rules if rule.rule_type.value == "definition"]
+        if definitions:
+            raise ValueError("definition/glossary records are not executable policies and cannot be tested: " + ", ".join(definitions))
+        non_executable = [rule.rule_id for rule in selected_rules if not rule.machine_executable]
+        if non_executable:
+            raise ValueError(
+                "blind validation requires machine-executable rules; these selected rules are documentation-only: "
+                + ", ".join(non_executable)
+            )
+
+    if tests_per_policy is not None and not 1 <= tests_per_policy <= 10:
+        raise ValueError("tests_per_policy must be between 1 and 10")
+    if user_scenario.strip() and (len(selected_rules) != 1 or tests_per_policy != 1):
+        raise ValueError("a user-authored scenario requires exactly one selected policy and one test")
+    if grounding_mode not in ("json_only", "json_search"):
+        raise ValueError("grounding_mode must be 'json_only' or 'json_search'")
+
     ai_client = AzureOpenAIClient(settings)
-    request_payload: dict = {"approved_rules": [_rule_summary(r) for r in package.rules]}
+    grounding_context: dict = {
+        "mode": grounding_mode,
+        "search_index": None,
+        "query": None,
+        "hits": [],
+    }
+    if grounding_mode == "json_search":
+        if not settings.search_enabled:
+            raise RuntimeError("Azure AI Search is not configured; choose JSON-only grounding")
+        evidence_version_ids = {
+            uuid.UUID(evidence.document_version_id)
+            for rule in selected_rules
+            for evidence in rule.evidence
+            if evidence.document_version_id
+        }
+        document_ids: list[str] = []
+        if evidence_version_ids:
+            result = await session.execute(
+                select(DocumentVersion).where(DocumentVersion.id.in_(evidence_version_ids))
+            )
+            document_ids = sorted({str(version.document_id) for version in result.scalars().all()})
+        query_text = guidance.strip() or " ".join(
+            f"{rule.title}. {rule.description}" for rule in selected_rules
+        )
+        [query_vector] = await ai_client.embed([query_text])
+        hits = await AzureSearchClient(settings).vector_search(
+            settings.azure_search_authoring_index,
+            query_text=query_text,
+            vector=query_vector,
+            policy_ids=document_ids or None,
+            top=8,
+        )
+        grounding_context = {
+            "mode": grounding_mode,
+            "search_index": settings.azure_search_authoring_index,
+            "query": query_text,
+            "hits": [
+                {
+                    "id": hit.get("id"),
+                    "document_id": hit.get("document_id"),
+                    "clause_id": hit.get("clause_id"),
+                    "clause_number": hit.get("clause_number"),
+                    "section_heading": hit.get("section_heading"),
+                    "heading": hit.get("heading"),
+                    "score": hit.get("@search.score"),
+                    "body": hit.get("body"),
+                }
+                for hit in hits
+            ],
+        }
+
+    request_payload: dict = {
+        "approved_rules": [_rule_summary(rule) for rule in selected_rules],
+        "grounding_mode": grounding_mode,
+    }
+    if tests_per_policy is not None:
+        request_payload["tests_per_policy"] = tests_per_policy
+        request_payload["scenario_count"] = tests_per_policy * len(selected_rules)
+    if grounding_context["hits"]:
+        request_payload["hybrid_search_grounding"] = grounding_context
+    if user_scenario.strip():
+        request_payload["reviewer_authored_scenario"] = user_scenario.strip()
     steer = guidance.strip()
     if steer:
         request_payload["reviewer_guidance"] = steer
@@ -246,7 +382,14 @@ async def propose_policy_tests(
     # and silently returns empty content if max_tokens is too small.
     raw = await ai_client.chat(
         [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": (
+                    _SYSTEM_PROMPT
+                    + (_BLIND_BATCH_INSTRUCTIONS if rule_ids is not None else "")
+                    + (_USER_SCENARIO_INSTRUCTIONS if user_scenario.strip() else "")
+                ),
+            },
             {"role": "user", "content": user_content},
         ],
         deployment=settings.azure_openai_deployment,
@@ -260,7 +403,7 @@ async def propose_policy_tests(
     if not isinstance(proposals, list):
         raise RuntimeError("AI test proposal response did not contain a 'tests' array")
 
-    valid_rule_ids = {r.rule_id for r in package.rules}
+    valid_rule_ids = {rule.rule_id for rule in selected_rules}
     validated: list[dict] = []
     skipped: list[str] = []
     for raw_test in proposals:
@@ -271,12 +414,18 @@ async def propose_policy_tests(
         if payload is None:
             skipped.append(skip_reason or "invalid proposal")
         else:
+            if user_scenario.strip():
+                payload["scenario_text"] = user_scenario.strip()
             validated.append(payload)
 
     return {
         "policy_set_key": policy_set_key,
-        "version_number": active.version_number,
+        "version_number": version.version_number,
         "reasoning_effort": reasoning_effort,
         "proposed_tests": validated,
         "skipped": skipped,
+        "policy_version_id": str(version.id),
+        "selected_rule_ids": [rule.rule_id for rule in selected_rules],
+        "grounding_mode": grounding_mode,
+        "grounding_context": grounding_context,
     }

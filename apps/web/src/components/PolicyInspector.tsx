@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button, Collapse, Descriptions, Empty, List, Space, Tabs, Tag, Tooltip, Typography } from "antd";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button, Collapse, Descriptions, Empty, List, Segmented, Space, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   BarChartOutlined,
@@ -11,12 +11,15 @@ import {
   ExpandOutlined,
   ExperimentOutlined,
   FileTextOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
+  MenuFoldOutlined,
   NodeIndexOutlined,
   ReadOutlined,
   ToolOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause } from "../api";
+import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause, NoteEntityType } from "../api";
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
@@ -34,6 +37,7 @@ import {
   formatConditionValue,
   hasAmbiguityFlag,
   humanizeAction,
+  ruleDecisionSummary,
   scopeEntries,
 } from "../ruleDisplay";
 
@@ -69,6 +73,22 @@ interface PolicyInspectorProps {
   onSelectRule?: (rule: CanonicalRule) => void;
   /** Shown only in narrower (drawer/full-screen) layouts to dismiss the inspector. */
   onClose?: () => void;
+  /** Desktop workspace action: hide the inspector and give the full width to the policy list. */
+  onHide?: () => void;
+  /** Desktop workspace action: promote the inspector to a viewport-sized focus surface. */
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
+  /** Review-specific metadata rendered beside the rule's immutable identity. */
+  contextMeta?: ReactNode;
+  /** Review workflow actions (AI, edit, approve/reject) rendered after source actions. */
+  additionalActions?: ReactNode;
+  /** Extra review record content placed at the top of Overview. */
+  overviewSupplement?: ReactNode;
+  /** Override the default published-rule discussion target for candidate review. */
+  notesTarget?: { entityType: NoteEntityType; entityId: string; title: string };
+  recordKind?: "published" | "candidate";
+  recordLabel?: string;
+  readOnly?: boolean;
 }
 
 /**
@@ -89,10 +109,21 @@ export function PolicyInspector({
   onRevise,
   onSelectRule,
   onClose,
+  onHide,
+  onToggleFullscreen,
+  isFullscreen = false,
+  contextMeta,
+  additionalActions,
+  overviewSupplement,
+  notesTarget,
+  recordKind = "published",
+  recordLabel = "policy",
+  readOnly = false,
 }: PolicyInspectorProps) {
   const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
   const [docMetaByVersionId, setDocMetaByVersionId] = useState<Map<string, DocumentMeta>>(new Map());
   const [bodyViewer, setBodyViewer] = useState<{ documentVersionId: string; clauseId: string | null; page: number | null } | null>(null);
+  const [jsonVariant, setJsonVariant] = useState<"evaluator" | "canonical" | "dmn">("evaluator");
 
   useEffect(() => {
     setBodyViewer(null);
@@ -200,17 +231,77 @@ export function PolicyInspector({
     );
   }
 
+  const searchEntries: { id: string; index: string; clauseRef: string }[] = [];
+  const seenSearchEntries = new Set<string>();
+  for (const evidence of rule.evidence) {
+    const clause = evidence.clause_id ? clausesById.get(evidence.clause_id) : undefined;
+    if (!clause?.search_document_id || seenSearchEntries.has(clause.search_document_id)) continue;
+    seenSearchEntries.add(clause.search_document_id);
+    searchEntries.push({
+      id: clause.search_document_id,
+      index: clause.search_index,
+      clauseRef: clause.clause_ref,
+    });
+  }
+  const hasClauseEvidence = rule.evidence.some((evidence) => !!evidence.clause_id);
+
+  const decision = ruleDecisionSummary(rule);
+
   // Rendered in two places on purpose: collapsed at the foot of Overview so
   // the machine-readable form is reachable without leaving the summary, and
   // uncapped in its own tab for actually reading a long rule in this narrow
   // panel. Same component, so they can never drift apart.
-  const jsonBlock = <JsonView value={rule} downloadName={`${rule.rule_id}.json`} />;
   const overviewJsonBlock = <JsonView value={rule} downloadName={`${rule.rule_id}.json`} maxHeight={420} />;
 
   const overview = (
     <div className="inspector-pane">
       {rule.description && <Paragraph type="secondary">{rule.description}</Paragraph>}
+      {overviewSupplement}
       <Descriptions column={1} size="small" bordered className="inspector-descriptions">
+        <Descriptions.Item label="Rule ID">
+          <Text code copyable={{ text: rule.rule_id }}>
+            {rule.rule_id}
+          </Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Policy ID (set)">
+          <Text code copyable={{ text: rule.policy_set_id }}>
+            {rule.policy_set_id}
+          </Text>
+        </Descriptions.Item>
+        {recordKind === "published" && (
+          <Descriptions.Item label="Published version ID">
+            <Text code copyable={{ text: rule.policy_version_id }}>
+              {rule.policy_version_id}
+            </Text>
+          </Descriptions.Item>
+        )}
+        {rule.lineage.extraction_run_id && (
+          <Descriptions.Item label="AI extraction run ID">
+            <Text code copyable={{ text: rule.lineage.extraction_run_id }}>
+              {rule.lineage.extraction_run_id}
+            </Text>
+          </Descriptions.Item>
+        )}
+        {hasClauseEvidence && (
+          <Descriptions.Item label="AI Search entry ID">
+            {searchEntries.length > 0 ? (
+              <Space direction="vertical" size={2}>
+                {searchEntries.map((entry) => (
+                  <div key={entry.id} className="inspector-search-entry">
+                    <Text code copyable={{ text: entry.id }}>
+                      {entry.id}
+                    </Text>
+                    <Text type="secondary">
+                      {entry.index} · clause {entry.clauseRef}
+                    </Text>
+                  </div>
+                ))}
+              </Space>
+            ) : (
+              <Text type="secondary">Resolving the indexed clause key…</Text>
+            )}
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="Effect">
           <PolicyEffectBadge effect={rule.effect} /> {humanizeAction(rule.effect.action)}
         </Descriptions.Item>
@@ -276,6 +367,36 @@ export function PolicyInspector({
                     {ev.page !== null ? `, p.${ev.page}` : ""}
                     {clause ? ` · clause ${clause.clause_ref}` : ""}
                   </Text>
+                  <div className="evidence-provenance-grid">
+                    <div>
+                      <span>Document version ID</span>
+                      <Text code copyable={{ text: ev.document_version_id }}>
+                        {ev.document_version_id}
+                      </Text>
+                    </div>
+                    {ev.clause_id && (
+                      <div>
+                        <span>Clause ID</span>
+                        <Text code copyable={{ text: ev.clause_id }}>
+                          {ev.clause_id}
+                        </Text>
+                      </div>
+                    )}
+                    {clause?.element_id && (
+                      <div>
+                        <span>Source element</span>
+                        <Text code>{clause.element_id}</Text>
+                      </div>
+                    )}
+                    {clause?.search_document_id && (
+                      <div className="evidence-provenance-search">
+                        <span>Azure AI Search ID · {clause.search_index}</span>
+                        <Text code copyable={{ text: clause.search_document_id }}>
+                          {clause.search_document_id}
+                        </Text>
+                      </div>
+                    )}
+                  </div>
                   {clause ? (
                     <div className="evidence-quote-box">
                       <Paragraph
@@ -572,44 +693,81 @@ export function PolicyInspector({
 
   const notes = (
     <div className="inspector-pane">
-      <NotesPanel entityType="rule" entityId={rule.rule_id} title="Notes on this rule" />
+      <NotesPanel
+        entityType={notesTarget?.entityType ?? "rule"}
+        entityId={notesTarget?.entityId ?? rule.rule_id}
+        title={notesTarget?.title ?? "Notes on this rule"}
+      />
     </div>
   );
 
   // Only renderable with a policySetKey (needed for the real-engine lookup) —
   // callers that don't yet have one (rare; mainly narrower/legacy call sites)
   // simply don't get this tab rather than showing a broken one.
-  const testScenario = policySetKey ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
+  const testScenario = policySetKey && !readOnly ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
 
-  // The canonical machine-executable form. This platform's whole premise is
-  // that a policy is a structured rule rather than prose, so exposing the
-  // exact object the evaluator consumes is the most direct way to see what a
-  // rule actually *is* — and makes it copy-pasteable into a test fixture.
+  const activeJsonVariant = rule.formulation ? jsonVariant : "evaluator";
+  const jsonVariants = {
+    evaluator: {
+      title: "Evaluator record",
+      description: (
+        <>
+          The stored <Text code>CanonicalRule</Text> consumed by the deterministic evaluator. Nothing is inferred at
+          evaluation time.
+        </>
+      ),
+      value: rule,
+      downloadName: `${rule.rule_id}.json`,
+    },
+    canonical: {
+      title: "Canonical formulation",
+      description: (
+        <>
+          The source-grounded subject, predicate, and object decomposition produced before executable mapping.
+        </>
+      ),
+      value: rule.formulation?.canonical ?? null,
+      downloadName: `${rule.rule_id}-canonical.json`,
+    },
+    dmn: {
+      title: "DMN / FEEL projection",
+      description: (
+        <>
+          The paired OMG DMN 1.5 decision projection and FEEL mapping produced by the formulator.
+        </>
+      ),
+      value: rule.formulation?.dmn_decisions ?? null,
+      downloadName: `${rule.rule_id}-dmn.json`,
+    },
+  } satisfies Record<string, { title: string; description: ReactNode; value: unknown; downloadName: string }>;
+  const selectedJson = jsonVariants[activeJsonVariant];
+
+  // The evaluator record and both formulation artifacts are peers. They used
+  // to be stacked vertically, which meant the two original AI artifacts sat
+  // below a 100+ line JSON viewer and appeared to have disappeared.
   const json = (
-    <div className="inspector-pane">
+    <div className="inspector-pane inspector-pane--json">
+      <div className="json-variant-switcher">
+        <Segmented
+          block
+          value={activeJsonVariant}
+          onChange={(value) => setJsonVariant(value as typeof jsonVariant)}
+          options={[
+            { value: "evaluator", label: "Evaluator JSON" },
+            { value: "canonical", label: "Canonical formulation", disabled: !rule.formulation },
+            { value: "dmn", label: "DMN / FEEL", disabled: !rule.formulation },
+          ]}
+        />
+      </div>
       <div className="json-view-caption">
-        <div className="section-eyebrow">
-          <CodeOutlined /> Canonical rule JSON — exactly what the evaluator reads
+        <div className="json-view-title">
+          <CodeOutlined /> {selectedJson.title}
         </div>
         <Text type="secondary" className="json-view-caption-text">
-          This is the stored <Text code>CanonicalRule</Text> for this policy, verbatim. Every decision the evaluator
-          makes about this rule comes from these fields — nothing is inferred at evaluation time.
+          {selectedJson.description}
         </Text>
       </div>
-      {jsonBlock}
-
-      <div className="json-view-caption" style={{ marginTop: 20 }}>
-        <div className="section-eyebrow">
-          <CodeOutlined /> AI extraction record — both stages, preserved verbatim
-        </div>
-        <Text type="secondary" className="json-view-caption-text">
-          The formulator agent always produces two paired outputs (spec Section 8, "canonical before executable"):
-          the subject/predicate/object <Text code>Canonical JSON</Text> decomposed straight from the source text,
-          and a <Text code>DMN JSON</Text> decision projection. The executable form above is a lossy mapping of the
-          first — this section shows both originals so you can check the mapping against what the AI actually said.
-        </Text>
-      </div>
-      {rule.formulation && (
+      {activeJsonVariant !== "evaluator" && rule.formulation && (
         <div className="extraction-source-banner">
           <Text type="secondary" className="extraction-source-banner-label">
             <FileTextOutlined /> Extracted from:
@@ -627,41 +785,14 @@ export function PolicyInspector({
           )}
         </div>
       )}
-      {rule.formulation ? (
-        <Collapse
-          className="inspector-technical-collapse"
-          items={[
-            {
-              key: "extraction-canonical",
-              label: "Canonical JSON — verbatim subject/predicate/object",
-              children: (
-                <JsonView
-                  value={rule.formulation.canonical ?? null}
-                  downloadName={`${rule.rule_id}-canonical.json`}
-                  maxHeight={420}
-                />
-              ),
-            },
-            {
-              key: "extraction-dmn",
-              label: "DMN JSON — OMG DMN 1.5 / FEEL decision projection",
-              children: (
-                <JsonView
-                  value={rule.formulation.dmn_decisions}
-                  downloadName={`${rule.rule_id}-dmn.json`}
-                  maxHeight={420}
-                />
-              ),
-            },
-          ]}
-        />
-      ) : (
+      {!rule.formulation && (
         <Text type="secondary">
           No AI extraction record stored for this rule. Rules drafted by hand carry no formulator
           output. Rules approved before this record was persisted lost it at publish time and cannot
           have it reconstructed here.
         </Text>
       )}
+      <JsonView value={selectedJson.value} downloadName={selectedJson.downloadName} />
     </div>
   );
 
@@ -691,20 +822,52 @@ export function PolicyInspector({
               </Tooltip>
             )}
           </span>
-          {onClose && (
-            <Button type="text" size="small" className="policy-inspector-close" onClick={onClose} aria-label="Close details">
-              ✕
-            </Button>
-          )}
+          <div className="policy-inspector-window-actions">
+            {onHide && (
+              <Tooltip title={`Hide details and expand the ${recordLabel} list`}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<MenuFoldOutlined />}
+                  onClick={onHide}
+                  aria-label={`Hide ${recordLabel} details`}
+                />
+              </Tooltip>
+            )}
+            {onToggleFullscreen && (
+              <Tooltip title={isFullscreen ? "Restore workspace view" : `Open ${recordLabel} details full screen`}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  onClick={onToggleFullscreen}
+                  aria-label={isFullscreen ? "Restore workspace view" : `Open ${recordLabel} details full screen`}
+                />
+              </Tooltip>
+            )}
+            {onClose && (
+              <Button type="text" size="small" className="policy-inspector-close" onClick={onClose} aria-label="Close details">
+                ✕
+              </Button>
+            )}
+          </div>
         </div>
         <Space size={8} wrap className="policy-inspector-subtitle">
           <PolicyEffectBadge effect={rule.effect} />
           <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
           {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
+          {contextMeta}
           <Text type="secondary" className="rule-card-id" copyable={{ text: rule.rule_id, tooltips: ["Copy rule ID", "Copied!"] }}>
             {rule.rule_id} · rev {rule.rule_revision}
           </Text>
         </Space>
+        <div className="policy-inspector-decision" title={decision.text}>
+          <span className="policy-decision-key">When</span>
+          <span className="policy-decision-value">{decision.condition}</span>
+          <span className="policy-decision-arrow">→</span>
+          <span className="policy-decision-key">Then</span>
+          <span className="policy-decision-result">{decision.action}</span>
+        </div>
         {variations && (
           <div className="policy-inspector-variations">
             <Text type="secondary" className="policy-inspector-variations-label">
@@ -768,11 +931,12 @@ export function PolicyInspector({
               View source
             </Button>
           )}
-          {onRevise && (
+          {onRevise && !readOnly && (
             <Button size="small" icon={<EditOutlined />} onClick={() => onRevise(rule)} title="Draft the next revision of this rule for review">
               Revise
             </Button>
           )}
+          {!readOnly && additionalActions}
         </Space>
       </div>
 
@@ -798,7 +962,7 @@ export function PolicyInspector({
               ]
             : []),
           { key: "history", label: "History", children: history },
-          { key: "notes", label: "Notes", children: notes },
+          ...(!readOnly ? [{ key: "notes", label: "Notes", children: notes }] : []),
           { key: "json", label: "JSON", children: json },
         ]}
       />

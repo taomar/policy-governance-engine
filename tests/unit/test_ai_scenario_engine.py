@@ -71,3 +71,6 @@ class TestRuleContext:
         assert context["scope"]["personas"] == ["*"]
         assert context["required_facts"] == []
         assert context["effect"]["type"] == "allow"
+        assert context["machine_executable"] is True
+        assert context["dmn_mapping_statuses"] == []
+        assert context["formulation_requirements"] == []

@@ -63,7 +63,7 @@ export function RewriteModal({
     <Modal
       title={
         <Space>
-          <ThunderboltOutlined style={{ color: "#7c3aed" }} />
+          <ThunderboltOutlined style={{ color: "#5b4db1" }} />
           <span>Suggest Rewrite — {candidate.rule.rule_id}</span>
         </Space>
       }
@@ -111,13 +111,13 @@ export function RewriteModal({
             style={{ marginBottom: 16 }}
           />
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} lg={12}>
               <Paragraph type="secondary" style={{ marginBottom: 6 }}>
                 <Text strong>Current</Text>
               </Paragraph>
               <RuleCard rule={candidate.rule} defaultExpanded />
             </Col>
-            <Col span={12}>
+            <Col xs={24} lg={12}>
               <Paragraph type="secondary" style={{ marginBottom: 6 }}>
                 <Text strong>Suggested</Text>
               </Paragraph>

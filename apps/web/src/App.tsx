@@ -156,9 +156,10 @@ function App() {
   const [apiHealthy, setApiHealthy] = useState<"unknown" | "ok" | "down">("unknown");
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [askAiOpen, setAskAiOpen] = useState(false);
+  const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [activeProject, setActiveProject] = useState<PolicySet | null>(null);
-  const [projectOpenRequest, setProjectOpenRequest] = useState<{ key: string; nonce: number }>();
+  const [projectOpenRequest, setProjectOpenRequest] = useState<{ key: string | null; nonce: number }>();
 
   useEffect(() => {
     api
@@ -189,13 +190,27 @@ function App() {
       return;
     }
     if (HIDDEN_NAV_IDS.includes(target as Page)) return;
+    if (target === "projects") {
+      // The parent destination is the register, not whichever child happened to
+      // be opened last. Clear the one-shot child intent before ProjectsPage is
+      // mounted again or its stale request will immediately reopen that project.
+      setProjectOpenRequest({ key: null, nonce: Date.now() });
+      setActiveProject(null);
+    }
     setPage(target as Page);
     if (target !== "projects") setActiveProject(null);
   };
 
   return (
     <Layout className="app-shell">
-      <Sider width={240} className="app-sider">
+      <Sider
+        width={224}
+        breakpoint="lg"
+        collapsedWidth={68}
+        collapsed={siderCollapsed}
+        onBreakpoint={setSiderCollapsed}
+        className="app-sider"
+      >
         <div className="brand">
           <div className="brand-mark">PP</div>
           <div>
@@ -209,7 +224,7 @@ function App() {
           selectedKeys={[
             // Reflect the open project rather than just the Projects page, so the
             // sider always shows where the user actually is.
-            page === "projects" && activeProject ? `${PROJECT_NAV_PREFIX}${activeProject.key}` : page,
+            page === "projects" && activeProject && !siderCollapsed ? `${PROJECT_NAV_PREFIX}${activeProject.key}` : page,
           ]}
 
           className="app-menu"
@@ -238,7 +253,7 @@ function App() {
                     ),
                     title: item.hint,
                   };
-                  if (item.id !== "projects") return [entry];
+                  if (item.id !== "projects" || siderCollapsed) return [entry];
                   // The projects themselves are the sider's most-used
                   // destinations, so they are listed rather than buried behind
                   // the list page. This also makes the sider reflect what this
@@ -283,12 +298,14 @@ function App() {
           <Space size={10} className="header-actions">
             <span className={`status-pill status-pill--${apiHealthy === "ok" ? "ok" : apiHealthy === "down" ? "bad" : "idle"}`}>
               <span className="status-dot" />
-              API {apiHealthy === "ok" ? "connected" : apiHealthy === "down" ? "unreachable" : "checking…"}
+              <span className="status-label">
+                API {apiHealthy === "ok" ? "connected" : apiHealthy === "down" ? "unreachable" : "checking…"}
+              </span>
             </span>
             {aiStatus && (
               <span className={`status-pill status-pill--${aiStatus.ai_enabled ? "ok" : "idle"}`}>
                 <span className="status-dot" />
-                AI {aiStatus.ai_enabled ? "enabled" : "disabled"}
+                <span className="status-label">AI {aiStatus.ai_enabled ? "enabled" : "disabled"}</span>
               </span>
             )}
             {aiStatus?.ai_enabled && (

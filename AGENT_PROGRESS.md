@@ -4120,3 +4120,1785 @@ The frontend loaded at `http://127.0.0.1:5789`, but the dashboard reported
 Review the 44 fresh candidates in the Review Queue at port 5789. Do not approve,
 publish, or expand extraction beyond the first 50 clauses without explicit user
 authorization.
+
+## Milestone 49 - Evidence precision, AI rule drafting, and review-queue banding
+
+**Status:** Complete
+
+### Request
+
+Four separate asks, handled as one change set because they all land in the
+review queue: (1) explain why unrelated source clauses were cited as evidence
+for a rule, (2) let a user describe a rule in natural language and watch the
+agent draft it, (3) revise the edit criteria and disclose immutable fields, and
+(4) band related candidates the way the Policies view does.
+
+### Architectural Context
+
+**System boundary:** the formulation-to-candidate mapping layer on the backend,
+and the review queue on the frontend.
+
+**Relevant components:**
+
+- `formulation_mapping.py` - turns a canonical policy into a candidate rule and
+  decides which source clauses become its evidence.
+- `ai_draft.py` (new) - runs the same formulator and mapper against user-typed
+  text instead of a document passage.
+- `ReviewQueue.tsx` - hosts the drafting form, the composer, and the queue list.
+
+**Important invariants:**
+
+- A rule's evidence names the clauses that rule was actually derived from, not
+  merely the clauses that happen to sit nearby in the document.
+- A user-authored rule declares that it has no document evidence rather than
+  borrowing someone else's.
+- Server-owned fields are stated to the user before they type, not silently
+  overwritten afterwards.
+
+### Part 1 - Evidence precision
+
+#### Visible symptom
+
+One rule's evidence panel listed four source clauses that had nothing to do
+with the rule. Querying the database showed this was systemic: 21 of 44 rules
+cited the identical four-clause set `p3-E000016`-`p4-E000019`.
+
+#### Architectural Signals
+
+- **Signal observed:** the same defect appeared across many rules with an
+  identical fingerprint, which points at a shared mechanism rather than at
+  individual bad extractions.
+- **Evidence:** every affected rule was a definition, and all four cited clauses
+  were parts of Article 2's definitions block.
+- **Confirmed:** the clauses were not individually matched at all.
+
+#### Root-Cause Analysis
+
+- **Immediate cause:** Stage 1 emitted one passage spanning
+  `p3-E000016`-`p4-E000019`, because Article 2's definitions read as a single
+  continuous block of text.
+- **Violated assumption:** that a passage and a provision are the same unit.
+  Ingestion had split that block into four clauses; extraction had not.
+- **Root cause:** `_passage_matches_for_policy()` matched each rule to its
+  passage correctly, but `passage_clause_refs[i]` then returned *every* clause
+  in the span. Each definition rule inherited all four.
+- **Owning boundary:** the mapping layer, which is where passage-level matches
+  are converted into rule-level evidence.
+- **Chosen correction level:** narrow at the mapping boundary. Stage 1's passage
+  granularity is correct for its own purpose; the defect is that nothing
+  translated passage granularity into provision granularity.
+
+#### Decision
+
+Added `_narrow_refs_to_policy()`. A clause is kept when the normalized policy
+text is contained in the clause, or the clause is contained in the policy text
+and is at least 16 normalized characters. `clause_texts` is threaded through
+from `ai_extraction.py` so the mapper can see clause bodies rather than only
+refs.
+
+**Alternatives considered:** re-segmenting Stage 1 to emit one passage per
+provision - rejected, it would change verbatim extraction behavior far outside
+this defect and risks losing context the formulator needs. Dropping multi-clause
+evidence entirely - rejected, a rule that genuinely spans clauses would lose
+real evidence.
+
+**Consequences:** narrowing falls back to the unnarrowed span when it yields
+nothing, so evidence can never be deleted, only tightened. Mapping runs at write
+time, so existing rows were unaffected until re-extraction.
+
+#### Validation
+
+Re-extraction produced 52 rules. Evidence distribution moved from
+"21 rules x 4 identical clauses" to **49 rules citing exactly 1 clause, 3 citing
+3**. Spot-checked: "Minor is defined as..." now cites only `p3-E000016`, and
+"Month is defined as 30 days" correctly narrowed to a *different* clause
+(`p4-E000026`) rather than the shared block. Three unit tests added.
+
+### Part 2 - Drafting a rule from natural language
+
+`ai_draft.py` runs user text through the same formulator and the same
+deterministic mapper the document pipeline uses, so an authored rule and an
+extracted rule are the same kind of object. `POST /api/ai/policy-sets/{key}/rules/draft-from-text`
+returns unsaved drafts plus a step-by-step trace; nothing is written until the
+user submits the form.
+
+`AiRuleComposer.tsx` shows that trace live on the left while the structured
+controls on the right fill in from the result.
+
+**Defect found and fixed during implementation:** the submit handler originally
+rebuilt its payload from the visible form fields, which silently discarded
+`formulation`, `lineage`, `ambiguity_status`, and `machine_executable` - the
+entire audit trail. `handleDraft` now spreads the generated rule as its base and
+overrides only fields the user actually edited.
+
+### Part 3 - Edit criteria and immutable fields
+
+The server's `_EDITABLE_STATUSES` is deliberate governance: an approved
+candidate must go through `/request-changes` so the reason is auditable. That
+was left alone. The defect was on the client: the Edit button *disappeared* for
+non-editable statuses, so the rule looked broken rather than governed. Two
+distinct questions - "can this be edited" and "can this be reviewed" - were also
+collapsed into one status set.
+
+`candidateEditability.ts` now answers both separately, and the button is
+disabled with a tooltip explaining which status blocks it and what to do
+instead. `ImmutableFieldsNotice.tsx` states the server-owned fields up front in
+both the draft and edit forms.
+
+`conditionRows.ts` was extracted because `ReviewQueue` and `EditRuleModal` each
+carried their own copy of `buildCondition`/`conditionToRows` - the same rule
+semantics encoded twice.
+
+### Part 4 - Banding in the review queue
+
+Reused the Policies view's clustering criterion rather than inventing a second
+one: curated `group_label` first, then a heuristic of same `rule_type` plus a
+top-level comparison on the same fact, requiring at least two distinct
+operator/value signatures so a shared guard is not mistaken for a family.
+
+Band geometry lived as ~80 lines inline in `PolicyList.tsx`. Extracted to
+`bandGeometry.ts` and consumed by both views, so the two cannot drift.
+
+**Constraint accepted:** candidates render as separate cards with gaps, so an
+unbroken vertical spine is not achievable without restructuring the list. Each
+card carries its own band segment and node; the fading caps point across the
+gaps and a family chip names the group.
+
+Clustering runs over all loaded candidates so colours stay stable under
+filtering; geometry is computed over the whole filtered list rather than the
+visible page, so a family split across a page boundary reports "continues below"
+instead of presenting a fragment as complete.
+
+### Impact Analysis
+
+- **Data impact:** re-extraction created 52 rules and superseded 44. No rule was
+  approved or published.
+- **Contract impact:** one additive endpoint; no existing response shape changed.
+- **Security impact:** none.
+- **Migration impact:** none - narrowing applies at write time, so evidence
+  improves on re-extraction and old rows are untouched.
+
+### Completion
+
+- `npx tsc --noEmit -p tsconfig.app.json` - exit 0.
+- `npm run build` - succeeded; only the pre-existing chunk-size advisory.
+- `npm run lint` - exit 0; only pre-existing fast-refresh warnings.
+- `pytest tests/unit` - 331 passed, 11 skipped (baseline 328 + 3 new).
+- Browser at port 5789: review queue renders 15 rows in the active filter, 6 of
+  them banded across 1 family, band and node geometry measured clear of the
+  bulk-select checkbox with no clipping.
+- Composer exercised end-to-end: prompt accepted, three trace steps rendered
+  ("Read your policy statement", "Formulate canonical policy", "Derive
+  executable rule"), generated-rule card shown, right-hand controls auto-filled,
+  and both the no-evidence and immutable-fields notices displayed.
+- Submitted draft persisted: candidate count 53 -> 54, saved as `candidate` with
+  `authority.level = ai_drafted`, `evidence = []`, and `formulation` and
+  `lineage` intact.
+
+### Open risks
+
+`scope` is still emitted as an empty `PolicyScope()` by the mapper
+(`formulation_mapping.py`), so drafted and extracted rules carry no jurisdiction
+or persona scoping. Pre-existing and out of scope here, but it limits how
+precisely a rule can be targeted at evaluation time.
+
+### Exact next action
+
+Await user direction. Do not approve or publish any candidate, and do not extend
+extraction beyond the first 50 clauses, without explicit authorization.
+
+
+## Milestone 50 - Extraction observability, run identity, and the approval/publication gap
+
+**Status:** Complete
+
+### Request
+
+Four asks, one change set because all four are the same underlying question —
+"what is the system doing, and what did it do to my work?":
+
+1. Fill the empty space on the Documents tab.
+2. Show an animation while extraction runs, describing intake -> extraction ->
+   review with live policy counts and progress.
+3. Give each extraction run a reference, and decide whether re-running extracts
+   again or overwrites what is already in review. The user's own position: "each
+   run should be atomic."
+4. "I approved 7 policies and cant see them in policy page."
+
+### Architectural Context
+
+**System boundary:** the extraction pipeline (`ai_extraction.run_ai_extraction`),
+its HTTP surface (`api/routers/ai.py`), and the two frontend surfaces where a
+reviewer forms a mental model of the system: the Documents tab and the Policies
+tab.
+
+**Relevant components:**
+
+- `ai_extraction.py` - the batch loop. Owns clause batching, both agent calls,
+  candidate persistence, and superseding the previous run.
+- `extraction_progress.py` (new) - the boundary that lets the loop publish what
+  it is doing without learning about HTTP.
+- `ExtractionProgressPanel.tsx` (new) - the live readout.
+- `ExtractionRunHistory.tsx` (new) - the per-version run record.
+- `PoliciesTab.tsx` / `ReviewQueue.tsx` - where approval-vs-publication is
+  explained.
+
+**Important invariants:**
+
+- A re-run never destroys a human review decision.
+- A re-run never leaves the queue emptier than it found it.
+- A run reference resolves to a run that exists.
+- Approval and publication are distinct acts, and the system says so at the
+  point where the user would otherwise conclude their approvals were lost.
+
+### Part 1 - Extraction had no output channel except its return value
+
+#### Visible symptom
+
+An extraction of a real document takes 11-12 minutes behind a single spinner.
+
+#### Root cause
+
+Progress genuinely existed inside the loop - batch index, clauses consumed,
+pages touched, rules drafted, rules skipped - but the HTTP response was the only
+output channel, and it does not exist until the run is over. The information was
+computed and then discarded.
+
+#### Correction level
+
+Component. Added `extraction_progress`, an in-memory registry the loop writes to
+and a `GET .../extraction-progress` endpoint reads from. The loop does not learn
+about HTTP and the router does not learn about batches or agent stages.
+
+Keyed on `document_version_id`, not run id: the client cannot know the run id
+until the POST returns, which is after the run it wanted to watch has finished.
+
+**Accepted limitation, recorded in the module docstring:** the registry is
+per-process, so it is correct under single-worker uvicorn (the local deployment)
+and would need promoting to shared state under multiple workers. Justified
+because this is observation telemetry, not a source of truth - the authoritative
+record remains the committed candidate rows and the run status.
+
+`processed_pages` is a high-water mark rather than a sum, because clauses
+straddle page boundaries and a later batch can revisit an earlier page.
+
+### Part 2 - The animated pipeline
+
+Four stages - Document, Policy statements, Rules drafted, In review queue - each
+showing what has passed through it, with an animated dot on the connector into
+the stage currently working.
+
+Which stage is lit is read from the backend's own stage sentence ("Reading...",
+"Formulating...", "Linking...") rather than inferred from counters, which lag a
+batch behind what is actually happening.
+
+Status lines are replaced on each poll rather than appended: the reviewer's
+question is "what is it doing now", not "what did it do thirty batches ago".
+
+`prefers-reduced-motion` disables the travelling dot and the icon pulse; the
+counters and the highlighted stage still carry the state.
+
+#### Defect found during verification
+
+The fourth stage rendered `rules_drafted`, the same number as the third - so the
+pipeline promised four measurements and delivered three, and the stage whose
+tooltip says "committed as candidate rules" was reporting rules that might never
+have committed. Fixed at the source: the loop now publishes `rules_committed`
+from `len(created_ids)` *after* the commit succeeds, and the panel reads it. The
+two numbers diverge exactly when persistence fails, which is precisely when a
+reviewer needs to see the difference.
+
+### Part 3 - Run identity, and the atomicity hole
+
+#### The re-run question, answered
+
+Re-running does not duplicate. `_supersede_prior_candidates` deletes the prior
+run's **unreviewed** candidates and preserves **reviewed** ones. Both halves are
+deliberate: duplicates would poison `group_rules_for_comparison`, which would
+pair a rule with its own copy and report DUPLICATE findings the system itself
+created; and reviewed rows are human decisions that a machine re-run must never
+erase.
+
+#### The real defect
+
+Supersede ran *before* the first model call. Per-batch agent failures are caught
+and recorded as skips rather than raised, so a run in which every batch failed
+still finished `completed` - and committed the delete. Expired credentials or a
+degraded endpoint could therefore replace 44 reviewed-pending rules with nothing
+and report success. The pre-existing `except -> rollback` path only covered the
+*raised* case; the caught-failure case was unprotected.
+
+**Correction:** supersede is deferred to the first batch that actually produces
+rules, and runs in the same transaction as that batch's inserts. The queue
+therefore never contains two runs at once and never loses the old set without
+gaining a new one. `exclude_run_id` is a **mandatory** keyword because the
+current run is itself a run for this document version and would otherwise delete
+its own output.
+
+This is what "each run should be atomic" actually requires: not that the run is
+one transaction, but that the destructive half cannot happen without the
+constructive half.
+
+#### Run reference
+
+`ExtractionRun.reference` -> `RUN-E0DAFE91`. Derived from the id rather than
+stored: no column, no migration, no sequence, and it round-trips back to the row
+because the UUID prefix is preserved verbatim.
+
+A test written for it caught a real defect - an unflushed run rendered
+`RUN-NONE`, a plausible-looking citation resolving to nothing. The property now
+returns `None` before the row has an id.
+
+### Part 4 - "I approved 7 policies and cant see them in policy page"
+
+#### Root cause
+
+Not a defect in the model. Approval sets `review_status='approved'` on a
+candidate rule - a per-rule review decision. The Policies tab reads *published*
+versions (`approved_policy_versions` -> `approved_rules`), which only Publish
+creates. Auto-publishing on approve would mint a policy version per approval and
+destroy the versioning gate that makes this a deterministic policy platform.
+
+Confirmed in the database: 7 approved candidates, 0 approved_rules, 0
+approved_policy_versions.
+
+#### The actual defect: a missing feedback boundary
+
+The system knew "7 approved, 0 published" and never said it. The Policies empty
+state gave first-run advice - upload a document, extract, approve - to a user who
+had already done all three. Read in context, that says "your approvals did
+nothing."
+
+**Correction** at the two boundaries where the user actually is:
+
+- Policies empty state now branches on real pipeline state: N approved awaiting
+  publication (with the explanation that approval is a review decision, not a
+  policy change, and a button into Review), N candidates awaiting review, or a
+  genuine first run.
+- Review shows a ready-to-publish banner when approved-unpublished rules exist.
+
+Deliberately **not** done: auto-publish, or a "publish" button on the Policies
+tab. Publication belongs to the review surface where the reviewer can see what
+they are publishing.
+
+Incidental confirmation: all 7 approved rows carry `reviewed_by='Tarek Omar'`
+and two share a timestamp millisecond, proving the Milestone 49 identity fix and
+bulk approve both work on production data.
+
+### Part 5 - Filling the Documents tab
+
+`ExtractionRunHistory` lists every run for a version: reference, status, rules
+(total and how many already reviewed), start time, duration, prompt version, and
+which run is current. Counts are derived from `candidate_rules` at read time
+rather than stored, so they stay true as rules get reviewed.
+
+This also answers the re-run question in the product itself rather than only in
+this document.
+
+### Validation
+
+- `pytest tests/unit` - 356 passed, 11 skipped (baseline was 343). 13 new tests:
+  `test_extraction_progress.py` (+3 for the committed counter) and
+  `test_extraction_run_identity.py` (10, covering the run reference and the page
+  label).
+- `npx tsc --noEmit` clean; `npm run build` succeeds; `npm run lint` shows only
+  pre-existing `only-export-components` warnings.
+- API restarted; both new endpoints verified live. `extraction-runs` returns 8
+  runs with references, `is_current`, and per-run reviewed counts.
+- Browser-verified on 5789: Policies tab shows "7 approved rules are waiting to
+  be published" with the explanation and the Review button; Review shows the
+  ready-to-publish banner; Documents shows run history with `RUN-963B949E`
+  marked current and `RUN-11033DAE` showing "136 (7 reviewed)".
+- Pipeline verified by stubbing the progress response in the browser rather than
+  triggering a real run - a real run would have superseded 192 unreviewed
+  candidates, which is a destructive act the user has not authorised. The stub
+  exercised the real component and real CSS: four distinct counters
+  (190/812, 57, 41, 38), correct active-stage highlighting driven by the stage
+  sentence, and the travelling dot animating on the correct connector.
+
+### Outstanding
+
+- `_supersede_prior_candidates` still has no direct test. It needs a database
+  session and no async DB fixture exists in `tests/`; adding one is a larger
+  change than this milestone warrants. The deferral logic it now depends on is
+  straight-line and was reasoned through above, but this is a real coverage gap
+  and the highest-value test to add next.
+- The in-memory progress registry is single-worker only (see Part 1).
+- Nothing was approved, published, or committed. 7 approvals remain unpublished
+  and await the user's decision.
+
+## Milestone 51 - Delta-only re-extraction, review filtering, and change explanation
+
+**Status:** Complete
+
+### Requirement
+
+Re-extracting the same document must surface only what changed. Zero delta means
+nothing is presented for review, while the run itself is still recorded in
+history. Each document is a container, so a new variant of the same document
+produces a delta rather than a fresh full queue. The review page needed
+filtering by document, extraction run, and change type, plus status sub-tabs and
+additional AI assistance.
+
+### Architectural Signals
+
+- **Signal observed:** the previous re-extraction behaviour deleted prior
+  candidate rows for the same document and re-inserted a full set.
+- **Evidence:** `_supersede_prior_candidates` issued a DELETE, so a second run
+  discarded reviewer decisions and presented ~190 rules again with no indication
+  that only one had actually changed.
+- **Potential scope:** identity, persistence, and review-workflow boundaries.
+- **Confirmed:** the defect was not local. Nothing in the system carried the
+  concept of "the same rule across runs", so delta could not be expressed at all.
+- **Decision:** introduce rule identity as an explicit, testable concern rather
+  than adding comparison logic inline in the extraction service.
+
+### Root-Cause Analysis
+
+- **Visible symptom:** a re-extraction produced a full queue instead of a delta.
+- **Immediate cause:** prior candidates were deleted and replaced wholesale.
+- **Violated assumption:** that an extracted rule has a stable identity across
+  runs. It does not. `rule_id` is `AI-<random>` per run, `effective_from` is
+  `date.today()`, and prose is regenerated by the model every time.
+- **Root cause:** no identity model existed, so equality could not be computed
+  and every run was necessarily treated as new.
+- **Owning boundary:** a new pure domain service, `rule_delta`, owns identity and
+  classification. Extraction consumes it; persistence records its result.
+- **Chosen correction level:** structural, because the same root cause affected
+  supersession, review state, correlation, and history simultaneously.
+
+### Design decisions
+
+**Identity is derived from three fingerprints, not from generated values.**
+Content fingerprint covers the executable fields (`rule_type`, `scope`,
+`condition`, `effect`, `priority`, `exceptions`, `required_facts`, `advice`,
+`is_explicit_override`, `machine_executable`). Anchor fingerprint covers the
+normalised words of the source passage. Prose fingerprint (title, description) is
+deliberately excluded from identity and reported separately as `reworded`,
+because the model rewords on every run and treating that as a behavioural change
+would make every re-extraction look dangerous.
+
+**Tier 1 requires content match AND anchor corroboration** (Jaccard >= 0.6, or
+both anchors empty). Unit tests caught the flaw in content-only matching: two
+semantically identical rules originating from unrelated passages matched as
+`unchanged`, which would silently migrate a reviewer's approval onto a different
+clause. Matching is run globally tier-by-tier, and each baseline rule can be
+claimed only once, otherwise `removed` under-reports.
+
+**The tokeniser is `[^\W_]+` with `re.UNICODE`, not ASCII.** Source documents may
+be Arabic; an ASCII tokeniser would reduce such a passage to an empty token set,
+and every empty set matches every other empty set.
+
+**Supersession became soft.** Rows now carry `superseded_at` and
+`superseded_by_run_id` instead of being deleted, and only rows still in
+`review_status = 'candidate'` are retired. Approved, rejected, and published rows
+survive re-extraction, which is what makes reviewer work durable.
+
+**Baseline selection is scoped to the document container and requires
+`status == 'completed'`.** A partial or interrupted run must never become a delta
+reference, or the next run reports invented `new` rules.
+
+### Impact Analysis
+
+- **Consumer audited:** `correlation_service._load_rules` dedupes by
+  `payload_json->>'rule_id'`, which is regenerated per run. Without a
+  `superseded_at IS NULL` filter, an unchanged rule and its own predecessor would
+  be reported as a system-manufactured DUPLICATE finding. Filter added.
+- **Data impact:** additive migration `a7d3f1b9c204` (delta columns, nullable);
+  no destructive change. Applied.
+- **Contract impact:** `candidate_rules` responses gained delta fields; existing
+  fields unchanged. New query filters are optional.
+- **Rollback approach:** the columns are nullable and classification is
+  recomputed per run, so reverting the code leaves no invalid state.
+
+### AI assistance added
+
+`rule_change_explainer` follows the established `ai_compare` pattern: the field
+diff is computed deterministically from the two persisted payloads, and the model
+is given the already-correct diff and asked only what it means. A model failure
+sets `narrative = None` and the diff still stands. Semantic and wording changes
+are reported separately, because listing a retitle beside a changed eligibility
+threshold would imply comparable weight. A rule with no baseline returns
+`comparable: false` with a reason rather than a 404, since a first extraction
+legitimately has no predecessor.
+
+### Review UI
+
+Added a filter bar (document, extraction run, change type) backed by a
+`review-facets` endpoint, status sub-tabs rendered as stat cards, delta badges on
+candidate rows, and a delta-aware empty state. The empty state distinguishes
+"nothing matched your filter" from "this run changed nothing" - an unchanged
+re-extraction is a successful no-op, and reading it as a failure would push a
+reviewer to re-run pointlessly.
+
+The status tabs are a custom card strip rather than antd `<Tabs>`, because the
+review queue already sits inside the project-level `<Tabs>` and nesting makes
+`.ant-tabs-tab` match at both levels. That is a recurring defect in this codebase
+and was avoided rather than re-introduced.
+
+### Bug found and fixed during verification
+
+Clicking the `Approved` tab with zero rules rendered `Nothing classified as
+"all"`. Root cause: inconsistent no-filter sentinels - `deltaFilter` used
+`"all"` while `documentFilter` and `runFilter` used `""`, so a truthiness check
+treated "no delta filter" as an active filter. Fixed by normalising the sentinel
+once at the top of the memo rather than per-branch, since the inconsistency
+itself was the defect and a per-branch patch would recur.
+
+### Validation
+
+- `pytest tests/unit` - **386 passed, 11 skipped**, including 21 delta tests and
+  9 change-explainer tests.
+- `npx tsc --noEmit -p tsconfig.app.json` - clean.
+- `npm run lint` - exit 0 (only pre-existing `only-export-components` warnings,
+  matching the established pattern in `PoliciesToolbar` and `ActorContext`).
+- **End-to-end proof on real model output.** Re-extracting the HR document
+  returned `{new: 183, changed: 1, unchanged: 6, baseline: 0, removed: 0,
+  reworded: 2}` with `superseded: 0`. All 7 previously published rules were
+  matched (6 unchanged, 1 changed), each linked to its predecessor through
+  `baseline_candidate_id`. `superseded: 0` is correct: every baseline rule was
+  published, and published rows are not retired. 183 new is correct because the
+  prior run was a deliberate 7-rule partial extraction while this run covered the
+  full document.
+- Browser-verified on port 5789: status tabs showed live counts (197 all / 190
+  needs review / 7 published), the delta filter narrowed 190 rows to the single
+  `CHANGED` rule, and its explainer rendered 1 semantic change (`effect`), 2
+  wording changes, and an AI narrative that correctly identified the rule had
+  been narrowed from three security requirements to one.
+
+### Known limitations
+
+- `SIMILARITY_THRESHOLD = 0.6` is reasoned but not empirically validated against
+  a real document revision. It is a single named constant, so it is cheap to tune.
+- `_supersede_prior_candidates` and `_classify_run_delta` have no integration
+  test, because no async DB fixture exists in `tests/`. Mitigated, not resolved,
+  by the end-to-end run above.
+- Facet `status_totals` is policy-set-global, so sub-tab counts do not narrow
+  when a document or run filter is applied. Deliberate, so the tabs remain a
+  stable navigation affordance, but it can read as inconsistent.
+- Nothing was approved, published, or committed.
+
+### Exact next action
+
+Address the user's follow-up: hide Attestations for this phase, clarify what the
+Quality and Aggregate Limits tabs run against, and redesign the Tests tab so its
+purpose and authoring flow are understandable.
+
+---
+
+## Milestone 52 - Name what each action runs against; redesign the Tests tab
+
+**Status: Complete**
+
+### Trigger
+
+The user opened Aggregate Limits, Quality and Tests and said: *"what does these
+do? ... it doesnt state what it runs against or give any selection, i dont know
+what they are for and what they do."* Plus: hide Attestations for this phase, and
+*"test page needs redesign ... its missing the text box to guide, actually i find
+it hard to understand how the test works."*
+
+### Architectural signal
+
+- **Signal observed.** Three unrelated pages produced the same complaint.
+- **Evidence.** Each page renders a primary action ("Run quality evaluation",
+  "Generate tests", "New aggregate limit") whose *subject* is implicit. The page
+  documents its mechanism at length but never names the thing it operates on.
+  Worse, the subject differs per page and per mode, and one of them 404s when the
+  subject does not exist.
+- **Potential scope.** Cross-cutting presentation defect, not three cosmetic bugs.
+- **Confirmed.** A per-page rewrite would have fixed the three reported screens
+  and left a fourth page free to reintroduce the same defect.
+- **Decision.** Fix it once, in a shared component, so "what does this run
+  against?" is answered structurally rather than by remembering to write a
+  sentence.
+
+### Root-cause analysis
+
+- **Visible symptom.** Reviewers cannot tell what a button will act on.
+- **Immediate cause.** No page resolves or displays its evaluation subject.
+- **Violated assumption.** The UI assumed the reviewer already knows whether a
+  page reads the published version or the review queue. Those are different data
+  sets with different counts, and the distinction is the whole point.
+- **Root cause.** The subject of an action was never modelled as a first-class UI
+  concern; it existed only implicitly inside each page's fetch call.
+- **Owning boundary.** Presentation layer, shared across evaluation-style pages.
+- **Chosen correction level.** Component-level shared abstraction.
+
+### Decision: `EvaluationTarget`
+
+- **Context.** Three pages, three implicit subjects, one recurring complaint.
+- **Decision.** Add `apps/web/src/components/EvaluationTarget.tsx`, exporting
+  `useEvaluationTarget(policySetKey)` plus `EvaluationTargetBanner` /
+  `EvaluationTargetInline`. The hook resolves the active published version and
+  the review-queue size; the banner states the concrete subject and its size.
+- **Rationale.** Smallest change that makes the defect non-recurring. Adding a
+  paragraph to each page would have been smaller to write and would have left
+  the underlying gap intact.
+- **Alternatives considered.**
+  - *Per-page prose.* Rejected: repeats the same policy in three places and
+    drifts the moment a count changes.
+  - *A generic `<PageIntro>`.* Rejected: the problem is not intros, it is an
+    unresolved subject. A prose slot would not have forced the data lookup.
+- **Consequences.** One extra pair of requests per page. Both are cheap and
+  already cached by the query layer. Any future evaluation page gets the
+  behaviour by using the hook.
+
+### Design details that mattered
+
+- **A 404 on active-version is information, not an error.** A policy set before
+  its first publish legitimately has none. `Promise.allSettled` is used so a
+  missing version does not also discard the facet counts, and only non-404
+  failures are surfaced. Treating it as an error would make the banner cry wolf
+  on every new project until reviewers learned to ignore it.
+- **The banner matches the backend's real scope, not an approximation.**
+  `evaluate_candidate_quality` reads `review_statuses=("candidate", "approved")`,
+  so `candidateCount` is `status_totals.candidate + status_totals.approved`. A
+  banner that quoted a different number than the run used would be worse than no
+  banner.
+- **`propose_policy_tests` raises `ValueError` -> HTTP 404 with no active
+  version.** The Generate button is now bound to `!evaluationTarget.version` and
+  the banner explains the prerequisite, converting an unexplained server error
+  into an answered question before it is triggered.
+- **Guidance is user content, not system prompt.** The new
+  `ProposePolicyTestsRequest.guidance` is injected as `reviewer_guidance` inside
+  the user payload, and the system prompt states it may steer scenario choice but
+  never overrides the rules, the output contract, or expectation correctness.
+  Proposals remain validated against real rule ids and enums.
+
+### Changes
+
+**Backend**
+
+- `api/schemas.py` - `ProposePolicyTestsRequest.guidance: str = ""`.
+- `infrastructure/ai_test_proposal.py` - `propose_policy_tests(..., guidance="")`
+  adds `reviewer_guidance` to the request payload only when non-blank; new
+  system-prompt paragraph bounding what guidance may influence.
+- `api/routers/policy_tests.py` - passes `body.guidance` through.
+
+**Frontend**
+
+- `components/EvaluationTarget.tsx` - new shared component described above.
+- `components/ProjectWorkspace.tsx` - `HIDDEN_TAB_KEYS` / `VISIBLE_TAB_KEYS` as a
+  single source of truth, applied to both the rendered tab list *and* the
+  `handleNavigate` guard, so a hidden tab cannot be reached by navigation and
+  render an empty panel.
+- `App.tsx` - the same pattern for the sidebar: `HIDDEN_NAV_IDS` /
+  `VISIBLE_NAV_ITEMS`, applied to the menu and to `handleNavigate`.
+- `components/QualityPage.tsx` - launch card ordered question -> subject ->
+  action: "What should be checked?", options relabelled to *The published
+  version* / *Rules still in review*, target banner, then the button, plus a
+  read-only reassurance note.
+- `components/AggregateLimitsPage.tsx` - prose replaced with a worked
+  `Rule A + Rule B <= combined cap` example and three facts: when it runs, what
+  it runs against (live rule count), and why it cannot be an ordinary rule.
+- `components/PolicyTestsPage.tsx` - guidance textarea with five presets and a
+  clear control; a persistent collapsible "How a policy test works" card (it
+  previously existed only in the empty state, so it vanished exactly when the
+  page got harder); test-kind chips relabelled from engine vocabulary to the
+  business question each kind answers, with counts.
+- `api.ts` - `policyTestApi.propose(key, effort, guidance)`.
+- `App.css` - styles for the new classes.
+
+### Impact analysis
+
+- **Contract impact.** `guidance` is optional with an empty default, so existing
+  callers are unaffected.
+- **Data impact.** None. Proposals persist as `pending_review` / `is_active=false`
+  exactly as before.
+- **Attestations.** Hidden, not deleted, in **both** places it surfaced: the
+  project workspace tab (`ProjectWorkspace.tsx`) and the sidebar "My
+  Attestations" entry (`App.tsx`). Grep confirmed nothing else navigates to
+  either, and the Dashboard toolkit never linked to them. Routes, pages and data
+  are untouched, so restoring either is a one-line change to a `HIDDEN_*` list.
+  Both use the same shape: one declared list applied to the rendered menu *and*
+  the navigation guard, so a hidden destination cannot be reached by any other
+  route and render as a blank shell.
+
+### Validation
+
+- `pytest tests/unit` - **386 passed, 11 skipped**.
+- `npx tsc --noEmit -p tsconfig.app.json` - clean (one real error caught and
+  fixed: `reviewFacets` lives on `api`, not a separate client).
+- `npm run lint` - exit 0, only pre-existing `only-export-components` warnings.
+- OpenAPI confirms `guidance` on `ProposePolicyTestsRequest`.
+- **Guidance proven against the real model.** A steer of "focus only on
+  end-of-service benefit ... ignore leave entitlements entirely" against
+  `saudi-labor-law` returned 3/3 proposals about end-of-service award and none
+  about leave. All persisted `pending_review` / `is_active=false`.
+- **UI wire proven without side effects.** The propose request was intercepted in
+  the browser and its body confirmed as
+  `{"reasoning_effort":"medium","guidance":"Check overtime pay and rest-day
+  compensation only."}`, with a stubbed response so no extra tests were created.
+- Browser-verified on 5789: Attestations absent from both project tab bars *and*
+  from the sidebar, with no dangling references anywhere in the shell; Quality
+  banner read "Published version 1 / 15 rules / active" and switched to
+  "Unpublished rules in review / 40 rules"; Tests banner, collapsible 3-step
+  explainer, guidance presets and clear all worked; Aggregate Limits rendered the
+  worked example and live rule count; HR independently showed "7 rules" and
+  "It reads the 7 published rules", confirming the copy is data-driven.
+- Design hook reported 4 pre-existing `side-tab` findings in `App.css`
+  (L3077/3324/3505/3662). All predate this milestone and belong to the extraction
+  progress, review-removed-row and change-list styles; L3077 already carries a
+  comment explaining it is a blockquote rule, not a decorative accent. None of
+  the classes added here use a side accent. Left unchanged as out of scope.
+
+### Known limitations
+
+- The no-published-version branch was verified by code inspection and by the
+  backend's real 404, not in the browser. Reproducing it in the UI would have
+  required creating a scratch policy set, and there is no `DELETE /api/policy-sets`,
+  so the test would have left permanent data behind. Judged the wrong trade.
+- Validation left **3 AI-proposed tests** on `saudi-labor-law` (20 total, all
+  `pending_review` / `is_active=false`). They are inert and awaiting the user's
+  decision, which is the correct resting state; nothing was accepted or activated.
+- `EvaluationTargetInline` is exported but not yet used. Intended for the Quality
+  history card header.
+- Nothing was approved, published, or committed.
+
+### Exact next action
+
+Await user review of the three redesigned tabs. If accepted, consider using
+`EvaluationTargetInline` in the Quality history header, and decide whether
+Attestations returns in a later phase.
+
+## Milestone 53 - What "Accept" means, and why every AI test proposal was wrong
+
+**Status: Complete**
+
+### Trigger
+
+The user opened the Tests tab, saw 18 identical yellow cards each offering a bare
+`Accept` / `Reject`, and asked: *"what does accept here means? this page needs a
+professional redesign...."*
+
+The question is the finding. A reviewer being asked to make an irreversible-ish
+judgement should never have to ask what the button does.
+
+### Architectural signal
+
+- **Signal observed.** The reviewer is asked to validate an AI *prediction*
+  without access to the *evidence*. Two distinct defects hid behind one symptom.
+- **Evidence.**
+  - `PolicyTestsPage.tsx` gated the "Run now" button on `t.is_active`, so the
+    only way to find out whether a proposal was right was to first accept it.
+  - Every one of the 18 proposals was wrong in exactly the same way, which is
+    the signature of a systematic cause rather than 18 modelling errors.
+- **Potential scope.** Contract defect (UI importing a permission the backend
+  never assigned) plus an AI input-completeness defect.
+- **Confirmed.** Both.
+- **Decision.** Fix the decision loop, then chase the uniform failure to its
+  root rather than treating it as AI noise.
+
+### Root-cause analysis, defect 1: verification was gated behind commitment
+
+- **Visible symptom.** `Accept` is unexplained and unverifiable.
+- **Immediate cause.** The run button required `is_active`.
+- **Violated assumption.** The frontend assumed `is_active` meant "may be
+  executed". It does not.
+- **Root cause.** `is_active` is a *signal-inclusion* flag, not an execution
+  permission. Proof, from the backend itself:
+  - `policy_test_execution.execute_test_by_id` (L62) never inspects `is_active`.
+  - `run_active_tests_for_version` (L104) and `list_failing_policy_tests`
+    (`policy_tests.py` L112) are the only readers, and both filter on it.
+  - So the flag governs *whether a result counts*, never *whether it may run*.
+- **Owning boundary.** Presentation layer only. The backend boundary was already
+  correct; the UI had invented a stricter rule than the domain required.
+- **Chosen correction level.** Local, frontend-only.
+
+The safety property that makes this sound: because `list_failing_policy_tests`
+filters `is_active=True`, dry-running a pending proposal records a run without
+ever reaching Quality -> Failed policy tests. Verified live — after 18 pending
+dry-runs, `GET /failing` still returned exactly 1 row (`domestic_worker_exemption_active`,
+the one genuinely active failure), and the redesigned "Failing now" tile agreed.
+
+### What Accept actually does, stated once and precisely
+
+`review_policy_test` (`policy_tests.py` L205) sets `review_status="active"` and
+`is_active=True`. The consequences, traced rather than assumed:
+
+1. The test runs automatically on every publish of that policy set.
+2. A failure appears under Quality -> Failed policy tests.
+3. **It never blocks a publish.** `candidate_rules.py` L740-758 performs the
+   re-run *after* the publish transaction has already committed, inside a
+   best-effort `try/except`.
+
+Point 3 is load-bearing and was previously undocumented anywhere in the UI. A
+reviewer who believed accepting a test would guard the publish gate would have
+had a false sense of protection. The copy now says so explicitly at the point of
+decision, and `ACCEPT_CONSEQUENCE` / `REJECT_CONSEQUENCE` are single constants so
+the statement cannot drift from the behaviour.
+
+### Root-cause analysis, defect 2: the proposer was blind to the field that decides the outcome
+
+Unlocking dry-run immediately produced the real finding. "Check all 18" returned
+**18 / 18 evaluator disagrees. Zero agreement.**
+
+- **Visible symptom.** Every proposal predicted `SATISFIED`; the evaluator
+  returned `NOT_APPLICABLE`.
+- **First hypothesis, rejected.** Bad rule authoring. Inspected
+  `AI-23d7de3212`: scope entirely empty (wildcard), condition
+  `{"all": [], "type": "all"}` (vacuously true), `effective_from = 2026-08-08`
+  and in force. On that evidence the AI's reasoning was *correct* — the rule
+  should have matched everything.
+- **Root cause.** `evaluator/engine.py` L91:
+
+      if not rule.machine_executable:
+          return NOT_APPLICABLE
+
+  This short-circuits **before** scope, condition or exceptions are ever read.
+  All 15 published rules in `saudi-labor-law` have `machine_executable = false`.
+  The policy set is published but inert: it cannot return `SATISFIED` for any
+  input whatsoever.
+- **Upstream cause.** `ai_test_proposal._rule_summary` sent the model 14 fields
+  and omitted `machine_executable` — the single field that dominates the result.
+  The model reasoned carefully and correctly about logic the engine never
+  reaches.
+- **Owning boundary.** The proposer's rule-summary contract.
+- **Chosen correction level.** Fix the input contract. Not a prompt patch, and
+  explicitly *not* a UI filter hiding non-executable rules — that would have
+  suppressed the symptom while leaving the model just as blind.
+
+### Decision: `machine_executable` becomes part of the proposer's rule contract
+
+- **Context.** A field that determines the evaluator's answer was withheld from
+  the component asked to predict that answer.
+- **Decision.** Add `machine_executable` to `_rule_summary`; add a CRITICAL
+  paragraph to the system prompt explaining the short-circuit and instructing
+  `NOT_APPLICABLE` expectations for such rules; bump `PROMPT_VERSION` to
+  `ai-test-proposal-v2`.
+- **Rationale.** Restores completeness at the boundary where it was lost. Any
+  future prompt work inherits the fix.
+- **Alternatives considered.**
+  - *Filter non-executable rules out of proposal generation.* Rejected: the set
+    would then produce zero proposals with no explanation, and the reviewer
+    would still not learn that the policy set is inert.
+  - *Prompt-only wording change without sending the field.* Rejected: the model
+    cannot apply a rule about data it never receives.
+  - *Loosen the engine short-circuit.* Rejected outright — the short-circuit is
+    correct. Prose that has not been reduced to logic must not be allowed to
+    assert compliance.
+- **Consequences.** `PROMPT_VERSION` changes, so previously-generated proposals
+  are distinguishable from v2 output. No schema, API or data migration.
+
+### Validation
+
+- `verify_prompt_v2.py` (session artifacts, zero-side-effect: calls
+  `propose_policy_tests` directly, since the *router* is what persists) run
+  against the real model on the real policy set:
+
+  | | v1 (before) | v2 (after) |
+  | --- | --- | --- |
+  | predicted `SATISFIED` | 18 / 18 | **0 / 16** |
+  | predicted `NOT_APPLICABLE` | 0 | **16 / 16** |
+  | actual evaluator result | `NOT_APPLICABLE` | `NOT_APPLICABLE` |
+  | would pass if accepted | none | all |
+
+  Sample v2 description: *"The rule is not machine-executable, so the engine
+  must return NOT_APPLICABLE without evaluating..."* — the model now reasons
+  about the mechanism that actually governs the outcome. Nothing was persisted.
+
+- Live API: ran `working_hours_prohibition_active` (the exact card in the user's
+  screenshot) as a pending proposal. Failed as predicted with
+  `expected overall_status=SATISFIED, got NOT_SATISFIED; expected rule
+  'AI-23d7de3212' status=SATISFIED, got NOT_APPLICABLE`. Findings stayed at 0;
+  the test stayed `pending_review` / `is_active=false`.
+- `tsc --noEmit -p tsconfig.app.json` clean; `npm run lint` exit 0 (only
+  pre-existing `only-export-components` warnings); `pytest tests/unit`
+  386 passed, 11 skipped.
+- Browser-verified on 5789: warning Alert renders with the full explanation;
+  triage bar shows the consequence statement; tally reads
+  `18 evaluator disagrees / 0 could not run / 0 evaluator agrees / 17 not checked`;
+  card tints resolve to 18 `--disagrees`, 17 `--unchecked`, 2 active; and
+  "Failing now 1" matches `GET /failing` exactly.
+- Design hook: the same 4 pre-existing `side-tab` findings in `App.css`, now at
+  L3096/3343/3524/3681. The exact +19 line shift from L3077/3324/3505/3662
+  confirms they predate this milestone. None of the classes added here use a
+  side accent. Left unchanged as out of scope.
+
+### Corrected along the way
+
+`failingActiveCount` previously counted *any* test whose latest run failed. Once
+dry-run was unlocked that would have reported 19 instead of 1, turning the new
+capability into a false alarm generator. Scoped to `is_active` in the same
+change, so the tile matches the server's own definition.
+
+### Known limitations
+
+- **The published `saudi-labor-law` set is inert.** All 15 rules are
+  `machine_executable = false`; it can answer nothing. Whether that is correct
+  (extraction produced prose with no executable logic) or an extraction defect
+  is **not** determined here and is surfaced to the user rather than guessed at.
+  Deliberately not investigated — it is a data/product question, not a code one.
+- 37 tests now exist on the set, 35 pending. **There is no DELETE for policy
+  tests**; they can only be rejected. The v1 proposals are inert but permanent.
+- 17 tests appeared mid-session (22:34:55 local / 19:34:55 UTC — DB timestamps
+  are UTC, local is +3). Not created by this session, which only ever called
+  `run`, never `propose`. Attributed to the concurrent session or the user in
+  the shared browser. Confirmed harmless: still only 2 active, both from the
+  original batch with `reviewed_by=unknown`.
+- Nothing was accepted, activated, approved, published, or committed.
+
+### Exact next action
+
+Report to the user and await two decisions: (a) whether
+`machine_executable = false` across all 15 published rules is expected, and
+(b) what to do with the 35 pending proposals. Then resume the outstanding
+Aggregate Limits request (AI-driven discovery -> formulation -> preview ->
+publish with back-trace), which remains unstarted.
+
+---
+
+## Milestone 54 - Aggregate Limits rebuilt around discovery, and the formulation data-loss defect
+
+### Part A - Aggregate Limits: the CRUD form was the actual problem
+
+Rejected feedback: *"the idea was to see rules that can be aggregated, so the tool
+is AI that can find rules that is eligable to be aggregated ... and then rule goes
+preview and publish while keeping the back trace to the individual rules"*.
+
+The old page opened with an empty "create aggregate limit" form. That asks the user
+to already know which rules combine, which is the entire question they came to the
+page to answer. Rebuilt `AggregateLimitsPage.tsx` (884 lines) as three ordered steps:
+
+1. **Eligibility gate (deterministic, no model).** Shows how many rules can actually
+   contribute and why the rest cannot, per rule, with the blocker named.
+2. **AI discovery.** Disabled unless the gate passes. Returns proposals with rationale,
+   a `max_value_confidence` tag distinguishing a cap the source *stated* from one the
+   model *inferred*, and back-trace rows to the originating rules.
+3. **Preview against the real evaluator** before anything is saved.
+
+The gate matters because `_evaluate_aggregate_limits` (`engine.py` L263-270) has two
+silent failure modes: a rule that is not `SATISFIED` is skipped, and a non-numeric
+`amount_fact` contributes `0`. Either produces a cap that reports "within limit"
+while measuring nothing. Surfacing eligibility up front makes both visible instead
+of letting the user build a cap that can never fire.
+
+Browser-verified on HR: **7 rules, 0 can contribute**, warning renders, per-rule
+table lists all 7 with both blockers, discover button correctly disabled.
+
+### Part B - `formulation` was destroyed at publish (third instance of one defect class)
+
+User question: *"why i lost the two json option here for the actual body of the
+policy rule json two variants"*.
+
+Both variants were still in the UI code. They render `if (rule.formulation)`, and
+for published rules that was always false.
+
+**Root cause.** `approved_rules` had no column for `formulation`. The chain:
+
+- candidates carry it (`formulation_mapping.py` L713)
+- `policy_version_import.py` L103-129 builds `ApprovedRule` from a rule that *has* it
+  and never reads it
+- `mappers.py::_rule_to_contract` rebuilds `CanonicalRule` without it, so it silently
+  takes the contract default of `None`
+
+Nothing failed. The object stayed valid, just missing data. The record existed on the
+Review tab and was permanently discarded on approval — the one transition after which
+it can never be recovered from the UI.
+
+This is a defect, not a design choice: `contracts/policy.py` L285-295 mandates keeping
+it — *"the fields above are a lossy executable projection of it ... a reviewer can
+always see what the source actually said"*.
+
+**It is also the third occurrence of the same shape.** `models.py` L485-489 and
+migration `c9a1d4e0f2b3` document the prior two (`is_explicit_override` /
+`supersedes_rule_ids`; the whole `AggregateLimit` construct). The cause is structural:
+`ApprovedRule` is a *decomposed relational projection* of `CanonicalRule` rather than a
+stored document, so adding a contract field adds no column and breaks nothing loudly.
+
+**Fix.**
+- `e4c7a2b8d190` - additive nullable `formulation_json` JSONB. Deliberately does **not**
+  backfill: Rule 5.3 forbids updating approved rows, and the `c9a1d4e0f2b3` precedent
+  backfilled only safe defaults.
+- Write side and read side both populated.
+- `scripts/backfill_approved_formulation.py` - separate, explicit, idempotent recovery
+  requiring `--dry-run`/`--apply`. The immutability exception is narrow and justified in
+  the script: `formulation` carries no scope, condition, effect or priority and is never
+  read by the evaluator, so restoring it cannot change any decision. The alternative was
+  permanently destroyed audit data plus a UI falsely asserting the rules were hand-authored.
+  Recovered via `published_version_id` + `rule_id`: **22/22 exact**, idempotent on re-run.
+
+Export (`policy_sets.py` L438) and the evaluator package both route through
+`_rule_to_contract`, so both were fixed by the same change - which is why the read side
+is the right chokepoint.
+
+**Guard added.** `tests/unit/test_canonical_rule_persistence.py` asserts every
+`CanonicalRule` field is explicitly populated by `_rule_to_contract`, with a
+`DERIVED_FIELDS` allowlist that must record *where* each exempted value comes from and
+is itself checked for staleness. A field that is never written cannot be read, so this
+one read-side check catches both a missing column and an unpopulated one. **Verified it
+fails**: renaming the `formulation=` kwarg turned it red with an actionable message,
+then green again on restore. Without this the class recurs a fourth time.
+
+**Corrected misleading copy.** The fallback read *"this rule was hand-authored or
+drafted before the formulator agent existed"* — false for these rules, and it actively
+misdirected the user away from the real cause. Now distinguishes hand-authored rules
+from records lost at publish.
+
+### Validation
+
+- `pytest tests/unit` **425 passed, 11 skipped** (was 415; +10 new guard tests)
+- `tsc --noEmit` exit 0; `npm run lint` exit 0 (pre-existing warnings only)
+- Migration applied, DB head `e4c7a2b8d190`
+- API returns `formulation` on **7/7** HR published rules
+- Browser: canonical JSON grew **65 -> 105 lines**, both viewers render real content
+  (canonical 17 lines with `source_text`; DMN 21 lines)
+- Design hook finding on my own new CSS fixed; 4 pre-existing `side-tab` findings in
+  `App.css` confirmed pre-existing and left alone
+
+### Corroboration and open items
+
+The restored DMN record shows `"dmn_mapping_status": "enrichment_required"`. That is the
+direct upstream reason `machine_executable` is false on all 252 candidate and 22 published
+rules (`formulation_mapping.py` L644-654 sets it only on `EXECUTABLE`), which in turn is
+why `engine.py:91` short-circuits every rule to NOT_APPLICABLE and why 0 rules are
+eligible for aggregation anywhere. The two symptoms are one cause.
+
+Still awaiting user decision, unchanged and now better evidenced:
+- Is `machine_executable = false` everywhere expected, or an extraction defect? It blocks
+  real use of both Tests and Aggregate Limits.
+- What to do with the 35 pending test proposals (reject-only; no DELETE endpoint).
+
+Not done: the AI propose path has still never made a real model call, because eligibility
+short-circuits to 0 in every project. It cannot be exercised until the above is resolved.
+
+Nothing was committed, approved, published, or activated.
+
+---
+
+## Milestone 55 - Cleared all policy tests at user request (data operation, no code change)
+
+User instruction: *"remove all current tests from the test tab and database....as if
+they were never there"*.
+
+### What was removed
+
+| Table | Rows deleted |
+|---|---|
+| `policy_test_runs` | 20 |
+| `policy_tests` | 37 (35 `pending_review` + 2 `active`, all `proposed_by="ai"`, all on `saudi-labor-law`) |
+
+This resolves the open item carried since Milestone 53 (*"what to do with the 35 pending
+test proposals"*) — the user chose a clean slate. Context: Milestone 53 established that
+every AI test proposal was wrong, because they were generated blind against rules that are
+all `machine_executable = false`. The proposals had no salvage value.
+
+### Scope and safety
+
+- Only one FK points at these tables (`policy_test_runs.policy_test_id`), so the delete
+  order runs -> tests was sufficient. Executed in a single transaction.
+- **`policy_attestations` deliberately untouched** — it has no FK to tests and is a separate
+  ISO 37301 §7.3 concern the user has explicitly deferred ("Attestations can be hidden for
+  now, and its not part of this phase"). It was empty anyway (0 rows).
+- Verified untouched after the delete: **22 approved rules, 252 candidate rules**.
+- No seed script or startup path constructs `PolicyTest`; the only construction site is the
+  user/AI-triggered create in `repositories.py:729`. The deletion is therefore permanent and
+  will not silently reappear on API restart.
+- Safety export written **outside the repo** to the session artifacts dir:
+  `policy_tests_backup_2026-08-08.json` (113 KB, validated parseable, 37 tests + 20 runs).
+
+### Deliberate convention override, recorded
+
+`PolicyTest`'s docstring states *"A rejected or retired test is kept (never deleted) but
+excluded from both by is_active=False"*, and `PolicyTestRun` is documented append-only
+(Rule 5.3-style). This was a hard DELETE of both, done at the DB level because **no DELETE
+endpoint exists** — the API exposes only create / review / run.
+
+That is a conscious, user-directed exception to the soft-delete convention, not a change to
+it. The convention still stands for normal operation.
+
+### Verification
+
+- DB: `policy_tests` 0, `policy_test_runs` 0
+- API: `/api/policy-tests/policy-sets/{key}` returns 0 for **both** `saudi-labor-law` and
+  `HR`; `/failing` also 0
+- UI: Tests tab renders its designed `tests-empty-state` ("NO TESTS YET — Nothing is
+  guarding this policy set"); all four counters read 0 (Saved tests / Awaiting review /
+  Latest runs / Failing now); the per-kind filter tabs correctly disappear
+- No application code changed, so no build/test re-run was required
+
+### Gap this exposes
+
+The user had to ask an agent to do this because the Tests tab offers no way to discard a
+proposal — only accept or reject, and a rejected test stays listed forever. Any future round
+of AI proposals will accumulate the same way. A bulk "discard rejected/pending" action, or a
+DELETE endpoint, would close it. **Not built** — outside what was asked. Flagged for a
+decision.
+
+Nothing committed, approved, published, or activated.
+
+---
+
+## Milestone 56 - Root cause of universal non-executability, and the workspace navigation redesign
+
+### The defect
+
+Every rule the platform had ever produced was non-executable. `machine_executable`
+was **false for 100% of candidates** (0 of 44 before this milestone), across every
+extraction run in the platform's history.
+
+This presented as several apparently unrelated symptoms:
+
+- Aggregate Limits showed 0 eligible contributors out of 7 rules
+- Every AI-proposed test failed with "expected rule ... not found in applicable rules"
+- `engine.py` silently skipped every rule during evaluation
+
+All three were the same defect.
+
+### Root-cause analysis
+
+- **Visible symptom:** `machine_executable = false` on every candidate rule.
+- **Immediate cause:** `formulation_mapping.py` L289 forces `machine_executable = False`
+  whenever the formulation carries `FACT_MODEL_REQUIRED`.
+- **Violated assumption:** the pipeline assumed a Section 83 `trusted_config`
+  (the fact model) would be supplied at extraction time.
+- **Root cause:** nothing in the system could ever supply one. There was no column
+  to store a fact model, and `api.ts` `extractWithAi` posted **no request body at
+  all**. `PolicyFormulatorAgent` correctly refuses to invent FEEL fact paths without
+  a trusted vocabulary, so every extraction took the empty-config path and returned
+  `enrichment_required` + `FACT_MODEL_REQUIRED`.
+- **Owning boundary:** the policy set. A fact model is the *domain's vocabulary* —
+  reused across every document and every run within a policy set — not a property
+  of a single request.
+- **Correction level:** structural. A local patch at the mapping layer would have
+  forced a flag true without the FEEL expressions behind it, producing rules that
+  claim to be executable but cannot evaluate.
+
+### Change
+
+- `PolicySet.trusted_config_json` (JSONB, non-null, default `{}`) — migration
+  `b8f2c6a41d73`.
+- `extract_candidate_rules` defaults `trusted_config` from the policy set.
+  Uses `if trusted_config is None` deliberately, so an explicit `{}` still opts
+  into the empty-config path rather than silently inheriting the stored model.
+- `check_trusted_config()` extracted as a pure function returning `list[str]`,
+  with `_warn_on_unusable_trusted_config()` as a thin logging wrapper. One
+  validator now serves both the agent (logs) and the API (author-facing warnings).
+  This matters because a mis-shaped config previously failed **silently**: entries
+  must be keyed by the source term as written in the policy text, with the FEEL
+  target nested inside. Keying by the FEEL path produced no error and no facts.
+- `GET`/`PUT /api/policy-sets/{key}/trusted-config`, returning `warnings`,
+  `fact_count`, `output_count`.
+
+### Result (verified)
+
+Re-ran the full 193-clause HR extraction with a 35-fact / 11-output model:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Machine-executable candidates | 0 of 44 | **9 of 190** |
+| Aggregate-limit eligible rules | 0 of 7 | **5 of 83** |
+| `can_build_limit` | false | **true** |
+
+The 9 executable rules carry real FEEL conditions, including the predicted
+40%-of-catalogue-price repair test:
+`device.underWarranty = false AND repair.costRatioOfCataloguePrice > 0.4`.
+
+83 rules approved and published as HR version 1 (active). The eligible aggregate
+contributors resolve genuine numeric facts: `repair.costRatioOfCataloguePrice`,
+`device.repairCountRolling12m`, `device.accidentalDamageCountRolling12m`,
+`device.monthsInService`.
+
+### Known limitation (not fixed)
+
+68 candidates remain `enrichment_required` — the fact model does not yet cover
+their vocabulary. The designed path (harvest `semantic_projection` + `requirements`
+from the agent, extend the fact model, re-run) is untested at scale. This is
+recorded as outstanding, **not** resolved: 9 of 190 executable is a proof that the
+mechanism works, not evidence that coverage is adequate.
+
+### Validation trap worth recording
+
+`max_clauses=30` on this document covers only scope and definition front matter,
+which is legitimately non-executable. A small batch is **not** a valid test of a
+fact model — the operational rules (refresh intervals, the 40% repair test, the
+spend ladder, the 14-day combined-value window) all appear later in the document.
+
+### Workspace navigation redesign
+
+The project workspace presented **11 flat, unlabelled, count-less tabs**, and the
+sider presented 4 flat destinations. Neither conveyed grouping, purpose, or whether
+work was waiting.
+
+- Tabs regrouped into the lifecycle they actually follow: **Author -> Publish ->
+  Assure -> Operate**, with inline group captions, icons, tooltips, and counts.
+- Sider items grouped under **Overview / Author / Runtime** with a Projects count.
+- Header status changed from a loose antd `Badge` + grey text (which read as two
+  unrelated fragments) into single `status-pill` readings.
+
+**Counts: one endpoint, not eleven.** `ProjectOverviewTab` already downloaded
+entire collections just to call `.length` on them. Replicating that per tab would
+have meant an N-request fan-out transferring hundreds of serialized rules on every
+project open. Added a single `GET /api/policy-sets/{key}/workspace-counts` that
+computes every count in the database via scalar subqueries.
+
+Counts deliberately reflect **what is outstanding**, not raw totals:
+`review_pending` excludes superseded candidates, `policies` counts only the active
+version, `exceptions_open` counts only `decision = 'pending'`. Zero counts are not
+badged — a row of "0" pills is noise, and an always-present badge stops meaning
+anything.
+
+### Defects introduced and fixed during this work
+
+- An edit deleted the `@router.get("/{key}/trusted-config")` decorator; caught by
+  re-reading the file.
+- An edit removed `id: string;` from the `PolicySet` interface; caught and restored.
+- `TAB_CONTENT` was defined above the handlers it closes over, creating a temporal
+  dead zone reference to `openEdit` that would have thrown on render. The map is now
+  declared immediately before `return (`, after its dependencies.
+
+### Operational note
+
+The API entry point is `policy_platform.api.app:app` (not `...api.main:app`) and
+runs without `--reload`, so backend edits require an explicit restart.
+
+### Correlation tab taken out of scope (user request)
+
+Added `"correlation"` to `HIDDEN_TAB_KEYS`, alongside `"attestations"`. The tab,
+its page, its API and its service are left intact — re-enabling is deleting one
+array entry.
+
+This also halts the correlation *work*, not just its UI: `run_correlation_analysis`
+has no scheduler, no post-publish trigger and no other caller. Its only entry point
+is `POST /api/ai/policy-sets/{key}/correlation`, which only the Correlation tab
+calls. Removing the tab therefore removes every path that starts an analysis, so no
+further correlation runs or AI spend can occur. Verified by grepping every call site
+of `correlation_service` across `src/`.
+
+`GROUP_START_KEYS` is derived rather than hand-listed, so the **Assure** caption
+moved from Correlation to Quality automatically. Checked that nothing deep-links to
+the tab via `onNavigate("correlation")`, which would now be a dead link.
+
+The `correlation_findings` count is left in the `workspace-counts` query: it is one
+scalar subquery, and keeping it means re-enabling stays a one-line change.
+
+### Tab strip width
+
+With Correlation gone the strip is 10 tabs. Measured on the live page, the full
+strip previously left **1px** of headroom at a 1569px content width — any narrower
+screen would have pushed whole destinations into antd's "more" dropdown.
+
+Tried letting the strip wrap onto two rows; rc-tabs measures its own layout and the
+result collapsed to **7 rows**, so that was abandoned rather than fought. Instead the
+group captions drop out under 1500px via a media query: they orient a newcomer but
+carry no unique information, so they are the right thing to lose first, and every
+tab stays directly clickable. Verified at both 1569px (captions shown) and 614px
+(captions hidden, all 10 tabs present).
+
+### Exceptions tab taken out of scope (user request)
+
+`HIDDEN_TAB_KEYS` is now `["attestations", "correlation", "exceptions"]`.
+
+Unlike Correlation there is no background work to stop — Exceptions is a passive
+queue that only renders rows other flows create — so hiding the tab has no effect
+beyond removing the destination. Nothing deep-links to it via `onNavigate`.
+
+**Operate** is now a single-tab group (Decision Log); the caption followed
+automatically because `GROUP_START_KEYS` is derived from the visible tabs.
+
+The strip is down to 9 tabs and 1060px, from 1568px at the start of this milestone,
+so it now fits comfortably at every realistic width and the 1500px caption
+breakpoint is unlikely to be reached in practice.
+
+## Milestone 57 - Navigation polish: tab clipping root cause, group dividers, project sub-nav
+
+User feedback ("still need enhancement" + screenshot) exposed three defects that a
+614px canvas panel had hidden: the group caption rendered *inside* the active white
+pill, "Decision Log" was clipped at the right edge, and the page had a horizontal
+scrollbar.
+
+### Root-Cause Analysis
+
+- Visible symptom: "Decision Log" tab clipped; caption swallowed by the active pill.
+- Immediate cause (caption): rc-tabs renders `label` *inside* the tab button, so
+  anything placed there inherits the tab's background, padding and active state. A
+  caption in the label can never escape the pill. The earlier decision to keep
+  grouping in JSX (to avoid duplicating knowledge in CSS) was the wrong trade.
+- Root cause (clipping): `.ant-tabs-nav-wrap` was overridden to `flex: 0 0 auto`.
+  antd decides which tabs to move into its overflow menu by comparing the wrap's
+  width against the tab list's width; pinning the wrap so it can never shrink made
+  that comparison always report "everything fits". The strip therefore rendered at
+  full natural width and was silently clipped by an ancestor's `overflow: hidden`
+  instead of degrading into the overflow menu. Tabs became unreachable, not just
+  cosmetically cut.
+- Owning boundary: the CSS override defeated the component's own responsive
+  contract. Corrected there (`flex: 0 1 auto`) rather than by trimming labels,
+  which would only have deferred the same failure to a narrower screen.
+
+### Changes
+
+- `ProjectWorkspace.tsx`: `GROUP_START_KEYS` -> `GROUP_DIVIDER_KEYS` + generated
+  `GROUP_DIVIDER_CSS`, now actually rendered in an inline `<style>`. Dividers are
+  pseudo-elements in the gap *between* tabs, so they can never be enclosed by the
+  active pill. Derived from `TAB_META`, so hiding a tab cannot strand a divider.
+- `App.css`: `.ant-tabs-nav-wrap` `flex: 0 0 auto` -> `0 1 auto` (keeps the
+  segmented "hug content" look, restores overflow handling). Removed the now-dead
+  `.ws-group-tag` rules and the `@media (max-width: 1500px)` caption fallback.
+- `App.tsx` / `ProjectsPage.tsx`: projects are listed inline under the Projects
+  nav item, so a project is one click away instead of three. Selection stays owned
+  by `ProjectsPage`; the sider passes an `openRequest` intent (`{key, nonce}`)
+  which is resolved once the project list has loaded, so a request racing the
+  initial fetch is honoured rather than dropped. The nonce allows re-opening the
+  same project after navigating back. This also fills the sider's empty void with
+  real navigation rather than decoration.
+
+### Validation
+
+- `npx tsc --noEmit` exit 0.
+- Dividers present on exactly the 3 group starts (policies, quality, decision-log);
+  0 stale caption nodes; strip narrowed 1310px -> 1100px.
+- At an effective ~1535px viewport: 9 tabs, 0 clipped, overflow button hidden,
+  page horizontal overflow 0.
+- At 614px: wrap shrinks to 287px and tabs move into the overflow menu (correct
+  responsive degradation instead of clipping).
+- Sider: HR / Saudi Labor Law render indented (44px); clicking opens the workspace,
+  highlights the project, breadcrumb reads "Projects / HR"; back-then-reopen works.
+
+### Dead-end recorded
+
+Forcing `flex-wrap` on `.ant-tabs-nav-list` to get a two-row strip produces 7 rows -
+rc-tabs measures and lays out its own strip. Do not retry.
+
+### Design-hook findings left unchanged (classified, not suppressed)
+
+- `.correlation-finding-card::before` severity stripe: genuine instance of the
+  pattern, but the Correlation tab is hidden and its business halted, so this is
+  unreachable UI. Not worth churn; would need a design pass anyway if restored.
+- `.review-removed-row`, `.change-row--*`: diff-gutter convention (square left,
+  rounded right) marking change type on list rows, not a decorative card accent.
+  Domain-appropriate. No ignore config added - suppression needs user confirmation.
+
+### Still outstanding
+
+- 68 candidates remain `enrichment_required`; 9/190 executable proves the
+  mechanism, not coverage. Enrichment loop designed but untested at scale.
+- `PolicyTestsPage.tsx` scalability redesign (search, pagination, table) untouched.
+
+### Addendum - sider contrast defects found by measurement
+
+Auditing computed styles (rather than eyeballing) surfaced two contrast failures
+on the dark sider that the user's screenshot had hinted at as "washed out":
+
+- `.env-tag` ("Local instance") inherited antd's default light Tag background
+  (#f5f5f5) while a rule forced white text on it. Measured contrast ~1.1:1 -
+  effectively invisible. Given its own translucent surface
+  (`rgba(255,255,255,0.09)`) and legible text (0.72 alpha): now 9.6:1.
+- `.ant-menu-item-group-title` (OVERVIEW / AUTHOR / RUNTIME) sat at 0.34 alpha,
+  which measured 3.1:1 - too faint for 10.5px uppercase text. Raised to 0.46.
+  These are signposts and should still recede, so this is a legibility floor
+  rather than a promotion to full contrast.
+
+Verified in the *shipped* build output, not just the dev server, because the
+canvas browser was serving a stale HMR-injected `<style>` while the dev server
+and disk both had the new values. Minified output confirms `#ffffff75` (0.46),
+`#ffffffb8` (0.72), `#ffffff17` (0.09), and `flex:0 auto` (equivalent to the
+authored `flex: 0 1 auto`). Dead `.ws-group-tag` is absent from the bundle.
+
+Final end-to-end check at the workspace: 9 tabs, 0 clipped, dividers on exactly
+policies/quality/decision-log, counts populated (Documents 1, Review 107,
+Policies 83, Compare 1), 0 horizontal overflow, sider lists HR + Saudi Labor Law.
+
+## Milestone 58 - Evidence-ledger redesign across landing, projects, and rule records
+
+### Architectural Context
+
+#### System Boundary
+
+The top-level application shell, Dashboard, Projects register, Review candidate
+queue, and published Policies master/detail workspace. These surfaces are one
+workflow: find work, choose a project, review a candidate, and read the immutable
+published result.
+
+#### Important Invariants
+
+- Projects in the parent navigation always opens the project register; a child
+  project entry opens that project.
+- Candidate and published-rule summaries describe the same deterministic object
+  in the same order: title, WHEN condition, THEN outcome, lifecycle metadata.
+- Published records remain read-only; redesign must not imply in-place editing.
+- Density improvements must preserve keyboard selection, list virtualization,
+  family grouping, review actions, and source traceability.
+
+### Architectural Signals
+
+- Signal observed: Dashboard, Projects, Review, and Policies use different
+  composition systems and font hierarchies; Dashboard and Projects are card grids,
+  Review nests rows inside a Card inside expanded Cards, and Policies uses a
+  master/detail record list.
+- Evidence: project cards become 163px wide and 491px tall in the 614px shared
+  browser because the grid breakpoint sees the full viewport but not the 240px
+  sider; the Dashboard has nine cards for four metrics and three actions; rule
+  summaries collapse policy logic into an undifferentiated sentence.
+- Potential scope: shared shell density, two entry surfaces, and the shared
+  PolicyRow/CandidateRow/RuleCard presentation boundary.
+- Confirmed or rejected: confirmed as a cross-surface presentation contract,
+  not isolated padding defects.
+- Decision: establish one restrained evidence-ledger grammar and reuse it across
+  these surfaces rather than add page-specific CSS patches.
+
+### Root-Cause Analysis
+
+- Visible symptom: oversized vertical rhythm, inconsistent type, oddly placed
+  boxes, and policy records that are difficult to scan.
+- Immediate cause: same-size card grids, nested containers, several one-off
+  heading/metadata arrangements, and logic presented as one low-contrast line.
+- Violated assumption: every primary workflow surface should share a predictable
+  information hierarchy and adapt to the content width left by the application
+  shell.
+- Root cause: the application has tokens but no shared composition contract for
+  operational records and registers.
+- Owning boundary: Dashboard/Projects own their page composition; ruleDisplay plus
+  PolicyRow/CandidateRow own the shared rule-summary contract; RuleCard and
+  PolicyInspector own expanded reading.
+- Chosen correction level: structural presentation correction at those shared
+  boundaries, with no backend or domain-contract changes.
+
+### Impact Analysis
+
+- Direct callers: App, Dashboard, ProjectsPage, ReviewQueue, PoliciesTab,
+  PolicyList, PolicyInspector.
+- Downstream consumers: policy composers, managers, and auditors using the same
+  local frontend.
+- Data impact: none.
+- Contract impact: no API changes; one presentation helper gains a structured
+  decision summary while retaining the existing string helper.
+- Security impact: none.
+- Operational impact: none.
+- Migration impact: none.
+- Rollback approach: revert the frontend commit; persisted policy data is
+  untouched.
+
+### Active plan
+
+1. Replace the Dashboard card grid with a compact operations docket.
+2. Replace project cards with a responsive project register and correct parent
+   Projects navigation.
+3. Give Review and Policies the same explicit WHEN / THEN record hierarchy and
+   simplify expanded detail containers.
+4. Validate desktop and narrow layouts, typecheck/build/lint, run the Impeccable
+   detector, then record the built visual system.
+
+## Milestone 59 - Policy focus modes, JSON variants, testability, and source provenance
+
+### Architectural Signals
+
+- Signal observed: the paired Canonical and DMN formulation JSON existed but sat
+  below an uncapped evaluator JSON viewer, so users reasonably concluded they had
+  disappeared again.
+- Signal observed: the policy inspector had no way to yield width to the list or
+  claim the viewport for deep reading.
+- Signal observed: a scenario test returned NOT_APPLICABLE with an AI explanation
+  blaming missing facts, even though the owning rule was published with
+  `machine_executable=false` and the evaluator skips such rules before reading
+  any fact.
+- Signal observed: source text showed a human citation but hid the policy UUID,
+  extraction run, clause UUID, document-version UUID, and Azure AI Search key
+  that make the provenance chain operationally traceable.
+
+### Root-Cause Analysis
+
+- Visible symptom: "the test failed" for a scenario that plainly mentioned three
+  work-from-home days and a docking station.
+- Immediate cause: selected rule `AI-f9e26984fe` has an empty condition,
+  no required facts, `machine_executable=false`, DMN status
+  `enrichment_required`, and blocker `FACT_MODEL_REQUIRED`.
+- Violated assumption: the scenario tester implied every published rule was
+  testable and let the AI explainer infer a cause after the evaluator returned a
+  reason-less NOT_APPLICABLE.
+- Root cause: testability was not explicit in the evaluator result contract and
+  the scenario orchestration made AI calls before checking the rule's executable
+  invariant.
+- Owning boundary: evaluator reports `rule_not_machine_executable`; scenario
+  orchestration short-circuits without AI; UI prevents a meaningless run and
+  explains the DMN blocker before input.
+- Chosen correction level: structural contract correction, not prompt tuning.
+
+### Architecture Decisions
+
+#### Decision: First-class policy reading modes
+
+- Context: list and inspector competed for width and the JSON record needs focused
+  reading.
+- Decision: Policies owns List / Split / Detail modes; PolicyInspector owns
+  hide-details and full-screen/restore intents.
+- Rationale: pane ownership stays at the workspace boundary while the inspector
+  remains reusable on narrow screens inside its existing Drawer.
+- Validation: list-only occupies the full 1318px workspace, split measures
+  594px/714px, detail-only occupies 1318px, and full screen measures 1580x894
+  with a backdrop and restore control.
+
+#### Decision: JSON artifacts are peer views
+
+- Context: stacked JSON made the two formulation artifacts unreachable in
+  practice.
+- Decision: Evaluator JSON, Canonical formulation, and DMN / FEEL are explicit
+  segmented variants. The selector and copy/download toolbar stay fixed while
+  the JSON code region scrolls vertically.
+- Validation: live rule exposes all three; evaluator JSON code is 258px high with
+  1868px scroll height in split view and 453px high with 1832px scroll height in
+  full screen.
+
+#### Decision: Search provenance key comes from the index owner
+
+- Context: Azure AI Search uses a deterministic
+  `{document_version_id}_{clause_id}` key, but the UI should not duplicate that
+  infrastructure convention.
+- Decision: `clause_search_document_id()` lives beside the index writer and the
+  clauses API returns the key plus configured index name.
+- Validation: selected clause resolves to
+  `bbd3f515-3037-4115-aaae-b778876b91ad_e2e89ac3-27ec-41e5-af08-fa14a27b94a6`
+  in `policy-authoring`; a direct local Search-client check confirmed the record
+  exists.
+
+### Validation
+
+- Frontend lint and production build pass.
+- 17 targeted evaluator/scenario/search-indexing tests pass.
+- Updated API restarted on port 8010 and `/health` returns `ok`.
+- Scenario endpoint now reports `rule_not_machine_executable`,
+  `FACT_MODEL_REQUIRED`, and a deterministic explanation without an AI call.
+- Overview shows Rule ID, Policy ID, published version ID, extraction run ID,
+  document-version ID, clause ID, source element, Search index, and Search ID.
+- Impeccable detector's only finding (a 3px side rule) was corrected; DESIGN.md
+  and `.impeccable/design.json` record the shipped system.
+
+## Milestone 60 - Review workbench, blind validation lab, and policy JSONL export
+
+### Root-Cause Analysis
+
+- Review repeated full RuleCards inline and did not share Policies' list/split/detail
+  reading model. Replaced by one selected candidate inspector with the same
+  List/Split/Detail, hide, full-screen, JSON variants, provenance, notes, and
+  independent scrolling behavior.
+- The old Tests page generated broad proposals over the whole version, exposed
+  expected answers before execution, and presented unrelated proposal cards. It
+  did not answer which policies, which version, or which grounding context were
+  being tested.
+- The initial blind-batch implementation exposed two important correctness bugs:
+  execution still used the full policy package (unrelated missing facts caused
+  INDETERMINATE), and timezone-naive generated dates could move a scenario before
+  a rule's effective date. Batches now execute only the reviewer-selected rule
+  subset; non-effective-date tests discard timestamp overrides and effective-date
+  overrides normalize to UTC.
+
+### Architecture Decisions
+
+- Blind expectations are committed before execution with a canonical SHA-256 hash,
+  hidden until the run, and copied into each append-only run record beside the
+  actual evaluator response.
+- A persisted batch records generation version, selected rule IDs, grounding mode,
+  hybrid Search hit IDs/context, author, scenario count, execution state, and tests.
+- Testable policy selection excludes definitions and non-machine-executable prose
+  by contract. Generation can target any published version; execution can re-run
+  the same scenario set against any version in the same policy set.
+- Users may choose generated combinations (0-10 tests per selected policy) or
+  provide one plain-language scenario for one policy. AI maps facts and seals the
+  expectation; the deterministic evaluator decides.
+- Passing once means the expectation matches that tested version. "Add to
+  regression suite" makes it active for automatic future-publish reruns; failures
+  surface in Quality/history and never block publishing.
+- Scenario results render as a grouped comparison register, not cards. Policy and
+  scenario rows open read-only drawers; no edit/review action is exposed there.
+- Published Policies gained row selection plus selected/all JSONL export from the
+  complete in-memory CanonicalRule objects, preserving condition, effect,
+  exceptions, evidence, lineage, relationships, and formulation.
+
+### Validation
+
+- Alembic migration `c1d2e3f4a5b6` applied.
+- Live generated batches verified hidden expectations and matching commitment
+  hashes before/after execution.
+- Corrected live blind batch: 3/3 pass. User-authored scenario preserved verbatim
+  and passed blind.
+- Tests-per-policy contract verified at 2 selected policies × 2 = 4 scenarios,
+  exactly two per rule.
+- Browser verified version selector, definition/documentation exclusion, clear
+  filters, 0-10 slider, generated/authored modes, grouped register, run-version
+  selector, regression-suite explanation, read-only overlays, and run-history tab.
+- JSONL browser interception verified 2 selected complete rules and all 83 complete
+  rules; filenames are version/scope specific.
+- Frontend lint/build, diff check, and 16 targeted backend tests pass.
+
+## Milestone 61 - Validation workbench layout correction
+
+### Root Cause
+
+- The validation batch header measured 132px because
+  `.project-overview-panel__header > div` also matched Ant Design's action
+  `Space`, forcing its status/version/run/regression controls into a vertical
+  column.
+- Responsive rules for the lab header, policy filters, authored-scenario form,
+  register groups, and run-version selector were accidentally emitted at the top
+  level of `App.css`, so desktop inherited mobile structure.
+- Workspace tabs preserved `.app-content.scrollTop`, making Tests appear to open
+  halfway down the page even when its own dimensions were correct.
+- The configuration section still presented as two independent cards instead of
+  one task surface.
+
+### Correction
+
+- Tests now opens at scroll top on every workspace-tab change.
+- Policy selection and scenario configuration are one divided workbench with a
+  shared outer boundary and a single internal rule.
+- Validation batch and history use compact purpose-built surfaces, not the
+  generic project card class.
+- Batch actions remain one 30px toolbar row; the header is 52px instead of 132px.
+- Desktop filters render as search + type + effect + clear in one row; narrow
+  layouts reflow them intentionally.
+- Scenario output is an aligned, policy-grouped register; policy and scenario
+  inspection remain read-only drawers.
+
+### Validation
+
+- Desktop: lab header 42px, workbench 477px, batch header 52px, action toolbar
+  30px, no horizontal page overflow.
+- Tab switch with a prior 500px scroll offset resets `.app-content.scrollTop` to
+  zero and positions the lab at the first viewport.
+- Impeccable layout detector returns `[]`.
+- Frontend lint/build, 16 targeted backend tests, and diff check pass.
+
+## Milestone 62 - Validation action and run-report visual correction
+
+- Replaced the full-width purple generate bar with a sticky 49px action footer:
+  batch/version summary on the left and a 156x32px action on the right.
+- Measured the reported run section and found three layers repeating the same
+  state: outer panel, nested target summary, and a 91px green Alert.
+- Rebuilt it as a validation run report:
+  - 68px masthead with state emblem, batch identity, policies/scenarios/pass/fail
+    metrics, target version, and run action.
+  - 48px regression strip explaining current proof versus future-publish guard
+    behavior, with the suite action placed beside that explanation.
+  - 199px results body with no nested target box or oversized success alert.
+  - Policy-grouped register columns now prioritize scenario and exact facts,
+    followed by expected, actual, and result; policy identity lives once in the
+    group row instead of repeating in every scenario.
+- Desktop report height reduced 347px -> 316px while adding useful metrics.
+- Final measurements: metrics 265x41, actions 287x30, register 1301x143, zero
+  horizontal page overflow.
+- Impeccable layout detector returns `[]`; frontend lint/build and diff check pass.
+
+## Milestone 63 - Effective-date assertion fix and visible regression suite
+
+### Root Cause
+
+- `Catalogue Review C` expected both overall and selected-rule status
+  `NOT_APPLICABLE` one day before the rule's effective date.
+- The evaluator correctly excludes out-of-effect rules before producing
+  `rule_results`; overall status was therefore `NOT_APPLICABLE`.
+- `run_policy_test` incorrectly treated the absent per-rule result as a dangling
+  rule ID even though the rule exists in the tested package and its absence is
+  the expected effective-date behavior.
+
+### Correction
+
+- A rule that exists in the tested package, is absent from applicable/results,
+  and is explicitly expected `NOT_APPLICABLE` now satisfies the rule-level
+  assertion. A genuinely unknown rule ID still fails.
+- Added regression coverage for both cases.
+- Re-ran the same persisted `Catalogue Review C`: new run passes with expected and
+  actual `NOT_APPLICABLE`; the two historical false failures remain immutable,
+  followed by the corrected pass.
+
+### Tester information design
+
+- Read-only scenario detail now leads with the full policy-under-test summary:
+  title, ID/type, effect, executable state, source count, WHEN/THEN, effective
+  window, and source section/page, plus a read-only full-policy action.
+- Added an explicit verdict explanation and assertion register for overall
+  status, selected-rule status, and evaluation date.
+- Added a tested-version row, commitment hash, facts/actual/expected JSON tabs,
+  and versioned run-history tab.
+
+### Regression suite
+
+- Active tests now have a dedicated surface showing scenario, policy, latest
+  pass/fail, version, and run time.
+- The suite has its own target-version selector and `Run suite now` action.
+- Empty state explains how passing blind scenarios become future-publish guards.
+- Activation copy clarifies that current pass evidence is unchanged; suite
+  membership adds automatic future-publish reruns and Quality/history alerts,
+  never a publish block.
+
+### Validation
+
+- Live affected test now passes; drawer shows all assertion rows matching.
+- Run history shows 3 immutable runs: 2 historical false fails + corrected pass.
+- Live Regression Suite shows 8 active scenarios and a working run control.
+- 17 targeted backend tests, frontend lint/build, diff check, and Impeccable
+  layout detector all pass.
+
+## Milestone 64 - Dedicated regression workspace and complete policy evidence
+
+### Architectural Context
+
+- Tests owns scenario selection, AI-assisted fact generation, sealed expectations,
+  blind execution, and proof for one chosen policy version.
+- Regression owns the lifecycle after a passing scenario is deliberately promoted
+  into a persistent guard: active/retired state, manual cross-version suite runs,
+  automatic post-publish reruns, and immutable run history.
+- The active-guard count is now computed by the policy-test persistence boundary
+  and returned as `regression_tests`; the workspace shell does not infer it from
+  the total test count.
+
+### Root-Cause Analysis
+
+- Visible symptom: "Add to regression suite" created lifecycle state that was
+  buried at the bottom of Tests, so users could not discover where guards lived
+  or how to run/manage them later.
+- Violated assumption: creating validation evidence and operating long-lived
+  regression controls were treated as one workflow even though they have
+  different user objectives and information density.
+- Root cause: the Tests surface owned both proof creation and regression
+  operations. This made a passing test look like the end state while hiding the
+  separate future-version monitoring lifecycle.
+- Owning boundary: Tests remains the creation/proof boundary; a new Regression
+  workspace tab owns persistent guard operations.
+- Chosen correction level: component/workspace separation. The existing
+  `PolicyValidationLab` retains shared data and read-only evidence rendering but
+  exposes explicit `tests` and `regression` modes, avoiding duplicated policy and
+  run-detail logic.
+
+### Correction
+
+- Added a first-class Regression tab under Assure with its own active-guard badge.
+- Removed the embedded suite register from Tests; Tests now ends with validation
+  batch history and the explicit promotion action.
+- Regression now provides:
+  - active/passing/failing summary
+  - active guard register with scenario and policy identity
+  - target published-version selector
+  - full-suite manual run
+  - guard retirement
+  - retained retired-guard register with reactivation
+  - shared read-only scenario, assertion, JSON, and run-history inspection
+- Validation details now show the complete verbatim source clause with section,
+  page, and clause metadata directly beside the tested policy.
+- "Open full policy record" is an in-drawer drill-down. "Back to validation
+  scenario" restores the exact scenario drawer instead of closing the workflow.
+
+### Impact Analysis
+
+- Contract impact: workspace counts gained additive `regression_tests`; existing
+  `tests` remains the total validation-test record count.
+- Data impact: no migration. Retire/reactivate uses the existing reviewed
+  `is_active` lifecycle and preserves all run records.
+- Compatibility impact: generated batches, activation semantics, automatic
+  publish reruns, and non-blocking publication behavior are unchanged.
+- Operational impact: API restart required because workspace-count SQL changed.
+- Rollback: removing the Regression tab and additive count leaves persisted tests
+  and runs intact.
+
+### Validation
+
+- Frontend lint and production build pass.
+- Full backend suite passes: 432 tests, 11 skipped.
+- API restarted on port 8010; `/health` returns `ok`.
+- HR workspace count returns `tests: 50` and `regression_tests: 8`.
+- Live browser verified the separate Regression tab, eight active passing guards,
+  version selector, run action, policy-aware register, and absence of the suite
+  register from Tests.
+- Live scenario inspection shows complete source text; full policy drill-down and
+  back navigation restore the same scenario. Desktop viewport has zero horizontal
+  page overflow.
+- Impeccable static detector returns no findings for the changed TSX/CSS.

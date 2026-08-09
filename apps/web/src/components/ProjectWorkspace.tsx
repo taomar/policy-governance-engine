@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Alert,
   AutoComplete,
@@ -46,7 +46,7 @@ import { ReviewQueue } from "./ReviewQueue";
 import { ComparePage } from "./ComparePage";
 import { QualityPage } from "./QualityPage";
 import { CorrelationPage } from "./CorrelationPage";
-import { PolicyTestsPage } from "./PolicyTestsPage";
+import { PolicyValidationLab } from "./PolicyValidationLab";
 import { AggregateLimitsPage } from "./AggregateLimitsPage";
 import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
@@ -64,6 +64,7 @@ type WorkspaceTabKey =
   | "quality"
   | "correlation"
   | "tests"
+  | "regression"
   | "exceptions"
   | "attestations"
   | "decision-log";
@@ -174,6 +175,14 @@ const TAB_META: TabMeta[] = [
     icon: <ExperimentOutlined />,
     hint: "Worked examples pinned as regression tests against the evaluator.",
     count: "tests",
+  },
+  {
+    key: "regression",
+    label: "Regression",
+    group: "assure",
+    icon: <HistoryOutlined />,
+    hint: "Active guard scenarios, versioned suite runs and immutable result history.",
+    count: "regression_tests",
   },
   {
     key: "exceptions",
@@ -297,6 +306,13 @@ export function ProjectWorkspace({
     };
   }, [policySet.key, activeTab]);
 
+  useEffect(() => {
+    // Every workspace tab is a new task surface. Carrying the previous tab's
+    // scroll offset made a freshly opened page begin halfway through its content
+    // (the Tests screenshot started inside the generator instead of at its title).
+    document.querySelector(".app-content")?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTab]);
+
   const [editOpen, setEditOpen] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -409,7 +425,8 @@ export function ProjectWorkspace({
     compare: <ComparePage policySetKey={policySet.key} />,
     quality: <QualityPage policySetKey={policySet.key} />,
     correlation: <CorrelationPage policySetKey={policySet.key} />,
-    tests: <PolicyTestsPage policySetKey={policySet.key} />,
+    tests: <PolicyValidationLab policySetKey={policySet.key} />,
+    regression: <PolicyValidationLab policySetKey={policySet.key} mode="regression" />,
     exceptions: <PolicyExceptionsPage policySetKey={policySet.key} />,
     attestations: <PolicyAttestationsPage policySetKey={policySet.key} />,
     "decision-log": <DecisionLogPage policySetKey={policySet.key} />,

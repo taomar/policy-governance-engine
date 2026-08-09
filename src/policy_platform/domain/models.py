@@ -746,6 +746,32 @@ class Note(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PolicyTestBatch(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One persisted blind-validation generation and execution set."""
+
+    __tablename__ = "policy_test_batches"
+
+    policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False, index=True)
+    policy_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("approved_policy_versions.id"), nullable=False, index=True
+    )
+    grounding_mode: Mapped[str] = mapped_column(String(30), nullable=False)
+    selected_rule_ids_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    grounding_context_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    scenario_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasoning_effort: Mapped[str] = mapped_column(String(20), nullable=False)
+    guidance: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="generated", nullable=False)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    policy_set: Mapped["PolicySet"] = relationship()
+    policy_version: Mapped["ApprovedPolicyVersion"] = relationship()
+    tests: Mapped[list["PolicyTest"]] = relationship(
+        back_populates="generation_batch", order_by="PolicyTest.created_at"
+    )
+
+
 class PolicyTest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """A named, saved test case for a policy set (Section 21.6 / 11.6).
 
@@ -804,6 +830,11 @@ class PolicyTest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     expected_rule_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     expected_rule_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     expected_missing_facts_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    generation_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("policy_test_batches.id"), nullable=True, index=True
+    )
+    scenario_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    expectation_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     proposed_by: Mapped[str] = mapped_column(String(20), default="human", nullable=False)  # "ai" | "human"
     review_status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
@@ -817,6 +848,7 @@ class PolicyTest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     policy_set: Mapped["PolicySet"] = relationship()
+    generation_batch: Mapped["PolicyTestBatch | None"] = relationship(back_populates="tests")
     runs: Mapped[list["PolicyTestRun"]] = relationship(
         back_populates="policy_test", order_by="PolicyTestRun.run_at.desc()"
     )
@@ -843,6 +875,8 @@ class PolicyTestRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # "pass" | "fail" | "error"
     explanation: Mapped[str] = mapped_column(Text, default="", nullable=False)
     actual_response_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    expected_assertions_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    expectation_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     run_trigger: Mapped[str] = mapped_column(String(20), nullable=False)  # "manual" | "on_publish"
     triggered_by: Mapped[str] = mapped_column(String(200), nullable=False)
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

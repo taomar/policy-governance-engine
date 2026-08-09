@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Card, Empty, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
+import { Alert, Empty, Spin, Tag, Timeline, Tooltip, Typography } from "antd";
 import { AuditOutlined } from "@ant-design/icons";
 import { auditApi, PolicyPlatformApiError, type AuditEvent } from "../api";
 
@@ -94,22 +94,19 @@ export function ActivityPanel({ policySetKey, limit = 25 }: Props) {
   );
 
   return (
-    <Card
-      size="small"
-      className="activity-panel"
-      title={
-        <span>
-          <AuditOutlined /> Recent governance activity
-        </span>
-      }
-      extra={
-        <Tooltip title="Every approval, override, publication and finding decision is written to an immutable audit trail. This shows the most recent for this project.">
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            audit trail
+    <section className="project-overview-panel activity-panel">
+      <div className="project-overview-panel__header">
+        <div>
+          <Text strong>
+            <AuditOutlined /> Recent governance activity
           </Text>
+          <Text type="secondary">Latest immutable review and publication events</Text>
+        </div>
+        <Tooltip title="Every approval, override, publication and finding decision is written to an immutable audit trail. This shows the most recent for this project.">
+          <Tag bordered={false}>Audit trail</Tag>
         </Tooltip>
-      }
-    >
+      </div>
+      <div className="project-overview-panel__body">
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
       {loading && <Spin />}
       {!loading && visible.length === 0 && (
@@ -146,7 +143,8 @@ export function ActivityPanel({ policySetKey, limit = 25 }: Props) {
           }))}
         />
       )}
-    </Card>
+      </div>
+    </section>
   );
 }
 

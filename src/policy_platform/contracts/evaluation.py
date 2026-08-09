@@ -40,9 +40,9 @@ class RuleEvaluationResult(BaseModel):
     # Populated when status is NOT_APPLICABLE specifically because a
     # non-wildcard scope dimension didn't match the request's principal facts
     # (XACML Target mismatch) — e.g. "scope_mismatch:persona". None for the
-    # other NOT_APPLICABLE cause (rule not effective on evaluation date) or
-    # for machine_executable=False rules, so existing callers checking only
-    # `status` see no behavior change.
+    # other NOT_APPLICABLE causes. `rule_not_machine_executable` makes the
+    # intentional documentation-only short circuit distinguishable from a
+    # scope mismatch or an out-of-effect rule.
     not_applicable_reason: str | None = None
     # rule_id of the higher-precedence rule that won when this SATISFIED
     # rule's action conflicted with another SATISFIED rule's action for the

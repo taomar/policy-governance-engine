@@ -120,7 +120,7 @@ export function ManagerActionModal({
       <Text strong>Reason (required)</Text>
       <Space size={[6, 6]} wrap style={{ margin: "8px 0" }}>
         {REASON_CHIPS.map((chip) => (
-          <Radio.Button key={chip} checked={reason === chip} onClick={() => setReason(chip)} style={{ borderRadius: 999 }}>
+          <Radio.Button key={chip} checked={reason === chip} onClick={() => setReason(chip)} className="manager-reason-choice">
             {chip}
           </Radio.Button>
         ))}

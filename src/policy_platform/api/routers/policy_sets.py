@@ -218,6 +218,8 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
                   (SELECT count(*) FROM approved_policy_versions WHERE policy_set_id = :sid) AS versions,
                   (SELECT count(*) FROM policy_aggregate_limits WHERE policy_set_id = :sid) AS limits,
                   (SELECT count(*) FROM policy_tests WHERE policy_set_id = :sid) AS tests,
+                  (SELECT count(*) FROM policy_tests
+                     WHERE policy_set_id = :sid AND is_active) AS regression_tests,
                   (SELECT count(*) FROM policy_exceptions
                      WHERE policy_set_id = :sid AND decision = 'pending') AS exceptions_open,
                   (SELECT count(*) FROM correlation_findings WHERE policy_set_id = :sid) AS correlation_findings,

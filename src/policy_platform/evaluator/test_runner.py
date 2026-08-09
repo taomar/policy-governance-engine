@@ -12,7 +12,7 @@ one.
 """
 from __future__ import annotations
 
-from policy_platform.contracts.evaluation import EvaluationRequest
+from policy_platform.contracts.evaluation import EvaluationRequest, EvaluationStatus
 from policy_platform.contracts.policy import ApprovedPolicyPackage
 from policy_platform.contracts.policy_test import (
     PolicyTestCase,
@@ -50,11 +50,27 @@ def run_policy_test(test_case: PolicyTestCase, package: ApprovedPolicyPackage) -
         )
 
     if test_case.expected_rule_id:
+        package_rule = next((rule for rule in package.rules if rule.rule_id == test_case.expected_rule_id), None)
         rule_result = next((r for r in response.rule_results if r.rule_id == test_case.expected_rule_id), None)
-        if rule_result is None:
+        if package_rule is None:
             mismatches.append(
-                f"expected rule '{test_case.expected_rule_id}' to appear in the evaluation's applicable "
-                "rules, but it was not found (check the rule_id is correct and in effect for this version)"
+                f"expected rule '{test_case.expected_rule_id}' does not exist in the tested policy version"
+            )
+        elif (
+            rule_result is None
+            and test_case.expected_rule_status == EvaluationStatus.NOT_APPLICABLE
+            and test_case.expected_rule_id not in response.applicable_rules
+        ):
+            # Rules outside their effective window are deliberately excluded
+            # before `_evaluate_rule`, so there is no per-rule result row. For an
+            # effective-date assertion, that absence IS the expected
+            # NOT_APPLICABLE outcome, not a dangling rule reference.
+            pass
+        elif rule_result is None:
+            mismatches.append(
+                f"rule '{test_case.expected_rule_id}' exists in the tested version but produced no per-rule result "
+                "(it may be outside its effective window); expected "
+                f"{test_case.expected_rule_status.value if test_case.expected_rule_status else 'a result'}"
             )
         elif test_case.expected_rule_status is not None and rule_result.status != test_case.expected_rule_status:
             mismatches.append(

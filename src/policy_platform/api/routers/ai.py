@@ -82,7 +82,6 @@ async def ai_status() -> dict:
 
 @router.post("/ask")
 async def ask(body: AskRequest, session: AsyncSession = Depends(get_session)) -> dict:
-    _require_ai_configured()
     try:
         return await ai_chat.ask(
             session,
@@ -381,7 +380,6 @@ async def test_rule_scenario(
     evaluator.engine.evaluate_policy against this rule's active approved
     version. See ai_scenario_engine's module docstring for why this is a
     distinct tool from the advisory-only one above."""
-    _require_ai_configured()
     try:
         return await ai_scenario_engine.run_rule_scenario(
             session,

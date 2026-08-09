@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Drawer, Empty, Grid, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Checkbox, Drawer, Empty, Grid, Segmented, Select, Space, Tag, Typography, message } from "antd";
+import { DownloadOutlined, FileSearchOutlined, LayoutOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type AggregateLimit, type ApprovedPolicyVersion, type CanonicalRule } from "../api";
 import { EditRuleModal } from "./EditRuleModal";
 import { RULE_TYPES, ruleTypeLabel } from "../ruleTypes";
@@ -16,9 +17,10 @@ import {
 } from "./PoliciesToolbar";
 import type { PolicyDensity } from "./PolicyRow";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const DENSITY_STORAGE_KEY = "policyPlatform.policiesDensity";
+type PoliciesWorkspaceMode = "list" | "split" | "detail";
 
 function loadStoredDensity(): PolicyDensity {
   try {
@@ -71,6 +73,9 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [inspectorTab, setInspectorTab] = useState("overview");
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [reviseTarget, setReviseTarget] = useState<CanonicalRule | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<PoliciesWorkspaceMode>("split");
+  const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
+  const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setError(null);
@@ -100,6 +105,10 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
       .finally(() => setLoading(false));
   }, [policySetKey, versionId]);
+
+  useEffect(() => {
+    setSelectedExportIds(new Set());
+  }, [versionId]);
 
   // How far the review pipeline has actually got. Used only to make the empty
   // state truthful: this tab reads *published* versions, and approving a
@@ -362,13 +371,71 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
 
   const handleSelectRule = (rule: CanonicalRule) => {
     setSelectedRuleId(rule.rule_id);
-    setMobileInspectorOpen(true);
+    if (isDesktop) {
+      // Selecting a record while scanning in list-only mode is an explicit
+      // request to inspect it; restore the split without forcing full focus.
+      if (workspaceMode === "list") setWorkspaceMode("split");
+    } else {
+      setMobileInspectorOpen(true);
+    }
   };
 
   const handleViewHistory = (rule: CanonicalRule) => {
     setSelectedRuleId(rule.rule_id);
     setInspectorTab("history");
-    setMobileInspectorOpen(true);
+    if (isDesktop) {
+      if (workspaceMode === "list") setWorkspaceMode("split");
+    } else {
+      setMobileInspectorOpen(true);
+    }
+  };
+
+  const changeWorkspaceMode = (mode: PoliciesWorkspaceMode) => {
+    setInspectorFullscreen(false);
+    setWorkspaceMode(mode);
+  };
+
+  const hideInspector = () => {
+    setInspectorFullscreen(false);
+    setWorkspaceMode("list");
+  };
+
+  const toggleExportSelection = (ruleId: string) => {
+    setSelectedExportIds((current) => {
+      const next = new Set(current);
+      if (next.has(ruleId)) next.delete(ruleId);
+      else next.add(ruleId);
+      return next;
+    });
+  };
+
+  const selectAllShownForExport = () => {
+    const visibleIds = sorted.map((rule) => rule.rule_id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedExportIds.has(id));
+    setSelectedExportIds((current) => {
+      const next = new Set(current);
+      for (const id of visibleIds) {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const downloadJsonl = (scope: "selected" | "all") => {
+    const exportRules =
+      scope === "all" ? rules : rules.filter((rule) => selectedExportIds.has(rule.rule_id));
+    if (exportRules.length === 0) {
+      message.warning("Select at least one policy to export.");
+      return;
+    }
+    const jsonl = exportRules.map((rule) => JSON.stringify(rule)).join("\n") + "\n";
+    const url = URL.createObjectURL(new Blob([jsonl], { type: "application/x-ndjson" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${policySetKey}-v${selectedVersion?.version_number ?? "unknown"}-${scope}-policies.jsonl`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const emptyMessage =
@@ -391,16 +458,54 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       onRevise={canRevise ? setReviseTarget : undefined}
       onSelectRule={handleSelectRule}
       onClose={!isDesktop ? () => setMobileInspectorOpen(false) : undefined}
+      onHide={isDesktop ? hideInspector : undefined}
+      onToggleFullscreen={isDesktop ? () => setInspectorFullscreen((value) => !value) : undefined}
+      isFullscreen={inspectorFullscreen}
     />
   );
 
   return (
     <>
-      <div className="page-header-row">
-        <Title level={3} style={{ margin: 0 }}>
-          Policies
-        </Title>
-        <Space wrap>
+      <div className="page-header-row policies-page-header">
+        <div>
+          <Title level={3}>Published policies</Title>
+          <Text type="secondary">Select a read-only decision record to inspect its logic, scope, source, and history.</Text>
+        </div>
+        <Space wrap className="policies-page-actions">
+          {isDesktop && versions.length > 0 && (
+            <Segmented
+              className="policies-view-switcher"
+              value={workspaceMode}
+              onChange={(value) => changeWorkspaceMode(value as PoliciesWorkspaceMode)}
+              aria-label="Policy workspace layout"
+              options={[
+                {
+                  value: "list",
+                  label: (
+                    <span className="policies-view-option">
+                      <UnorderedListOutlined /> List
+                    </span>
+                  ),
+                },
+                {
+                  value: "split",
+                  label: (
+                    <span className="policies-view-option">
+                      <LayoutOutlined /> Split
+                    </span>
+                  ),
+                },
+                {
+                  value: "detail",
+                  label: (
+                    <span className="policies-view-option">
+                      <FileSearchOutlined /> Detail
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          )}
           <Select
             value={versionId || undefined}
             onChange={setVersionId}
@@ -413,11 +518,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           />
         </Space>
       </div>
-      <Paragraph type="secondary">
-        Approved policy rules for this project — search, filter, and group them, then select one to see its full
-        detail. To change what appears here, go to the <strong>Review</strong> tab: draft or AI-extract rules,
-        approve them, then publish a new version.
-      </Paragraph>
 
       {error && <Alert type="error" showIcon message={error} />}
 
@@ -489,9 +589,10 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       ) : (
         <>
           {selectedVersion && (
-            <Space size={10} wrap>
+            <Space size={10} wrap className="policy-version-strip">
               <Tag color="purple">v{selectedVersion.version_number}</Tag>
               {selectedVersion.is_active && <Tag color="green">ACTIVE</Tag>}
+              <Text strong>{rules.length} rules</Text>
               <Text type="secondary">
                 effective {selectedVersion.effective_from}
                 {selectedVersion.effective_to ? ` → ${selectedVersion.effective_to}` : ""}
@@ -502,8 +603,12 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           {loading ? (
             <Text type="secondary">Loading…</Text>
           ) : (
-            <div className={`policies-workspace policies-workspace--${isDesktop ? "desktop" : "narrow"}`}>
-              <div className="policies-workspace-list">
+            <div
+              className={`policies-workspace policies-workspace--${isDesktop ? "desktop" : "narrow"}${
+                isDesktop ? ` policies-workspace--${workspaceMode}` : ""
+              }`}
+            >
+              {(!isDesktop || workspaceMode !== "detail") && <div className="policies-workspace-list">
                 <PoliciesToolbar
                   search={search}
                   onSearchChange={setSearch}
@@ -522,6 +627,31 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                   focusedFamily={focusedFamily}
                   onFocusFamily={setFocusedFamily}
                 />
+                <div className="policy-export-bar">
+                  <Checkbox
+                    checked={sorted.length > 0 && sorted.every((rule) => selectedExportIds.has(rule.rule_id))}
+                    indeterminate={
+                      sorted.some((rule) => selectedExportIds.has(rule.rule_id)) &&
+                      !sorted.every((rule) => selectedExportIds.has(rule.rule_id))
+                    }
+                    onChange={selectAllShownForExport}
+                  >
+                    Select all {sorted.length} shown
+                  </Checkbox>
+                  <span className="policy-export-count">{selectedExportIds.size} selected</span>
+                  <span className="policy-export-spacer" />
+                  <Button
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    disabled={selectedExportIds.size === 0}
+                    onClick={() => downloadJsonl("selected")}
+                  >
+                    Export selected JSONL
+                  </Button>
+                  <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadJsonl("all")}>
+                    Export all {rules.length} JSONL
+                  </Button>
+                </div>
                 <PolicyList
                   groups={policyGroups}
                   showGroupHeaders={groupBy !== "none"}
@@ -537,9 +667,29 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                   clusterMap={clusterMap}
                   focusedFamily={focusedFamily}
                   onFocusFamily={setFocusedFamily}
+                  selectedForExport={selectedExportIds}
+                  onToggleExportSelection={toggleExportSelection}
                 />
-              </div>
-              {isDesktop && <div className="policies-workspace-inspector">{inspector}</div>}
+              </div>}
+              {isDesktop && workspaceMode !== "list" && (
+                <>
+                  {inspectorFullscreen && (
+                    <button
+                      type="button"
+                      className="policy-inspector-backdrop"
+                      onClick={() => setInspectorFullscreen(false)}
+                      aria-label="Restore policy workspace"
+                    />
+                  )}
+                  <div
+                    className={`policies-workspace-inspector${
+                      inspectorFullscreen ? " policies-workspace-inspector--fullscreen" : ""
+                    }`}
+                  >
+                    {inspector}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </>

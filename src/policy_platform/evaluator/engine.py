@@ -93,6 +93,7 @@ def _evaluate_rule(rule: CanonicalRule, facts: dict[str, object | None]) -> Rule
             rule_id=rule.rule_id,
             rule_revision=rule.rule_revision,
             status=EvaluationStatus.NOT_APPLICABLE,
+            not_applicable_reason="rule_not_machine_executable",
         )
 
     target_outcome, target_dim, target_fact_key = _match_target(rule, facts)

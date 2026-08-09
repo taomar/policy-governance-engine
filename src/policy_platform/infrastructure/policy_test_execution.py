@@ -26,9 +26,11 @@ from policy_platform.contracts.policy_test import PolicyTestCase, PolicyTestKind
 from policy_platform.domain.models import PolicyTest, PolicyTestRun
 from policy_platform.evaluator.test_runner import run_policy_test
 from policy_platform.infrastructure.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.policy_test_commitment import expectation_hash, expectation_snapshot_for_test
 from policy_platform.infrastructure.repositories import (
     ApprovedPolicyVersionRepository,
     PolicyTestRepository,
+    PolicyTestBatchRepository,
     PolicyTestRunRepository,
 )
 
@@ -59,6 +61,28 @@ def _execute_single_test(test: PolicyTest, package: ApprovedPolicyPackage) -> tu
         return "error", f"test execution failed: {exc}", None
 
 
+async def _package_for_test(
+    session: AsyncSession,
+    test: PolicyTest,
+    package: ApprovedPolicyPackage,
+) -> ApprovedPolicyPackage:
+    """Restrict blind-batch execution to the reviewer-selected policy subset.
+
+    Legacy/manual tests keep full-package behavior. Generated validation batches
+    explicitly answer "how do these selected policies behave?", so unrelated
+    rules must not make the package INDETERMINATE through facts the scenario was
+    never intended to provide.
+    """
+
+    if test.generation_batch_id is None:
+        return package
+    batch = await PolicyTestBatchRepository(session).get_by_id(test.generation_batch_id)
+    if batch is None:
+        return package
+    selected_ids = set(batch.selected_rule_ids_json or [])
+    return package.model_copy(update={"rules": [rule for rule in package.rules if rule.rule_id in selected_ids]})
+
+
 async def execute_test_by_id(
     session: AsyncSession,
     *,
@@ -85,9 +109,13 @@ async def execute_test_by_id(
     )
     if version is None:
         raise ValueError("no approved policy version available to run this test against")
+    if version.policy_set_id != test.policy_set_id:
+        raise ValueError("selected policy version belongs to a different policy set")
 
-    package = approved_policy_version_to_package(version)
+    package = await _package_for_test(session, test, approved_policy_version_to_package(version))
     status, explanation, actual_response_json = _execute_single_test(test, package)
+    expected_assertions = expectation_snapshot_for_test(test)
+    committed_hash = test.expectation_hash or expectation_hash(expected_assertions)
 
     run_repo = PolicyTestRunRepository(session)
     return await run_repo.record(
@@ -98,6 +126,8 @@ async def execute_test_by_id(
         actual_response_json=actual_response_json,
         run_trigger=run_trigger,
         triggered_by=triggered_by,
+        expected_assertions_json=expected_assertions,
+        expectation_hash=committed_hash,
     )
 
 
@@ -128,7 +158,10 @@ async def run_active_tests_for_version(
     run_repo = PolicyTestRunRepository(session)
     runs: list[PolicyTestRun] = []
     for test in tests:
-        status, explanation, actual_response_json = _execute_single_test(test, package)
+        test_package = await _package_for_test(session, test, package)
+        status, explanation, actual_response_json = _execute_single_test(test, test_package)
+        expected_assertions = expectation_snapshot_for_test(test)
+        committed_hash = test.expectation_hash or expectation_hash(expected_assertions)
         run = await run_repo.record(
             policy_test_id=test.id,
             policy_version_id=version.id,
@@ -137,6 +170,8 @@ async def run_active_tests_for_version(
             actual_response_json=actual_response_json,
             run_trigger=run_trigger,
             triggered_by=triggered_by,
+            expected_assertions_json=expected_assertions,
+            expectation_hash=committed_hash,
         )
         runs.append(run)
     return runs

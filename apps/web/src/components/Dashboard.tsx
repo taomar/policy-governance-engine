@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Card, Col, Row, Space, Statistic, Tag, Typography } from "antd";
+import { Alert, Button, Tag, Typography } from "antd";
 import {
-  BulbOutlined,
+  ArrowRightOutlined,
   CheckCircleOutlined,
   FileTextOutlined,
   FolderOutlined,
-  InboxOutlined,
   PlayCircleOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
@@ -14,7 +13,7 @@ import {
 import { api, PolicyPlatformApiError } from "../api";
 import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 interface Summary {
   policySetCount: number;
@@ -144,34 +143,24 @@ export function Dashboard({
     void load();
   }, []);
 
-  const cards = [
+  const portfolio = [
     {
       key: "projects",
       value: summary?.policySetCount,
       label: "Projects",
       icon: <FolderOutlined />,
-      color: "#7c3aed",
     },
     {
       key: "projects",
       value: summary?.activeVersionCount,
-      label: "Active Versions",
+      label: "Active versions",
       icon: <CheckCircleOutlined />,
-      color: "#059669",
-    },
-    {
-      key: "projects",
-      value: summary?.pendingCandidateCount,
-      label: "Pending Candidate Rules",
-      icon: <FileTextOutlined />,
-      color: "#d97706",
     },
     {
       key: "document-inbox",
       value: summary?.documentCount,
-      label: "Source Documents",
+      label: "Source documents",
       icon: <FileTextOutlined />,
-      color: "#2563eb",
     },
   ];
 
@@ -182,83 +171,92 @@ export function Dashboard({
     else onNavigate(page);
   };
 
+  const pending = summary?.pendingCandidateCount;
+
   return (
-    <>
-      <div>
-        <Title level={3} style={{ marginBottom: 4 }}>
-          Dashboard
-        </Title>
-        <Text type="secondary">Overview of the deterministic policy platform — local instance.</Text>
-      </div>
+    <div className="dashboard-page">
+      <header className="dashboard-page-header">
+        <div>
+          <Title level={3}>Policy operations</Title>
+          <Text type="secondary">Move source-grounded rules from intake to an immutable published decision.</Text>
+        </div>
+        <Tag bordered={false} className="dashboard-role-tag">
+          {ACTOR_ROLE_LABELS[actor.role]}
+        </Tag>
+      </header>
 
       {error && <Alert type="error" showIcon message={error} />}
 
-      <Row gutter={[16, 16]}>
-        {cards.map((c, idx) => (
-          <Col xs={24} sm={12} lg={6} key={idx}>
-            <Card hoverable onClick={() => onNavigate(c.key)} className="stat-card">
-              <Statistic
-                title={c.label}
-                value={c.value ?? "…"}
-                prefix={<span style={{ color: c.color }}>{c.icon}</span>}
-              />
-            </Card>
-          </Col>
-        ))}
-      </Row>
+      <div className="dashboard-ledger">
+        <section className="dashboard-priority" aria-labelledby="review-work-title">
+          <div className="dashboard-priority-copy">
+            <div className="dashboard-priority-label">
+              <FileTextOutlined />
+              <Text strong>Review queue</Text>
+            </div>
+            <Title level={2} id="review-work-title">
+              {pending === undefined
+                ? "Loading review workload…"
+                : pending > 0
+                  ? `${pending} candidate rule${pending === 1 ? "" : "s"} need a decision`
+                  : "Review queues are clear"}
+            </Title>
+            <Text type="secondary">
+              Inspect the source, condition, outcome, and exceptions before approving anything for publication.
+            </Text>
+          </div>
+          <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => onNavigate("projects")}>
+            Open project register
+          </Button>
+        </section>
 
-      <Card
-        title={
-          <Space>
-            <BulbOutlined />
-            <span>Your toolkit</span>
-            <Tag color="purple">{ACTOR_ROLE_LABELS[actor.role]}</Tag>
-          </Space>
-        }
-        className="toolkit-card"
-      >
-        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Suggested next actions for someone working as a {ACTOR_ROLE_LABELS[actor.role].toLowerCase()}. Switch role
-          via "Acting as" in the header to see a different toolkit.
-        </Paragraph>
-        <Row gutter={[16, 16]}>
+        <section className="dashboard-portfolio" aria-label="Portfolio register">
+          <div className="dashboard-panel-heading">
+            <Text strong>Portfolio register</Text>
+            <Text type="secondary">Current local instance</Text>
+          </div>
+          <div className="dashboard-metric-list" role="list">
+            {portfolio.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="listitem"
+                className="dashboard-metric-row"
+                onClick={() => onNavigate(item.key)}
+              >
+                <span className="dashboard-metric-icon">{item.icon}</span>
+                <span className="dashboard-metric-label">{item.label}</span>
+                <strong className="dashboard-metric-value">{item.value ?? "—"}</strong>
+                <ArrowRightOutlined className="dashboard-metric-arrow" />
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="dashboard-workflow" aria-labelledby="workflow-title">
+        <div className="dashboard-section-heading">
+          <div>
+            <Title level={4} id="workflow-title">
+              Your workflow
+            </Title>
+            <Text type="secondary">Actions matched to the role selected in the header.</Text>
+          </div>
+          <Text type="secondary">{ACTOR_ROLE_LABELS[actor.role]}</Text>
+        </div>
+        <div className="dashboard-workflow-list" role="list">
           {toolkit.map((tool) => (
-            <Col xs={24} md={8} key={tool.label}>
-              <Card hoverable size="small" className="toolkit-tool-card" onClick={() => goToTool(tool.page)}>
-                <Space align="start">
-                  <span className="toolkit-tool-icon">{tool.icon}</span>
-                  <div>
-                    <Text strong>{tool.label}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                      {tool.description}
-                    </Text>
-                  </div>
-                </Space>
-              </Card>
-            </Col>
+            <button key={tool.label} type="button" role="listitem" onClick={() => goToTool(tool.page)}>
+              <span className="dashboard-workflow-icon">{tool.icon}</span>
+              <span className="dashboard-workflow-copy">
+                <strong>{tool.label}</strong>
+                <small>{tool.description}</small>
+              </span>
+              <ArrowRightOutlined className="dashboard-workflow-arrow" />
+            </button>
           ))}
-        </Row>
-      </Card>
-
-      <Card title="Quick Links" className="quick-links-card">
-        <Space size={10} wrap>
-          <Button icon={<FolderOutlined />} onClick={() => onNavigate("projects")}>
-            Browse Projects
-          </Button>
-          <Button icon={<InboxOutlined />} onClick={() => onNavigate("document-inbox")}>
-            Document Inbox
-          </Button>
-          {onOpenAskAi && (
-            <Button icon={<ThunderboltOutlined />} onClick={onOpenAskAi}>
-              Ask AI
-            </Button>
-          )}
-          <Button icon={<PlayCircleOutlined />} onClick={() => onNavigate("evaluate")}>
-            Run an Evaluation
-          </Button>
-        </Space>
-      </Card>
-    </>
+        </div>
+      </section>
+    </div>
   );
 }

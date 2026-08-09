@@ -48,6 +48,12 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
   const [result, setResult] = useState<RuleScenarioTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const mappingStatuses = Array.from(
+    new Set(rule.formulation?.dmn_decisions.map((decision) => decision.dmn_mapping_status) ?? []),
+  );
+  const formulationRequirements = Array.from(
+    new Set(rule.formulation?.dmn_decisions.flatMap((decision) => decision.requirements) ?? []),
+  );
 
   // Switching rules while this tab is open should not show a stale result
   // from a different rule under the new title/condition.
@@ -76,10 +82,37 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
   return (
     <div className="inspector-pane">
       <Alert
-        type="success"
+        type={rule.machine_executable ? "success" : "warning"}
         showIcon
-        message="Runs the real deterministic engine"
-        description="AI only translates your scenario into facts (never inventing anything you didn't state) and explains the outcome in plain language. The verdict itself comes from the same evaluation engine production evaluations use — this is not AI guesswork."
+        message={
+          rule.machine_executable
+            ? "Runs the real deterministic engine"
+            : "This published rule is documentation-only and cannot be scenario-tested yet"
+        }
+        description={
+          rule.machine_executable ? (
+            "AI only translates your scenario into facts (never inventing anything you didn't state) and explains the outcome in plain language. The verdict itself comes from the same evaluation engine production evaluations use — this is not AI guesswork."
+          ) : (
+            <span>
+              The evaluator intentionally returns <Tag>NOT_APPLICABLE</Tag> before reading any scenario facts because{" "}
+              <Text code>machine_executable=false</Text>. The DMN projection is{" "}
+              <Text code>{mappingStatuses.join(", ") || "not mapped"}</Text>
+              {formulationRequirements.length > 0 && (
+                <>
+                  {" "}
+                  and requires{" "}
+                  {formulationRequirements.map((requirement) => (
+                    <Tag key={requirement} color="gold">
+                      {requirement}
+                    </Tag>
+                  ))}
+                </>
+              )}
+              . Use <Text strong>Revise</Text> above to publish a version with formal facts and a condition before
+              testing scenarios.
+            </span>
+          )
+        }
         style={{ marginBottom: 16 }}
       />
       <Paragraph>
@@ -90,6 +123,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         value={scenario}
         onChange={(e) => setScenario(e.target.value)}
         placeholder="e.g. An employee in the US submits an expense of $75 for a client dinner"
+        disabled={!rule.machine_executable}
       />
       <Space style={{ marginTop: 12, marginBottom: 16 }}>
         <Text type="secondary">Reasoning effort</Text>
@@ -97,6 +131,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
           value={reasoningEffort}
           onChange={setReasoningEffort}
           style={{ width: 120 }}
+          disabled={!rule.machine_executable}
           options={[
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -108,9 +143,9 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
           icon={<ExperimentOutlined />}
           onClick={run}
           loading={loading}
-          disabled={!scenario.trim()}
+          disabled={!scenario.trim() || !rule.machine_executable}
         >
-          {loading ? "Running…" : "Test with real engine"}
+          {rule.machine_executable ? (loading ? "Running…" : "Test with real engine") : "Not testable yet"}
         </Button>
       </Space>
 
@@ -145,6 +180,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
               </Tooltip>
             )}
             <Tag>Reasoning effort: {result.reasoning_effort}</Tag>
+            {result.testability_reason && <Tag color="gold">Documentation-only rule</Tag>}
           </Space>
 
           <Paragraph>{result.explanation}</Paragraph>

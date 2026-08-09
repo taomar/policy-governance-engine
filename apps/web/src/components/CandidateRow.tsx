@@ -4,10 +4,9 @@ import {
   CloseOutlined,
   ClusterOutlined,
   CrownOutlined,
-  DownOutlined,
   ExclamationCircleOutlined,
+  RightOutlined,
   ToolOutlined,
-  UpOutlined,
 } from "@ant-design/icons";
 import type { CandidateRule } from "../api";
 import {
@@ -15,7 +14,7 @@ import {
   clusterLabel,
   hasAmbiguityFlag,
   hexToRgba,
-  ruleConditionLine,
+  ruleDecisionSummary,
   type RuleVariationGroup,
 } from "../ruleDisplay";
 import type { BandGeometry } from "../bandGeometry";
@@ -57,9 +56,8 @@ interface CandidateRowProps {
  * checkbox, status tag, quality-findings badge, and quick approve/reject
  * buttons that don't require expanding the row.
  *
- * When expanded, this collapses to a minimal identity strip (title + status +
- * collapse toggle) since the full RuleCard rendered underneath already shows
- * title/badges/detail — avoids showing the same metadata twice at once.
+ * `expanded` means "currently shown in the detail pane". The summary stays
+ * complete so selecting a row never makes its list entry less useful.
  */
 export function CandidateRow({
   candidate,
@@ -79,7 +77,7 @@ export function CandidateRow({
   onReject,
 }: CandidateRowProps) {
   const rule = candidate.rule;
-  const line = ruleConditionLine(rule);
+  const decision = ruleDecisionSummary(rule);
   const isBandStart = band?.isStart ?? true;
   const isBandEnd = band?.isEnd ?? true;
 
@@ -105,7 +103,7 @@ export function CandidateRow({
       role="button"
       tabIndex={0}
       aria-pressed={expanded}
-      className={`policy-row candidate-row${expanded ? " policy-row-selected" : ""}${
+      className={`policy-row candidate-row${expanded ? " candidate-row--expanded policy-row-selected" : ""}${
         cluster ? " policy-row--family" : ""
       }${cluster && isBandStart ? " policy-row--family-start" : ""}${
         cluster && isBandEnd ? " policy-row--family-end" : ""
@@ -157,41 +155,45 @@ export function CandidateRow({
               </Tooltip>
             )}
           </span>
-          <PolicyEffectBadge effect={rule.effect} size="small" />
-          <Tag color={statusColor} className="candidate-row-status-tag">
-            {statusLabel}
-          </Tag>
-          {candidate.delta_status && candidate.delta_status !== "baseline" && (
-            <Tooltip
-              title={
-                candidate.delta_status === "unchanged" && candidate.reworded
-                  ? "Identical in meaning to the previous extraction, but the wording was regenerated. Nothing to review."
-                  : DELTA_META[candidate.delta_status]?.help
-              }
-            >
-              <Tag
-                color={DELTA_META[candidate.delta_status]?.color}
-                className="candidate-row-delta-tag"
+          <span className="policy-row-statuses">
+            <PolicyEffectBadge effect={rule.effect} size="small" />
+            <Tag color={statusColor} className="candidate-row-status-tag">
+              {statusLabel}
+            </Tag>
+            {candidate.delta_status && candidate.delta_status !== "baseline" && (
+              <Tooltip
+                title={
+                  candidate.delta_status === "unchanged" && candidate.reworded
+                    ? "Identical in meaning to the previous extraction, but the wording was regenerated. Nothing to review."
+                    : DELTA_META[candidate.delta_status]?.help
+                }
               >
-                {DELTA_META[candidate.delta_status]?.label}
-                {candidate.delta_status === "unchanged" && candidate.reworded ? " · reworded" : ""}
-              </Tag>
-            </Tooltip>
-          )}
-          {findingsCount > 0 && (
-            <Tooltip title={`${findingsCount} quality finding(s) from the last AI readiness check`}>
-              <Tag color="volcano" icon={<ExclamationCircleOutlined />}>
-                {findingsCount}
-              </Tag>
-            </Tooltip>
-          )}
+                <Tag
+                  color={DELTA_META[candidate.delta_status]?.color}
+                  className="candidate-row-delta-tag"
+                >
+                  {DELTA_META[candidate.delta_status]?.label}
+                  {candidate.delta_status === "unchanged" && candidate.reworded ? " · reworded" : ""}
+                </Tag>
+              </Tooltip>
+            )}
+            {findingsCount > 0 && (
+              <Tooltip title={`${findingsCount} quality finding(s) from the last AI readiness check`}>
+                <Tag color="volcano" icon={<ExclamationCircleOutlined />}>
+                  {findingsCount}
+                </Tag>
+              </Tooltip>
+            )}
+          </span>
         </div>
-        {!expanded && (
-          <>
-            <div className="policy-row-line2" title={line.text}>
-              {line.text}
-            </div>
-            <div className="policy-row-line3">
+        <div className="policy-decision-line" title={decision.text}>
+          <span className="policy-decision-key">When</span>
+          <span className="policy-decision-value">{decision.condition}</span>
+          <span className="policy-decision-arrow">→</span>
+          <span className="policy-decision-key">Then</span>
+          <span className="policy-decision-result">{decision.action}</span>
+        </div>
+        <div className="policy-row-line3">
               {cluster && (
                 <Tooltip
                   title={
@@ -276,12 +278,10 @@ export function CandidateRow({
                   {rule.category}
                 </Tag>
               )}
-            </div>
-          </>
-        )}
+        </div>
       </div>
       <Space size={4} className="candidate-row-actions" onClick={(e) => e.stopPropagation()}>
-        {!expanded && onApprove && onReject && (
+        {onApprove && onReject && (
           <>
             <Tooltip title="Quick approve">
               <Button size="small" type="text" icon={<CheckOutlined style={{ color: "#16a34a" }} />} onClick={onApprove} />
@@ -291,8 +291,15 @@ export function CandidateRow({
             </Tooltip>
           </>
         )}
-        <Tooltip title={expanded ? "Collapse" : "Expand for full detail"}>
-          <Button size="small" type="text" icon={expanded ? <UpOutlined /> : <DownOutlined />} onClick={onToggleExpand} />
+        <Tooltip title={expanded ? "Viewing details" : "Open details"}>
+          <Button
+            size="small"
+            type="text"
+            icon={<RightOutlined />}
+            className="candidate-row-open-btn"
+            onClick={onToggleExpand}
+            aria-label={expanded ? `Viewing ${rule.title}` : `Open details for ${rule.title}`}
+          />
         </Tooltip>
       </Space>
     </div>

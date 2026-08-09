@@ -3,12 +3,13 @@ import {
   Alert,
   App,
   Button,
-  Card,
   Checkbox,
   Col,
   DatePicker,
+  Drawer,
   Empty,
   Form,
+  Grid,
   Input,
   InputNumber,
   Pagination,
@@ -17,7 +18,6 @@ import {
   Segmented,
   Select,
   Space,
-  Statistic,
   Tag,
   Tooltip,
   Typography,
@@ -27,11 +27,14 @@ import {
   ClusterOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
+  FileSearchOutlined,
+  LayoutOutlined,
   PlusOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   SendOutlined,
   ThunderboltOutlined,
+  UnorderedListOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -47,14 +50,12 @@ import {
   type PolicyScope,
   type QualityFinding,
 } from "../api";
-import { RuleCard } from "./RuleCard";
 import { RewriteModal } from "./RewriteModal";
 import { EditRuleModal } from "./EditRuleModal";
 import { ManagerActionModal } from "./ManagerActionModal";
 import { AskAboutRuleModal } from "./AskAboutRuleModal";
 import { AiRuleComposer } from "./AiRuleComposer";
 import { ImmutableFieldsNotice } from "./ImmutableFieldsNotice";
-import { NotesPanel } from "./NotesPanel";
 import { ExportMenu } from "./ExportMenu";
 import { ScopeFieldsEditor } from "./ScopeEditor";
 import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
@@ -76,9 +77,11 @@ import { CandidateRow } from "./CandidateRow";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
+import { PolicyInspector } from "./PolicyInspector";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+type ReviewWorkspaceMode = "list" | "split" | "detail";
 
 const STATUS_FILTERS = ["all", "candidate", "changes_requested", "approved", "rejected", "published"] as const;
 
@@ -102,6 +105,8 @@ const STATUS_LABEL: Record<string, string> = {
 const OPERATORS = CONDITION_OPERATORS;
 
 export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
+  const screens = Grid.useBreakpoint();
+  const isDesktop = !!screens.lg;
   const scoped = Boolean(policySetKey);
   const { actor, setActor } = useActor();
   const { message } = App.useApp();
@@ -140,15 +145,14 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     gaps: FamilyGap[];
   } | null>(null);
 
-  // Candidate list rendering — each row starts collapsed (RuleCard's own
-  // detail body, its per-evidence resolution effect, and the discussion
-  // NotesPanel all only mount for rows the reviewer actually opens), plus
-  // client-side pagination so at most PAGE_SIZE rows exist in the DOM at
-  // once. Without this, a queue the size of a real extracted document (300+
-  // pending candidates) rendered every row fully expanded on load — a
-  // confirmed live scalability bug (346 candidates × full detail + a
-  // separate notes fetch each, all mounted simultaneously).
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // The queue and inspector are peers, matching the published Policies
+  // workspace. Only one candidate detail mounts at a time, so source resolution
+  // and discussion fetches stay constant even when the queue has hundreds of rows.
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<ReviewWorkspaceMode>("split");
+  const [inspectorTab, setInspectorTab] = useState("overview");
+  const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
@@ -251,7 +255,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   useEffect(() => {
     void loadCandidates();
     setQualityFindings(null); // stale once the policy set/filter changes — re-run on demand
-    setExpandedIds(new Set());
+    setSelectedCandidateId(null);
+    setInspectorFullscreen(false);
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, statusFilter, documentFilter, runFilter, deltaFilter]);
@@ -384,14 +389,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       return next;
     });
 
-  const toggleExpanded = (candidateId: string) =>
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(candidateId)) next.delete(candidateId);
-      else next.add(candidateId);
-      return next;
-    });
-
   // Definitions/glossary entries (rule_type "definition" — both the AI's
   // "definition" and "classification" canonical types map here in
   // formulation_mapping.py) describe terms, not obligations: they have no
@@ -475,6 +472,47 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     for (const c of candidates) counts[c.review_status] = (counts[c.review_status] ?? 0) + 1;
     return counts;
   }, [candidates]);
+
+  const selectedCandidate = useMemo(
+    () => filteredCandidates.find((candidate) => candidate.id === selectedCandidateId) ?? null,
+    [filteredCandidates, selectedCandidateId],
+  );
+
+  useEffect(() => {
+    if (filteredCandidates.length === 0) {
+      setSelectedCandidateId(null);
+      setMobileInspectorOpen(false);
+      return;
+    }
+    if (!selectedCandidate) setSelectedCandidateId(filteredCandidates[0].id);
+  }, [filteredCandidates, selectedCandidate]);
+
+  const openCandidate = (candidate: CandidateRule) => {
+    setSelectedCandidateId(candidate.id);
+    if (isDesktop) {
+      if (workspaceMode === "list") setWorkspaceMode("split");
+    } else {
+      setMobileInspectorOpen(true);
+    }
+  };
+
+  const selectCandidateRule = (rule: CanonicalRule) => {
+    const candidate = filteredCandidates.find((item) => item.rule.rule_id === rule.rule_id);
+    if (!candidate) return;
+    const index = filteredCandidates.findIndex((item) => item.id === candidate.id);
+    if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1);
+    openCandidate(candidate);
+  };
+
+  const changeWorkspaceMode = (mode: ReviewWorkspaceMode) => {
+    setInspectorFullscreen(false);
+    setWorkspaceMode(mode);
+  };
+
+  const hideInspector = () => {
+    setInspectorFullscreen(false);
+    setWorkspaceMode("list");
+  };
 
   const selectableIds = filteredCandidates
     .filter((c) => candidateEditability(c.review_status).canReview)
@@ -711,20 +749,211 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     return { netNew, superseding, unchangedCount };
   }, [activeVersionRules, approvedUnpublished]);
 
+  const qualityFindingCount = qualityFindings
+    ? Array.from(qualityFindings.values()).reduce((total, findings) => total + findings.length, 0)
+    : null;
+  const reviewedCount =
+    (statusCounts.approved ?? 0) + (statusCounts.rejected ?? 0) + (statusCounts.published ?? 0);
+  const decisionProgress = totalCandidates ? Math.round((reviewedCount / totalCandidates) * 100) : 0;
+  const selectedFindings = selectedCandidate
+    ? (qualityFindings?.get(selectedCandidate.rule.rule_id) ?? [])
+    : [];
+  const selectedEditability = selectedCandidate
+    ? candidateEditability(selectedCandidate.review_status)
+    : null;
+  const candidateRules = candidates.map((candidate) => candidate.rule);
+
+  const candidateInspector = (
+    <PolicyInspector
+      rule={selectedCandidate?.rule ?? null}
+      allRules={candidateRules}
+      activeTabKey={inspectorTab}
+      onTabChange={setInspectorTab}
+      onSelectRule={selectCandidateRule}
+      onClose={!isDesktop ? () => setMobileInspectorOpen(false) : undefined}
+      onHide={isDesktop ? hideInspector : undefined}
+      onToggleFullscreen={isDesktop ? () => setInspectorFullscreen((value) => !value) : undefined}
+      isFullscreen={inspectorFullscreen}
+      recordKind="candidate"
+      recordLabel="candidate"
+      contextMeta={
+        selectedCandidate ? (
+          <>
+            <Tag color={STATUS_COLOR[selectedCandidate.review_status] ?? "default"}>
+              {STATUS_LABEL[selectedCandidate.review_status] ?? selectedCandidate.review_status}
+            </Tag>
+            {selectedCandidate.delta_status && selectedCandidate.delta_status !== "baseline" && (
+              <Tag color={DELTA_META[selectedCandidate.delta_status]?.color}>
+                {DELTA_META[selectedCandidate.delta_status]?.label}
+              </Tag>
+            )}
+          </>
+        ) : undefined
+      }
+      additionalActions={
+        selectedCandidate && selectedEditability ? (
+          <>
+            <Button size="small" icon={<BulbOutlined />} onClick={() => setAskTarget(selectedCandidate)}>
+              Ask AI
+            </Button>
+            <Tooltip title={selectedEditability.editBlockedReason ?? "Change this candidate's wording, logic or effect"}>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                disabled={!selectedEditability.canEdit}
+                onClick={() => setEditTarget(selectedCandidate)}
+              >
+                Edit
+              </Button>
+            </Tooltip>
+            {selectedEditability.canReview && (
+              <>
+                <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setRewriteTarget(selectedCandidate)}>
+                  Suggest rewrite
+                </Button>
+                <Button size="small" type="primary" onClick={() => handleReview(selectedCandidate.id, "approve")}>
+                  Approve
+                </Button>
+                <Button size="small" danger onClick={() => handleReview(selectedCandidate.id, "reject")}>
+                  Reject
+                </Button>
+              </>
+            )}
+            {selectedCandidate.review_status === "approved" && (
+              <>
+                <Button
+                  size="small"
+                  icon={<SendOutlined />}
+                  disabled={!isManager}
+                  onClick={() => setManagerAction({ candidate: selectedCandidate, mode: "request-changes" })}
+                >
+                  Send back
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  disabled={!isManager}
+                  onClick={() => setManagerAction({ candidate: selectedCandidate, mode: "override-reject" })}
+                >
+                  Override & reject
+                </Button>
+              </>
+            )}
+            {selectedCandidate.review_status === "rejected" && isManager && (
+              <Button
+                size="small"
+                onClick={() => setManagerAction({ candidate: selectedCandidate, mode: "override-approve" })}
+              >
+                Override & approve
+              </Button>
+            )}
+          </>
+        ) : undefined
+      }
+      overviewSupplement={
+        selectedCandidate ? (
+          <div className="review-inspector-record">
+            <div className="review-record-grid">
+              <div>
+                <span>Candidate record ID</span>
+                <Text code copyable={{ text: selectedCandidate.id }}>
+                  {selectedCandidate.id}
+                </Text>
+              </div>
+              <div>
+                <span>Extraction run ID</span>
+                <Text code copyable={{ text: selectedCandidate.extraction_run_id }}>
+                  {selectedCandidate.extraction_run_id}
+                </Text>
+              </div>
+              <div>
+                <span>Review state</span>
+                <Text>{STATUS_LABEL[selectedCandidate.review_status] ?? selectedCandidate.review_status}</Text>
+              </div>
+              <div>
+                <span>Last decision</span>
+                <Text>{selectedCandidate.reviewed_by ? `By ${selectedCandidate.reviewed_by}` : "Not reviewed"}</Text>
+              </div>
+            </div>
+            {selectedCandidate.baseline_candidate_id && (
+              <RuleChangeExplainer candidateId={selectedCandidate.id} />
+            )}
+            {selectedFindings.length > 0 && (
+              <div className="readiness-badges">
+                {selectedFindings.map((finding, index) => (
+                  <Tooltip key={index} title={finding.recommendation}>
+                    <Tag
+                      icon={<ExclamationCircleOutlined />}
+                      color={finding.severity === "high" ? "red" : finding.severity === "medium" ? "gold" : "default"}
+                    >
+                      {finding.category}: {finding.finding}
+                    </Tag>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : undefined
+      }
+      notesTarget={
+        selectedCandidate
+          ? { entityType: "candidate_rule", entityId: selectedCandidate.id, title: "Review discussion" }
+          : undefined
+      }
+    />
+  );
+
   return (
     <>
-      <div className="page-header-row">
-        <Title level={3} style={{ margin: 0 }}>
-          Review Queue
-        </Title>
-        {!scoped && (
-          <Select
-            value={selectedKey}
-            onChange={setSelectedKey}
-            style={{ minWidth: 220 }}
-            options={policySets.map((ps) => ({ value: ps.key, label: ps.name }))}
-          />
-        )}
+      <div className="page-header-row review-page-header">
+        <div>
+          <Title level={3}>Review queue</Title>
+          <Text type="secondary">Decide candidate records from their source, condition, outcome, and exceptions.</Text>
+        </div>
+        <Space wrap className="review-page-actions">
+          {isDesktop && selectedKey && (
+            <Segmented
+              className="policies-view-switcher"
+              value={workspaceMode}
+              onChange={(value) => changeWorkspaceMode(value as ReviewWorkspaceMode)}
+              aria-label="Review workspace layout"
+              options={[
+                {
+                  value: "list",
+                  label: (
+                    <span className="policies-view-option">
+                      <UnorderedListOutlined /> List
+                    </span>
+                  ),
+                },
+                {
+                  value: "split",
+                  label: (
+                    <span className="policies-view-option">
+                      <LayoutOutlined /> Split
+                    </span>
+                  ),
+                },
+                {
+                  value: "detail",
+                  label: (
+                    <span className="policies-view-option">
+                      <FileSearchOutlined /> Detail
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          )}
+          {!scoped && (
+            <Select
+              value={selectedKey}
+              onChange={setSelectedKey}
+              style={{ minWidth: 220 }}
+              options={policySets.map((ps) => ({ value: ps.key, label: ps.name }))}
+            />
+          )}
+        </Space>
       </div>
 
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
@@ -792,10 +1021,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
       {selectedKey && (
         <>
-          <Card
-            title="Candidate Rules"
-            className="modern-card"
-            extra={
+          <section className="review-queue-panel">
+            <div className="review-queue-panel__header">
+              <div>
+                <Title level={4}>Candidate rules</Title>
+                <Text type="secondary">Select a decision record to verify its logic, source, formulation, and review history.</Text>
+              </div>
               <Button
                 type={showDraftForm ? "default" : "primary"}
                 icon={!showDraftForm && <PlusOutlined />}
@@ -803,8 +1034,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               >
                 {showDraftForm ? "Cancel" : "Draft Candidate Rule"}
               </Button>
-            }
-          >
+            </div>
+            <div className="review-queue-panel__body">
             {showDraftForm && (
               <Row gutter={20} style={{ marginBottom: 8 }}>
                 <Col xs={24} xl={9} style={{ marginBottom: 16 }}>
@@ -987,6 +1218,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               }
             />
 
+            <dl className="review-operations-strip" aria-label="Review operations summary">
+              <div>
+                <dt>Decision progress</dt>
+                <dd>{decisionProgress}%</dd>
+                <small>{reviewedCount} of {totalCandidates} decided</small>
+              </div>
+              <div className={approvedUnpublished.length > 0 ? "review-operation-attention" : undefined}>
+                <dt>Ready to publish</dt>
+                <dd>{approvedUnpublished.length}</dd>
+                <small>Approved, not live</small>
+              </div>
+              <div>
+                <dt>Related families</dt>
+                <dd>{bandedFamilyCount}</dd>
+                <small>In the current view</small>
+              </div>
+              <div>
+                <dt>Quality findings</dt>
+                <dd>{qualityFindingCount ?? "—"}</dd>
+                <small>{qualityFindingCount === null ? "Scan not run" : "Across loaded rules"}</small>
+              </div>
+            </dl>
+
             <ReviewFilterBar
               facets={facets}
               documentFilter={documentFilter}
@@ -1022,19 +1276,15 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 allowClear
                 style={{ width: 300 }}
               />
-              <Space>
-                <Text>Reviewing as</Text>
-                <Tooltip title="This is your identity across the whole app — the same name shown in the header and used when publishing a version. Set it once here or there.">
-                  <Input
-                    value={identity}
-                    onChange={(e) => setIdentity(e.target.value)}
-                    placeholder="your name"
-                    prefix={<UserOutlined />}
-                    status={identity.trim() ? undefined : "warning"}
-                    style={{ width: 180 }}
-                  />
-                </Tooltip>
-              </Space>
+              <Tooltip title='This is the shared identity from "Acting as" in the application header.'>
+                <div className={`review-identity-readout${identity.trim() ? "" : " review-identity-readout--missing"}`}>
+                  <UserOutlined />
+                  <span>
+                    <small>Reviewing as</small>
+                    <strong>{identity.trim() || "Set your name in the header"}</strong>
+                  </span>
+                </div>
+              </Tooltip>
               <Tooltip title="Run an AI + deterministic quality scan over unpublished candidates (findings appear as badges below)">
                 <Button icon={<SafetyCertificateOutlined />} onClick={runQualityCheck} loading={qualityLoading}>
                   {qualityFindings ? "Re-run quality check" : "Run quality check"}
@@ -1072,7 +1322,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             {qualityError && <Alert type="warning" showIcon message={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
 
             {selectableIds.length > 0 && (
-              <Card size="small" className="bulk-bar" style={{ marginBottom: 16 }}>
+              <div className="bulk-bar">
                 <Space size={16} wrap style={{ width: "100%", justifyContent: "space-between" }}>
                   <Checkbox
                     checked={selectedIds.size === selectableIds.length && selectableIds.length > 0}
@@ -1094,172 +1344,113 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     </Button>
                   </Space>
                 </Space>
-              </Card>
+              </div>
             )}
 
             {loading ? (
               <Text type="secondary">Loading…</Text>
             ) : (
-              <>
-                <Space direction="vertical" style={{ width: "100%" }} size={8} className="candidate-list">
-                  {pagedCandidates.map((c) => {
-                    const findings = qualityFindings?.get(c.rule.rule_id) ?? [];
-                    const editability = candidateEditability(c.review_status);
-                    const isReviewable = editability.canReview;
-                    const cluster = clusterMap.get(c.rule.rule_id);
-                    const isExpanded = expandedIds.has(c.id);
-                    return (
-                      <div key={c.id} className="candidate-item">
-                        <CandidateRow
-                          candidate={c}
-                          expanded={isExpanded}
-                          selected={selectedIds.has(c.id)}
-                          selectable={isReviewable}
-                          cluster={cluster}
-                          clusterColor={cluster ? clusterColor(cluster) : undefined}
-                          band={bandInfo.get(c.rule.rule_id)}
-                          findingsCount={findings.length}
-                          statusColor={STATUS_COLOR[c.review_status] ?? "default"}
-                          statusLabel={STATUS_LABEL[c.review_status] ?? c.review_status}
-                          onToggleExpand={() => toggleExpanded(c.id)}
-                          onToggleSelect={() => toggleSelected(c.id)}
-                          onSelectFamily={cluster && editability.canReview ? () => selectFamily(c.rule.rule_id) : undefined}
-                          onApprove={isReviewable ? () => handleReview(c.id, "approve") : undefined}
-                          onReject={isReviewable ? () => handleReview(c.id, "reject") : undefined}
-                        />
-                        {isExpanded && (
-                          <div className="candidate-item-detail">
-                            <RuleCard rule={c.rule} defaultExpanded hideNotes />
-                            {c.baseline_candidate_id && (
-                              <div className="candidate-change-slot">
-                                <RuleChangeExplainer candidateId={c.id} />
-                              </div>
-                            )}
-                            {findings.length > 0 && (
-                              <div className="readiness-badges">
-                                {findings.map((f, fi) => (
-                                  <Tooltip key={fi} title={f.recommendation}>
-                                    <Tag
-                                      icon={<ExclamationCircleOutlined />}
-                                      color={f.severity === "high" ? "red" : f.severity === "medium" ? "gold" : "default"}
-                                    >
-                                      {f.category}: {f.finding}
-                                    </Tag>
-                                  </Tooltip>
-                                ))}
-                              </div>
-                            )}
-                            <div className="candidate-item-footer">
-                              <Space size={10} wrap>
-                                <Text type="secondary" className="entity-id-row" copyable={{ text: c.id }}>
-                                  {c.id}
-                                </Text>
-                                {c.reviewed_by && <Text type="secondary">reviewed by {c.reviewed_by}</Text>}
-                                {c.review_notes && <Text type="secondary">— {c.review_notes}</Text>}
-                              </Space>
-                              <Space size={8} wrap>
-                                <Button size="small" icon={<BulbOutlined />} onClick={() => setAskTarget(c)}>
-                                  Ask AI about this rule
-                                </Button>
-                                <Tooltip title={editability.editBlockedReason ?? "Change this rule's wording, conditions or effect"}>
-                                  <Button
-                                    size="small"
-                                    icon={<EditOutlined />}
-                                    disabled={!editability.canEdit}
-                                    onClick={() => setEditTarget(c)}
-                                  >
-                                    Edit
-                                  </Button>
-                                </Tooltip>
-                                {isReviewable && (
-                                  <>
-                                    <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setRewriteTarget(c)}>
-                                      Suggest Rewrite
-                                    </Button>
-                                    <Button size="small" type="primary" onClick={() => handleReview(c.id, "approve")}>
-                                      Approve
-                                    </Button>
-                                    <Button size="small" danger onClick={() => handleReview(c.id, "reject")}>
-                                      Reject
-                                    </Button>
-                                  </>
-                                )}
-                                {c.review_status === "approved" && (
-                                  <>
-                                    <Tooltip title={isManager ? "Send back to the composer for rework" : "Manager role required"}>
-                                      <Button
-                                        size="small"
-                                        icon={<SendOutlined />}
-                                        disabled={!isManager}
-                                        onClick={() => setManagerAction({ candidate: c, mode: "request-changes" })}
-                                      >
-                                        Send back for changes
-                                      </Button>
-                                    </Tooltip>
-                                    <Tooltip title={isManager ? "Override this decision to Rejected" : "Manager role required"}>
-                                      <Button
-                                        size="small"
-                                        danger
-                                        disabled={!isManager}
-                                        onClick={() => setManagerAction({ candidate: c, mode: "override-reject" })}
-                                      >
-                                        Override & Reject
-                                      </Button>
-                                    </Tooltip>
-                                  </>
-                                )}
-                                {c.review_status === "rejected" && isManager && (
-                                  <Tooltip title="Override this decision to Approved">
-                                    <Button
-                                      size="small"
-                                      onClick={() => setManagerAction({ candidate: c, mode: "override-approve" })}
-                                    >
-                                      Override & Approve
-                                    </Button>
-                                  </Tooltip>
-                                )}
-                              </Space>
-                            </div>
-                            <NotesPanel entityType="candidate_rule" entityId={c.id} title="Review discussion" compact />
+              <div
+                className={`review-workspace review-workspace--${isDesktop ? "desktop" : "narrow"}${
+                  isDesktop ? ` review-workspace--${workspaceMode}` : ""
+                }`}
+              >
+                {(!isDesktop || workspaceMode !== "detail") && (
+                  <div className="review-workspace-list">
+                    <div className="candidate-list" role="listbox" aria-label="Candidate rules">
+                      {pagedCandidates.map((candidate) => {
+                        const findings = qualityFindings?.get(candidate.rule.rule_id) ?? [];
+                        const editability = candidateEditability(candidate.review_status);
+                        const cluster = clusterMap.get(candidate.rule.rule_id);
+                        return (
+                          <div key={candidate.id} className="candidate-item">
+                            <CandidateRow
+                              candidate={candidate}
+                              expanded={selectedCandidateId === candidate.id}
+                              selected={selectedIds.has(candidate.id)}
+                              selectable={editability.canReview}
+                              cluster={cluster}
+                              clusterColor={cluster ? clusterColor(cluster) : undefined}
+                              band={bandInfo.get(candidate.rule.rule_id)}
+                              findingsCount={findings.length}
+                              statusColor={STATUS_COLOR[candidate.review_status] ?? "default"}
+                              statusLabel={STATUS_LABEL[candidate.review_status] ?? candidate.review_status}
+                              onToggleExpand={() => openCandidate(candidate)}
+                              onToggleSelect={() => toggleSelected(candidate.id)}
+                              onSelectFamily={
+                                cluster && editability.canReview ? () => selectFamily(candidate.rule.rule_id) : undefined
+                              }
+                              onApprove={
+                                editability.canReview ? () => handleReview(candidate.id, "approve") : undefined
+                              }
+                              onReject={
+                                editability.canReview ? () => handleReview(candidate.id, "reject") : undefined
+                              }
+                            />
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {filteredCandidates.length === 0 && (
-                    <div className="review-empty-state">
-                      {emptyState.status === "success" ? (
-                        <Alert
-                          type="success"
-                          showIcon
-                          message={emptyState.title}
-                          description={emptyState.detail}
-                        />
-                      ) : (
-                        <Empty description={emptyState.title}>
-                          {emptyState.detail && <Text type="secondary">{emptyState.detail}</Text>}
-                        </Empty>
+                        );
+                      })}
+                      {filteredCandidates.length === 0 && (
+                        <div className="review-empty-state">
+                          {emptyState.status === "success" ? (
+                            <Alert type="success" showIcon message={emptyState.title} description={emptyState.detail} />
+                          ) : (
+                            <Empty description={emptyState.title}>
+                              {emptyState.detail && <Text type="secondary">{emptyState.detail}</Text>}
+                            </Empty>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </Space>
-                {filteredCandidates.length > PAGE_SIZE && (
-                  <div className="candidate-pagination">
-                    <Pagination
-                      current={page}
-                      pageSize={PAGE_SIZE}
-                      total={filteredCandidates.length}
-                      onChange={setPage}
-                      showSizeChanger={false}
-                      showTotal={(total, range) => `${range[0]}–${range[1]} of ${total} candidates`}
-                    />
+                    {filteredCandidates.length > PAGE_SIZE && (
+                      <div className="candidate-pagination">
+                        <Pagination
+                          current={page}
+                          pageSize={PAGE_SIZE}
+                          total={filteredCandidates.length}
+                          onChange={setPage}
+                          showSizeChanger={false}
+                          showTotal={(total, range) => `${range[0]}–${range[1]} of ${total} candidates`}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
-              </>
+                {isDesktop && workspaceMode !== "list" && (
+                  <>
+                    {inspectorFullscreen && (
+                      <button
+                        type="button"
+                        className="policy-inspector-backdrop"
+                        onClick={() => setInspectorFullscreen(false)}
+                        aria-label="Restore review workspace"
+                      />
+                    )}
+                    <div
+                      className={`review-workspace-inspector${
+                        inspectorFullscreen ? " review-workspace-inspector--fullscreen" : ""
+                      }`}
+                    >
+                      {candidateInspector}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
-          </Card>
+            </div>
+          </section>
 
-          <Card title="Publish Approved Candidates" className="modern-card publish-card">
+          <section className="project-overview-panel publish-card">
+            <div className="project-overview-panel__header">
+              <div>
+                <Text strong>Publish approved candidates</Text>
+                <Text type="secondary">Create the next immutable policy version</Text>
+              </div>
+              <Tag color={approvedUnpublished.length > 0 ? "gold" : "default"}>
+                {approvedUnpublished.length} ready
+              </Tag>
+            </div>
+            <div className="project-overview-panel__body">
             <Paragraph type="secondary">
               {approvedUnpublished.length} approved candidate(s) ready to publish into a new version, carrying forward
               all rules from the current active version.
@@ -1309,8 +1500,23 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 message={`Published: version ${publishResult.version_number}, ${publishResult.rule_count} rule(s)`}
               />
             )}
-          </Card>
+            </div>
+          </section>
         </>
+      )}
+
+      {!isDesktop && (
+        <Drawer
+          open={mobileInspectorOpen && !!selectedCandidate}
+          onClose={() => setMobileInspectorOpen(false)}
+          placement="right"
+          width="100%"
+          closable={false}
+          styles={{ body: { padding: 0 } }}
+          className="policy-inspector-drawer"
+        >
+          {candidateInspector}
+        </Drawer>
       )}
 
       {rewriteTarget && (

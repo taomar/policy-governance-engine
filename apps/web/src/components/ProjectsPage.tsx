@@ -1,16 +1,33 @@
 import { useEffect, useState } from "react";
-import { Alert, AutoComplete, Button, Card, Col, Empty, Form, Input, Modal, Row, Select, Space, Tag, Typography } from "antd";
-import { CheckCircleOutlined, ClockCircleOutlined, FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import { Alert, AutoComplete, Button, Empty, Form, Input, Modal, Select, Tag, Typography } from "antd";
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  FileTextOutlined,
+  PlusOutlined,
+  RightOutlined,
+  WarningOutlined,
+} from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type PolicySet } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 interface ProjectStats {
   documentCount: number;
   activeRuleCount: number;
   pendingCount: number;
+}
+
+function projectInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 }
 
 /**
@@ -34,7 +51,7 @@ export function ProjectsPage({
    * loaded yet. The nonce lets the same project be re-opened after the user has
    * navigated back to the list.
    */
-  openRequest?: { key: string; nonce: number };
+  openRequest?: { key: string | null; nonce: number };
 }) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [stats, setStats] = useState<Record<string, ProjectStats>>({});
@@ -95,7 +112,12 @@ export function ProjectsPage({
   const requestedKey = openRequest?.key;
   const requestedNonce = openRequest?.nonce;
   useEffect(() => {
-    if (!requestedKey) return;
+    if (requestedKey === undefined) return;
+    if (requestedKey === null) {
+      setSelected(null);
+      onActiveProjectChange?.(null);
+      return;
+    }
     const match = policySets.find((ps) => ps.key === requestedKey);
     if (match) openProject(match);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,98 +165,142 @@ export function ProjectsPage({
     );
   }
 
+  const totals = policySets.reduce(
+    (acc, ps) => {
+      const current = stats[ps.key];
+      acc.documents += current?.documentCount ?? 0;
+      acc.published += current?.activeRuleCount ?? 0;
+      acc.pending += current?.pendingCount ?? 0;
+      return acc;
+    },
+    { documents: 0, published: 0, pending: 0 },
+  );
+
   return (
-    <>
-      <div className="page-header-row">
+    <div className="projects-page">
+      <header className="page-header-row projects-page-header">
         <div>
-          <Title level={3} style={{ margin: 0 }}>
-            Projects
-          </Title>
-          <Text type="secondary">Each project holds its own documents, policies, and version history.</Text>
+          <Title level={3}>Project register</Title>
+          <Text type="secondary">Source documents, review work, and published policy versions by project.</Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          New Project
-        </Button>
-      </div>
+        <div className="projects-page-actions">
+          <Text type="secondary">{policySets.length} projects</Text>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            New project
+          </Button>
+        </div>
+      </header>
 
       {error && <Alert type="error" showIcon message={error} />}
 
+      {policySets.length > 0 && (
+        <dl className="project-register-summary" aria-label="Project portfolio totals">
+          <div>
+            <dt>Projects</dt>
+            <dd>{policySets.length}</dd>
+          </div>
+          <div>
+            <dt>Source documents</dt>
+            <dd>{totals.documents}</dd>
+          </div>
+          <div>
+            <dt>Published rules</dt>
+            <dd>{totals.published}</dd>
+          </div>
+          <div className={totals.pending > 0 ? "project-register-summary-attention" : undefined}>
+            <dt>Awaiting review</dt>
+            <dd>{totals.pending}</dd>
+          </div>
+        </dl>
+      )}
+
       {loading ? (
-        <Text type="secondary">Loading…</Text>
+        <div className="project-register-loading">
+          <Text type="secondary">Loading project register…</Text>
+        </div>
       ) : policySets.length === 0 ? (
-        <Card>
+        <div className="project-register-empty">
           <Empty
             description={
-              <Space direction="vertical" size={4}>
+              <span className="project-register-empty-copy">
                 <Text>No projects yet.</Text>
                 <Text type="secondary">Create one to start uploading policy documents and extracting rules.</Text>
-              </Space>
+              </span>
             }
           >
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              New Project
+              New project
             </Button>
           </Empty>
-        </Card>
+        </div>
       ) : (
-        <Row gutter={[16, 16]}>
+        <div className="project-register" role="list" aria-label="Projects">
+          <div className="project-register-columns" aria-hidden="true">
+            <span>Project</span>
+            <span>Documents</span>
+            <span>Published</span>
+            <span>Review queue</span>
+            <span>Status</span>
+            <span />
+          </div>
           {policySets.map((ps) => {
             const s = stats[ps.key];
             return (
-              <Col xs={24} sm={12} lg={8} key={ps.id}>
-                <Card hoverable onClick={() => openProject(ps)} className="policy-set-card">
-                  <div className="policy-set-card-title-row">
-                    <Title level={5} style={{ marginBottom: 4 }}>
-                      {ps.name}
-                    </Title>
-                    <Space size={4} wrap style={{ flexShrink: 0 }}>
-                      {ps.category && <Tag color={colorForCategory(ps.category)}>{ps.category}</Tag>}
-                      {ps.is_review_overdue && (
-                        <Tag color="error" icon={<WarningOutlined />}>
-                          Review overdue
+              <button key={ps.id} type="button" role="listitem" className="project-register-row" onClick={() => openProject(ps)}>
+                <span className="project-register-identity">
+                  <span className="project-register-glyph" aria-hidden="true">
+                    {projectInitials(ps.name)}
+                  </span>
+                  <span className="project-register-copy">
+                    <span className="project-register-title-line">
+                      <strong>{ps.name}</strong>
+                      {ps.category && ps.category.trim().toLowerCase() !== ps.name.trim().toLowerCase() && (
+                        <Tag bordered={false} color={colorForCategory(ps.category)}>
+                          {ps.category}
                         </Tag>
                       )}
-                    </Space>
-                  </div>
-                  <Text
-                    type="secondary"
-                    className="entity-id-row"
-                    onClick={(e) => e.stopPropagation()}
-                    copyable={{ text: ps.key }}
-                  >
-                    {ps.key}
-                  </Text>
-                  <br />
-                  <Text type="secondary">owner: {ps.owner}</Text>
-                  {ps.description && <Paragraph className="policy-set-card-desc">{ps.description}</Paragraph>}
-                  {ps.tags.length > 0 && (
-                    <Space size={4} wrap className="policy-set-card-tags">
-                      {ps.tags.map((t) => (
-                        <Tag key={t} bordered={false} className="fact-tag">
-                          {t}
-                        </Tag>
-                      ))}
-                    </Space>
+                    </span>
+                    <span className="project-register-meta">
+                      <code>{ps.key}</code>
+                      <span>Owned by {ps.owner}</span>
+                    </span>
+                    {ps.description && <span className="project-register-description">{ps.description}</span>}
+                  </span>
+                </span>
+                <span className="project-register-stat" title="Documents uploaded">
+                  <FileTextOutlined />
+                  <strong>{s?.documentCount ?? "—"}</strong>
+                  <small>Documents</small>
+                </span>
+                <span className="project-register-stat" title="Published rules in the active version">
+                  <CheckCircleOutlined />
+                  <strong>{s?.activeRuleCount ?? "—"}</strong>
+                  <small>Published</small>
+                </span>
+                <span
+                  className={`project-register-stat${s && s.pendingCount > 0 ? " project-register-stat-attention" : ""}`}
+                  title="Candidate rules awaiting review"
+                >
+                  <ClockCircleOutlined />
+                  <strong>{s?.pendingCount ?? "—"}</strong>
+                  <small>Awaiting</small>
+                </span>
+                <span className="project-register-health">
+                  {ps.is_review_overdue ? (
+                    <Tag color="error" icon={<WarningOutlined />}>
+                      Review overdue
+                    </Tag>
+                  ) : s && s.pendingCount > 0 ? (
+                    <Tag color="gold">Review in progress</Tag>
+                  ) : (
+                    <Tag color="green">No pending review</Tag>
                   )}
-                  <div className="project-card-stats">
-                    <span title="Documents uploaded">
-                      <FileTextOutlined /> {s?.documentCount ?? "…"}
-                    </span>
-                    <span title="Published rules (active version)">
-                      <CheckCircleOutlined /> {s?.activeRuleCount ?? "…"}
-                    </span>
-                    <span
-                      title="Candidate rules awaiting review"
-                      className={s && s.pendingCount > 0 ? "project-card-stat-attn" : ""}
-                    >
-                      <ClockCircleOutlined /> {s?.pendingCount ?? "…"}
-                    </span>
-                  </div>
-                </Card>
-              </Col>
+                </span>
+                <RightOutlined className="project-register-open" aria-hidden="true" />
+              </button>
             );
           })}
-        </Row>
+        </div>
       )}
 
       <Modal
@@ -279,6 +345,6 @@ export function ProjectsPage({
           </Form.Item>
         </Form>
       </Modal>
-    </>
+    </div>
   );
 }

@@ -50,7 +50,7 @@ export function AskAboutRuleModal({ candidate, onClose }: { candidate: Candidate
     <Modal
       title={
         <Space>
-          <ThunderboltOutlined style={{ color: "#7c3aed" }} />
+          <ThunderboltOutlined style={{ color: "#5b4db1" }} />
           <span>Ask AI about {candidate.rule.rule_id}</span>
         </Space>
       }
@@ -58,8 +58,9 @@ export function AskAboutRuleModal({ candidate, onClose }: { candidate: Candidate
       onCancel={onClose}
       width={680}
       footer={null}
+      rootClassName="ask-rule-modal"
     >
-      <Paragraph type="secondary" style={{ marginTop: -8 }}>
+      <Paragraph type="secondary" className="modal-intro">
         Grounded specifically in this rule{candidate.rule.group_label ? " and its variation group" : ""} — verbatim
         facts, plus a separate AI reflection.
       </Paragraph>

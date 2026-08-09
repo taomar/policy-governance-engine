@@ -122,6 +122,7 @@ class AssignDocumentRequest(BaseModel):
 
 class ClauseResponse(BaseModel):
     id: str
+    document_version_id: str
     clause_ref: str
     section: str | None
     page: int | None
@@ -129,6 +130,8 @@ class ClauseResponse(BaseModel):
     sequence: int
     element_id: str | None = None
     element_type: str | None = None
+    search_document_id: str
+    search_index: str
 
 
 class ImportPolicyVersionRequest(BaseModel):
@@ -459,6 +462,22 @@ class ProposePolicyTestsRequest(BaseModel):
     guidance: str = ""
 
 
+class GeneratePolicyValidationBatchRequest(BaseModel):
+    rule_ids: list[str] = Field(min_length=1, max_length=12)
+    tests_per_policy: int = Field(default=3, ge=0, le=10)
+    policy_version_id: str | None = None
+    scenario_text: str = ""
+    grounding_mode: Literal["json_only", "json_search"] = "json_only"
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    guidance: str = ""
+    created_by: str
+
+
+class RunPolicyValidationBatchRequest(BaseModel):
+    triggered_by: str
+    policy_version_id: str | None = None
+
+
 class PolicyTestReviewRequest(BaseModel):
     decision: Literal["accept", "reject"]
     reviewer: str
@@ -478,7 +497,11 @@ class PolicyTestResponse(BaseModel):
     test_kind: str
     input_facts: dict[str, object | None]
     evaluation_timestamp: datetime | None
-    expected_overall_status: str
+    scenario_text: str = ""
+    generation_batch_id: str | None = None
+    expectation_hash: str | None = None
+    expectation_revealed: bool = True
+    expected_overall_status: str | None
     expected_rule_id: str | None
     expected_rule_status: str | None
     expected_missing_facts: list[str] | None
@@ -498,6 +521,8 @@ class PolicyTestRunResponse(BaseModel):
     status: str
     explanation: str
     actual_response_json: dict | None
+    expected_assertions_json: dict | None = None
+    expectation_hash: str | None = None
     run_trigger: str
     triggered_by: str
     run_at: datetime
@@ -510,6 +535,26 @@ class PolicyTestListItemResponse(BaseModel):
 
     test: PolicyTestResponse
     latest_run: PolicyTestRunResponse | None = None
+    runs: list[PolicyTestRunResponse] = Field(default_factory=list)
+
+
+class PolicyTestBatchResponse(BaseModel):
+    id: str
+    policy_set_id: str
+    policy_version_id: str
+    version_number: int
+    grounding_mode: str
+    selected_rule_ids: list[str]
+    grounding_context: dict
+    scenario_count: int
+    tests_per_policy: int
+    reasoning_effort: str
+    guidance: str
+    created_by: str
+    status: str
+    executed_at: datetime | None
+    created_at: datetime
+    tests: list[PolicyTestListItemResponse]
 
 
 class ProposePolicyTestsResponse(BaseModel):

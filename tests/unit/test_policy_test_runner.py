@@ -130,6 +130,42 @@ class TestRunPolicyTest:
 
         assert result.status == PolicyTestRunStatus.PASS
 
+    def test_effective_date_rule_level_not_applicable_passes_when_rule_is_omitted(self):
+        rule = make_rule(
+            "R1", _fc("amount", ConditionOperator.EXISTS), effective_from=date(2099, 1, 1)
+        )
+        package = make_package([rule], effective_from=date(2099, 1, 1))
+        test_case = PolicyTestCase(
+            name="Effective-date: selected rule before activation",
+            test_kind=PolicyTestKind.EFFECTIVE_DATE,
+            input_facts={"amount": 1},
+            evaluation_timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            expected_overall_status=EvaluationStatus.NOT_APPLICABLE,
+            expected_rule_id="R1",
+            expected_rule_status=EvaluationStatus.NOT_APPLICABLE,
+        )
+
+        result = run_policy_test(test_case, package)
+
+        assert result.status == PolicyTestRunStatus.PASS
+
+    def test_unknown_expected_rule_still_fails_when_not_applicable_expected(self):
+        rule = make_rule("R1", _fc("amount", ConditionOperator.EXISTS))
+        package = make_package([rule])
+        test_case = PolicyTestCase(
+            name="Unknown rule is not a valid effective-date assertion",
+            test_kind=PolicyTestKind.EFFECTIVE_DATE,
+            input_facts={"amount": 1},
+            expected_overall_status=EvaluationStatus.NOT_APPLICABLE,
+            expected_rule_id="DOES_NOT_EXIST",
+            expected_rule_status=EvaluationStatus.NOT_APPLICABLE,
+        )
+
+        result = run_policy_test(test_case, package)
+
+        assert result.status == PolicyTestRunStatus.FAIL
+        assert "does not exist" in result.explanation
+
     def test_expected_rule_id_and_status_match_passes(self):
         rule_a = make_rule("R1", _fc("amount", ConditionOperator.LESS_THAN_OR_EQUAL, 100))
         # A comparison operator (unlike EXISTS) yields INDETERMINATE, not

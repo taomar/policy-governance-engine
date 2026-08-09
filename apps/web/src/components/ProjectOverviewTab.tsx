@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Card, Space, Tag, Typography } from "antd";
+import { Alert, Button, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
   CheckCircleOutlined,
@@ -19,7 +19,12 @@ interface Stats {
   documentCount: number;
   activeVersion: ApprovedPolicyVersion | null;
   versionCount: number;
+  candidateCount: number;
   pendingCandidateCount: number;
+  approvedCandidateCount: number;
+  rejectedCandidateCount: number;
+  executableRuleCount: number;
+  sourceGroundedRuleCount: number;
 }
 
 /**
@@ -50,14 +55,25 @@ export function ProjectOverviewTab({
         const [documents, versions, candidates] = await Promise.all([
           api.listDocuments(policySet.key),
           api.listPolicyVersions(policySet.key),
-          api.listCandidateRules(policySet.key, "candidate"),
+          api.listCandidateRules(policySet.key),
         ]);
+        const activeVersion = versions.find((v) => v.is_active) ?? null;
+        const activeRules = activeVersion
+          ? await api.getVersionRules(policySet.key, activeVersion.id)
+          : [];
         if (cancelled) return;
         setStats({
           documentCount: documents.length,
-          activeVersion: versions.find((v) => v.is_active) ?? null,
+          activeVersion,
           versionCount: versions.length,
-          pendingCandidateCount: candidates.length,
+          candidateCount: candidates.length,
+          pendingCandidateCount: candidates.filter((candidate) =>
+            ["candidate", "changes_requested"].includes(candidate.review_status),
+          ).length,
+          approvedCandidateCount: candidates.filter((candidate) => candidate.review_status === "approved").length,
+          rejectedCandidateCount: candidates.filter((candidate) => candidate.review_status === "rejected").length,
+          executableRuleCount: activeRules.filter((rule) => rule.machine_executable).length,
+          sourceGroundedRuleCount: activeRules.filter((rule) => rule.evidence.length > 0).length,
         });
       } catch (e) {
         if (!cancelled) setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
@@ -94,6 +110,10 @@ export function ProjectOverviewTab({
     !!policySet.escalation_contact ||
     policySet.consulted_parties.length > 0 ||
     policySet.informed_parties.length > 0;
+  const governanceConfiguredCount = raciEntries.filter((entry) => !entry.isDefault).length;
+  const decisionProgress = stats?.candidateCount
+    ? Math.round(((stats.candidateCount - stats.pendingCandidateCount) / stats.candidateCount) * 100)
+    : 100;
   const steps = [
     {
       key: "documents",
@@ -111,6 +131,14 @@ export function ProjectOverviewTab({
       attention: pending > 0,
     },
     {
+      key: "review",
+      label: "Approved, not yet live",
+      value: stats?.approvedCandidateCount ?? 0,
+      icon: <SafetyCertificateOutlined />,
+      tone: stats?.approvedCandidateCount ? "#5b4db1" : "#9ca3af",
+      attention: (stats?.approvedCandidateCount ?? 0) > 0,
+    },
+    {
       key: "policies",
       label: "Rules published (active)",
       value: stats?.activeVersion?.rule_count ?? 0,
@@ -123,7 +151,7 @@ export function ProjectOverviewTab({
     <>
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
 
-      <div className="project-flow">
+      <div className="project-flow project-flow--overview">
         {steps.map((step, idx) => (
           <div key={step.key} style={{ display: "contents" }}>
             <div
@@ -152,53 +180,82 @@ export function ProjectOverviewTab({
         ))}
       </div>
 
-      {stats &&
-        (stats.activeVersion ? (
-          <Alert
-            type="success"
-            showIcon
-            message={`Active version: v${stats.activeVersion.version_number}`}
-            description={`Effective ${stats.activeVersion.effective_from}${
-              stats.activeVersion.effective_to ? ` → ${stats.activeVersion.effective_to}` : ""
-            } · approved by ${stats.activeVersion.approved_by}`}
-            style={{ marginTop: 16 }}
-          />
-        ) : (
-          <Alert
-            type="warning"
-            showIcon
-            message="No published version yet"
-            description={
-              <Space direction="vertical" size={4}>
-                <Text>This project has no published policies yet.</Text>
+      <div className="project-overview-grid">
+        <section className="project-overview-panel project-state-panel">
+          <div className="project-overview-panel__header">
+            <div>
+              <Text strong>Published state</Text>
+              <Text type="secondary">What is live and enforceable now</Text>
+            </div>
+            {stats?.activeVersion ? <Tag color="green">Active v{stats.activeVersion.version_number}</Tag> : <Tag color="gold">Not published</Tag>}
+          </div>
+          <div className="project-overview-panel__body">
+            {stats?.activeVersion ? (
+              <>
+                <dl className="project-state-grid">
+                  <div>
+                    <dt>Live rules</dt>
+                    <dd>{stats.activeVersion.rule_count}</dd>
+                  </div>
+                  <div>
+                    <dt>Machine-executable</dt>
+                    <dd>{stats.executableRuleCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Source-grounded</dt>
+                    <dd>{stats.sourceGroundedRuleCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Published versions</dt>
+                    <dd>{stats.versionCount}</dd>
+                  </div>
+                </dl>
+                <div className="project-state-meta">
+                  <span>
+                    <Text type="secondary">Effective</Text>
+                    <Text>
+                      {stats.activeVersion.effective_from}
+                      {stats.activeVersion.effective_to ? ` → ${stats.activeVersion.effective_to}` : " → open-ended"}
+                    </Text>
+                  </span>
+                  <span>
+                    <Text type="secondary">Approved by</Text>
+                    <Text>{stats.activeVersion.approved_by}</Text>
+                  </span>
+                  <span>
+                    <Text type="secondary">Review decisions</Text>
+                    <Text>{decisionProgress}% complete</Text>
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="project-state-empty">
+                <Text strong>No published version yet</Text>
+                <Text type="secondary">Review candidates and publish an immutable first version.</Text>
                 <Space>
-                  <a onClick={() => onNavigate("documents")}>Upload a document →</a>
-                  <a onClick={() => onNavigate("review")}>Go to Review →</a>
+                  <a onClick={() => onNavigate("documents")}>Upload source →</a>
+                  <a onClick={() => onNavigate("review")}>Open Review →</a>
                 </Space>
-              </Space>
-            }
-            style={{ marginTop: 16 }}
-          />
-        ))}
+              </div>
+            )}
+          </div>
+        </section>
 
-      <Card
-        title={
-          <Space size={8}>
-            <SafetyCertificateOutlined />
-            Governance &amp; ownership
-          </Space>
-        }
-        extra={
-          onEditProject && (
-            <a onClick={onEditProject}>
-              <EditOutlined /> Configure
-            </a>
-          )
-        }
-        style={{ marginTop: 16 }}
-      >
-        {hasRaciConfigured ? (
-          <>
+        <section className="project-overview-panel">
+          <div className="project-overview-panel__header">
+            <div>
+              <Text strong>
+                <SafetyCertificateOutlined /> Governance &amp; ownership
+              </Text>
+              <Text type="secondary">{governanceConfiguredCount} of {raciEntries.length} primary roles configured</Text>
+            </div>
+            {onEditProject && (
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={onEditProject}>
+                Configure
+              </Button>
+            )}
+          </div>
+          <div className="project-overview-panel__body">
             <div className="governance-grid">
               {raciEntries.map((entry) => (
                 <div key={entry.label} className="governance-item">
@@ -243,24 +300,43 @@ export function ProjectOverviewTab({
                 )}
               </Space>
             )}
-          </>
-        ) : (
-          <Space direction="vertical" size={4}>
-            <Text type="secondary">No accountable owner, delegate approver, or escalation contact set yet.</Text>
-            {onEditProject && <a onClick={onEditProject}>Configure ownership →</a>}
-          </Space>
-        )}
-      </Card>
+            {!hasRaciConfigured && (
+              <div className="governance-empty-note">
+                <Text type="secondary">Add accountable ownership and escalation before the next review cycle.</Text>
+              </div>
+            )}
+            <div className="project-review-schedule">
+              <span>
+                <Text type="secondary">Last reviewed</Text>
+                <Text>{policySet.last_reviewed_at ? new Date(policySet.last_reviewed_at).toLocaleDateString() : "Not recorded"}</Text>
+              </span>
+              <span>
+                <Text type="secondary">Next review due</Text>
+                <Text type={policySet.is_review_overdue ? "danger" : undefined}>
+                  {policySet.review_due_date ?? "Not scheduled"}
+                </Text>
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
 
       {stats?.activeVersion && <PolicySetSummaryPanel policySetKey={policySet.key} />}
 
-      <div style={{ marginTop: 16 }}>
-        <ActivityPanel policySetKey={policySet.key} />
+      <div className="project-overview-lower-grid">
+        <ActivityPanel policySetKey={policySet.key} limit={6} />
+        <section className="project-overview-panel project-notes-panel">
+          <div className="project-overview-panel__header">
+            <div>
+              <Text strong>Project notes</Text>
+              <Text type="secondary">Append-only collaboration record</Text>
+            </div>
+          </div>
+          <div className="project-overview-panel__body">
+            <NotesPanel entityType="policy_set" entityId={policySet.key} compact />
+          </div>
+        </section>
       </div>
-
-      <Card title="Notes on this project" style={{ marginTop: 16 }}>
-        <NotesPanel entityType="policy_set" entityId={policySet.key} compact />
-      </Card>
     </>
   );
 }

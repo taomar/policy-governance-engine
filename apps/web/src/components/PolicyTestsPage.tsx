@@ -681,10 +681,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
     <div className="tests-workspace">
       <div className="page-header-row">
         <div>
-          <div className="section-eyebrow">Policy assurance</div>
-          <Title level={3} style={{ margin: 0 }}>
-            Tests
-          </Title>
+          <Title level={3}>Tests</Title>
         </div>
         <Button icon={<PlusOutlined />} onClick={openCreate}>
           Add test manually
@@ -796,32 +793,29 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         />
       )}
 
-      <div className="tests-summary-grid">
-        <Card size="small" className="tests-summary-card">
-          <Text type="secondary">Saved tests</Text>
-          <strong>{tests.length}</strong>
-        </Card>
-        <Card size="small" className="tests-summary-card">
-          <Text type="secondary">Awaiting review</Text>
-          <strong>{pendingReview.length}</strong>
-        </Card>
-        <Card size="small" className="tests-summary-card">
-          <Text type="secondary">Latest runs</Text>
-          <strong>{latestRuns.length}</strong>
-        </Card>
-        <Card size="small" className="tests-summary-card">
-          <Text type="secondary">Failing now</Text>
-          <strong>{failingActiveCount}</strong>
-        </Card>
-      </div>
+      <dl className="tests-summary-strip">
+        <div>
+          <dt>Saved tests</dt>
+          <dd>{tests.length}</dd>
+        </div>
+        <div>
+          <dt>Awaiting review</dt>
+          <dd>{pendingReview.length}</dd>
+        </div>
+        <div>
+          <dt>Latest runs</dt>
+          <dd>{latestRuns.length}</dd>
+        </div>
+        <div>
+          <dt>Failing now</dt>
+          <dd>{failingActiveCount}</dd>
+        </div>
+      </dl>
 
       <div className="tests-control-grid">
         <Card className="tests-ai-panel">
-          <div className="section-eyebrow">
-            <ThunderboltOutlined /> AI proposal helper
-          </div>
           <Title level={4} className="tests-panel-title">
-            Tell the AI what matters, and it drafts the tests
+            <ThunderboltOutlined /> Draft tests with AI
           </Title>
           <Paragraph type="secondary" className="tests-panel-copy">
             It reads the {evaluationTarget.version ? `${evaluationTarget.version.rule_count} published rules` : "published rules"} and
@@ -889,7 +883,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         </Card>
 
         <Card className="tests-filter-panel">
-          <div className="section-eyebrow">What each kind of test answers</div>
+          <Text strong className="tests-filter-title">Filter by test kind</Text>
           <Select
             value={kindFilter}
             onChange={setKindFilter}
@@ -923,7 +917,6 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         <div className="tests-list-column">
           {!loading && tests.length === 0 && (
             <Card className="tests-empty-state">
-              <div className="section-eyebrow">No tests yet</div>
               <Title level={4}>Nothing is guarding this policy set</Title>
               <Paragraph type="secondary">
                 Right now, a re-extraction or an edit could change what these policies answer and nobody would
@@ -1095,7 +1088,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
             <summary>How tests work — what counts as a test, and the lifecycle</summary>
             <div className="tests-guide-disclosure__body">
               <Card className="tests-guide-card">
-                <div className="section-eyebrow">What counts as a test?</div>
+                <Text strong>What counts as a test?</Text>
                 <Title level={4}>A named policy scenario with expected evaluator output</Title>
                 <Paragraph type="secondary">
                   Each test stores input facts and the status you expect. Running it compares the server evaluator's
@@ -1112,7 +1105,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
               </Card>
 
               <Card className="tests-guide-card">
-                <div className="section-eyebrow">Lifecycle</div>
+                <Text strong>Lifecycle</Text>
                 <div className="tests-lifecycle">
                   <div>
                     <strong>1. Draft</strong>

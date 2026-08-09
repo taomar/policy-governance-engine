@@ -55,6 +55,7 @@ export interface WorkspaceCounts {
   versions: number;
   limits: number;
   tests: number;
+  regression_tests: number;
   exceptions_open: number;
   correlation_findings: number;
   decisions: number;
@@ -523,11 +524,17 @@ export interface DocumentVersion {
 
 export interface Clause {
   id: string;
+  document_version_id: string;
   clause_ref: string;
   section: string | null;
   page: number | null;
   text: string;
   sequence: number;
+  element_id?: string | null;
+  element_type?: string | null;
+  /** Exact key used for this clause in the configured Azure AI Search index. */
+  search_document_id: string;
+  search_index: string;
 }
 
 export interface SourceDocument {
@@ -936,6 +943,10 @@ export interface RuleScenarioTestResult {
   reasoning_effort: string;
   evaluation_timestamp: string;
   result_hash: string;
+  machine_executable: boolean;
+  testability_reason: "rule_not_machine_executable" | null;
+  dmn_mapping_statuses: string[];
+  formulation_requirements: string[];
 }
 
 export interface QualityFinding {
@@ -1070,7 +1081,11 @@ export interface PolicyTest {
   test_kind: PolicyTestKind;
   input_facts: Record<string, unknown>;
   evaluation_timestamp: string | null;
-  expected_overall_status: EvaluationStatus;
+  scenario_text: string;
+  generation_batch_id: string | null;
+  expectation_hash: string | null;
+  expectation_revealed: boolean;
+  expected_overall_status: EvaluationStatus | null;
   expected_rule_id: string | null;
   expected_rule_status: EvaluationStatus | null;
   expected_missing_facts: string[] | null;
@@ -1090,6 +1105,16 @@ export interface PolicyTestRun {
   status: PolicyTestRunStatus;
   explanation: string;
   actual_response_json: EvaluationResponse | null;
+  expected_assertions_json: {
+    scenario_text: string;
+    input_facts: Record<string, unknown>;
+    evaluation_timestamp: string | null;
+    expected_overall_status: EvaluationStatus;
+    expected_rule_id: string | null;
+    expected_rule_status: EvaluationStatus | null;
+    expected_missing_facts: string[] | null;
+  } | null;
+  expectation_hash: string | null;
   run_trigger: "manual" | "on_publish";
   triggered_by: string;
   run_at: string;
@@ -1098,6 +1123,7 @@ export interface PolicyTestRun {
 export interface PolicyTestListItem {
   test: PolicyTest;
   latest_run: PolicyTestRun | null;
+  runs: PolicyTestRun[];
 }
 
 export interface CreatePolicyTestRequest {
@@ -1118,6 +1144,41 @@ export interface ProposePolicyTestsResponse {
   reasoning_effort: string;
   proposed_tests: PolicyTest[];
   skipped: string[];
+}
+
+export type PolicyTestGroundingMode = "json_only" | "json_search";
+
+export interface PolicyTestBatch {
+  id: string;
+  policy_set_id: string;
+  policy_version_id: string;
+  version_number: number;
+  grounding_mode: PolicyTestGroundingMode;
+  selected_rule_ids: string[];
+  grounding_context: {
+    mode: PolicyTestGroundingMode;
+    search_index: string | null;
+    query: string | null;
+    hits: Array<{
+      id: string | null;
+      document_id: string | null;
+      clause_id: string | null;
+      clause_number: string | null;
+      section_heading: string | null;
+      heading: string | null;
+      score: number | null;
+      body: string | null;
+    }>;
+  };
+  scenario_count: number;
+  tests_per_policy: number;
+  reasoning_effort: string;
+  guidance: string;
+  created_by: string;
+  status: "generated" | "executed";
+  executed_at: string | null;
+  created_at: string;
+  tests: PolicyTestListItem[];
 }
 
 export const policyTestApi = {
@@ -1163,6 +1224,35 @@ export const policyTestApi = {
     }),
 
   listRuns: (testId: string) => request<PolicyTestRun[]>(`/api/policy-tests/${encodeURIComponent(testId)}/runs`),
+
+  generateBatch: (
+    policySetKey: string,
+    body: {
+      rule_ids: string[];
+      tests_per_policy: number;
+      policy_version_id?: string;
+      scenario_text?: string;
+      grounding_mode: PolicyTestGroundingMode;
+      reasoning_effort: "low" | "medium" | "high";
+      guidance: string;
+      created_by: string;
+    }
+  ) =>
+    request<PolicyTestBatch>(
+      `/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}/validation-batches`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  listBatches: (policySetKey: string) =>
+    request<PolicyTestBatch[]>(
+      `/api/policy-tests/policy-sets/${encodeURIComponent(policySetKey)}/validation-batches`
+    ),
+
+  runBatch: (batchId: string, triggeredBy: string, policyVersionId?: string) =>
+    request<PolicyTestBatch>(`/api/policy-tests/validation-batches/${encodeURIComponent(batchId)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ triggered_by: triggeredBy, policy_version_id: policyVersionId ?? null }),
+    }),
 };
 
 // ---------- Policy Exceptions (ADR-0009) ----------

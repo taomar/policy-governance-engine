@@ -22,6 +22,7 @@ import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { ambiguityMeta, describeScope, hasAmbiguityFlag } from "../ruleDisplay";
+import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
 const { Text, Paragraph } = Typography;
 
@@ -116,69 +117,76 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
   }, [rule.evidence, docMetaByVersionId, clausesById]);
 
   const header = (
-    <Space size={10} wrap className="rule-card-header">
-      {headerActions}
-      <Text strong>{rule.title}</Text>
-      <Tag color={EFFECT_COLOR[rule.effect.type] ?? "default"}>{rule.effect.type}</Tag>
-      <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
-      {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
-      {!rule.machine_executable && <Tag color="orange">manual</Tag>}
-      {hasAmbiguityFlag(rule.ambiguity_status) && (
-        <Tag color={ambiguityMeta(rule.ambiguity_status).color}>{ambiguityMeta(rule.ambiguity_status).label}</Tag>
-      )}
-      <Text
-        type="secondary"
-        className="rule-card-id"
-        copyable={{ text: rule.rule_id, tooltips: ["Copy rule ID", "Copied!"] }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {rule.rule_id} · rev {rule.rule_revision}
-      </Text>
-      <span className="rule-card-header-spacer" />
-      {rule.evidence.length > 0 && (
-        <Button
-          size="small"
-          icon={<ReadOutlined />}
-          className="rule-card-header-action"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (primaryEvidence) {
-              setBodyViewer({
-                documentVersionId: primaryEvidence.document_version_id,
-                clauseId: primaryEvidence.clause_id ?? null,
-                page: primaryEvidence.page ?? null,
-              });
+    <div className="rule-card-header">
+      <div className="rule-card-heading">
+        <Text strong className="rule-card-title">
+          {rule.title}
+        </Text>
+        <div className="rule-card-meta">
+          <PolicyEffectBadge effect={rule.effect} size="small" />
+          <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
+          {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
+          {!rule.machine_executable && <Tag color="orange">Manual</Tag>}
+          {hasAmbiguityFlag(rule.ambiguity_status) && (
+            <Tag color={ambiguityMeta(rule.ambiguity_status).color}>{ambiguityMeta(rule.ambiguity_status).label}</Tag>
+          )}
+          <Text
+            type="secondary"
+            className="rule-card-id"
+            copyable={{ text: rule.rule_id, tooltips: ["Copy rule ID", "Copied!"] }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {rule.rule_id} · rev {rule.rule_revision}
+          </Text>
+        </div>
+      </div>
+      <div className="rule-card-header-actions">
+        {headerActions}
+        {rule.evidence.length > 0 && (
+          <Button
+            size="small"
+            icon={<ReadOutlined />}
+            className="rule-card-header-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (primaryEvidence) {
+                setBodyViewer({
+                  documentVersionId: primaryEvidence.document_version_id,
+                  clauseId: primaryEvidence.clause_id ?? null,
+                  page: primaryEvidence.page ?? null,
+                });
+              }
+            }}
+            disabled={!primaryEvidence}
+            title={
+              !primaryEvidence
+                ? evidenceStillResolving
+                  ? "Loading source…"
+                  : "Source unavailable"
+                : primaryEvidence.clause_id && clausesById.has(primaryEvidence.clause_id)
+                  ? "Open the original source document at this rule's clause"
+                  : "Open the original source document (no highlighted clause for this citation)"
             }
-          }}
-          disabled={!primaryEvidence}
-          title={
-            !primaryEvidence
-              ? evidenceStillResolving
-                ? "Loading source…"
-                : "Source unavailable"
-              : primaryEvidence.clause_id && clausesById.has(primaryEvidence.clause_id)
-                ? "Open the original source document at this rule's clause"
-                : "Open the original source document (no highlighted clause for this citation)"
-          }
-        >
-          View source
-        </Button>
-      )}
-      {onRevise && (
-        <Button
-          size="small"
-          icon={<EditOutlined />}
-          className="rule-card-header-action"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRevise(rule);
-          }}
-          title="Draft the next revision of this rule for review"
-        >
-          Revise
-        </Button>
-      )}
-    </Space>
+          >
+            View source
+          </Button>
+        )}
+        {onRevise && (
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            className="rule-card-header-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRevise(rule);
+            }}
+            title="Draft the next revision of this rule for review"
+          >
+            Revise
+          </Button>
+        )}
+      </div>
+    </div>
   );
 
   return (

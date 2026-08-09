@@ -1,4 +1,4 @@
-import { Button, Dropdown, message, Tag, Tooltip } from "antd";
+import { Button, Checkbox, Dropdown, message, Tag, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import {
   ClockCircleOutlined,
@@ -18,7 +18,7 @@ import {
   clusterLabel,
   hasAmbiguityFlag,
   hexToRgba,
-  ruleConditionLine,
+  ruleDecisionSummary,
   type RuleVariationGroup,
 } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
@@ -72,6 +72,8 @@ interface PolicyRowProps {
   onHoverCluster?: (clusterId: string | null) => void;
   /** Isolates this row's family in the list (toggles off when already focused). */
   onFocusCluster?: (clusterId: string | null) => void;
+  selectedForExport?: boolean;
+  onToggleExportSelection?: (ruleId: string) => void;
   style?: React.CSSProperties;
 }
 
@@ -118,9 +120,11 @@ export function PolicyRow({
   isClusterFocused,
   onHoverCluster,
   onFocusCluster,
+  selectedForExport,
+  onToggleExportSelection,
   style,
 }: PolicyRowProps) {
-  const line = ruleConditionLine(rule);
+  const decision = ruleDecisionSummary(rule);
   const accent = cluster ? clusterColor(cluster) : undefined;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -189,6 +193,15 @@ export function PolicyRow({
       onMouseEnter={handleClusterEnter}
       onMouseLeave={handleClusterLeave}
     >
+      {onToggleExportSelection && (
+        <Checkbox
+          checked={selectedForExport}
+          onChange={() => onToggleExportSelection(rule.rule_id)}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Select ${rule.title} for export`}
+          className="policy-row-export-checkbox"
+        />
+      )}
       {cluster && (
         <>
           <span
@@ -226,10 +239,16 @@ export function PolicyRow({
               </Tooltip>
             )}
           </span>
-          <PolicyEffectBadge effect={rule.effect} size="small" />
+          <span className="policy-row-statuses">
+            <PolicyEffectBadge effect={rule.effect} size="small" />
+          </span>
         </div>
-        <div className="policy-row-line2" title={line.text}>
-          {highlight(line.text, searchQuery)}
+        <div className="policy-decision-line" title={decision.text}>
+          <span className="policy-decision-key">When</span>
+          <span className="policy-decision-value">{highlight(decision.condition, searchQuery)}</span>
+          <span className="policy-decision-arrow">→</span>
+          <span className="policy-decision-key">Then</span>
+          <span className="policy-decision-result">{highlight(decision.action, searchQuery)}</span>
         </div>
         <div className="policy-row-line3">
           {showFamilyChip && (

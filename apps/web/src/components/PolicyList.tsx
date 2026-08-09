@@ -16,8 +16,8 @@ type FlatItem =
   | { type: "header"; key: string; groupKey: string; label: string; count: number }
   | { type: "row"; key: string; rule: CanonicalRule };
 
-const HEADER_HEIGHT = 38;
-const ROW_HEIGHT: Record<PolicyDensity, number> = { comfortable: 84, compact: 56 };
+const HEADER_HEIGHT = 34;
+const ROW_HEIGHT: Record<PolicyDensity, number> = { comfortable: 78, compact: 54 };
 const OVERSCAN_PX = 500;
 
 interface PolicyListProps {
@@ -41,6 +41,8 @@ interface PolicyListProps {
   /** Family currently isolated by the toolbar lens (`clusterIdentity`), or null. */
   focusedFamily?: string | null;
   onFocusFamily?: (id: string | null) => void;
+  selectedForExport?: Set<string>;
+  onToggleExportSelection?: (ruleId: string) => void;
 }
 
 /**
@@ -65,6 +67,8 @@ export function PolicyList({
   clusterMap,
   focusedFamily = null,
   onFocusFamily,
+  selectedForExport,
+  onToggleExportSelection,
 }: PolicyListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -232,6 +236,8 @@ export function PolicyList({
               isClusterFocused={!!clusterId && focusedFamily === clusterId}
               onHoverCluster={setHoveredCluster}
               onFocusCluster={onFocusFamily}
+              selectedForExport={selectedForExport?.has(item.rule.rule_id)}
+              onToggleExportSelection={onToggleExportSelection}
               style={{ position: "absolute", top, left: 0, right: 0, height: rowHeight }}
             />
           );

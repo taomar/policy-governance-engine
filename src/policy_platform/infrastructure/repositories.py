@@ -28,6 +28,7 @@ from policy_platform.domain.models import (
     PolicyException,
     PolicySet,
     PolicyTest,
+    PolicyTestBatch,
     PolicyTestRun,
     QualityRun,
 )
@@ -725,6 +726,9 @@ class PolicyTestRepository:
         proposed_by: str,
         review_status: str,
         is_active: bool,
+        generation_batch_id: uuid.UUID | None = None,
+        scenario_text: str = "",
+        expectation_hash: str | None = None,
     ) -> PolicyTest:
         test = PolicyTest(
             policy_set_id=policy_set_id,
@@ -740,6 +744,9 @@ class PolicyTestRepository:
             proposed_by=proposed_by,
             review_status=review_status,
             is_active=is_active,
+            generation_batch_id=generation_batch_id,
+            scenario_text=scenario_text,
+            expectation_hash=expectation_hash,
         )
         self._session.add(test)
         await self._session.flush()
@@ -761,6 +768,12 @@ class PolicyTestRepository:
         result = await self._session.execute(select(PolicyTest).where(PolicyTest.id == test_id))
         return result.scalar_one_or_none()
 
+    async def list_by_batch(self, batch_id: uuid.UUID) -> list[PolicyTest]:
+        result = await self._session.execute(
+            select(PolicyTest).where(PolicyTest.generation_batch_id == batch_id).order_by(PolicyTest.created_at)
+        )
+        return list(result.scalars().all())
+
     async def set_review_status(
         self,
         test: PolicyTest,
@@ -777,6 +790,59 @@ class PolicyTestRepository:
         test.review_notes = review_notes
         await self._session.flush()
         return test
+
+
+class PolicyTestBatchRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        *,
+        policy_set_id: uuid.UUID,
+        policy_version_id: uuid.UUID,
+        grounding_mode: str,
+        selected_rule_ids_json: list[str],
+        grounding_context_json: dict,
+        scenario_count: int,
+        reasoning_effort: str,
+        guidance: str,
+        created_by: str,
+    ) -> PolicyTestBatch:
+        batch = PolicyTestBatch(
+            policy_set_id=policy_set_id,
+            policy_version_id=policy_version_id,
+            grounding_mode=grounding_mode,
+            selected_rule_ids_json=selected_rule_ids_json,
+            grounding_context_json=grounding_context_json,
+            scenario_count=scenario_count,
+            reasoning_effort=reasoning_effort,
+            guidance=guidance,
+            created_by=created_by,
+            status="generated",
+        )
+        self._session.add(batch)
+        await self._session.flush()
+        return batch
+
+    async def get_by_id(self, batch_id: uuid.UUID) -> PolicyTestBatch | None:
+        result = await self._session.execute(select(PolicyTestBatch).where(PolicyTestBatch.id == batch_id))
+        return result.scalar_one_or_none()
+
+    async def list_by_policy_set(self, policy_set_id: uuid.UUID, *, limit: int = 20) -> list[PolicyTestBatch]:
+        result = await self._session.execute(
+            select(PolicyTestBatch)
+            .where(PolicyTestBatch.policy_set_id == policy_set_id)
+            .order_by(PolicyTestBatch.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def mark_executed(self, batch: PolicyTestBatch) -> PolicyTestBatch:
+        batch.status = "executed"
+        batch.executed_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return batch
 
 
 class PolicyTestRunRepository:
@@ -800,6 +866,8 @@ class PolicyTestRunRepository:
         actual_response_json: dict | None,
         run_trigger: str,
         triggered_by: str,
+        expected_assertions_json: dict | None = None,
+        expectation_hash: str | None = None,
         run_at: datetime | None = None,
     ) -> PolicyTestRun:
         run = PolicyTestRun(
@@ -808,6 +876,8 @@ class PolicyTestRunRepository:
             status=status,
             explanation=explanation,
             actual_response_json=actual_response_json,
+            expected_assertions_json=expected_assertions_json,
+            expectation_hash=expectation_hash,
             run_trigger=run_trigger,
             triggered_by=triggered_by,
             run_at=run_at or datetime.now(timezone.utc),
@@ -854,6 +924,19 @@ class PolicyTestRunRepository:
         result = await self._session.execute(stmt)
         rows = result.scalars().all()
         return {row.policy_test_id: row for row in rows}
+
+    async def list_for_tests(self, policy_test_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[PolicyTestRun]]:
+        if not policy_test_ids:
+            return {}
+        result = await self._session.execute(
+            select(PolicyTestRun)
+            .where(PolicyTestRun.policy_test_id.in_(policy_test_ids))
+            .order_by(PolicyTestRun.policy_test_id, PolicyTestRun.run_at.desc())
+        )
+        grouped: dict[uuid.UUID, list[PolicyTestRun]] = {}
+        for row in result.scalars().all():
+            grouped.setdefault(row.policy_test_id, []).append(row)
+        return grouped
 
 
 class QualityRunRepository:

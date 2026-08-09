@@ -313,7 +313,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
                 {result.rules.map((rule) => {
                   const isLoaded = loadedRuleId === rule.rule_id;
                   return (
-                    <Card key={rule.rule_id} size="small" className="ai-generated-rule">
+                    <div key={rule.rule_id} className="ai-generated-rule">
                       <Text strong style={{ fontSize: 12 }}>
                         {rule.title}
                       </Text>
@@ -341,7 +341,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
                           Test
                         </Button>
                       </Space>
-                    </Card>
+                    </div>
                   );
                 })}
               </Space>
@@ -359,7 +359,9 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
       )}
 
       {testFor && (
-        <Card size="small" style={{ marginTop: 12 }} title={`Test: ${testFor.title}`}>
+        <section className="ai-draft-test">
+          <div className="ai-draft-test__header">Test: {testFor.title}</div>
+          <div className="ai-draft-test__body">
           <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 8 }}>
             Advisory only. This asks the AI how the draft would apply to a situation; it does not
             run the deterministic engine, which evaluates published rules.
@@ -411,7 +413,8 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
               )}
             </div>
           )}
-        </Card>
+          </div>
+        </section>
       )}
     </Card>
   );

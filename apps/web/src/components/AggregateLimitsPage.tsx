@@ -583,7 +583,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
         {proposals && proposals.length > 0 && (
           <Space direction="vertical" size={12} style={{ width: "100%", marginTop: 16 }}>
             {proposals.map((proposal) => (
-              <Card key={proposal.aggregate_key} size="small" className="aggregate-proposal-card">
+              <article key={proposal.aggregate_key} className="aggregate-proposal-card">
                 <div className="aggregate-card-head">
                   <div>
                     <Text strong>{proposal.description || proposal.aggregate_key}</Text>
@@ -674,7 +674,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
                     <Button loading={saving}>Save without previewing</Button>
                   </Popconfirm>
                 </Space>
-              </Card>
+              </article>
             ))}
           </Space>
         )}
@@ -700,7 +700,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
         ) : (
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             {limits.map((row) => (
-              <Card key={row.id} size="small" className="aggregate-limit-card">
+              <article key={row.id} className="aggregate-limit-card">
                 <div className="aggregate-card-head">
                   <div>
                     <Text strong>{row.description || row.aggregate_key}</Text>
@@ -747,7 +747,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
                     </div>
                   ))}
                 </div>
-              </Card>
+              </article>
             ))}
           </Space>
         )}

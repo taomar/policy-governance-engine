@@ -225,19 +225,24 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         </Form>
       </Card>
 
-      <Card title={scoped ? "Documents in this Project" : "All Documents"}>
+      <section className="documents-register">
+        <div className="documents-register__header">
+          <Title level={4}>{scoped ? "Documents in this project" : "All documents"}</Title>
+          <Text type="secondary">{documents.length} total</Text>
+        </div>
+        <div className="documents-register__body">
         {loading ? (
           <Text type="secondary">Loading…</Text>
         ) : (
-          <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <Space direction="vertical" style={{ width: "100%" }} size={10}>
             {documents.map((doc) => (
-              <Card
-                key={doc.id}
-                type="inner"
-                title={doc.title}
-                extra={
+              <article key={doc.id} className="document-record">
+                <div className="document-record__header">
+                  <div>
+                    <Title level={5}>{doc.title}</Title>
+                    <Text type="secondary">Owned by {doc.owner}</Text>
+                  </div>
                   <Space>
-                    <Text type="secondary">owner: {doc.owner}</Text>
                     {!scoped &&
                       (doc.policy_set_name ? (
                         <Tag color="blue">{doc.policy_set_name}</Tag>
@@ -258,8 +263,8 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                       />
                     )}
                   </Space>
-                }
-              >
+                </div>
+                <div className="document-record__body">
                 <Table
                   size="small"
                   pagination={false}
@@ -309,7 +314,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                 {doc.versions.map(
                   (v) =>
                     extractOpenFor === v.id && (
-                      <Card key={`extract-${v.id}`} type="inner" size="small" className="extract-panel" style={{ marginTop: 12 }}>
+                      <div key={`extract-${v.id}`} className="extract-panel">
                         <Space direction="vertical" style={{ width: "100%" }}>
                           <Space>
                             {!scoped && (
@@ -365,10 +370,11 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                           <Text strong>Extraction runs for this version</Text>
                           <ExtractionRunHistory documentVersionId={v.id} refreshKey={runHistoryKey} />
                         </Space>
-                      </Card>
+                      </div>
                     )
                 )}
-              </Card>
+                </div>
+              </article>
             ))}
             {documents.length === 0 && (
               <Text type="secondary">
@@ -377,7 +383,8 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
             )}
           </Space>
         )}
-      </Card>
+        </div>
+      </section>
 
       <DocumentBodyDrawer
         open={bodyViewer !== null}
