@@ -306,7 +306,7 @@ Start at the **[documentation index](docs/README.md)**.
 |---|---|
 | [User guide](docs/user-guide.md) | Illustrated instructions for document intake, AI extraction, review, publication, quality, tests, evaluation, and grounded chat |
 | [Architecture](docs/architecture.md) | Components, boundaries, invocation paths |
-| [Capability flows](docs/capability-flows.md) | A diagram per capability — ingestion, review, publish, evaluate, test, quality, search, exports |
+| [Capability flows](docs/capability-flows.md) | Selected high-impact diagrams for document control, provenance, evaluation, assurance, grounding, and audit |
 | [Azure deployment](docs/azure-deployment.md) | Recommended Container Apps architecture, SKUs, network, parameters and future azd flow |
 | [Azure variants](docs/azure-deployment-variants.md) | Container Apps, App Service, hardened-private and Foundry IQ alternatives |
 | [Azure prerequisites](docs/azure-prerequisites.md) | Tools, roles, providers, quotas, Entra, models and network inputs |

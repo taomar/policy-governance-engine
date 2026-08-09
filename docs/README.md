@@ -13,7 +13,7 @@ New here? Read the [root README](../README.md) first, then
 |---|---|
 | [User guide](user-guide.md) | Illustrated walkthrough of the dashboard, HR and Saudi Labor Law projects, document intake, review, publication, quality, tests, evaluation, and grounded Ask AI. |
 | [Architecture](architecture.md) | Runtime components, boundaries, how they are invoked, and where the deterministic/probabilistic line sits. |
-| [Capability flows](capability-flows.md) | A Mermaid diagram per implemented capability — navigation, ingestion, extraction, evidence, review, publish, evaluate, tests, regression, quality, correlation, search, chat, aggregate limits, compare, exceptions, attestations, exports — each with its trigger, components, outputs and limits. |
+| [Capability flows](capability-flows.md) | A concise set of high-impact Mermaid diagrams for document control, evidence, evaluation, tests, quality, grounding, and outputs. |
 | [Azure deployment](azure-deployment.md) | Recommended Container Apps architecture, lower Standard SKUs, VNet/private connectivity, parameters and future `azd up` sequence. |
 | [Azure deployment variants](azure-deployment-variants.md) | App Service, hardened-private and Foundry IQ alternatives and their trade-offs. |
 | [Azure prerequisites](azure-prerequisites.md) | Required tools, permissions, providers, quotas, Entra registration, models and address ranges. |
