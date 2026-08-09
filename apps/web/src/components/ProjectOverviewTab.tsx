@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
+  CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   EditOutlined,
   FileTextOutlined,
   SafetyCertificateOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicySet } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
@@ -19,10 +21,8 @@ interface Stats {
   documentCount: number;
   activeVersion: ApprovedPolicyVersion | null;
   versionCount: number;
-  candidateCount: number;
   pendingCandidateCount: number;
   approvedCandidateCount: number;
-  rejectedCandidateCount: number;
   executableRuleCount: number;
   sourceGroundedRuleCount: number;
 }
@@ -66,12 +66,10 @@ export function ProjectOverviewTab({
           documentCount: documents.length,
           activeVersion,
           versionCount: versions.length,
-          candidateCount: candidates.length,
           pendingCandidateCount: candidates.filter((candidate) =>
             ["candidate", "changes_requested"].includes(candidate.review_status),
           ).length,
           approvedCandidateCount: candidates.filter((candidate) => candidate.review_status === "approved").length,
-          rejectedCandidateCount: candidates.filter((candidate) => candidate.review_status === "rejected").length,
           executableRuleCount: activeRules.filter((rule) => rule.machine_executable).length,
           sourceGroundedRuleCount: activeRules.filter((rule) => rule.evidence.length > 0).length,
         });
@@ -104,30 +102,29 @@ export function ProjectOverviewTab({
       isDefault: !policySet.escalation_contact,
     },
   ];
-  const hasRaciConfigured =
-    !!policySet.accountable_owner ||
-    !!policySet.delegate_approver ||
-    !!policySet.escalation_contact ||
-    policySet.consulted_parties.length > 0 ||
-    policySet.informed_parties.length > 0;
   const governanceConfiguredCount = raciEntries.filter((entry) => !entry.isDefault).length;
-  const decisionProgress = stats?.candidateCount
-    ? Math.round(((stats.candidateCount - stats.pendingCandidateCount) / stats.candidateCount) * 100)
-    : 100;
+  const missingGovernanceCount = raciEntries.length - governanceConfiguredCount;
+  const liveRuleCount = stats?.activeVersion?.rule_count ?? 0;
+  const executableCoverage = liveRuleCount
+    ? Math.round(((stats?.executableRuleCount ?? 0) / liveRuleCount) * 100)
+    : 0;
+  const sourceCoverage = liveRuleCount
+    ? Math.round(((stats?.sourceGroundedRuleCount ?? 0) / liveRuleCount) * 100)
+    : 0;
   const steps = [
     {
       key: "documents",
       label: "Documents uploaded",
       value: stats?.documentCount,
       icon: <FileTextOutlined />,
-      tone: "#2563eb",
+      tone: "info",
     },
     {
       key: "review",
       label: pending > 0 ? "Awaiting review" : "Nothing pending review",
       value: pending,
       icon: <ClockCircleOutlined />,
-      tone: pending > 0 ? "#d97706" : "#9ca3af",
+      tone: pending > 0 ? "attention" : "neutral",
       attention: pending > 0,
     },
     {
@@ -135,7 +132,7 @@ export function ProjectOverviewTab({
       label: "Approved, not yet live",
       value: stats?.approvedCandidateCount ?? 0,
       icon: <SafetyCertificateOutlined />,
-      tone: stats?.approvedCandidateCount ? "#5b4db1" : "#9ca3af",
+      tone: stats?.approvedCandidateCount ? "brand" : "neutral",
       attention: (stats?.approvedCandidateCount ?? 0) > 0,
     },
     {
@@ -143,7 +140,7 @@ export function ProjectOverviewTab({
       label: "Rules published (active)",
       value: stats?.activeVersion?.rule_count ?? 0,
       icon: <CheckCircleOutlined />,
-      tone: "#059669",
+      tone: "success",
     },
   ];
 
@@ -163,7 +160,7 @@ export function ProjectOverviewTab({
                 if (e.key === "Enter" || e.key === " ") onNavigate(step.key);
               }}
             >
-              <span className="project-flow-icon" style={{ background: `${step.tone}1a`, color: step.tone }}>
+              <span className={`project-flow-icon project-flow-icon--${step.tone}`}>
                 {step.icon}
               </span>
               <div>
@@ -180,53 +177,84 @@ export function ProjectOverviewTab({
         ))}
       </div>
 
-      <div className="project-overview-grid">
-        <section className="project-overview-panel project-state-panel">
-          <div className="project-overview-panel__header">
+      <div className="project-readiness-docket">
+        <section className="project-readiness-section project-readiness-published">
+          <header className="project-readiness-heading">
+            <span className={`project-readiness-icon${stats?.activeVersion ? " is-live" : " is-warning"}`}>
+              {stats?.activeVersion ? <CheckCircleOutlined /> : <WarningOutlined />}
+            </span>
             <div>
-              <Text strong>Published state</Text>
-              <Text type="secondary">What is live and enforceable now</Text>
+              <Text strong>
+                {stats?.activeVersion
+                  ? `Published v${stats.activeVersion.version_number} is active`
+                  : "No published policy package"}
+              </Text>
+              <Text type="secondary">
+                {stats?.activeVersion
+                  ? "Current enforceability and source-evidence coverage"
+                  : "Review candidates and publish an immutable first version"}
+              </Text>
             </div>
-            {stats?.activeVersion ? <Tag color="green">Active v{stats.activeVersion.version_number}</Tag> : <Tag color="gold">Not published</Tag>}
-          </div>
-          <div className="project-overview-panel__body">
+          </header>
+          <div className="project-readiness-body">
             {stats?.activeVersion ? (
               <>
-                <dl className="project-state-grid">
+                <dl className="project-readiness-metrics">
                   <div>
                     <dt>Live rules</dt>
-                    <dd>{stats.activeVersion.rule_count}</dd>
+                    <dd>{liveRuleCount}</dd>
                   </div>
-                  <div>
+                  <div className={executableCoverage < 50 ? "is-warning" : "is-success"}>
                     <dt>Machine-executable</dt>
                     <dd>{stats.executableRuleCount}</dd>
+                    <small>{executableCoverage}% coverage</small>
                   </div>
-                  <div>
+                  <div className={sourceCoverage === 100 ? "is-success" : "is-warning"}>
                     <dt>Source-grounded</dt>
                     <dd>{stats.sourceGroundedRuleCount}</dd>
+                    <small>{sourceCoverage}% coverage</small>
                   </div>
                   <div>
-                    <dt>Published versions</dt>
+                    <dt>Retained versions</dt>
                     <dd>{stats.versionCount}</dd>
                   </div>
                 </dl>
-                <div className="project-state-meta">
+                <div className="project-readiness-signals">
+                  <div className={executableCoverage < 50 ? "is-warning" : "is-success"}>
+                    {executableCoverage < 50 ? <WarningOutlined /> : <CheckCircleOutlined />}
+                    <span>
+                      <strong>
+                        {liveRuleCount - stats.executableRuleCount} polic
+                        {liveRuleCount - stats.executableRuleCount === 1 ? "y requires" : "ies require"} manual handling
+                      </strong>
+                      <small>Only machine-executable policies participate in deterministic evaluation.</small>
+                    </span>
+                  </div>
+                  <div className={sourceCoverage === 100 ? "is-success" : "is-warning"}>
+                    {sourceCoverage === 100 ? <FileTextOutlined /> : <WarningOutlined />}
+                    <span>
+                      <strong>
+                        {sourceCoverage === 100
+                          ? "Every live policy is linked to source evidence"
+                          : `${liveRuleCount - stats.sourceGroundedRuleCount} policies lack source evidence`}
+                      </strong>
+                      <small>Source links support audit, review, and challenge of the published decision.</small>
+                    </span>
+                  </div>
+                </div>
+                <footer className="project-readiness-meta">
                   <span>
-                    <Text type="secondary">Effective</Text>
-                    <Text>
+                    <small>Effective window</small>
+                    <strong>
                       {stats.activeVersion.effective_from}
                       {stats.activeVersion.effective_to ? ` → ${stats.activeVersion.effective_to}` : " → open-ended"}
-                    </Text>
+                    </strong>
                   </span>
                   <span>
-                    <Text type="secondary">Approved by</Text>
-                    <Text>{stats.activeVersion.approved_by}</Text>
+                    <small>Approved by</small>
+                    <strong>{stats.activeVersion.approved_by}</strong>
                   </span>
-                  <span>
-                    <Text type="secondary">Review decisions</Text>
-                    <Text>{decisionProgress}% complete</Text>
-                  </span>
-                </div>
+                </footer>
               </>
             ) : (
               <div className="project-state-empty">
@@ -241,82 +269,84 @@ export function ProjectOverviewTab({
           </div>
         </section>
 
-        <section className="project-overview-panel">
-          <div className="project-overview-panel__header">
+        <section className="project-readiness-section project-readiness-governance">
+          <header className="project-readiness-heading">
+            <span className={`project-readiness-icon${missingGovernanceCount > 0 ? " is-warning" : " is-live"}`}>
+              {missingGovernanceCount > 0 ? <WarningOutlined /> : <SafetyCertificateOutlined />}
+            </span>
             <div>
-              <Text strong>
-                <SafetyCertificateOutlined /> Governance &amp; ownership
+              <Text strong>Governance &amp; ownership</Text>
+              <Text type="secondary">
+                {governanceConfiguredCount} of {raciEntries.length} primary roles configured
               </Text>
-              <Text type="secondary">{governanceConfiguredCount} of {raciEntries.length} primary roles configured</Text>
             </div>
             {onEditProject && (
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={onEditProject}>
-                Configure
+              <Button type="link" size="small" className="project-configure-link" icon={<EditOutlined />} onClick={onEditProject}>
+                Configure roles <ArrowRightOutlined />
               </Button>
             )}
-          </div>
-          <div className="project-overview-panel__body">
-            <div className="governance-grid">
+          </header>
+          <div className="project-readiness-body">
+            <div className="governance-role-register">
               {raciEntries.map((entry) => (
-                <div key={entry.label} className="governance-item">
-                  <Text type="secondary" className="governance-label">
-                    {entry.label}
-                  </Text>
-                  <Text className={entry.isDefault ? "governance-value-default" : undefined}>{entry.value}</Text>
+                <div key={entry.label} className={entry.isDefault ? "is-missing" : "is-configured"}>
+                  <span className="governance-role-icon">
+                    {entry.isDefault ? <WarningOutlined /> : <CheckCircleOutlined />}
+                  </span>
+                  <div>
+                    <small>{entry.label}</small>
+                    <strong>{entry.value}</strong>
+                  </div>
                 </div>
               ))}
             </div>
             {(policySet.consulted_parties.length > 0 || policySet.informed_parties.length > 0) && (
-              <Space direction="vertical" size={10} style={{ marginTop: 16 }}>
+              <div className="governance-party-groups">
                 {policySet.consulted_parties.length > 0 && (
                   <div>
-                    <Text type="secondary" className="governance-label">
-                      Consulted (RACI "C")
-                    </Text>
-                    <br />
-                    <Space size={4} wrap style={{ marginTop: 4 }}>
-                      {policySet.consulted_parties.map((p) => (
-                        <Tag key={p} bordered={false} className="fact-tag">
-                          {p}
-                        </Tag>
-                      ))}
+                    <Text type="secondary" className="governance-label">Consulted (RACI "C")</Text>
+                    <Space size={4} wrap>
+                      {policySet.consulted_parties.map((party) => <Tag key={party}>{party}</Tag>)}
                     </Space>
                   </div>
                 )}
                 {policySet.informed_parties.length > 0 && (
                   <div>
-                    <Text type="secondary" className="governance-label">
-                      Informed (RACI "I")
-                    </Text>
-                    <br />
-                    <Space size={4} wrap style={{ marginTop: 4 }}>
-                      {policySet.informed_parties.map((p) => (
-                        <Tag key={p} bordered={false} className="fact-tag">
-                          {p}
-                        </Tag>
-                      ))}
+                    <Text type="secondary" className="governance-label">Informed (RACI "I")</Text>
+                    <Space size={4} wrap>
+                      {policySet.informed_parties.map((party) => <Tag key={party}>{party}</Tag>)}
                     </Space>
                   </div>
                 )}
-              </Space>
-            )}
-            {!hasRaciConfigured && (
-              <div className="governance-empty-note">
-                <Text type="secondary">Add accountable ownership and escalation before the next review cycle.</Text>
               </div>
             )}
-            <div className="project-review-schedule">
+            {missingGovernanceCount > 0 && (
+              <div className="governance-gap-note">
+                <WarningOutlined />
+                <span>
+                  <strong>{missingGovernanceCount} ownership role{missingGovernanceCount === 1 ? "" : "s"} unassigned</strong>
+                  <small>Assign accountable ownership and escalation before the next review cycle.</small>
+                </span>
+              </div>
+            )}
+            <footer className="project-governance-schedule">
               <span>
-                <Text type="secondary">Last reviewed</Text>
-                <Text>{policySet.last_reviewed_at ? new Date(policySet.last_reviewed_at).toLocaleDateString() : "Not recorded"}</Text>
+                <CalendarOutlined />
+                <span>
+                  <small>Last reviewed</small>
+                  <strong>{policySet.last_reviewed_at ? new Date(policySet.last_reviewed_at).toLocaleDateString() : "Not recorded"}</strong>
+                </span>
               </span>
               <span>
-                <Text type="secondary">Next review due</Text>
-                <Text type={policySet.is_review_overdue ? "danger" : undefined}>
-                  {policySet.review_due_date ?? "Not scheduled"}
-                </Text>
+                <ClockCircleOutlined />
+                <span>
+                  <small>Next review due</small>
+                  <strong className={policySet.is_review_overdue ? "is-overdue" : undefined}>
+                    {policySet.review_due_date ?? "Not scheduled"}
+                  </strong>
+                </span>
               </span>
-            </div>
+            </footer>
           </div>
         </section>
       </div>

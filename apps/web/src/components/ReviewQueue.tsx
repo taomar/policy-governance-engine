@@ -35,7 +35,6 @@ import {
   SendOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
-  UserOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -108,7 +107,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const screens = Grid.useBreakpoint();
   const isDesktop = !!screens.lg;
   const scoped = Boolean(policySetKey);
-  const { actor, setActor } = useActor();
+  const { actor } = useActor();
   const { message } = App.useApp();
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
@@ -214,12 +213,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   // were: approving a rule failed with "Enter a reviewer name" while their name
   // sat on screen a few hundred pixels below the button.
   //
-  // Binding both fields to the actor removes that class of bug instead of adding
-  // a third sync to paper over it: identity is entered once, anywhere, applies
-  // everywhere, and persists across reloads. `actor.role` still carries the
+  // Removing both local fields eliminates that class of bug instead of adding
+  // another sync: identity is entered once in the header, applies everywhere,
+  // and persists across reloads. `actor.role` still carries the
   // reviewer-vs-manager distinction, which is the part that genuinely differs.
   const identity = actor.name;
-  const setIdentity = (name: string) => setActor({ ...actor, name });
 
   const loadCandidates = async () => {
     if (!selectedKey) return;
@@ -549,6 +547,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     e.preventDefault();
     setError(null);
     setPublishResult(null);
+    if (!identity.trim()) {
+      message.warning("Set your name in the application header before publishing.");
+      return;
+    }
     try {
       const version = await api.publishCandidates(selectedKey, {
         approved_by: identity,
@@ -1276,15 +1278,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 allowClear
                 style={{ width: 300 }}
               />
-              <Tooltip title='This is the shared identity from "Acting as" in the application header.'>
-                <div className={`review-identity-readout${identity.trim() ? "" : " review-identity-readout--missing"}`}>
-                  <UserOutlined />
-                  <span>
-                    <small>Reviewing as</small>
-                    <strong>{identity.trim() || "Set your name in the header"}</strong>
-                  </span>
-                </div>
-              </Tooltip>
               <Tooltip title="Run an AI + deterministic quality scan over unpublished candidates (findings appear as badges below)">
                 <Button icon={<SafetyCertificateOutlined />} onClick={runQualityCheck} loading={qualityLoading}>
                   {qualityFindings ? "Re-run quality check" : "Run quality check"}
@@ -1463,32 +1456,25 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               </Space>
             )}
             <Form layout="vertical" onSubmitCapture={handlePublish}>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    label="Approved by"
-                    required
-                    extra="Your identity across the app — the same name you review under."
-                  >
-                    <Input
-                      value={identity}
-                      onChange={(e) => setIdentity(e.target.value)}
-                      placeholder="your name"
-                      prefix={<UserOutlined />}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="Effective from" required>
-                    <DatePicker
-                      style={{ width: "100%" }}
-                      value={dayjs(effectiveFrom)}
-                      onChange={(d) => setEffectiveFrom(d ? d.format("YYYY-MM-DD") : "")}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Button type="primary" htmlType="submit" disabled={approvedUnpublished.length === 0}>
+              {!identity.trim() && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Set your name in the application header before publishing."
+                  className="publish-identity-warning"
+                />
+              )}
+              <Form.Item label="Effective from" required className="publish-effective-field">
+                <DatePicker
+                  value={dayjs(effectiveFrom)}
+                  onChange={(d) => setEffectiveFrom(d ? d.format("YYYY-MM-DD") : "")}
+                />
+              </Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                disabled={approvedUnpublished.length === 0 || !identity.trim()}
+              >
                 Publish New Version
               </Button>
             </Form>

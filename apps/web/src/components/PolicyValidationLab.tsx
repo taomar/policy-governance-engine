@@ -5,9 +5,14 @@ import {
   ExperimentOutlined,
   HistoryOutlined,
   ArrowLeftOutlined,
+  ArrowRightOutlined,
   PlayCircleOutlined,
+  ReadOutlined,
+  SafetyCertificateOutlined,
   SearchOutlined,
+  StopOutlined,
   ThunderboltOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import {
   aiApi,
@@ -43,6 +48,17 @@ function actualStatus(batch: PolicyTestBatch, testId: string): string {
   return item?.latest_run?.actual_response_json?.overall_status ?? "NO RESULT";
 }
 
+function displayFactValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null) return "null";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function displayEvaluationStatus(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
 export function PolicyValidationLab({
   policySetKey,
   mode = "tests",
@@ -51,12 +67,13 @@ export function PolicyValidationLab({
   mode?: "tests" | "regression";
 }) {
   const { message } = App.useApp();
-  const { actor, setActor } = useActor();
+  const { actor } = useActor();
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
   const [runVersionId, setRunVersionId] = useState<string | null>(null);
   const [suiteVersionId, setSuiteVersionId] = useState<string | null>(null);
   const [rules, setRules] = useState<CanonicalRule[]>([]);
+  const [rulesByVersionId, setRulesByVersionId] = useState<Record<string, CanonicalRule[]>>({});
   const [batches, setBatches] = useState<PolicyTestBatch[]>([]);
   const [regressionTests, setRegressionTests] = useState<PolicyTestListItem[]>([]);
   const [retiredRegressionTests, setRetiredRegressionTests] = useState<PolicyTestListItem[]>([]);
@@ -136,6 +153,7 @@ export function PolicyValidationLab({
       .then((versionRules) => {
         if (cancelled) return;
         setRules(versionRules);
+        setRulesByVersionId((current) => ({ ...current, [versionId]: versionRules }));
         setSelectedRuleIds(new Set());
       })
       .catch((caught) => {
@@ -148,6 +166,46 @@ export function PolicyValidationLab({
       cancelled = true;
     };
   }, [policySetKey, versionId]);
+
+  useEffect(() => {
+    const referencedVersionIds = Array.from(
+      new Set(
+        [
+          ...batches.flatMap((batch) => [
+            batch.policy_version_id,
+            ...batch.tests.flatMap((item) =>
+              item.latest_run?.policy_version_id ? [item.latest_run.policy_version_id] : [],
+            ),
+          ]),
+          ...regressionTests.flatMap((item) =>
+            item.latest_run?.policy_version_id ? [item.latest_run.policy_version_id] : [],
+          ),
+          ...retiredRegressionTests.flatMap((item) =>
+            item.latest_run?.policy_version_id ? [item.latest_run.policy_version_id] : [],
+          ),
+        ].filter(Boolean),
+      ),
+    );
+    if (referencedVersionIds.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      referencedVersionIds.map(async (referencedVersionId) => [
+        referencedVersionId,
+        await api.getVersionRules(policySetKey, referencedVersionId),
+      ] as const),
+    )
+      .then((entries) => {
+        if (!cancelled) {
+          setRulesByVersionId((current) => ({ ...current, ...Object.fromEntries(entries) }));
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof PolicyPlatformApiError ? caught.detail : String(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [batches, policySetKey, regressionTests, retiredRegressionTests]);
 
   const selectedVersion = versions.find((version) => version.id === versionId) ?? null;
   const executableRules = useMemo(
@@ -175,23 +233,46 @@ export function PolicyValidationLab({
       );
     });
   }, [executableRules, search, ruleTypeFilter, effectFilter]);
+  const exactRulesForVersion = (requestedVersionId: string | null | undefined): CanonicalRule[] | null => {
+    if (!requestedVersionId) return null;
+    if (rulesByVersionId[requestedVersionId]) return rulesByVersionId[requestedVersionId];
+    return versionId === requestedVersionId ? rules : null;
+  };
   const activeBatch = batches.find((batch) => batch.id === activeBatchId) ?? null;
   const executed = activeBatch?.status === "executed";
   const passingTests = activeBatch?.tests.filter((item) => item.latest_run?.status === "pass") ?? [];
   const failingTests = activeBatch?.tests.filter((item) => item.latest_run?.status === "fail") ?? [];
   const erroredTests = activeBatch?.tests.filter((item) => item.latest_run?.status === "error") ?? [];
   const activePassing = passingTests.filter((item) => item.test.review_status === "active");
-  const activeRunVersion = versions.find((version) => version.id === runVersionId) ?? null;
+  const runTargetVersion = versions.find((version) => version.id === runVersionId) ?? null;
+  const latestProofVersionId =
+    activeBatch?.tests.find((item) => item.latest_run?.policy_version_id)?.latest_run?.policy_version_id ??
+    activeBatch?.policy_version_id ??
+    null;
+  const latestProofVersion =
+    versions.find((version) => version.id === latestProofVersionId) ?? null;
   const allCurrentRunsPass =
     !!activeBatch && activeBatch.tests.length > 0 && passingTests.length === activeBatch.tests.length;
+  const regressionPassing = regressionTests.filter((item) => item.latest_run?.status === "pass").length;
+  const regressionFailing = regressionTests.filter((item) => item.latest_run?.status === "fail").length;
+  const regressionErrors = regressionTests.filter((item) => item.latest_run?.status === "error").length;
+  const regressionNeverRun = regressionTests.filter((item) => !item.latest_run).length;
   const previewRun = testPreview?.latest_run ?? null;
   const previewBatch = batches.find((batch) =>
     batch.tests.some((item) => item.test.id === testPreview?.test.id),
   ) ?? null;
   const previewRunVersion = versions.find((version) => version.id === previewRun?.policy_version_id) ?? null;
+  const previewVersionId =
+    previewRun?.policy_version_id ?? previewBatch?.policy_version_id ?? versionId;
+  const previewRules = exactRulesForVersion(previewVersionId);
   const previewExpectation = previewRun?.expected_assertions_json ?? null;
   const previewResponse = previewRun?.actual_response_json ?? null;
-  const previewRule = rules.find((rule) => rule.rule_id === testPreview?.test.expected_rule_id) ?? null;
+  const previewRule =
+    previewRules?.find((rule) => rule.rule_id === testPreview?.test.expected_rule_id) ?? null;
+  const policyPreviewVersionId = testPreview ? previewVersionId : versionId;
+  const policyPreviewRules = exactRulesForVersion(policyPreviewVersionId) ?? [];
+  const policyPreviewVersion =
+    versions.find((version) => version.id === policyPreviewVersionId) ?? null;
   const previewRuleResult = previewResponse?.rule_results.find(
     (result) => result.rule_id === testPreview?.test.expected_rule_id,
   );
@@ -224,7 +305,12 @@ export function PolicyValidationLab({
   }, [previewRule]);
 
   useEffect(() => {
-    if (activeBatch) setRunVersionId(activeBatch.policy_version_id);
+    if (activeBatch) {
+      const latestExecutedVersionId = activeBatch.tests.find(
+        (item) => item.latest_run?.policy_version_id,
+      )?.latest_run?.policy_version_id;
+      setRunVersionId(latestExecutedVersionId ?? activeBatch.policy_version_id);
+    }
   }, [activeBatchId, activeBatch]);
 
   const toggleRule = (ruleId: string) => {
@@ -237,15 +323,18 @@ export function PolicyValidationLab({
     });
   };
 
+  const requireActor = (action: string): boolean => {
+    if (actor.name.trim()) return true;
+    message.warning(`Set your name in the application header before ${action}.`);
+    return false;
+  };
+
   const generate = async () => {
     if (selectedRuleIds.size === 0) {
       message.warning("Select at least one machine-executable policy.");
       return;
     }
-    if (!actor.name.trim()) {
-      message.warning("Enter your name in the Run as field before generating a validation batch.");
-      return;
-    }
+    if (!requireActor("generating a validation batch")) return;
     if (authoringMode === "authored" && selectedRuleIds.size !== 1) {
       message.warning("Select exactly one policy for a reviewer-authored scenario.");
       return;
@@ -283,10 +372,11 @@ export function PolicyValidationLab({
 
   const runBatch = async () => {
     if (!activeBatch) return;
+    if (!requireActor("running validation evidence")) return;
     setRunning(true);
     setError(null);
     try {
-      const updated = await policyTestApi.runBatch(activeBatch.id, actor.name || "unknown", runVersionId ?? undefined);
+      const updated = await policyTestApi.runBatch(activeBatch.id, actor.name, runVersionId ?? undefined);
       setBatches((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       const version = versions.find((item) => item.id === runVersionId);
       message.success(
@@ -301,13 +391,14 @@ export function PolicyValidationLab({
 
   const activatePassing = async () => {
     if (!activeBatch) return;
+    if (!requireActor("adding regression guards")) return;
     const targets = passingTests.filter((item) => item.test.review_status === "pending_review");
     if (targets.length === 0) return;
     setActivating(true);
     setError(null);
     try {
       for (const item of targets) {
-        await policyTestApi.review(item.test.id, "accept", actor.name || "unknown", `Accepted from blind batch ${activeBatch.id}`);
+        await policyTestApi.review(item.test.id, "accept", actor.name, `Accepted from blind batch ${activeBatch.id}`);
       }
       await load();
       message.success(
@@ -322,11 +413,12 @@ export function PolicyValidationLab({
 
   const runRegressionSuite = async () => {
     if (regressionTests.length === 0 || !suiteVersionId) return;
+    if (!requireActor("running the regression suite")) return;
     setSuiteRunning(true);
     setError(null);
     try {
       for (const item of regressionTests) {
-        await policyTestApi.run(item.test.id, actor.name || "unknown", suiteVersionId);
+        await policyTestApi.run(item.test.id, actor.name, suiteVersionId);
       }
       await load();
       const version = versions.find((item) => item.id === suiteVersionId);
@@ -339,12 +431,13 @@ export function PolicyValidationLab({
   };
 
   const setRegressionGuardActive = async (item: PolicyTestListItem, active: boolean) => {
+    if (!requireActor(active ? "reactivating a regression guard" : "retiring a regression guard")) return;
     setError(null);
     try {
       await policyTestApi.review(
         item.test.id,
         active ? "accept" : "reject",
-        actor.name || "unknown",
+        actor.name,
         active ? "Reactivated from Regression workspace" : "Retired from Regression workspace",
       );
       await load();
@@ -378,34 +471,73 @@ export function PolicyValidationLab({
                 immutable evidence from every run.
               </Text>
             </div>
-            <div className="validation-regression-summary">
-              <span><strong>{regressionTests.length}</strong> active guards</span>
+            <div className={`validation-regression-header-state${regressionFailing + regressionErrors > 0 ? " is-risk" : ""}`}>
               <span>
-                <strong>{regressionTests.filter((item) => item.latest_run?.status === "pass").length}</strong> passing
+                {regressionFailing + regressionErrors > 0 ? <WarningOutlined /> : <SafetyCertificateOutlined />}
               </span>
-              <span>
-                <strong>{regressionTests.filter((item) => item.latest_run?.status === "fail").length}</strong> failing
-              </span>
+              <div>
+                <strong>{regressionTests.length} active guards</strong>
+                <small>
+                  {regressionFailing + regressionErrors > 0
+                    ? `${regressionFailing + regressionErrors} need review`
+                    : "No failing guard evidence"}
+                </small>
+              </div>
             </div>
           </header>
 
           {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+          {!actor.name.trim() && (
+            <div className="validation-actor-warning">
+              <WarningOutlined />
+              <span>Set your name in the application header to run or manage regression evidence.</span>
+            </div>
+          )}
 
           <section className="validation-surface validation-regression-suite is-workspace">
-            <div className="validation-regression-intro">
-              <span className="validation-regression-kicker">Persistent quality control</span>
-              <Title level={4}>Prove that published policy behavior stays stable</Title>
-              <Text type="secondary">
-                Every active guard is a previously verified scenario. Publishing a new version re-runs these guards
-                automatically; manual runs below let you compare behavior before or after a release. Regression failures
-                are evidence for review and never block publishing.
-              </Text>
+            <div className="validation-regression-brief">
+              <div className="validation-regression-brief-heading">
+                <span className="validation-regression-brief-icon"><SafetyCertificateOutlined /></span>
+                <div>
+                  <Title level={4}>Continuous behavior proof for published policies</Title>
+                  <Text type="secondary">
+                    Every active guard is a previously verified scenario. Publishing re-runs it automatically; manual
+                    suite runs compare the same committed expectations against any retained version.
+                  </Text>
+                </div>
+              </div>
+              <dl aria-label="Regression evidence summary">
+                <div>
+                  <dt>Active guards</dt>
+                  <dd>{regressionTests.length}</dd>
+                </div>
+                <div className={regressionPassing > 0 ? "is-pass" : undefined}>
+                  <dt>Passing</dt>
+                  <dd>{regressionPassing}</dd>
+                </div>
+                <div className={regressionFailing > 0 ? "is-fail" : undefined}>
+                  <dt>Failing</dt>
+                  <dd>{regressionFailing}</dd>
+                </div>
+                <div className={regressionErrors > 0 ? "is-error" : undefined}>
+                  <dt>Errors</dt>
+                  <dd>{regressionErrors}</dd>
+                </div>
+                <div>
+                  <dt>Never run</dt>
+                  <dd>{regressionNeverRun}</dd>
+                </div>
+                <div>
+                  <dt>Retired</dt>
+                  <dd>{retiredRegressionTests.length}</dd>
+                </div>
+              </dl>
             </div>
             <div className="validation-surface-header">
               <div>
-                <Text strong>Active guard register</Text>
+                <Text strong><SafetyCertificateOutlined /> Active guard evidence</Text>
                 <Text type="secondary">
-                  {regressionTests.length} scenario{regressionTests.length === 1 ? "" : "s"} retained from blind validation
+                  Committed expectations, latest versioned outcome, and immutable run history
                 </Text>
               </div>
               <div className="validation-suite-actions">
@@ -421,7 +553,7 @@ export function PolicyValidationLab({
                   type="primary"
                   icon={<PlayCircleOutlined />}
                   loading={suiteRunning}
-                  disabled={regressionTests.length === 0 || !suiteVersionId}
+                  disabled={regressionTests.length === 0 || !suiteVersionId || !actor.name.trim()}
                   onClick={runRegressionSuite}
                 >
                   Run suite now
@@ -436,46 +568,61 @@ export function PolicyValidationLab({
                   <span>Last result</span>
                   <span>Version</span>
                   <span>Last run</span>
-                  <span>Manage</span>
+                  <span>Actions</span>
                 </div>
                 {regressionTests.map((item) => {
                   const latest = item.latest_run;
                   const version = versions.find((entry) => entry.id === latest?.policy_version_id);
-                  const rule = rules.find((entry) => entry.rule_id === item.test.expected_rule_id);
+                  const evidenceRules = latest?.policy_version_id
+                    ? exactRulesForVersion(latest.policy_version_id)
+                    : null;
+                  const rule = evidenceRules?.find((entry) => entry.rule_id === item.test.expected_rule_id);
+                  const decision = rule ? ruleDecisionSummary(rule) : null;
                   return (
                     <div
                       key={item.test.id}
                       className="validation-suite-row"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => void openTestPreview(item)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") void openTestPreview(item);
-                      }}
                     >
                       <span>
                         <strong>{item.test.name}</strong>
                         <small>{item.test.scenario_text || item.test.description}</small>
                       </span>
                       <span>
-                        <strong>{rule?.title ?? item.test.expected_rule_id ?? "Policy subset"}</strong>
-                        <small>{item.test.expected_rule_id ?? "Multiple policies"}</small>
+                        <strong>
+                          {rule?.title ??
+                            (evidenceRules ? item.test.expected_rule_id : "Policy record loading…") ??
+                            "Policy subset"}
+                        </strong>
+                        <small>
+                          {decision?.text ??
+                            `${item.test.expected_rule_id ?? "Multiple policies"} · v${version?.version_number ?? "?"}`}
+                        </small>
                       </span>
                       <Tag color={!latest ? "default" : latest.status === "pass" ? "green" : latest.status === "fail" ? "red" : "orange"}>
                         {latest?.status.toUpperCase() ?? "NEVER RUN"}
                       </Tag>
                       <span>v{version?.version_number ?? "—"}</span>
                       <span>{latest ? new Date(latest.run_at).toLocaleString() : "—"}</span>
-                      <Button
-                        size="small"
-                        danger
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void setRegressionGuardActive(item, false);
-                        }}
-                      >
-                        Retire
-                      </Button>
+                      <span className="validation-suite-row-actions">
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<ReadOutlined />}
+                          onClick={() => void openTestPreview(item)}
+                        >
+                          Review evidence
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<StopOutlined />}
+                          disabled={!actor.name.trim()}
+                          onClick={() => void setRegressionGuardActive(item, false)}
+                        >
+                          Retire
+                        </Button>
+                      </span>
                     </div>
                   );
                 })}
@@ -495,7 +642,7 @@ export function PolicyValidationLab({
             {retiredRegressionTests.length > 0 && (
               <details className="validation-retired-register">
                 <summary>
-                  Retired guards <Tag>{retiredRegressionTests.length}</Tag>
+                  <HistoryOutlined /> Retired guard history <Tag>{retiredRegressionTests.length}</Tag>
                 </summary>
                 <Text type="secondary">
                   Retired guards remain in immutable history but no longer run automatically after publication.
@@ -503,13 +650,23 @@ export function PolicyValidationLab({
                 <div>
                   {retiredRegressionTests.map((item) => (
                     <div key={item.test.id}>
-                      <button type="button" onClick={() => void openTestPreview(item)}>
+                      <span>
                         <strong>{item.test.name}</strong>
                         <small>{item.test.scenario_text || item.test.description}</small>
-                      </button>
-                      <Button size="small" onClick={() => void setRegressionGuardActive(item, true)}>
-                        Reactivate
-                      </Button>
+                      </span>
+                      <span className="validation-retired-actions">
+                        <Button type="link" size="small" icon={<ReadOutlined />} onClick={() => void openTestPreview(item)}>
+                          Review evidence
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          disabled={!actor.name.trim()}
+                          onClick={() => void setRegressionGuardActive(item, true)}
+                        >
+                          Reactivate
+                        </Button>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -670,18 +827,12 @@ export function PolicyValidationLab({
             <ThunderboltOutlined />
           </div>
           <div className="validation-workbench-body">
-            <label className="validation-identity-field">
-              <span>Run as</span>
-              <Input
-                value={actor.name}
-                onChange={(event) => setActor({ ...actor, name: event.target.value })}
-                placeholder="Enter your name for the validation history"
-                status={actor.name.trim() ? undefined : "warning"}
-              />
-              <Text type="secondary">
-                Stored on generated batches, manual runs, and activated regression guards.
-              </Text>
-            </label>
+            {!actor.name.trim() && (
+              <div className="validation-actor-warning">
+                <WarningOutlined />
+                <span>Set your name in the application header before generating or running validation evidence.</span>
+              </div>
+            )}
             <Text strong>How should scenarios be created?</Text>
             <Segmented
               block
@@ -788,6 +939,7 @@ export function PolicyValidationLab({
                 disabled={
                   selectedRuleIds.size === 0 ||
                   !versionId ||
+                  !actor.name.trim() ||
                   (authoringMode === "generated" && testsPerPolicy === 0) ||
                   (authoringMode === "authored" && (selectedRuleIds.size !== 1 || !authoredScenario.trim()))
                 }
@@ -802,9 +954,19 @@ export function PolicyValidationLab({
 
       {activeBatch && (
         <section className="validation-run-report">
-          <header className={`validation-run-masthead${executed ? " is-executed" : " is-sealed"}`}>
+          <header
+            className={`validation-run-masthead${
+              !executed ? " is-sealed" : allCurrentRunsPass ? " is-pass" : " is-review"
+            }`}
+          >
             <span className="validation-run-emblem">
-              {executed ? <CheckCircleOutlined /> : <ExperimentOutlined />}
+              {!executed ? (
+                <ExperimentOutlined />
+              ) : allCurrentRunsPass ? (
+                <CheckCircleOutlined />
+              ) : (
+                <WarningOutlined />
+              )}
             </span>
             <div className="validation-run-title">
               <Title level={4}>
@@ -835,14 +997,20 @@ export function PolicyValidationLab({
                   label: `Run against v${version.version_number}${version.is_active ? " · active" : ""}`,
                 }))}
               />
-              <Button type="primary" icon={<PlayCircleOutlined />} loading={running} onClick={runBatch}>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                loading={running}
+                disabled={!actor.name.trim()}
+                onClick={runBatch}
+              >
                 {executed ? "Run again" : "Run blind batch"}
               </Button>
             </div>
           </header>
           <div className="validation-run-guard">
             <span>
-              <strong>{executed ? `Current proof · v${activeRunVersion?.version_number ?? "?"}` : "Expectations sealed"}</strong>
+              <strong>{executed ? `Current proof · v${latestProofVersion?.version_number ?? "?"}` : "Expectations sealed"}</strong>
               <small>
                 {executed
                   ? "A pass proves current behavior. Regression suite membership adds automatic future-publish reruns and Quality alerts; it never blocks publishing."
@@ -850,7 +1018,12 @@ export function PolicyValidationLab({
               </small>
             </span>
             {executed && passingTests.length > activePassing.length ? (
-              <Button icon={<CheckCircleOutlined />} loading={activating} onClick={activatePassing}>
+              <Button
+                icon={<CheckCircleOutlined />}
+                loading={activating}
+                disabled={!actor.name.trim()}
+                onClick={activatePassing}
+              >
                 Add {passingTests.length - activePassing.length} passing to regression suite
               </Button>
             ) : executed && activePassing.length > 0 ? (
@@ -859,7 +1032,8 @@ export function PolicyValidationLab({
           </div>
           <div className="validation-run-body">
             <div className="validation-run-context">
-              <span>Run target <strong>v{activeRunVersion?.version_number ?? "—"}</strong></span>
+              <span>Latest proof <strong>v{latestProofVersion?.version_number ?? "—"}</strong></span>
+              <span>Next run target <strong>v{runTargetVersion?.version_number ?? "—"}</strong></span>
               <span>Selected policies <strong>{activeBatch.selected_rule_ids.length}</strong></span>
               <span>Grounding <strong>{activeBatch.grounding_mode === "json_only" ? "Full JSON" : "JSON + hybrid Search"}</strong></span>
               <span>Commitment <strong>SHA-256</strong></span>
@@ -880,24 +1054,28 @@ export function PolicyValidationLab({
                 </div>
               </details>
             )}
-            <div className="validation-register" role="table" aria-label="Blind validation scenarios">
-              <div className="validation-register-head" role="row">
+            <div className="validation-register" aria-label="Blind validation scenarios">
+              <div className="validation-register-head" aria-hidden="true">
                 <span>#</span>
-                <span>Scenario sent to evaluator</span>
-                <span>Facts</span>
-                <span>Expected</span>
-                <span>Actual</span>
+                <span>Scenario evidence</span>
+                <span>Expected → actual</span>
                 <span>Result</span>
               </div>
               {activeBatch.selected_rule_ids.flatMap((ruleId) => {
                 const groupItems = activeBatch.tests.filter((item) => item.test.expected_rule_id === ruleId);
-                const targetRule = rules.find((rule) => rule.rule_id === ruleId);
+                const groupRunVersionId = groupItems.find((item) => item.latest_run)?.latest_run?.policy_version_id;
+                const groupVersionId = groupRunVersionId ?? activeBatch.policy_version_id;
+                const groupVersion = versions.find((version) => version.id === groupVersionId);
+                const groupRules = exactRulesForVersion(groupVersionId);
+                const targetRule = groupRules?.find((rule) => rule.rule_id === ruleId);
                 const passed = groupItems.filter((item) => item.latest_run?.status === "pass").length;
                 return [
-                  <div className="validation-register-group" key={`group:${ruleId}`} role="row">
+                  <div className="validation-register-group" key={`group:${ruleId}`}>
                     <span>
-                      <strong>{targetRule?.title ?? ruleId}</strong>
-                      <small>{ruleId} · {groupItems.length} scenarios</small>
+                      <strong>{targetRule?.title ?? (groupRules ? ruleId : "Policy record loading…")}</strong>
+                      <small>
+                        {ruleId} · {groupItems.length} scenarios · policy from v{groupVersion?.version_number ?? "?"}
+                      </small>
                     </span>
                     <Tag color={!executed ? "default" : passed === groupItems.length ? "green" : "gold"}>
                       {!executed ? "SEALED" : `${passed}/${groupItems.length} pass`}
@@ -907,11 +1085,21 @@ export function PolicyValidationLab({
                     const test = item.test;
                     const run = item.latest_run;
                     const index = activeBatch.tests.findIndex((entry) => entry.test.id === test.id);
+                    const expectedStatus = run
+                      ? displayEvaluationStatus(
+                          run.expected_assertions_json?.expected_overall_status ??
+                            test.expected_overall_status ??
+                            "Any status",
+                        )
+                      : "Sealed";
+                    const actualRunStatus = run
+                      ? displayEvaluationStatus(actualStatus(activeBatch, test.id))
+                      : "—";
+                    const statusesMatch = run?.status === "pass";
                     return (
                       <button
                         key={test.id}
                         type="button"
-                        role="row"
                         className={`validation-register-row${run ? ` is-${run.status}` : ""}`}
                         onClick={() => void openTestPreview(item)}
                       >
@@ -919,10 +1107,32 @@ export function PolicyValidationLab({
                         <span className="validation-register-scenario">
                           <strong>{test.name}</strong>
                           <small>{test.scenario_text || test.description}</small>
+                          <span className="validation-register-facts">
+                            {Object.entries(test.input_facts).map(([fact, value]) => (
+                              <span key={fact}>
+                                <code>{fact}</code>
+                                <b>=</b>
+                                <em>{displayFactValue(value)}</em>
+                              </span>
+                            ))}
+                          </span>
                         </span>
-                        <code className="validation-register-facts">{JSON.stringify(test.input_facts)}</code>
-                        <span>{run ? run.expected_assertions_json?.expected_overall_status ?? test.expected_overall_status : "SEALED"}</span>
-                        <span>{run ? actualStatus(activeBatch, test.id) : "—"}</span>
+                        <span
+                          className={`validation-register-comparison${
+                            !run ? "" : statusesMatch ? " is-match" : " is-mismatch"
+                          }`}
+                        >
+                          <span>
+                            <small>Expected</small>
+                            <em>{expectedStatus}</em>
+                          </span>
+                          <ArrowRightOutlined />
+                          <span>
+                            <small>Actual</small>
+                            <em>{actualRunStatus}</em>
+                          </span>
+                          {statusesMatch && <CheckCircleOutlined className="validation-register-match-icon" />}
+                        </span>
                         <span>
                           <Tag color={!run ? "default" : run.status === "pass" ? "green" : run.status === "fail" ? "red" : "orange"}>
                             {!run ? "SEALED" : run.status.toUpperCase()}
@@ -1013,7 +1223,9 @@ export function PolicyValidationLab({
       >
         <PolicyInspector
           rule={policyPreview}
-          allRules={rules}
+          allRules={policyPreviewRules}
+          publishedVersion={policyPreviewVersion}
+          versions={versions}
           policySetKey={policySetKey}
           activeTabKey={policyPreviewTab}
           onTabChange={setPolicyPreviewTab}
