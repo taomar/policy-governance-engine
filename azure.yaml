@@ -1,0 +1,33 @@
+name: policy-platform
+metadata:
+  template: policy-platform-azure
+
+infra:
+  provider: bicep
+  path: ./infra
+
+services:
+  api:
+    project: .
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true
+  web:
+    project: ./apps/web
+    language: js
+    host: containerapp
+    docker:
+      path: ./apps/web/Dockerfile
+      context: ./apps/web
+      remoteBuild: true
+
+hooks:
+  preprovision:
+    shell: pwsh
+    run: ./infra/scripts/PreProvision.ps1
+  postdeploy:
+    shell: pwsh
+    run: ./infra/scripts/PostDeploy.ps1

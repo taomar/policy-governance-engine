@@ -1,0 +1,11 @@
+.git
+.azure
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+*.log
+.env
+apps/web/node_modules
+apps/web/dist
+data/documents

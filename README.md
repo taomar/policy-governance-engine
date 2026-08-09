@@ -1,146 +1,251 @@
-# Enterprise Policy Formalization and Deterministic Policy Platform (Local Build)
+# Policy Platform — Deterministic Policy Formalization
 
-Local-first implementation of the deterministic-evaluation core described in the
-project spec (`Instructions for Claude Opus 5_*.md`), **plus** a real Azure
-OpenAI + Azure AI Search integration layer for AI-assisted extraction, quality
-review, rewrite suggestions, version comparison, and grounded chat. Canonical
-policy contracts, a pure-Python deterministic evaluator, and PostgreSQL-backed
-persistence form the trust boundary — **no LLM participates in the runtime
-evaluation decision**; AI only assists with drafting/reviewing candidates that
-still go through human approve/reject/publish.
+Turn enterprise policy documents (HR handbooks, IT provisioning policies, expense
+policies, labour law) into **structured, machine-evaluable rules** — and evaluate
+them the same way every time.
 
-See `AGENT_PROGRESS.md` for the full milestone log, `docs/adr/` for architecture
-decisions (`ADR-0007` covers the AI integration in detail), and
-`docs/known-limitations.md` for what is intentionally deferred (MAF graph
-workflows, real auth, CSV export, multi-tenant scoping).
+AI reads documents and *drafts* rules. A human reviews and approves them. A pure
+Python engine — with no model call anywhere in its path — makes the actual
+decision. Published policy versions are immutable snapshots that can always be
+traced back to the verbatim sentence they came from.
+
+> **Maturity: working prototype with a prepared Azure deployment kit.** The
+> application remains single tenant and its actor roles are not production
+> authorization. No Azure environment was deployed while preparing this repository.
+
+---
+
+## Why this system exists
+
+Policy is written as prose, and prose is difficult to govern. A handbook
+sentence cannot be tested, cannot be executed identically twice, and cannot
+prove which paragraph a decision came from. In practice that means three
+recurring failures: two people read the same clause and act differently; nobody
+can tell whether a policy change broke a case that used to work; and an auditor
+asking "why was this approved?" gets a recollection rather than a record.
+
+This platform closes those gaps with what it actually builds:
+
+- **Prose becomes structured, reviewable policy.** Source documents are parsed
+  into offset-anchored clauses, and an AI pipeline drafts candidate rules from
+  them — always as drafts, never as published policy.
+- **Every rule keeps its receipt.** Extracted passages must be verbatim
+  substrings of the source, re-checked in Python, and the clause linkage is
+  persisted as `evidence_references` when the rule is published.
+- **Decisions are deterministic.** A pure Python engine — no model call anywhere
+  in its path — turns facts into a decision with a per-rule breakdown and a
+  stable result hash. The same inputs always produce the same output.
+- **Policy can be tested like code.** Named scenarios are pinned as regression
+  tests and re-run automatically on every publish, so a change that breaks a
+  known case is visible immediately.
+- **Humans stay in control.** Nothing a model produces reaches a published
+  version without an explicit human approval, and every approval, publication
+  and disposition is recorded in an append-only audit trail.
+
+What it is not: it does not replace legal or compliance judgement, it does not
+authenticate anyone, and it does not decide anything a human has not first
+approved.
+
+## What it does
+
+| Capability | Summary |
+|---|---|
+| **Document ingestion** | Upload PDF/DOCX; layout-aware parsing produces stable `Clause` records with source offsets, reconstructed across page breaks. |
+| **AI-assisted extraction** | A two-stage agent pipeline drafts candidate rules from clauses — always as `candidate` rows, never auto-published. |
+| **Human review & governance** | Draft, edit, approve, reject, request-changes, manager override, bulk review — with an audit trail. |
+| **Immutable publishing** | Approved candidates are published as a full, versioned, immutable rule snapshot. |
+| **Deterministic evaluation** | Facts in → decision out, with rule-by-rule status, precedence resolution, exceptions, aggregate caps, advice notes and a stable result hash. |
+| **Quality analysis** | Deterministic structural checks plus an AI review pass, for published versions *and* pre-publish candidates. |
+| **Cross-rule correlation** | Deterministic grouping + AI classification of contradictions, overlaps, duplicates and gaps. |
+| **Policy tests** | Named regression tests — AI may propose them, only the deterministic engine executes them; re-run automatically on publish. |
+| **Version compare** | Deterministic rule-level diff between two published versions, with an AI plain-English narrative. |
+| **Grounded chat** | "Ask AI" answers questions about a policy set, citing the source clauses it used. |
+| **Export & decision log** | JSON / JSONL / CSV export of rules and candidates; append-only log of every evaluation call. |
+
+Azure OpenAI and a grounding/search layer are **required**, not optional. The
+intended product is AI-assisted throughout: extraction, quality review,
+correlation, rewrite, test proposal and grounded chat all need Azure OpenAI, and
+grounded answers additionally need a retrieval layer — today **Azure AI Search**,
+which is what the code integrates directly.
+
+> **Current runtime enforcement is weaker than that requirement.** The process
+> still starts with the `AZURE_*` variables blank. That is a **degraded,
+> diagnostic mode allowed by the current code**, not a supported full-product
+> deployment: AI endpoints return a clean `503`, the UI shows an "AI disabled"
+> pill, clause indexing is skipped, and only deterministic features (import,
+> evaluate, policy tests, export, decision log, audit) keep working. There is no
+> fail-fast startup check.
+
+How the models are grounded — sources, indexing, hybrid retrieval, citation and
+verbatim verification — is documented in
+[AI assistance → How the AI is grounded](docs/ai-assistance.md#how-the-ai-is-grounded).
+
+A diagram and a short write-up for each capability — plus search, aggregate
+limits, exceptions and attestations — is in
+[`docs/capability-flows.md`](docs/capability-flows.md), and what each capability
+is defended by in the test suite is in
+[`docs/testing.md`](docs/testing.md#active-test-capability-groups).
+
+## Standards and design principles
+
+Each row states what the repository actually does. **Implemented** means the
+mechanism is in the code; **aligned** means the design deliberately follows the
+standard's vocabulary without claiming conformance; **partial** and **deferred**
+mean what they say. No row asserts certification or formal compliance.
+
+| Standard / principle | Status | Where, and why it matters |
+|---|---|---|
+| **OpenAPI 3.x** | Implemented | Generated by FastAPI at `/openapi.json`, rendered at `/docs` and `/redoc`. The contract is derived from the same models the code runs on, so it cannot drift from the implementation. |
+| **JSON Schema via Pydantic v2** | Implemented | Every canonical rule, condition node and evaluation payload is a Pydantic model in `src/policy_platform/contracts/`. A malformed rule is rejected at the boundary instead of failing at decision time. |
+| **Canonical condition AST, allowlist-only** | Implemented | 20 allowlisted operators, four node types, no `eval` and no dynamic dispatch. A policy condition cannot become arbitrary code. |
+| **Deterministic evaluation with a stable hash** | Implemented | `evaluator/` has no database, network or AI dependency; results are hashed over canonically serialised JSON (sorted keys, ISO dates). A caller can prove a result was not altered afterwards. |
+| **Explicit indeterminacy** | Implemented | A missing fact yields `INDETERMINATE` with the exact list of what was missing — never a guess and never silently false. |
+| **Provenance and verbatim evidence** | Implemented | Clause offsets are exact by construction; extracted passages are re-verified as substrings; `evidence_references` survive publication. Traceability is what makes a rule defensible. |
+| **Immutable published versions** | Implemented | `approved_policy_versions` are full snapshots, never edited in place; exactly one is active per policy set. A decision can always be replayed against the version that produced it. |
+| **Append-only records** | Implemented | `evaluations`, `policy_test_runs` and `audit_events` are write-once, and published versions are never edited in place. Evidence that can be edited is not evidence. |
+| **OASIS XACML 3.0** | Aligned | Target/scope matching, the Permit/Deny axis, precedence-ordered first-applicable combining, the 8 precedence dimensions, and the Obligations-vs-Advice split. Borrowing a named mechanism beats inventing ad hoc conflict resolution. |
+| **OMG DMN 1.3+ and FEEL** | Partial | The formulator emits DMN-shaped JSON, and aggregate limits implement the Collect hit policy with a SUM aggregator. The FEEL parser is a strict subset: an expression it does not fully understand yields *no* condition rather than a plausible guess. |
+| **OPA-style decision logging** | Implemented | Every evaluation call is persisted with its facts, result and hash, and is browsable read-only in the Decision Log. |
+| **ISO 37301 / ISO 27001 governance practice** | Partial | Periodic review dates, attestation campaigns, exception/waiver records and RACI ownership fields exist. No control-to-framework mapping and no audit-evidence generation. |
+| **Semantic versioning** | Not implemented | Published versions carry a monotonically increasing integer `version_number` per policy set. There is no major/minor/patch semantics anywhere. |
+| **ODRL** | Not implemented | The canonical rule model is deontic in spirit — permission, prohibition, obligation — but it is not an ODRL profile and no ODRL serialisation exists. |
+| **Microsoft Agent Framework (MAF)** | Not used | No MAF package, import, workflow graph, checkpoint store or tool-registration runtime exists. The current request-driven workflows use explicit FastAPI services, PostgreSQL state and direct Azure OpenAI/Search REST calls. Adding MAF now would duplicate orchestration; reconsider it if the product needs resumable multi-agent workflows, dynamic tool routing, parallel branches or framework-managed pause/resume. |
+| **Authentication and multi-tenancy** | Not implemented | Deliberately out of scope for a local prototype; see [Configuration & operations](docs/configuration.md#security-status). |
+
+Full standards comparison — XACML, OPA, DMN, AWS IAM, Azure Policy, ISO, NIST —
+with a prioritised gap list lives in
+[`docs/policy-standards-research.md`](docs/policy-standards-research.md).
+Microsoft-specific relationships are in
+[`docs/microsoft-technologies.md`](docs/microsoft-technologies.md).
+
+## Outputs and how to use them
+
+Everything the platform produces, what shape it comes in, and what it is good
+for. Downloadable files are marked as such; the rest are API responses or
+database records read through the UI.
+
+### Downloadable files
+
+| Output | Format | Produced by | Use it for |
+|---|---|---|---|
+| **Published rule export** | JSON array, JSONL, or CSV — `GET /api/policy-sets/{key}/versions/{id}/export?format=` | Policies tab export menu | Handing an immutable version to another system, an archive, or a spreadsheet review. A verbatim re-serialisation — nothing is summarised or reworded. |
+| **Candidate rule export** | Same three formats — `GET /api/policy-sets/{key}/candidate-rules/export?format=` | Review tab export menu | Reviewing a large extraction offline, or sharing a draft set with legal before anyone approves. Optionally filtered by review status, and includes the review metadata (status, reviewer, notes) alongside each `rule_`-prefixed rule field. |
+| **Selected-policy JSONL** | JSONL, generated in the browser | Policies tab, selected or all rules | Pulling a specific subset — one family of rules, one topic — without exporting the whole version. |
+
+CSV nests structured fields such as `condition` and `exceptions` as JSON in a
+single cell so no information is dropped, and is written with a UTF-8 BOM so
+Excel opens it correctly.
+
+### API responses and persisted records
+
+| Output | Shape | Produced by | Use it for |
+|---|---|---|---|
+| **Canonical rule** | `CanonicalRule` JSON — rule type, effect, condition AST, required facts, exceptions, advice, scope, precedence fields, evidence | Extraction, manual drafting, publish | The unit everything else consumes: it is what the evaluator reads, what exports serialise, and what a reviewer edits. |
+| **Approved policy version** | Immutable snapshot of every rule plus aggregate limits, with a version number and effective dates | `POST /api/policy-sets/{key}/publish` | The releasable artifact. Pin an evaluation to it, diff it against another version, or attach an attestation campaign to it. |
+| **Evaluation result** | Overall status, outcome, per-rule results with `overridden_by`, triggered exceptions, aggregate breaches, advice notes, evidence references, `result_hash` | `POST /api/evaluations` | Driving a downstream decision, and proving afterwards exactly which rules fired and why. The hash lets a consumer verify the result was not altered. |
+| **Decision log entry** | The full request facts and response, queryable by status, correlation ID or calling system | Every evaluation call; read at `GET /api/evaluations/policy-sets/{key}` | Answering "what did we decide for this case, and under which version?" — the audit question that prose policy cannot answer. |
+| **Policy test run** | Pass/fail, explanation listing every mismatch, the version it ran against, the trigger, and a committed expectation hash | Manual run, validation batch, or automatic re-run on publish | Regression evidence. A failing run after a publish tells you precisely which expectation the new version broke. |
+| **Quality run** | Findings tagged `deterministic` or `ai_review`, each with severity, category, impact, acceptance boundaries, reviewer questions and affected rule IDs, plus a methodology version | Quality tab, published or candidate scope | Deciding what to fix before publishing, and showing later that a fix stuck — runs are immutable, so two runs are directly comparable. |
+| **Correlation run and findings** | Relationship classification between grouped rules, each with a reviewer disposition (`open` / `accepted` / `dismissed` / `resolved`), the deciding actor and notes | `POST /api/ai/policy-sets/{key}/correlate` | Finding contradictions, duplicates and overlaps that per-rule review structurally cannot see. |
+| **Version diff** | Added / removed / changed / unchanged rules with field-level deltas, plus an optional AI narrative | Compare tab | Change review and release notes. The diff is deterministic; only the narrative is generated. |
+| **Audit event** | Immutable record of an approval, publication or disposition, with actor and details | Written by `infrastructure/audit.py` | Governance evidence: who did what, when, to which entity. |
+| **Attestation record** | Person, published version, due date, and computed `pending` / `acknowledged` / `overdue` status | Attestation campaigns *(backend and UI built, hidden in this phase)* | Showing that the people bound by a policy version have acknowledged it. |
+| **Indexed clause** | Clause text plus embedding in Azure AI Search, keyed and filtered to this platform's documents | Document upload (indexing is best-effort; see [grounding](docs/ai-assistance.md#how-the-ai-is-grounded)) | Grounding Ask AI answers and scenario generation in the organisation's own wording rather than model recall. |
+
+### What this gets you
+
+Structured rules make policy diffable and reviewable. Evidence references make a
+decision defensible back to a sentence. Deterministic results with a hash make a
+decision reproducible and verifiable. Test runs turn "we think this still works"
+into a checkable claim. Exports let the same governed rule set feed a
+spreadsheet review, an archive, or another system without a re-typing step where
+meaning gets lost.
+
+---
 
 ## Stack
 
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2.
-- **AI**: Azure OpenAI (`gpt-5.6-sol` reasoning deployment for extraction/
-  quality/rewrite/compare, `gpt-5.4-mini` fast deployment for interactive
-  chat) + Azure AI Search, via thin `httpx` REST clients (no SDK dependency —
-  see ADR-0007). Fully optional: unset the `AZURE_OPENAI_*` / `AZURE_SEARCH_*`
-  variables in `.env` and the platform runs with AI features disabled.
-- **Frontend**: React + TypeScript, Vite.
-- **Database**: PostgreSQL 16 (Docker), local port **5433** (non-default —
-  5432 was already in use by an unrelated container on this machine).
-- **API port**: **8010** (non-default — 8000 was already in use by an
-  unrelated local process).
-- **Frontend dev port**: Vite defaults to 5173; if that's occupied by another
-  project on your machine, Vite falls back to **5174** (confirmed locally —
-  check the terminal output for the actual port Vite printed on startup).
+- **Backend** — Python 3.11, FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2
+- **Database** — PostgreSQL 16 via Docker Compose (host port **5433**)
+- **Frontend** — React 19 + TypeScript + Vite, Ant Design v6
+- **AI (required)** — Azure OpenAI (reasoning + fast deployments) and a
+  grounding/search layer, today Azure AI Search, called through thin `httpx`
+  REST clients
 
-## Prerequisites
+Full detail — what each framework is responsible for, where it is configured, and
+what is deliberately *not* used — is in
+[`docs/frameworks.md`](docs/frameworks.md).
 
-- Docker Desktop
-- Python 3.11+ and `pip`
-- Node.js 18+ and `npm`
+## Azure deployment preparation
 
-## First-time setup
+A deployment-ready **Azure Container Apps + Bicep + azd** kit is available under
+`infra/`. It provisions a VNet-integrated public web app and internal API,
+private PostgreSQL, Azure Files, Key Vault, Azure OpenAI, Azure AI Search,
+monitoring, and a fresh schema/index initialization job. No free service tier is
+selected.
+
+The Azure database starts empty: Alembic creates the schema, Search index
+schemas are initialized, and no local policies, files, samples or rows are
+migrated.
+
+Start with:
+
+- [Azure deployment](docs/azure-deployment.md)
+- [Prerequisites](docs/azure-prerequisites.md)
+- [Deployment variants](docs/azure-deployment-variants.md)
+- [Azure operations](docs/azure-operations.md)
+
+The documented future entry point is `azd up`; it was **not** executed during
+preparation.
+## Quick start
+
+Prerequisites: Docker Desktop, Python 3.11+, Node.js 18+.
 
 ```powershell
-# 1. Copy env template (already pre-filled for local dev; edit if needed)
-Copy-Item .env.example .env   # skip if .env already exists
+# 1. Configuration
+Copy-Item .env.example .env      # skip if .env already exists
 
-# 2. Start PostgreSQL
+# 2. Database
 docker compose -f infra/local/docker-compose.yml up -d
 
-# 3. Create and activate a Python virtualenv, install the backend
+# 3. Backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-
-# 4. Apply database migrations
 .\.venv\Scripts\python.exe -m alembic upgrade head
 
-# 5. Install frontend dependencies
-cd apps\web
-npm install
-cd ..\..
+# 4. Frontend
+cd apps\web; npm install; cd ..\..
 ```
 
-## Running
-
-Start the API (from repo root, with the venv available):
+Run the API and the web app in two terminals:
 
 ```powershell
+# Terminal 1 — API on http://127.0.0.1:8010
 .\.venv\Scripts\python.exe -m uvicorn policy_platform.api.app:app --host 127.0.0.1 --port 8010 --app-dir src
+
+# Terminal 2 — web app (Vite prints the actual port)
+cd apps\web; npm run dev
 ```
 
-Start the frontend (separate terminal):
+Then open the URL Vite printed, and the interactive API docs at
+<http://127.0.0.1:8010/docs>.
+
+Run the checks (see [`docs/testing.md`](docs/testing.md) for the full guide):
 
 ```powershell
-cd apps\web
-npm run dev
+.\.venv\Scripts\python.exe -m pytest tests/unit -q   # active Python unit-test process
+cd apps\web; npm run build                            # type-check + build (not a test suite)
+cd apps\web; npm run lint                             # oxlint
 ```
 
-Open the printed local URL (Vite prints the actual port on startup — usually
-`5173`, or `5174`/higher if another project's dev server already holds 5173
-on your machine). The UI is a sidebar-nav admin shell with seven sections
-plus a global **Ask AI** chat drawer:
+There are no automated frontend tests; `build` and `lint` are type/lint checks
+only.
 
-1. **Dashboard** — summary cards (policy set count, active versions, pending
-   candidate rules, uploaded documents) aggregated live from the API, with
-   quick-link buttons into each section.
-2. **Policy Sets** — card-grid list of policy sets → click into a detail view
-   → expandable version-history timeline → each version expands into readable
-   **rule cards** (title, rule-type/effect badges, authority, effective dates,
-   priority, a recursively-rendered condition tree with operator symbols like
-   `>`/`≥`/`in` instead of raw JSON, required-fact chips, exceptions, scope).
-   A collapsible "+ New Policy Set" form and a collapsible "+ Import Version
-   (Advanced/Bulk)" JSON form (paste a canonical rules array to import
-   directly as an approved version — a fast-path for bulk/bootstrap imports,
-   bypassing individual review) remain available as secondary flows.
-3. **Documents** — real multipart file upload (title/owner/PDF or DOCX) wired
-   to the document-ingestion endpoint, plus a list of uploaded documents with
-   a version-history table per document (uploading a new file under an
-   existing title adds a new version, e.g. tracking v3.2 → v3.3 revisions).
-   Each document version has an **✨ Extract with AI** button that runs Azure
-   OpenAI extraction against the document and drops the results into the
-   Review Queue as `candidate` rows — nothing is auto-published.
-4. **Review Queue** — a policy-set selector, a structured candidate-drafting
-   form (dropdowns for rule type/effect, plain inputs for title/authority/
-   priority/dates, a row-based "AND of comparisons" condition builder, with
-   an "Advanced JSON" checkbox escape hatch for OR/NOT/nested logic), a
-   status-filterable candidate list rendered as rule cards with approve/reject
-   actions (reviewer name required), **checkbox-based bulk select** ("select
-   all N in this filter" + bulk approve/reject buttons — needed once AI
-   extraction produces hundreds of candidates from one document), a
-   per-candidate **✨ Suggest Rewrite** action (give the AI a plain-English
-   instruction, e.g. "name concrete tribunals instead of 'appropriate legal
-   body'", review the suggested payload, apply or discard it), and a publish
-   panel that merges all approved-but-unpublished candidates into a
-   brand-new approved version. Publishing always carries forward every rule
-   from the current active version (versions are full immutable snapshots,
-   not deltas).
-5. **Quality** — runs deterministic checks (duplicate IDs, ambiguity,
-   conflicting effects, expired rules, review backlog) plus an AI review pass,
-   with a toggle between two scopes: **Published version** (evaluates the
-   active approved version) and **Extracted candidates (pre-publish)**
-   (evaluates unpublished `CandidateRule` rows directly — the way to answer
-   "are these 400 freshly-extracted candidates any good?" *before* deciding
-   what to approve/publish). Findings are filterable by severity and source
-   (deterministic vs. AI review) and each carries a concrete recommendation.
-6. **Compare** — pick two published versions of a policy set; get a
-   rule-level diff (added/removed/changed/unchanged, each expandable) plus an
-   AI-generated plain-English narrative summarizing what changed and why it
-   matters.
-7. **Evaluate** — policy-set + version selector (active or a specific pinned
-   version), a facts form **dynamically generated** from the union of
-   `required_facts` across the target version's rules (with an "Advanced JSON
-   facts" checkbox escape hatch), and a result view: overall status, outcome,
-   result hash, triggered exceptions, and a per-rule status/effect breakdown
-   table.
+> Run the API **without** `--reload`: file-watcher restarts can interrupt
+> long-running extraction requests.
 
-**✨ Ask AI** (top-right drawer, available from any page) — a grounded chat:
-scope a question to one policy set or "All policy sets," ask in plain
-English ("What is the P1 support response time?"), and get an answer that
-cites the specific source clauses it's grounded in. Uses the fast
-(`gpt-5.4-mini`) deployment for lower latency.
-
-Sample fixtures are in `samples/policies/` and `samples/evaluation-requests/`
-and can be used directly via curl, e.g.:
+Sample fixtures live in `samples/`:
 
 ```powershell
 curl.exe -s -X POST http://127.0.0.1:8010/api/policy-sets `
@@ -156,154 +261,49 @@ curl.exe -s -X POST http://127.0.0.1:8010/api/evaluations `
   --data-binary "@samples/evaluation-requests/satisfied-small-expense.json"
 ```
 
-A second, larger sample policy set — **`hardware-provisioning-policy`** — is
-sourced from two real DOCX policy documents (copied into
-`samples/source-documents/`; see `scripts/generate_hardware_policy_samples.py`
-for the extraction/authoring script). It has 10 rules across two versions
-(v3.2/v3.3) that differ in a real, meaningful way (contractor permanent-device
-entitlement threshold: 20 vs 10 working days), useful for exercising
-version-pinned evaluation (`use_active_version: false`) against a policy that
-actually changed between versions:
-
-```powershell
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-sets `
-  -H "Content-Type: application/json" `
-  --data-binary "@samples/policies/hardware-provisioning-policy-set.json"
-
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-sets/hardware-provisioning-policy/versions `
-  -H "Content-Type: application/json" `
-  --data-binary "@samples/policies/hardware-policy-v3.2-import.json"
-
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-sets/hardware-provisioning-policy/versions `
-  -H "Content-Type: application/json" `
-  --data-binary "@samples/policies/hardware-policy-v3.3-import.json"
-```
-
-## AI features (Azure OpenAI + Azure AI Search)
-
-AI features are configured entirely via `.env` — `AZURE_OPENAI_ENDPOINT`,
-`AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT` (reasoning model, used for
-extraction/quality/rewrite/compare), `AZURE_OPENAI_FAST_DEPLOYMENT` (used for
-Ask AI chat), `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`/`_MODEL`/`_DIMENSIONS`,
-`AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_API_KEY`, `AZURE_SEARCH_API_VERSION`.
-Leave them unset/blank to run with AI disabled — every AI endpoint checks
-`GET /api/ai/status` internally and returns a clean error instead of crashing.
-See ADR-0007 (`docs/adr/ADR-0007-ai-integration.md`) for the full design
-rationale, including why direct `httpx` REST calls are used instead of the
-official SDKs, and the reasoning-model token-budget gotcha.
-
-```powershell
-# Check whether AI is enabled and which deployments are configured
-curl.exe -s http://127.0.0.1:8010/api/ai/status
-
-# Extract candidate rules from an uploaded document version
-curl.exe -s -X POST http://127.0.0.1:8010/api/ai/policy-sets/hr-guide-policy/documents/<document_version_id>/extract
-
-# Evaluate quality of the currently PUBLISHED active version
-curl.exe -s http://127.0.0.1:8010/api/ai/policy-sets/hr-guide-policy/quality
-
-# Evaluate quality of unpublished candidates BEFORE deciding what to approve
-curl.exe -s http://127.0.0.1:8010/api/ai/policy-sets/hr-guide-policy/candidates/quality
-
-# Bulk-approve a batch of reviewed candidates (empty candidate_ids = all pending)
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-sets/hr-guide-policy/candidate-rules/bulk-review `
-  -H "Content-Type: application/json" `
-  --data-binary "{`"candidate_ids`":[],`"decision`":`"approve`",`"reviewer`":`"me`"}"
-
-# Suggest + apply an AI rewrite for one candidate
-curl.exe -s -X POST http://127.0.0.1:8010/api/ai/candidate-rules/<candidate_id>/rewrite `
-  -H "Content-Type: application/json" `
-  --data-binary "{`"instruction`":`"Name concrete tribunals instead of vague wording`"}"
-
-# Compare two published versions with an AI narrative summary
-curl.exe -s "http://127.0.0.1:8010/api/ai/policy-sets/hardware-provisioning-policy/compare?version_a=1&version_b=3"
-
-# Ask a grounded question (omit policy_set_key to search across all policy sets)
-curl.exe -s -X POST http://127.0.0.1:8010/api/ai/ask `
-  -H "Content-Type: application/json" `
-  --data-binary "{`"question`":`"What is the P1 support response time?`",`"policy_set_key`":`"hardware-provisioning-policy`"}"
-```
-
-## Policy tests (Section 21.6 / 9.11 step 6)
-
-Named, saved test cases for a policy set — distinct from the ad hoc **Evaluate**
-page (Section 9.12), which is unsaved and exploratory. Azure OpenAI *proposes*
-tests; the real deterministic evaluator always *executes* them and decides
-pass/fail. Every active test is automatically re-run whenever a new version is
-published, and any that fail appear in the Quality page's "Failed policy tests"
-section. See ADR-0010 (`docs/adr/ADR-0010-policy-tests.md`).
-
-AI-proposed tests start as `pending_review` and must be accepted before they run
-on publish or count as findings; manually-created tests are active immediately.
-
-```powershell
-# List tests for a policy set (each item = the test + its latest run)
-curl.exe -s http://127.0.0.1:8010/api/policy-tests/policy-sets/expense-policy
-
-# Ask Azure OpenAI to propose tests across the applicable kinds
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-tests/policy-sets/expense-policy/propose `
-  -H "Content-Type: application/json" `
-  --data-binary "{`"reasoning_effort`":`"medium`"}"
-
-# Accept (activate) or reject an AI-proposed test
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-tests/<test_id>/review `
-  -H "Content-Type: application/json" `
-  --data-binary "{`"decision`":`"accept`",`"reviewer`":`"me`"}"
-
-# Run one test on demand against the active published version
-curl.exe -s -X POST http://127.0.0.1:8010/api/policy-tests/<test_id>/run `
-  -H "Content-Type: application/json" --data-binary "{`"triggered_by`":`"me`"}"
-
-# Immutable run history for one test (newest first)
-curl.exe -s http://127.0.0.1:8010/api/policy-tests/<test_id>/runs
-
-# Active tests whose most recent run did not pass (drives the Quality page)
-curl.exe -s http://127.0.0.1:8010/api/policy-tests/policy-sets/expense-policy/failing
-```
-
-## Testing
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/unit -v
-```
-
-99 unit tests cover condition evaluation semantics, rule precedence ordering,
-canonical hashing/determinism, the full evaluation engine (missing facts,
-exceptions, authority precedence), and policy-test pass/fail assertion logic.
-
-```powershell
-cd apps\web
-npm run build
-```
-
-Verifies the frontend type-checks and builds cleanly.
-
-## Project layout
+## Repository structure
 
 ```
 src/policy_platform/
-  contracts/       canonical policy schema, condition AST, evaluation DTOs (Pydantic v2)
-  evaluator/        pure-Python deterministic evaluation engine (zero I/O, zero AI/network)
-                    engine.py: rule evaluation; test_runner.py: PolicyTest pass/fail assertions
-  domain/           SQLAlchemy ORM entities (19 tables)
-  infrastructure/   async engine/session, mappers, repositories, settings
-    ai/             thin httpx Azure OpenAI REST client (openai_client.py)
-    search/         thin httpx Azure AI Search REST client + indexing scoping strategy
-    ai_extraction.py  document -> CandidateRule draft extraction
-    ai_quality.py     deterministic + AI-review quality checks (published version AND pre-publish candidates)
-    ai_rewrite.py     targeted AI rewrite suggestion + apply
-    ai_compare.py     version-to-version rule diff + AI narrative summary
-    ai_chat.py        grounded Ask-AI chat
-    ai_test_proposal.py  AI-proposed PolicyTest cases (proposal only — never executes)
-    policy_test_execution.py  runs a saved PolicyTest via the real evaluator, records a run
-  api/              FastAPI app + routers (policy-sets, evaluations, documents, candidate-rules, policy-tests, ai)
-  worker/           reserved for future MAF Python SDK workflow integration
+  contracts/        Pydantic contracts: canonical rule, condition AST, evaluation DTOs
+  evaluator/        Pure deterministic engine (no I/O, no AI): conditions, precedence,
+                    engine, test_runner
+  domain/           SQLAlchemy ORM entities
+  infrastructure/   DB session, repositories, mappers, settings, ingestion,
+                    AI services, search clients, prompts, export, audit
+  api/              FastAPI app + 10 routers
+  worker/           Reserved placeholder (currently empty)
 apps/web/           React + TypeScript frontend (Vite)
-alembic/            database migrations
-samples/            sample policy set / approved version / evaluation request fixtures
-  source-documents/ copies of real attached policy documents used as extraction sources
-scripts/            one-off utility scripts (e.g. hardware-policy sample generator)
-tests/unit/         pytest suite for the evaluator
-docs/adr/           architecture decision records (ADR-0007: AI integration; ADR-0010: policy tests)
-infra/local/        docker-compose for local PostgreSQL
+alembic/            Database migrations
+samples/            Sample policy sets, versions, evaluation requests, source documents
+scripts/            One-off backfill/utility scripts (see docs/testing.md)
+tests/unit/         pytest suite (see docs/testing.md)
+infra/              Azure Bicep/azd assets plus local Docker Compose under infra/local
+docs/               Documentation (see below)
 ```
+
+## Documentation
+
+Start at the **[documentation index](docs/README.md)**.
+
+| Page | For |
+|---|---|
+| [Architecture](docs/architecture.md) | Components, boundaries, invocation paths |
+| [Capability flows](docs/capability-flows.md) | A diagram per capability — ingestion, review, publish, evaluate, test, quality, search, exports |
+| [Azure deployment](docs/azure-deployment.md) | Recommended Container Apps architecture, SKUs, network, parameters and future azd flow |
+| [Azure variants](docs/azure-deployment-variants.md) | Container Apps, App Service, hardened-private and Foundry IQ alternatives |
+| [Azure prerequisites](docs/azure-prerequisites.md) | Tools, roles, providers, quotas, Entra, models and network inputs |
+| [Azure operations](docs/azure-operations.md) | Fresh initialization, scaling, backups, rotation and troubleshooting |
+| [Testing and scripts](docs/testing.md) | Active pytest capability groups, commands, expected behavior, isolation, and coverage gaps |
+| [Workflows](docs/workflows.md) | UI navigation and the end-to-end flows |
+| [Frameworks & technologies](docs/frameworks.md) | What each framework does here, and what is not used |
+| [Microsoft technologies](docs/microsoft-technologies.md) | Azure services and Microsoft patterns, with first-party references |
+| [AI assistance](docs/ai-assistance.md) | What the AI components actually do, and [how they are grounded](docs/ai-assistance.md#how-the-ai-is-grounded) |
+| [API](docs/api.md) | Endpoint groups and interactive API docs |
+| [Data model](docs/data-model.md) | Tables and lifecycle invariants |
+| [Configuration & operations](docs/configuration.md) | Env vars, setup, security, observability |
+| [Known limitations](docs/known-limitations.md) | What is deliberately not built |
+
+Deeper public background lives in `docs/specs/` (ingestion and extraction
+details) and `docs/policy-standards-research.md`. `PRODUCT.md` and `DESIGN.md`
+capture product positioning and the visual design language.

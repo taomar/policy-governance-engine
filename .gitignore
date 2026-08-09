@@ -18,3 +18,14 @@ App_Data/
 # is not in version control either. Sample documents that *are* source live in
 # samples/source-documents/.
 data/documents/
+
+# Local agent/session records. Keep these on the workstation; do not publish.
+AGENT_PROGRESS.md
+Instructions for Claude Opus 5_*.md
+docs/SESSION_HANDOFF.md
+docs/adr/
+docs/handoff/
+
+# Azure Developer CLI local environments may contain secrets.
+.azure/*
+!.azure/deployment-plan.md
