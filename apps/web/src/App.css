@@ -7389,11 +7389,43 @@
   align-items: center;
   gap: 1px;
   padding: 8px 10px;
-  min-width: 88px;
+  /* Trimmed from 88px: a fifth stage was added and at the old width the row
+     wrapped on a laptop, breaking the left-to-right reading the pipeline
+     depends on. */
+  min-width: 76px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
   transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* Where material leaves the pipeline. Deliberately not a stage box: it sits
+   below the chain, muted and dashed, because nothing passes from it to a next
+   step. A solid box in the row would read as somewhere work arrives. */
+.extract-dropout {
+  display: flex;
+  margin: -4px 0 10px;
+  padding-inline-start: 22px;
+}
+
+.extract-dropout-box {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px dashed var(--slate-300, #cbd5e1);
+  border-radius: 8px;
+  background: var(--app-surface-subtle, #f8fafc);
+}
+
+.extract-dropout-arrow {
+  color: #94a3b8;
+  line-height: 1;
+}
+
+.extract-dropout-box .extract-stage-value {
+  font-size: 13px;
+  color: #64748b;
 }
 
 .extract-stage-icon {
@@ -7449,6 +7481,25 @@
 @keyframes extract-value-glow {
   0%, 100% { color: var(--text-primary, inherit); }
   50% { color: var(--brand-600); }
+}
+
+/* A stage that has just finished settles once rather than staying animated —
+   the eye is drawn to the hand-off, then released. Without it, a completed
+   stage looks identical to one that never ran. */
+.extract-stage--done {
+  border-color: var(--success-border);
+  animation: extract-stage-settle 520ms ease-out;
+}
+
+@keyframes extract-stage-settle {
+  0% { transform: translateY(-2px); box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.16); }
+  100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .extract-stage--done {
+    animation: none;
+  }
 }
 
 /* The connector between two stages. When work is flowing across it, a dot

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Progress, Tag, Tooltip, Typography } from "antd";
 import {
+  ApartmentOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   ExperimentOutlined,
@@ -96,7 +97,7 @@ function StageValue({ text }: { text: string }) {
 /** The pipeline a document actually travels, in order. Each stage shows the
  * count of what has passed through it, so the reviewer sees work moving rather
  * than one opaque percentage. */
-type StageKey = "intake" | "scan" | "formulate" | "review";
+type StageKey = "intake" | "scan" | "formulate" | "link" | "review";
 
 const STAGES: { key: StageKey; label: string; icon: ReactNode; hint: string }[] = [
   {
@@ -116,6 +117,12 @@ const STAGES: { key: StageKey; label: string; icon: ReactNode; hint: string }[] 
     label: "Rules drafted",
     icon: <ExperimentOutlined />,
     hint: "Stage 2 — the formulator agent turns each policy statement into a structured, testable rule.",
+  },
+  {
+    key: "link",
+    label: "Linked",
+    icon: <ApartmentOutlined />,
+    hint: "Rules tied to the others they belong with — rows of one table, a subsection and the rule it qualifies, an explicit cross-reference. Only relationships the document itself establishes are recorded here.",
   },
   {
     key: "review",
@@ -220,6 +227,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     rules_drafted: drafted = 0,
     rules_committed: committed = 0,
     skipped = 0,
+    linked = 0,
     superseded = 0,
     elapsed_seconds: elapsed = 0,
   } = progress;
@@ -236,8 +244,19 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       ? (elapsed / doneBatches) * (totalBatches - doneBatches)
       : null;
 
-  const pagesPerMinute =
-    elapsed > 20 && donePages > 0 ? (donePages / elapsed) * 60 : null;
+  // A DOCX reports one page for the whole document, so a page counter reads
+  // "1 of 1 page" while batch 6 of 7 is still running — it says finished when
+  // it is not, and "0.1 pages/min" is derived from the same degenerate unit.
+  // Pages are only shown, and only used for throughput, when the document has
+  // enough of them for the number to mean anything.
+  const pagesAreMeaningful = totalPages > 1;
+  const throughput = pagesAreMeaningful
+    ? donePages > 0 && elapsed > 20
+      ? { value: (donePages / elapsed) * 60, unit: "pages/min" }
+      : null
+    : doneClauses > 0 && elapsed > 20
+      ? { value: (doneClauses / elapsed) * 60, unit: "clauses/min" }
+      : null;
 
   // Which stage is lit is read from the backend's own stage sentence rather
   // than inferred from counters, which lag a batch behind what is happening.
@@ -249,13 +268,14 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         : stage.startsWith("Reading")
           ? "scan"
           : stage.startsWith("Linking")
-            ? "review"
+            ? "link"
             : "intake";
 
   const stageValue: Record<StageKey, string> = {
     intake: totalClauses > 0 ? `${doneClauses}/${totalClauses}` : "—",
     scan: String(passages),
     formulate: String(drafted),
+    link: String(linked),
     review: String(committed),
   };
 
@@ -264,16 +284,15 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   // Counters joined into one line with a separator rather than stacked, so the
   // readout stays a fixed height no matter how many counters exist.
   const counters = [
-    totalPages > 0 ? `${donePages} of ${plural(totalPages, "page")}` : null,
+    pagesAreMeaningful ? `${donePages} of ${plural(totalPages, "page")}` : null,
     totalBatches > 0
       ? `batch ${Math.min(doneBatches + (done ? 0 : 1), totalBatches)} of ${totalBatches}`
       : null,
-    skipped > 0 ? `${skipped} skipped` : null,
     elapsed > 0 ? duration(elapsed) + " elapsed" : null,
     // The number someone actually uses to decide whether to wait, so it is
     // stated plainly rather than left to be inferred from batch counts.
     eta !== null ? `about ${duration(eta)} left` : null,
-    pagesPerMinute ? `${pagesPerMinute.toFixed(1)} pages/min` : null,
+    throughput ? `${throughput.value.toFixed(1)} ${throughput.unit}` : null,
   ].filter(Boolean);
 
   return (
@@ -309,6 +328,25 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           );
         })}
       </div>
+
+      {skipped > 0 && (
+        // Rendered off the chain, not in it. Skipped statements do not pass
+        // through to the next stage — they leave the pipeline, and putting
+        // them in the flow would imply they arrive somewhere. It was
+        // previously a fragment of the counters line, where the one number
+        // saying material was dropped read as an aside.
+        <div className="extract-dropout">
+          <Tooltip title="Policy statements the formulator could not turn into a rule, or rules it declined to draft. They are recorded on the run with a reason and are not in the review queue.">
+            <span className="extract-dropout-box">
+              <span className="extract-dropout-arrow" aria-hidden>
+                ↳
+              </span>
+              <StageValue text={String(skipped)} />
+              <span className="extract-stage-label">not turned into rules</span>
+            </span>
+          </Tooltip>
+        </div>
+      )}
 
       <div className="extract-progress-line">
         {done ? (

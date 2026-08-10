@@ -79,12 +79,17 @@ const MEANING_ONLY_TYPES = new Set(["classification", "definition"]);
 /**
  * The XACML attribute a stated subject is asserted against.
  *
- * XACML describes a request by Subject, Action and Resource. A rule about
- * conduct names its actor, so `subject.role` — the short form of
- * `urn:oasis:names:tc:xacml:2.0:subject:role` — is correct. A rule that only
+ * XACML describes a request by Subject, Action and Resource. A rule that only
  * classifies names the thing classified, which is a Resource: calling
- * "Security incidents" a subject role would claim the document assigned
- * conduct to a category, which it did not.
+ * "Security incidents" a subject would claim the document assigned conduct to
+ * a category, which it did not.
+ *
+ * Everything else uses `subject.subject-id`, the generic XACML 1.0 subject
+ * identifier, rather than `subject.role`. `role` is a narrower standard
+ * attribute and asserting it requires knowing the subject names a role — which
+ * the extraction does not establish. "The ED/CEO" is a role; "A device" is not,
+ * and both arrive as the grammatical subject of a sentence. The generic
+ * identifier is the standard attribute that carries no such claim.
  */
 export function subjectAttribute(canonicalRuleType: string | null | undefined): string {
   return MEANING_ONLY_TYPES.has((canonicalRuleType ?? "").toLowerCase())
@@ -92,8 +97,8 @@ export function subjectAttribute(canonicalRuleType: string | null | undefined): 
     : SUBJECT_ATTRIBUTE;
 }
 
-/** `urn:oasis:names:tc:xacml:2.0:subject:role`, short form. */
-export const SUBJECT_ATTRIBUTE = "subject.role";
+/** `urn:oasis:names:tc:xacml:1.0:subject:subject-id`, short form. */
+export const SUBJECT_ATTRIBUTE = "subject.subject-id";
 
 /** `urn:oasis:names:tc:xacml:1.0:action:action-id`, short form. */
 export const ACTION_ATTRIBUTE = "action.action-id";

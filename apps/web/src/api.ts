@@ -929,6 +929,8 @@ export interface ExtractionProgress {
   rules_drafted?: number;
   rules_committed?: number;
   skipped?: number;
+  /** Rules that gained at least one confirmed relationship. */
+  linked?: number;
   superseded?: number;
   run_reference?: string;
   error?: string | null;

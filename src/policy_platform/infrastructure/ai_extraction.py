@@ -786,6 +786,8 @@ async def extract_candidate_rules(
             # decision tables gave them.
             logger.exception("relationship discovery failed for run %s", run.id)
 
+        extraction_progress.advance(progress_key, linked=len(confirmed_links))
+
         for rule in drafted:
             related = list(rule.related_rule_ids)
             seen = set(related) | {rule.rule_id}

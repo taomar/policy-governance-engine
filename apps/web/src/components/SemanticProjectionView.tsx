@@ -110,9 +110,15 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   // condition phrases are listed beneath it as the prose they still are —
   // giving them an operator would imply a binding nobody has made.
   const whenChildren: TreeDatum[] = [];
-  if (projection.subject) {
+  // The projection only carries a subject for `not_directly_mappable`. The
+  // canonical decomposition has one either way, and reading it is deriving
+  // from canonical rather than guessing — without this, an
+  // `enrichment_required` rule showed its conditions with nothing saying who
+  // or what they are about.
+  const subject = projection.subject || rule.formulation?.canonical?.rule?.subject || "";
+  if (subject) {
     whenChildren.push(
-      attributeLeaf("proj-subj", subjectAttribute(canonicalType), "=", `"${projection.subject}"`)
+      attributeLeaf("proj-subj", subjectAttribute(canonicalType), "=", `"${subject}"`)
     );
   }
   const statedConditions = [
@@ -134,15 +140,40 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   }
 
   // THEN. The XACML decision, and beneath it the Obligation or Advice the
-  // source attaches to it, described by action and resource attributes.
+  // source attaches to it.
+  //
+  // Action and resource are read from their own slots only. An earlier version
+  // fell back across them — `resource` accepted `outcome` when `object` was
+  // absent — and on an `enrichment_required` projection, which carries an
+  // outcome but no object, that rendered `action.action-id = "is replaced"`
+  // and `resource.resource-id = "is replaced"`: one value claimed as two
+  // different things. An outcome is what the decision yields, not the resource
+  // it acts on, so it is shown as an outcome.
   const directiveChildren: TreeDatum[] = [];
   const action = projection.predicate || rule.effect?.action || "";
+  const resource = projection.object || "";
+  const outcome = projection.outcome || projection.outcome_source || "";
   if (action) {
     directiveChildren.push(attributeLeaf("proj-act", ACTION_ATTRIBUTE, "=", `"${action}"`));
   }
-  const resource = projection.object || projection.outcome || projection.outcome_source || "";
-  if (resource) {
+  // Guarded even so: a projection that repeats one phrase in both slots would
+  // otherwise state it twice under two different attributes, which reads as a
+  // finding about the policy rather than a duplication in the extraction.
+  if (resource && resource !== action) {
     directiveChildren.push(attributeLeaf("proj-res", RESOURCE_ATTRIBUTE, "=", `"${resource}"`));
+  }
+  if (outcome && outcome !== action && outcome !== resource) {
+    directiveChildren.push({
+      key: "proj-outcome",
+      title: (
+        <span className="cond-leaf">
+          <Text type="secondary" className="semantic-projection-slot">
+            outcome
+          </Text>
+          <Text>{outcome}</Text>
+        </span>
+      ),
+    });
   }
 
   const thenChildren: TreeDatum[] =

@@ -74,6 +74,12 @@ class ExtractionProgress:
     #: visible rather than hidden behind one optimistic number.
     rules_committed: int = 0
     skipped: int = 0
+    #: Rules that gained at least one confirmed relationship — a table row tied
+    #: to its table, a subsection tied to the rule it qualifies. Reported
+    #: because the linking pass runs after every batch and was otherwise
+    #: invisible: the UI showed the run stall on the last batch for as long as
+    #: linking took, with nothing saying what it was doing.
+    linked: int = 0
     #: Unreviewed candidates from the previous run of this document that this
     #: run replaced. Zero until this run produces its first rule.
     superseded: int = 0
@@ -145,6 +151,7 @@ def advance(
     passages: int = 0,
     drafted: int = 0,
     skipped: int = 0,
+    linked: int = 0,
 ) -> None:
     """Increment cumulative counters."""
     record = _RUNS.get(document_version_id)
@@ -155,6 +162,11 @@ def advance(
     record.passages_found += passages
     record.rules_drafted += drafted
     record.skipped += skipped
+    # Assigned, not accumulated: the linking pass runs over every rule in the
+    # run each time, so its result is a total rather than a delta. Adding it
+    # would multiply the count by the number of batches.
+    if linked:
+        record.linked = linked
     record.updated_at = time.time()
 
 
