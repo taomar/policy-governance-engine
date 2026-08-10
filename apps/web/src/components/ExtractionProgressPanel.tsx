@@ -26,8 +26,71 @@ interface Props {
  * request noise without the readout changing. */
 const POLL_MS = 2000;
 
+/** Batches completed before an ETA is shown.
+ *
+ * One batch is a terrible sample: the first includes model warm-up and can be
+ * twice the steady-state cost, so extrapolating from it produces an estimate
+ * that visibly collapses on the next poll. A wrong ETA is worse than none,
+ * because it is the number someone uses to decide whether to wait. */
+const MIN_BATCHES_FOR_ETA = 2;
+
 function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Compact duration: "2m 05s", or "45s" under a minute. */
+function duration(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
+/**
+ * Animate a number towards its target instead of snapping to it.
+ *
+ * A counter that jumps from 2 to 9 reads as a glitch; the same change rolling
+ * up reads as work being done, which is the whole point of a progress display.
+ * Deliberately short (400ms) so the figure on screen is never meaningfully
+ * behind the truth — this is decoration on a real number, not a substitute
+ * for it.
+ */
+function useCountUp(target: number, ms = 400): number {
+  const [value, setValue] = useState(target);
+  const fromRef = useRef(target);
+
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === target) return;
+    // Respect the OS setting: motion is a preference, not a decoration budget.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      fromRef.current = target;
+      setValue(target);
+      return;
+    }
+    const started = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / ms);
+      // Ease-out: fast first, settling at the end, so the eye catches the change.
+      const eased = 1 - (1 - t) ** 3;
+      setValue(Math.round(from + (target - from) * eased));
+      if (t < 1) frame = requestAnimationFrame(step);
+      else fromRef.current = target;
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target, ms]);
+
+  return value;
+}
+
+/** One pipeline stage's figure, rolled up rather than snapped. */
+function StageValue({ text }: { text: string }) {
+  // Only animate a bare number. "37/550" and "—" are composites and would
+  // animate into nonsense, so they are rendered as-is.
+  const numeric = /^\d+$/.test(text) ? Number(text) : null;
+  const shown = useCountUp(numeric ?? 0);
+  return <span className="extract-stage-value">{numeric === null ? text : shown}</span>;
 }
 
 /** The pipeline a document actually travels, in order. Each stage shows the
@@ -165,6 +228,17 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   const failed = status === "failed";
   const done = status === "completed";
 
+  // Extrapolated from batches actually finished, not from a fixed per-batch
+  // guess: batch cost varies with how much policy a page carries, so the only
+  // honest estimate is this run's own observed rate.
+  const eta =
+    !done && !failed && doneBatches >= MIN_BATCHES_FOR_ETA && totalBatches > doneBatches
+      ? (elapsed / doneBatches) * (totalBatches - doneBatches)
+      : null;
+
+  const pagesPerMinute =
+    elapsed > 20 && donePages > 0 ? (donePages / elapsed) * 60 : null;
+
   // Which stage is lit is read from the backend's own stage sentence rather
   // than inferred from counters, which lag a batch behind what is happening.
   const activeStage: StageKey =
@@ -195,9 +269,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       ? `batch ${Math.min(doneBatches + (done ? 0 : 1), totalBatches)} of ${totalBatches}`
       : null,
     skipped > 0 ? `${skipped} skipped` : null,
-    elapsed > 0
-      ? `${Math.floor(elapsed / 60)}m ${String(Math.round(elapsed % 60)).padStart(2, "0")}s`
-      : null,
+    elapsed > 0 ? duration(elapsed) + " elapsed" : null,
+    // The number someone actually uses to decide whether to wait, so it is
+    // stated plainly rather than left to be inferred from batch counts.
+    eta !== null ? `about ${duration(eta)} left` : null,
+    pagesPerMinute ? `${pagesPerMinute.toFixed(1)} pages/min` : null,
   ].filter(Boolean);
 
   return (
@@ -215,7 +291,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
                   }`}
                 >
                   <span className="extract-stage-icon">{s.icon}</span>
-                  <span className="extract-stage-value">{stageValue[s.key]}</span>
+                  <StageValue text={stageValue[s.key]} />
                   <span className="extract-stage-label">{s.label}</span>
                 </div>
               </Tooltip>
@@ -236,9 +312,9 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
 
       <div className="extract-progress-line">
         {done ? (
-          <CheckCircleFilled style={{ color: "#16a34a" }} />
+          <CheckCircleFilled style={{ color: "var(--success)" }} />
         ) : failed ? (
-          <CloseCircleFilled style={{ color: "#dc2626" }} />
+          <CloseCircleFilled style={{ color: "var(--danger)" }} />
         ) : (
           <LoadingOutlined spin />
         )}
@@ -247,6 +323,9 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <Tooltip title="Reference for this extraction run. Every rule it produced carries it.">
             <Tag className="extract-run-ref">{runRef}</Tag>
           </Tooltip>
+        )}
+        {!done && !failed && totalBatches > 0 && (
+          <span className="extract-progress-pct">{pct}%</span>
         )}
       </div>
       <div className="extract-progress-line extract-progress-counters">
@@ -262,8 +341,19 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         size="small"
         showInfo={false}
         status={failed ? "exception" : done ? "success" : "active"}
-        strokeColor={failed ? undefined : "#2563eb"}
+        strokeColor={failed ? undefined : "var(--brand-600)"}
       />
+      {!done && !failed && (
+        // Extraction continues server-side, so the one thing a reviewer needs
+        // to know before walking away is that they may. Without it the honest
+        // assumption is that closing the tab cancels the run.
+        <div className="extract-progress-line extract-progress-hint">
+          <Text type="secondary">
+            This keeps running if you navigate away — rules appear in the review queue as each
+            batch commits.
+          </Text>
+        </div>
+      )}
       {failed && progress.error && (
         <div className="extract-progress-line">
           <Text type="danger">{progress.error}</Text>
