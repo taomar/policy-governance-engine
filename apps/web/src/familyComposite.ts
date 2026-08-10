@@ -1,4 +1,5 @@
-import type { CanonicalRule } from "./api";
+import type { CanonicalRule, ConditionNode } from "./api";
+import { isEmptyCondition } from "./ruleDisplay";
 
 /**
  * The single policy a family of rules collectively states.
@@ -38,12 +39,147 @@ function agreed(values: string[]): string {
   return present.every((v) => v === present[0]) ? present[0] : "";
 }
 
+/** How a single case says when it applies. */
+export type EffectiveWhen =
+  | { kind: "executable"; node: ConditionNode }
+  | { kind: "stated"; lines: string[] }
+  | { kind: "none" };
+
+/** One case of an effective policy — a single member rule, in its role. */
+export interface EffectiveCase {
+  ruleId: string;
+  /** What distinguishes this case from its siblings. */
+  label: string;
+  when: EffectiveWhen;
+  /** The action the source requires, in its own words. */
+  then: string;
+  effectType: string;
+  executable: boolean;
+  reviewStatus: string;
+  /** Clause ids backing this case, for tracing it to the document. */
+  clauseIds: string[];
+}
+
+/**
+ * A family of rules presented as the one policy they collectively state.
+ *
+ * Strictly a view. Nothing here is persisted, evaluated, or treated as a rule:
+ * the platform still decides on the individual members, and this exists so a
+ * reviewer can see what those members add up to before deciding them. Every
+ * field is either copied from a member or established by agreement across all
+ * of them — there is no summarisation step, because a summary of a policy is a
+ * new claim about the policy.
+ */
+export interface EffectivePolicy {
+  subject: string;
+  predicate: string;
+  cases: EffectiveCase[];
+  /**
+   * Conditions the projection recorded identically on every member.
+   *
+   * When the source is a table, the agent often projects the whole condition
+   * column onto each row, so all members carry all conditions. Shown once at
+   * policy level rather than repeated on every case, because repeating them
+   * reads as "each case requires all of these" — the opposite of a table.
+   *
+   * Deliberately not paired with cases by position. The i-th condition does
+   * look like the i-th case, but that alignment is an artefact of emission
+   * order, and binding a case to a condition on that basis would state a
+   * mapping the source never gave.
+   */
+  sharedConditions: string[];
+  /** Case labels stated more than once — a real contradiction to surface. */
+  duplicateLabels: string[];
+  documentVersionIds: string[];
+  executableCount: number;
+  reviewStatuses: string[];
+}
+
+/** The stated-but-unbound condition phrases a rule's projection recorded. */
+function statedConditions(rule: CanonicalRule): string[] {
+  const lines: string[] = [];
+  for (const decision of rule.formulation?.dmn_decisions ?? []) {
+    const projection = decision.semantic_projection;
+    if (!projection) continue;
+    for (const condition of projection.conditions ?? []) {
+      if (condition && !lines.includes(condition)) lines.push(condition);
+    }
+    const source = projection.condition_source;
+    if (source && !lines.includes(source)) lines.push(source);
+  }
+  return lines;
+}
+
+function whenOf(rule: CanonicalRule): EffectiveWhen {
+  if (!isEmptyCondition(rule.condition)) {
+    return { kind: "executable", node: rule.condition };
+  }
+  const lines = statedConditions(rule);
+  return lines.length > 0 ? { kind: "stated", lines } : { kind: "none" };
+}
+
+export function effectivePolicy(members: CanonicalRule[]): EffectivePolicy {
+  const composite = familyComposite(members);
+  const canonicals = members.map(canonicalOf);
+
+  // Conditions every member carries identically describe the family, not any
+  // one case — see `sharedConditions`. Hoisted so they are stated once.
+  const perMember = members.map((rule) => statedConditions(rule));
+  const firstKey = JSON.stringify(perMember[0] ?? []);
+  const allIdentical =
+    members.length > 1 &&
+    (perMember[0]?.length ?? 0) > 0 &&
+    perMember.every((lines) => JSON.stringify(lines) === firstKey);
+  const sharedConditions = allIdentical ? perMember[0] : [];
+
+  const cases: EffectiveCase[] = members.map((rule, index) => {
+    const canonical = canonicals[index];
+    // The object is what varies across a family (the severity band, the SLA
+    // value). Falls back to the title only when the decomposition has none,
+    // so a case is never left unlabelled.
+    const label = (canonical?.object ?? "").trim() || rule.title;
+    return {
+      ruleId: rule.rule_id,
+      label,
+      when: allIdentical ? { kind: "none" } : whenOf(rule),
+      then: rule.effect?.action ?? "",
+      effectType: rule.effect?.type ?? "",
+      executable: rule.machine_executable,
+      reviewStatus: rule.review_status,
+      clauseIds: Array.from(
+        new Set((rule.evidence ?? []).map((e) => e.clause_id).filter((id): id is string => Boolean(id)))
+      ),
+    };
+  });
+
+  const seen = new Set<string>();
+  const duplicateLabels: string[] = [];
+  for (const item of cases) {
+    if (seen.has(item.label) && !duplicateLabels.includes(item.label)) {
+      duplicateLabels.push(item.label);
+    }
+    seen.add(item.label);
+  }
+
+  return {
+    subject: composite.subject,
+    predicate: composite.predicate,
+    cases,
+    sharedConditions,
+    duplicateLabels,
+    documentVersionIds: Array.from(
+      new Set(members.flatMap((m) => (m.evidence ?? []).map((e) => e.document_version_id)))
+    ),
+    executableCount: members.filter((m) => m.machine_executable).length,
+    reviewStatuses: composite.statuses,
+  };
+}
+
 export function familyComposite(
   members: CanonicalRule[],
   reviewStatusOf?: (rule: CanonicalRule) => string
 ): FamilyComposite {
   const canonicals = members.map(canonicalOf);
-
   const subject = agreed(canonicals.map((c) => c?.subject ?? ""));
   const predicate = agreed(canonicals.map((c) => c?.predicate ?? ""));
 

@@ -4483,6 +4483,72 @@
   display: none;
 }
 
+.family-composite-action {
+  font-size: 12px;
+  margin-inline-start: auto;
+}
+
+.effective-policy-banner {
+  margin-bottom: 12px;
+}
+
+.effective-policy-statement {
+  margin-bottom: 12px;
+}
+
+.effective-policy-label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.effective-policy-spo {
+  margin-bottom: 0 !important;
+}
+
+.effective-policy-ruleid {
+  font-size: 11px;
+  font-family: var(--app-font-mono, monospace);
+}
+
+.effective-policy-flag {
+  font-size: 11px;
+}
+
+.effective-policy-table {
+  margin-bottom: 12px;
+}
+
+.effective-policy-footer {
+  font-size: 12px;
+}
+
+.effective-policy-shared {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border, #f0f0f0);
+  border-radius: 6px;
+  background: var(--app-surface-subtle, #fafafa);
+}
+
+.effective-policy-shared-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.effective-policy-shared-list {
+  margin: 0 0 6px;
+  padding-inline-start: 18px;
+}
+
+.effective-policy-shared-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .policy-row-band {
   position: absolute;
   left: 13px;

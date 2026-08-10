@@ -1,8 +1,10 @@
-import { Tag, Tooltip, Typography } from "antd";
-import { ApartmentOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { Button, Tag, Tooltip, Typography } from "antd";
+import { ApartmentOutlined, EyeOutlined } from "@ant-design/icons";
 import type { CanonicalRule } from "../api";
 import { familyComposite } from "../familyComposite";
 import { clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
+import { EffectivePolicyModal } from "./EffectivePolicyModal";
 
 const { Text } = Typography;
 
@@ -32,6 +34,7 @@ export function FamilyCompositeHeader({
   memberCountInView?: number;
 }) {
   const composite = familyComposite(members);
+  const [showEffective, setShowEffective] = useState(false);
   const hidden =
     memberCountInView !== undefined && memberCountInView < composite.memberCount
       ? composite.memberCount - memberCountInView
@@ -52,6 +55,16 @@ export function FamilyCompositeHeader({
             {composite.memberCount} rules · 1 policy
           </Tag>
         </Tooltip>
+        {composite.memberCount > 1 && (
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            className="family-composite-action"
+            onClick={() => setShowEffective(true)}
+          >
+            Effective policy
+          </Button>
+        )}
       </div>
 
       {(composite.subject || composite.predicate) && (
@@ -94,6 +107,15 @@ export function FamilyCompositeHeader({
           </Tooltip>
         )}
       </div>
+
+      {showEffective && (
+        <EffectivePolicyModal
+          open={showEffective}
+          onClose={() => setShowEffective(false)}
+          cluster={cluster}
+          members={members}
+        />
+      )}
     </div>
   );
 }
