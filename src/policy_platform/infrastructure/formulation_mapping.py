@@ -109,6 +109,69 @@ _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.AMBIGUOUS: (RuleType.HUMAN_JUDGMENT_REQUIREMENT, EffectType.REQUIRE_ACTION),
 }
 
+#: Subjects that name the document itself rather than anyone it governs.
+#:
+#: A policy statement's subject is an actor or thing in the world the document
+#: regulates ("An employee", "The Foundation", "Security incidents"). When the
+#: subject is the document, the statement is *about the document*: what it is,
+#: who it was written for, how to read it, where its conventions apply. "This
+#: template is provided as a tool for community foundations to develop
+#: policies" governs nobody and decides nothing.
+#:
+#: Left as a closed, domain-neutral list of determiner + document noun. It
+#: matches on grammatical subject only, never on topic or wording elsewhere in
+#: the sentence, so it cannot quietly grow into a content classifier.
+_DOCUMENT_NOUNS = (
+    "policy",
+    "policies",
+    "template",
+    "document",
+    "manual",
+    "handbook",
+    "guide",
+    "guideline",
+    "guidelines",
+    "agreement",
+    "procedure",
+    "procedures",
+    "section",
+    "chapter",
+    "appendix",
+)
+
+_DOCUMENT_SUBJECT_RE = re.compile(
+    r"^\s*(this|these|those|the\s+present|the\s+following)\s+("
+    + "|".join(_DOCUMENT_NOUNS)
+    # The document noun must end the subject, so the match is the document
+    # itself and not something the document merely qualifies. "This policy" is
+    # the document; "This policy owner" is a person, and enforcing rules about
+    # people is the whole job.
+    + r")\s*$",
+    re.IGNORECASE,
+)
+
+#: Tag applied to statements about the document. Presentational and reviewable:
+#: it never removes the rule, because deciding that a sentence carries no policy
+#: is a judgement the reviewer makes, not one extraction should make silently.
+DOCUMENT_GUIDANCE_TAG = "document_guidance"
+
+
+def is_document_guidance(canonical_rule: CanonicalPolicyRule | None) -> bool:
+    """True when a statement's subject is the document rather than an actor.
+
+    Grammatical, not semantic. It asks "what is this sentence about?" and
+    answers from the subject the formulator already isolated — it does not
+    read the predicate, weigh topic similarity, or judge whether the content
+    sounds administrative. That keeps the signal explainable to a reviewer in
+    one sentence and keeps its failure mode small: a false positive costs one
+    glance, because the rule is flagged rather than dropped.
+    """
+
+    if canonical_rule is None:
+        return False
+    return bool(_DOCUMENT_SUBJECT_RE.match(canonical_rule.subject or ""))
+
+
 #: `non_normative` means the agent judged the text to carry no rule at all
 #: (preamble, headings, narrative). Manufacturing a rule from it would pollute
 #: the review queue with noise that a reviewer must reject one by one, so these
@@ -703,6 +766,21 @@ def formulation_to_candidate_rules(
             continue
         rule_type, effect_type = mapped
 
+        # A statement about the document is not a rule the platform should
+        # enforce. "Those policies will be so noted at the beginning of each
+        # policy" mapped to a routing rule with REQUIRE_ACTION, which tells a
+        # decision point to carry out a document-drafting convention.
+        #
+        # Projected to INFORMATIONAL for the same reason classification and
+        # definition are (see `_RULE_TYPE_MAP`): it neither authorizes nor
+        # forbids, so any other effect asserts something the sentence does not.
+        # The rule is kept and tagged rather than skipped — whether a sentence
+        # carries policy is the reviewer's call, and `_SKIPPED_RULE_TYPES`
+        # removes it from their view entirely.
+        guidance = is_document_guidance(canonical_rule)
+        if guidance:
+            rule_type, effect_type = RuleType.DEFINITION, EffectType.INFORMATIONAL
+
         decisions = formulation.decisions_for(index)
         derived = next(
             (d for d in (derive_condition(dec, index) for dec in decisions) if d is not None),
@@ -778,6 +856,7 @@ def formulation_to_candidate_rules(
                     parser_version=parser_version,
                 ),
                 category=category,
+                tags=[DOCUMENT_GUIDANCE_TAG] if guidance else [],
                 group_label=group_labels.get(index, ""),
                 formulation=RuleFormulation(
                     source_index=index, canonical=policy, dmn_decisions=decisions

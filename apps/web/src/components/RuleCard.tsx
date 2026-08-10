@@ -23,6 +23,7 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { ambiguityMeta, describeScope, hasAmbiguityFlag, isEmptyCondition } from "../ruleDisplay";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
+import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { withRuleIdentity } from "../ruleIdentity";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
@@ -127,6 +128,11 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
         <div className="rule-card-meta">
           <PolicyEffectBadge effect={rule.effect} size="small" />
           <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
+          {rule.tags.includes(DOCUMENT_GUIDANCE_TAG) && (
+            <Tooltip title="The subject of this statement is the document itself — what it is, who it is for, or how to read it. Kept for you to decide, but not treated as an enforceable rule.">
+              <Tag>Describes the document</Tag>
+            </Tooltip>
+          )}
           {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
           {!rule.machine_executable && <Tag color="orange">Manual</Tag>}
           {hasAmbiguityFlag(rule.ambiguity_status) && (

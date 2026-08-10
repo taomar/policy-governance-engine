@@ -4549,6 +4549,24 @@
   line-height: 1.5;
 }
 
+.semantic-projection-effect {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.semantic-projection-inline-tag {
+  font-size: 10px;
+  margin-inline-start: 6px;
+}
+
+.semantic-projection-standard {
+  font-size: 11px;
+  line-height: 1.5;
+  padding-top: 6px;
+  border-top: 1px solid var(--app-border, #f0f0f0);
+}
+
 .policy-row-band {
   position: absolute;
   left: 13px;
