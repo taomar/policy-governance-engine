@@ -2,10 +2,11 @@
 
 **Branch:** `taomar-microsoft-advancedtooling`
 **Base commit:** `bcb4f7a` on `main`
-**12 commits · 39 files · +9,259 lines · 775 unit tests passing**
+**20 commits · 56 files · +13,097 lines · 912 Python tests + clean web build**
 
-Everything is additive. No existing module was rewritten, no table was altered,
-no migration was added. Reverting is a single branch drop.
+All 16 directive deliverables are implemented. Everything is additive: no
+existing module was rewritten, and the one migration only creates a new table.
+Reverting is a branch drop plus one `alembic downgrade`.
 
 ---
 
@@ -24,6 +25,13 @@ git cherry-pick 61cae62   # extraction package + handoff boundary
 git cherry-pick 47d5527   # verification pass + end-to-end pipeline
 git cherry-pick 9597e34   # corpus report + coverage gate fix
 git cherry-pick c4867fd   # runbook
+git cherry-pick 2c73acb   # this handoff summary
+git cherry-pick 8c849ea   # DMN compile + parity harness
+git cherry-pick fd8b622   # idempotent handoff adapter
+git cherry-pick be642e1   # review vs runtime Search projections
+git cherry-pick 4077e41   # durable extraction stages (+ migration)
+git cherry-pick 33a8434   # extraction API surface
+git cherry-pick 8a2cfa3   # web extraction detail drawer
 ```
 
 Each commit is self-contained and leaves the suite green, so the sequence can be
@@ -44,21 +52,32 @@ stopped at any point.
 | `evidence_resolution.py` | Pointer-only spans, exact-span resolution, coverage accounting |
 | `extraction_package.py` | Versioned package + application handoff boundary |
 
-### Infrastructure — `src/policy_platform/infrastructure/docling/`
+### Infrastructure — `src/policy_platform/infrastructure/`
 | File | Purpose |
 |---|---|
-| `dependency_provenance.py` | Pins `docling-graph==1.9.1`; verifies files against `RECORD` SHA-256 |
-| `converter.py` | `convert(source_release) -> canonical artifact` |
-| `graph_runtime.py` | Dense-extraction config against `foundryfordevtarek` |
-| `verification.py` | Independent pass: hard failures vs reviewable conditions |
-| `pipeline.py` | One-file, stage-recorded extraction pipeline |
-| `shadow_comparison.py` | Legacy-vs-Docling fidelity measurement |
+| `docling/dependency_provenance.py` | Pins `docling-graph==1.9.1`; verifies files against `RECORD` SHA-256 |
+| `docling/converter.py` | `convert(source_release) -> canonical artifact` |
+| `docling/graph_runtime.py` | Dense-extraction config against `foundryfordevtarek` |
+| `docling/verification.py` | Independent pass: hard failures vs reviewable conditions |
+| `docling/pipeline.py` | One-file, stage-recorded extraction pipeline |
+| `docling/shadow_comparison.py` | Legacy-vs-Docling fidelity measurement |
+| `docling/handoff.py` | Idempotent submission into the existing candidate-intake |
+| `dmn_parity.py` | FEEL compile + canonical-vs-DMN parity harness |
+| `search/projection.py` | Review vs runtime Search projections + pre-activation verification |
+| `extraction_stage_repository.py` | Durable stage persistence |
+
+### API and web
+- `api/routers/extraction.py` — five read-only GET endpoints (canonical, structure, reading plan, stages, coverage)
+- `apps/web/src/components/ExtractionInsightDrawer.tsx` + `extractionApi` in `api.ts`
+
+### Database
+- `alembic/versions/a1b2c3d4e5f6_extraction_stages_table.py` — creates `extraction_stages`; additive and reversible
 
 ### Scripts, docs, tests
 - `scripts/docling_shadow_report.py`, `scripts/docling_corpus_report.py` — both exit non-zero on failure, usable as CI gates
-- `docs/specs/docling-integration-{conformance-map,operating-notes,runbook}.md`
+- `docs/specs/docling-integration-{conformance-map,operating-notes,runbook,handoff}.md`
 - `docs/specs/docling-{shadow-comparison,corpus}-report.md` — generated evidence
-- 13 test modules under `tests/unit/`
+- 18 test modules under `tests/unit/`
 
 ---
 
@@ -67,12 +86,16 @@ stopped at any point.
 | File | Change |
 |---|---|
 | `contracts/canonical_document.py` | Added geometry, merged-cell lineage, list depth + **marker**, caption/footnote links, `self_ref`, `normalized_text`, `ConversionProvenance`, `fidelity`; extended `ElementType` |
+| `contracts/extraction_package.py` | Added `dmn_decisions` so verification can compile and prove parity |
+| `domain/models.py` | Added `ExtractionStage` (new table only) |
+| `api/app.py` | Registered the extraction router |
 | `infrastructure/settings.py` | Added `docling_graph_enabled`, `docling_graph_model`, `graph_extraction_enabled` |
-| `pyproject.toml` | Added optional extra `graph = ["docling-graph==1.9.1"]` |
-| `.env.example` | Foundry endpoint + graph settings (no key) |
-| `.gitignore` | `.venv-graph/` |
+| `pyproject.toml` | Optional extra `graph = ["docling-graph==1.9.1"]`; `aiosqlite` for dev |
+| `apps/web/src/api.ts` | Added `extractionApi` + its types |
+| `apps/web/src/components/DocumentsPage.tsx` | Added the "Extraction detail" action |
+| `.env.example`, `.gitignore` | Foundry endpoint (no key); `.venv-graph/` |
 
-**No changes** to: routers, repositories, `domain/models.py`, evaluator, search, or any DMN contract.
+**No changes** to: candidate-rule/review/approval/publication routers, repositories, evaluator, or any DMN contract.
 
 ---
 
@@ -102,9 +125,10 @@ DOCLING_GRAPH_MODEL=azure/gpt-4o
 
 ```powershell
 $env:PYTHONPATH="src"
-.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q                        # 775 passed
+.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q                        # 912 passed
 .\.venv-graph\Scripts\python.exe scripts/docling_shadow_report.py               # exit 0
 .\.venv-graph\Scripts\python.exe scripts/docling_corpus_report.py --pdf --repeats 2   # exit 0
+cd apps/web; npm install; npm run build; npx oxlint                             # clean
 ```
 
 | Document | Coverage | Blockers | Stability |
@@ -137,18 +161,24 @@ A third was caught by the corpus gate itself: 40 headings governing no content h
 
 ---
 
-## 8. Not built — verify before promising these
+## 8. Built, but not exercised end to end here
 
-Found absent during Phase 0; the directive assumes they exist:
+All 16 deliverables exist. What could **not** be run in this environment, because
+no credentials or database were configured:
 
-| Gap | Consequence |
-|---|---|
-| Durable job/worker system | PDF takes **195 s** — cannot convert in-request |
-| DMN compile + parity harness | Only a FEEL unary-test *parser* exists |
-| Runtime approved Search projection | Only draft `policy-authoring`; `status` hardcoded `"draft"` |
-| Candidate-intake handoff adapter | Package is produced but not submitted |
+| Component | State | Needs |
+|---|---|---|
+| Dense extraction (live model calls) | built + unit-tested | `AZURE_OPENAI_API_KEY` |
+| Handoff submission | built + tested against a fake repository | Postgres |
+| Extraction stages | built + tested on SQLite; migration verified additive | Postgres, to apply the migration |
+| Search projections | built + unit-tested | an Azure AI Search index |
 
-Also unexercised here: live dense extraction (no API key), persistence (no Postgres), and Search.
+The deterministic path — conversion, structure, reading plan, span resolution,
+coverage, verification — was run against all five real documents.
+
+Two follow-ups worth scheduling: a **worker/queue** for conversion (PDF takes
+195 s, so it cannot run in-request), and the **publisher** that writes the
+runtime projection and flips activation after `verify_projection` passes.
 
 ---
 

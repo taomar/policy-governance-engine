@@ -21,18 +21,27 @@ projected.
 | Independent verification pass | working |
 | Stage-recorded pipeline | working |
 | Dependency integrity gate | working |
-| `PolicyDocumentGraphV1` template | written, validated against Docling Graph's catalog builder |
-| Dense extraction runtime config | written, **not exercised against a live model** |
+| DMN compile + parity harness | working, wired into verification |
+| `PolicyDocumentGraphV1` template | validated against Docling Graph's catalog builder |
+| Extraction API + web drawer | working, build and lint clean |
 
-**Not built** — each was found absent during Phase 0 and is out of scope until
-scheduled separately:
+**Built but not exercised in this environment** — each needs a credential or
+service that was not configured, so treat these as untested against the real
+dependency:
+
+| Component | Needs |
+|---|---|
+| Dense extraction (live model calls) | `AZURE_OPENAI_API_KEY` |
+| Handoff submission | Postgres |
+| `extraction_stages` migration | Postgres |
+| Runtime Search projection | an Azure AI Search index |
+
+**Still to build:**
 
 | Gap | Consequence |
 |---|---|
-| Durable job/worker system | PDF conversion cannot run in-request (195 s); needs a queue |
-| DMN compile + parity harness | Projections cannot be validated before approval |
-| Runtime approved Search projection | Only the draft `policy-authoring` index exists |
-| Candidate-intake handoff adapter | Package is produced but not submitted |
+| Worker/queue for conversion | PDF takes 195 s and cannot run in-request |
+| Search publisher + activation flip | `verify_projection` exists; nothing calls it against a live index |
 
 ---
 
@@ -93,11 +102,17 @@ Run these in order. Each is fast except the last.
 $env:PYTHONPATH="src"
 .\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
 
-# 3. Fidelity against the legacy parsers (DOCX only, ~5s)
+# 3. Apply the extraction-stages migration
+alembic upgrade head
+
+# 4. Fidelity against the legacy parsers (DOCX only, ~5s)
 .\.venv-graph\Scripts\python.exe scripts/docling_shadow_report.py
 
-# 4. Acceptance gates across the corpus (add --pdf for the full run, ~7 min)
+# 5. Acceptance gates across the corpus (add --pdf for the full run, ~7 min)
 .\.venv-graph\Scripts\python.exe scripts/docling_corpus_report.py --pdf --repeats 2
+
+# 6. Web surfaces
+cd apps/web; npm install; npm run build; npx oxlint
 ```
 
 Both scripts exit non-zero on failure, so they are usable as CI gates.
@@ -106,9 +121,10 @@ Both scripts exit non-zero on failure, so they are usable as CI gates.
 
 | Check | Expected |
 |---|---|
-| Unit tests | 775 passed |
+| Unit tests | 912 passed |
 | Shadow comparison | 5 documents, 1.0000 token recall, zero content loss |
 | Corpus report | 5 documents PASS, 100% coverage, zero blockers, runs identical |
+| Web build | `tsc -b` and `vite build` clean, oxlint clean |
 
 ---
 
@@ -146,8 +162,9 @@ only, then requires its removal from the new-ingestion path.
 
 ### Rollback
 
-Re-point ingestion at `document_extraction.extract_document`. Nothing needs to be
-undone: the Docling path is additive, writes no new tables, and previously
+Re-point ingestion at `document_extraction.extract_document`, and
+`alembic downgrade -1` if the stages table is unwanted. Nothing else needs
+undoing: the Docling path is additive, alters no existing table, and previously
 ingested releases are untouched by either direction of the switch.
 
 ---
