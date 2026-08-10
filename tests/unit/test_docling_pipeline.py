@@ -137,6 +137,69 @@ class TestCoverage:
         assert coverage.unaccounted_element_ids == []
         assert coverage.accounted == coverage.total_leaf_elements
 
+    def test_a_heading_governing_no_content_is_non_normative(self, tmp_path: Path) -> None:
+        """A table-of-contents entry or trailing appendix title belongs to no
+        unit and would otherwise read as lost policy content."""
+
+        source, converter = _stub(
+            tmp_path,
+            texts=[
+                _Text("1. Scope", label="section_header"),
+                _Text("Employees must apply."),
+                _Text("Appendix B - Definitions", label="section_header"),
+            ],
+        )
+        result = run_extraction(source, converter=converter)
+        coverage = result.package.coverage
+
+        assert coverage.unaccounted_element_ids == []
+        empty = next(
+            e for e in coverage.elements if e.reason == "section heading that governs no content"
+        )
+        assert empty.disposition == "non_normative"
+
+    def test_a_heading_that_governs_content_is_not_classified_as_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """It is already accounted for as ancestor context of its units."""
+
+        source, converter = _stub(tmp_path)
+        result = run_extraction(source, converter=converter)
+
+        assert not any(
+            e.reason == "section heading that governs no content"
+            for e in result.package.coverage.elements
+        )
+
+    def test_leftover_content_is_still_reported_as_unaccounted(self, tmp_path: Path) -> None:
+        """The empty-heading rule must not become 'classify anything left over',
+        which would silence the check that catches real loss."""
+
+        from policy_platform.infrastructure.docling import pipeline
+
+        source, converter = _stub(tmp_path)
+        result = run_extraction(source, converter=converter)
+        paragraph = next(
+            e for e in result.document.elements if e.element_type == "paragraph"
+        )
+
+        dispositions = pipeline._dispositions_from_plan(
+            pipeline.build_reading_plan(
+                result.document, pipeline.build_structural_graph(result.document)
+            ),
+            [],
+            result.document,
+            pipeline.build_structural_graph(result.document),
+        )
+        dispositions.pop(paragraph.element_id, None)
+        report = pipeline.build_coverage_report(
+            result.document,
+            pipeline.build_structural_graph(result.document),
+            dispositions,
+        )
+
+        assert paragraph.element_id in report.unaccounted_element_ids
+
     def test_cited_elements_become_policy_targets(self, tmp_path: Path) -> None:
         source, converter = _stub(tmp_path)
 

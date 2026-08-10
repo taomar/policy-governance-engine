@@ -224,7 +224,7 @@ def run_extraction(
         )
 
     with _StageTimer(stages, STAGE_CANDIDATES) as record:
-        dispositions = _dispositions_from_plan(plan, resolution.resolved)
+        dispositions = _dispositions_from_plan(plan, resolution.resolved, document, graph)
         coverage = build_coverage_report(document, graph, dispositions)
         record.detail = (
             f"coverage {coverage.accounted}/{coverage.total_leaf_elements}, "
@@ -280,15 +280,18 @@ def run_extraction(
 
 
 def _dispositions_from_plan(
-    plan: ReadingPlan, resolved
+    plan: ReadingPlan, resolved, document: CanonicalDocument, graph: StructuralGraph
 ) -> dict[str, tuple[CoverageDisposition, str]]:
     """Assign each element the strongest role the run actually gave it.
 
     Ordering matters: an element cited as evidence is a policy target even if it
     also appeared as context elsewhere, and an element that was only ever
-    context must not be reported as a target. Elements that appear in no unit at
-    all are deliberately left out, so `build_coverage_report` reports them as
-    unaccounted rather than this function inventing a classification for them.
+    context must not be reported as a target.
+
+    Content elements that appear in no unit are deliberately left out, so
+    `build_coverage_report` reports them as unaccounted rather than this function
+    inventing a classification for them. That is the check that catches silent
+    loss, and defaulting everything would disable it.
     """
 
     dispositions: dict[str, tuple[CoverageDisposition, str]] = {}
@@ -314,4 +317,40 @@ def _dispositions_from_plan(
             f"cited as {span.role} evidence",
         )
 
+    _disposition_empty_headings(document, graph, dispositions)
     return dispositions
+
+
+def _disposition_empty_headings(
+    document: CanonicalDocument,
+    graph: StructuralGraph,
+    dispositions: dict[str, tuple[CoverageDisposition, str]],
+) -> None:
+    """Classify headings that govern no content.
+
+    A heading is structural: it scopes rules rather than stating one, so it is
+    never an extraction target. Headings that do govern content are already
+    accounted for as `ancestor_heading` context of the units beneath them. A
+    heading with nothing beneath it — a table-of-contents entry, a section label
+    on its own line, a trailing appendix title — belongs to no unit and would
+    otherwise be reported as unaccounted, which reads as lost policy content
+    when it is nothing of the kind.
+
+    Deliberately narrow. Only headings are classified here, and only those the
+    structural graph confirms contain nothing. Widening this to "anything left
+    over" would silence the very check that catches real loss.
+    """
+
+    containers = {edge.source for edge in graph.edges if edge.kind == "contains"}
+
+    for element in document.elements:
+        if element.element_id in dispositions:
+            continue
+        if element.element_type not in ("heading", "title"):
+            continue
+        if element.element_id in containers:
+            continue
+        dispositions[element.element_id] = (
+            "non_normative",
+            "section heading that governs no content",
+        )
