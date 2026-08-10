@@ -27,7 +27,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from policy_platform.contracts.canonical_document import CanonicalDocument, CanonicalElement
+from policy_platform.contracts.canonical_document import (
+    CanonicalDocument,
+    CanonicalElement,
+    TableCellRef,
+)
 
 #: Relationships between structural nodes. Each is a fact about the document's
 #: own layout, never an interpretation of what the text means.
@@ -77,6 +81,9 @@ class StructuralGraph:
     document_id: str
     nodes: dict[str, StructuralNode] = field(default_factory=dict)
     edges: list[StructuralEdge] = field(default_factory=list)
+    #: Cell coordinates, kept beside the nodes so consumers can reason about
+    #: table position without holding the canonical document as well.
+    table_cells: dict[str, TableCellRef] = field(default_factory=dict)
 
     _outgoing: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
     _incoming: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
@@ -162,6 +169,8 @@ def build_structural_graph(document: CanonicalDocument) -> StructuralGraph:
             section=element.section,
             table_id=element.table_id,
         )
+        if element.table_cell is not None:
+            graph.table_cells[element.element_id] = element.table_cell
 
     ordered = sorted(document.elements, key=lambda e: e.logical_order)
     _add_reading_order_edges(graph, ordered)
