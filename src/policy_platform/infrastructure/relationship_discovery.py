@@ -202,7 +202,24 @@ def discover_enumeration_relationships(anchors: list[RuleAnchor]) -> list[Policy
     edges: list[PolicyRelationship] = []
     ordered = sorted(anchors, key=lambda item: item.order)
 
-    # Outline numbering: a direct child links to its parent.
+    # Outline numbering, but only where the parent is a *governing stem*.
+    #
+    # Numbering alone proves containment, not shared decision. "3.2 Leave" with
+    # "3.2.1 Annual leave" and "3.2.2 Sick leave" beneath it is a heading over
+    # two separate policies: linking them as `same_decision` would assert they
+    # must be evaluated together to answer one question, which is false and
+    # would drag an unrelated rule into every review of its neighbour.
+    #
+    # A parent that *promises* an enumeration is different in kind. "…in one of
+    # the following cases only:" is incomplete by its own words, so its children
+    # are not neighbours under a label — they are the rest of its sentence.
+    #
+    # Where the parent is substantive but makes no promise, the answer is not
+    # deterministic and this module says nothing. Those go to the model tier,
+    # which can weigh whether a sub-clause continues its parent or merely sits
+    # beneath it, and must quote the source either way. Containment itself is
+    # already recorded as `parent_heading` in the structural graph, so nothing
+    # is lost by declining here.
     by_path: dict[tuple[int, ...], RuleAnchor] = {}
     for anchor in ordered:
         if anchor.outline_path and anchor.outline_path not in by_path:
@@ -214,18 +231,20 @@ def discover_enumeration_relationships(anchors: list[RuleAnchor]) -> list[Policy
         parent = by_path.get(path[:-1])
         if parent is None or parent.rule_id == anchor.rule_id:
             continue
+        if not parent.promises_enumeration:
+            continue
         edges.append(
             _edge(
                 PolicyRelationshipType.SAME_DECISION,
                 parent,
                 anchor,
-                signals=["outline_hierarchy"],
+                signals=["outline_hierarchy", "unsatisfied_promise"],
                 score=0.95,
                 origin="structural",
                 state="confirmed",
                 detail=(
-                    f"{'.'.join(str(p) for p in path)} is a sub-clause of "
-                    f"{'.'.join(str(p) for p in path[:-1])}"
+                    f"{'.'.join(str(p) for p in path)} completes "
+                    f"{'.'.join(str(p) for p in path[:-1])}, which promises cases it does not contain"
                 ),
             )
         )

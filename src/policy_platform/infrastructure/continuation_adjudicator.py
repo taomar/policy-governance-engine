@@ -75,9 +75,18 @@ Rules you must follow:
 - Quote the part of the parent that does the promising, not the whole clause.
 - Only link a child to a parent that is genuinely incomplete without it. Two
   complete, adjacent rules about the same topic are NOT a parent and child.
+- **Numbering is not enough.** "3.2 Leave" above "3.2.1 Annual leave shall be
+  thirty days" and "3.2.2 Sick leave shall be fifteen days" is a HEADING over
+  two SEPARATE policies — do not link them. But "3.2 Salary shall increase in
+  one of the following cases only:" above "3.2.1 Annual increase..." is ONE
+  policy in two parts — link it. The test is whether the parent stops
+  mid-thought, not whether the numbers line up.
+- A heading, title or section label is never a parent in this sense, however
+  many numbered clauses sit beneath it.
 - A clause that merely mentions a related subject is not a continuation.
 - If nothing in the window is a continuation, return {"links": []}. Returning
-  nothing is correct and expected for ordinary prose.
+  nothing is correct and expected for ordinary prose and for numbered clauses
+  under a heading.
 """
 
 
@@ -142,8 +151,17 @@ def should_adjudicate(window: list[ClauseWindow]) -> bool:
 
     A window with no plausible governing clause cannot yield a link, so calling
     the model over it spends money to be told nothing. "Plausible" is read
-    generously here — an unterminated clause counts — because tier 4 exists
-    precisely for the phrasings tiers 1-3 do not recognise.
+    generously here — an unterminated clause counts, and so does any window
+    containing a numbered sub-clause — because tier 4 exists precisely for what
+    the deterministic tiers decline to answer.
+
+    The numbered case matters most. A parent that promises an enumeration is
+    resolved deterministically; a parent that is merely numbered above its
+    children is *ambiguous by design* — "3.2 Leave" over "3.2.1 Annual leave"
+    is a heading over two separate policies, while "3.2 …in the following
+    cases:" over "3.2.1" is one policy in two parts. Nothing in the numbering
+    distinguishes them, which is exactly the judgement a model can make and a
+    regular expression cannot.
     """
 
     for item in window:
@@ -151,6 +169,8 @@ def should_adjudicate(window: list[ClauseWindow]) -> bool:
         if not text:
             continue
         if source_structure.promises_enumeration(text):
+            return True
+        if len(source_structure.outline_path(text)) >= 2:
             return True
         # An unterminated clause is the format-independent hint: policy prose
         # ends in a full stop, and one that does not is usually the opening
