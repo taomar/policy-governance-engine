@@ -101,23 +101,36 @@ stopped at any point.
 
 ## 4. Setup in the target fork
 
+### Setup
+
 ```powershell
 python -m venv .venv-graph
-.\.venv-graph\Scripts\python.exe -m pip install -e ".[graph]"
+.\.venv-graph\Scripts\python.exe -m pip install -e ".[graph,dev]"
 $env:TORCHDYNAMO_DISABLE = "1"   # Windows without a C++ toolchain; PDF only
 ```
 
-`.env`:
-```
-AZURE_OPENAI_ENDPOINT=https://foundryfordevtarek.cognitiveservices.azure.com/
-AZURE_OPENAI_API_KEY=<key>
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-DOCLING_GRAPH_ENABLED=false      # deterministic pipeline works fully without it
-DOCLING_GRAPH_MODEL=azure/gpt-4o
-```
+Copy `.env.example` to `.env` and fill in the database URLs plus, if you want
+live extraction, `AZURE_OPENAI_API_KEY`.
 
 **Extraction must use its own venv** — not a preference: `litellm` requires
 `httpx>=0.28` while the API pins `<0.28`.
+
+### Ports and CORS
+
+Both live in `.env`, not in code:
+
+```
+API_PORT=8010
+WEB_DEV_SERVER_PORT=5490      # Vite binds here AND the API admits this origin
+VITE_API_BASE_URL=http://localhost:8010
+CORS_ALLOWED_ORIGINS=         # empty = derive; set explicitly when deployed
+CORS_DEV_PORT_RANGE=5173-5180
+```
+
+`vite.config.ts` reads `WEB_DEV_SERVER_PORT` with `strictPort`, so the dev
+server fails rather than drifting onto a port the API would reject. That
+mismatch is worth preventing because it presents as a broken backend: the
+browser blocks the request and nothing appears in the server log.
 
 ---
 
@@ -163,22 +176,32 @@ A third was caught by the corpus gate itself: 40 headings governing no content h
 
 ## 8. Built, but not exercised end to end here
 
-All 16 deliverables exist. What could **not** be run in this environment, because
-no credentials or database were configured:
+All 16 deliverables exist, and the stack was run locally against Postgres.
 
-| Component | State | Needs |
-|---|---|---|
-| Dense extraction (live model calls) | built + unit-tested | `AZURE_OPENAI_API_KEY` |
-| Handoff submission | built + tested against a fake repository | Postgres |
-| Extraction stages | built + tested on SQLite; migration verified additive | Postgres, to apply the migration |
-| Search projections | built + unit-tested | an Azure AI Search index |
+**Verified live** (Postgres 5433, API 8010, UI 5490): all migrations apply to a
+fresh database including `extraction_stages`; the five extraction endpoints
+answer against a real uploaded document; CORS admits the configured origin and
+refuses an unlisted one; coverage reports 17/17 with zero unaccounted elements.
 
-The deterministic path — conversion, structure, reading plan, span resolution,
-coverage, verification — was run against all five real documents.
+**Still untested against the real dependency**, because no credential was
+configured:
+
+| Component | Needs |
+|---|---|
+| Dense extraction (live model calls) | `AZURE_OPENAI_API_KEY` |
+| Handoff submission | a policy set exercised through candidate intake |
+| Search projections | an Azure AI Search index |
 
 Two follow-ups worth scheduling: a **worker/queue** for conversion (PDF takes
 195 s, so it cannot run in-request), and the **publisher** that writes the
 runtime projection and flips activation after `verify_projection` passes.
+
+### Local database note
+
+The shared `policy_platform` database is stamped at a revision that does not
+exist on this branch, so migrations were applied to a separate
+`policy_platform_advtool` database rather than migrating another branch's
+working state. Point `DATABASE_URL` wherever is appropriate in the target fork.
 
 ---
 

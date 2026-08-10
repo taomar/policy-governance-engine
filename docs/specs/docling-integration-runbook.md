@@ -32,9 +32,15 @@ dependency:
 | Component | Needs |
 |---|---|
 | Dense extraction (live model calls) | `AZURE_OPENAI_API_KEY` |
-| Handoff submission | Postgres |
-| `extraction_stages` migration | Postgres |
+| Handoff submission | a policy set + candidate intake exercised end to end |
 | Runtime Search projection | an Azure AI Search index |
+
+**Verified against a live stack** (Postgres on 5433, API on 8010, UI on 5490):
+
+- all migrations apply cleanly to a fresh database, including `extraction_stages`;
+- the five extraction endpoints answer against a real uploaded document;
+- CORS admits the configured UI origin and refuses an unlisted one;
+- coverage reports 17/17 with zero unaccounted elements on the IT policy.
 
 **Still to build:**
 
@@ -87,6 +93,51 @@ $env:TORCHDYNAMO_DISABLE = "1"
 
 Without it, Docling's PDF pipeline fails with `InvalidCxxCompiler: Compiler: cl
 is not found` on machines with no Visual C++ toolchain. DOCX is unaffected.
+
+### Running the stack locally
+
+```powershell
+# 1. Database
+docker start policy-postgres
+$env:PYTHONPATH = "src"
+.\.venv-graph\Scripts\python.exe -m alembic upgrade head
+
+# 2. API. `--host ::` binds dual-stack, which matters more than it looks:
+#    uvicorn defaults to 127.0.0.1 (IPv4 only), while browsers resolve
+#    "localhost" to ::1 first. The result is every request failing as
+#    "TypeError: Failed to fetch" while curl and the health check both pass,
+#    because command-line clients prefer IPv4.
+.\.venv-graph\Scripts\python.exe -m uvicorn policy_platform.api.app:app --host :: --port 8010
+
+# 3. UI (separate shell)
+cd apps/web; npm install; npm run dev
+```
+
+| Surface | URL |
+|---|---|
+| UI | `http://localhost:5490` |
+| API | `http://localhost:8010` |
+| OpenAPI | `http://localhost:8010/docs` |
+
+**Ports and CORS live in `.env`, not in code.** `WEB_DEV_SERVER_PORT` sets the
+port Vite binds to *and* the origin the API admits, so moving the UI is a
+one-line change. `vite.config.ts` reads the same value with `strictPort`, which
+means the dev server fails rather than silently moving to a port the API would
+reject — a mismatch there presents as a broken backend, because the browser
+blocks the request and the server logs nothing.
+
+Set `CORS_ALLOWED_ORIGINS` explicitly for a deployed environment. An explicit
+list is used verbatim and is never widened by the development range.
+
+To verify CORS without a browser:
+
+```powershell
+curl.exe -s -i "http://localhost:8010/api/policy-sets" -H "Origin: http://localhost:5490"
+# expect: access-control-allow-origin: http://localhost:5490
+
+curl.exe -s -i "http://localhost:8010/api/policy-sets" -H "Origin: http://evil.example.com"
+# expect: no access-control-allow-origin header at all
+```
 
 ---
 
@@ -215,6 +266,21 @@ run does not know how to classify usually indicates a new document shape.
 **Dependency integrity fails.** An upstream file differs from its installed
 hash. Do not patch it. Reinstall the pinned version; if the difference persists,
 treat it as a supply-chain event.
+
+**The UI shows "TypeError: Failed to fetch" while the API health check passes.**
+Almost always a bind-address mismatch rather than a CORS problem. Browsers
+resolve `localhost` to `::1` (IPv6) first, while uvicorn defaults to `127.0.0.1`
+(IPv4 only) — so command-line clients succeed and the browser does not. Confirm
+with:
+
+```powershell
+curl.exe -s -o NUL -w "v4=%{http_code}`n" http://127.0.0.1:8010/health
+curl.exe -s -o NUL -w "v6=%{http_code}`n" "http://[::1]:8010/health"
+```
+
+If v4 succeeds and v6 fails, restart the API with `--host ::`. A genuine CORS
+failure looks different: the response arrives but carries no
+`access-control-allow-origin` header.
 
 ---
 
