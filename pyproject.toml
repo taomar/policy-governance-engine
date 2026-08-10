@@ -1,7 +1,7 @@
 [project]
 name = "policy-platform"
 version = "0.1.0"
-description = "Enterprise Policy Formalization and Deterministic Policy Platform (local build)"
+description = "PolicyVerbAItim — AI reads your policies, it never rewrites them. Source-traceable policy formalization with deterministic evaluation."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<0.116",

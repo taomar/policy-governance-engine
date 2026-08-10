@@ -214,7 +214,7 @@ function App() {
         <div className="brand">
           <div className="brand-mark">PP</div>
           <div>
-            <div className="brand-title">Policy Platform</div>
+            <div className="brand-title">PolicyVerbAItim</div>
             <div className="brand-subtitle">Deterministic Evaluation</div>
           </div>
         </div>

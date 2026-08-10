@@ -1,10 +1,21 @@
-# Policy Governance Engine
+# PolicyVerbAItim
 
-AI-assisted policy formalization and governance with deterministic evaluation.
+**AI reads your policies. It never rewrites them.**
 
-The platform turns PDF/DOCX policy documents into source-traceable structured
-rules. AI drafts, humans review and publish, and a pure Python engine evaluates
-approved versions without a model in the decision path.
+Policy documents are written for people. Decisions have to be made by machines.
+Something has to cross that gap — and everything you trust downstream depends on
+whether it crossed honestly.
+
+PolicyVerbAItim turns PDF and DOCX policy documents into structured, executable
+rules where **every rule points back at the exact words that produced it**.
+Spans are copied verbatim and verified in Python, never paraphrased. When the
+source is silent, the platform says so instead of filling the gap.
+
+AI drafts. Humans review and publish. A pure Python engine evaluates the
+approved version — with no model anywhere in the decision path.
+
+> The name is the guarantee: *verbatim*, with the AI where it belongs — reading,
+> not deciding.
 
 ## Capabilities
 

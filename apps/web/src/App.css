@@ -249,7 +249,7 @@
   white-space: nowrap;
 }
 
-/* Fixed segments ("Policy Platform", "/", the nav label) keep their width... */
+/* Fixed segments ("PolicyVerbAItim", "/", the nav label) keep their width... */
 .breadcrumb > .ant-space-item:not(:last-child) {
   flex: 0 0 auto;
 }
