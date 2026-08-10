@@ -1,4 +1,6 @@
-# Documentation
+# PolicyVerbAItim documentation
+
+*AI reads your policies. It never rewrites them.*
 
 Start with the [User guide](user-guide.md) to see the product, or
 [How we work](how-we-work.md) to contribute to it.

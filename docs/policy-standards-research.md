@@ -1,5 +1,5 @@
-# Enterprise Policy Formalization and Deterministic Policy Platform
-## Research Report: Standards, Software, Business Cycle & Gap Analysis
+# PolicyVerbAItim — standards research
+## Standards, Software, Business Cycle & Gap Analysis
 
 *Sources verified via direct web fetch of primary documentation. Any claim noted as [training knowledge — unverified by fetch] was not independently confirmed via URL retrieval during this session. PDF sources (NIST SP 800-162, NIST SP 800-205) returned binary; their existence and authorship were confirmed via CSRC abstract page; content details rely on training knowledge and are so marked.*
 

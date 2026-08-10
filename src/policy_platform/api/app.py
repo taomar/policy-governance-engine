@@ -78,11 +78,12 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(
-        title="Enterprise Policy Formalization and Deterministic Policy Platform",
+        title="PolicyVerbAItim",
         description=(
-            "Local build. Implements Phase 1 (foundation) and Phase 5 (deterministic "
-            "evaluation) of the specification. See docs/known-limitations.md for what "
-            "is intentionally deferred (MAF workflows, Azure OpenAI/Search, governance UI)."
+            "AI reads your policies. It never rewrites them. Source-traceable policy "
+            "formalization with deterministic evaluation — no model in the decision "
+            "path. Local build; see docs/known-limitations.md for what is "
+            "intentionally deferred."
         ),
         version="0.1.0",
         lifespan=lifespan,

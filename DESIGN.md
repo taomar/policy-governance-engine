@@ -1,5 +1,5 @@
 ---
-name: Policy Platform
+name: PolicyVerbAItim
 description: An evidence ledger for policy work — source to decision to state, never a grid of dashboard cards.
 colors:
   indigo-ink: "#5b4db1"
@@ -224,7 +224,7 @@ components:
     typography: "{typography.code}"
 ---
 
-# Design System: Policy Platform
+# Design System: PolicyVerbAItim
 
 ## Overview
 

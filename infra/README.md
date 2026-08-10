@@ -1,6 +1,6 @@
 # Azure infrastructure
 
-This folder contains the deployment-ready Azure design for the Policy Platform.
+This folder contains the deployment-ready Azure design for PolicyVerbAItim.
 It is prepared for Azure Developer CLI and Bicep, but no Azure deployment was
 run while generating it.
 

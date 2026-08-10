@@ -17,6 +17,21 @@ approved version — with no model anywhere in the decision path.
 > The name is the guarantee: *verbatim*, with the AI where it belongs — reading,
 > not deciding.
 
+## Built on published standards
+
+Policy work is not a place to invent a format. Three standards do the load
+bearing, and each is implemented rather than name-dropped:
+
+| Standard | Governs | Where |
+|---|---|---|
+| [**OASIS XACML 3.0**](https://docs.oasis-open.org/xacml/3.0/xacml-3.0-core-spec-os-en.html) | Decisions (Permit / Deny / NotApplicable), Obligations vs Advice, target matching, attribute naming | Evaluator, rule scope, decision display |
+| [**OMG DMN 1.5 / FEEL**](https://www.omg.org/spec/DMN/) | Decision tables, condition expressions, hit policies | AI formulation → executable conditions |
+| [**OMG SBVR 1.5**](https://www.omg.org/spec/SBVR/) | Deontic categories — obligation, prohibition, permission, and what is merely definitional | Canonical rule types |
+
+[**Standards**](docs/standards.md) states which one governs which decision, and —
+just as important — what is **deliberately not claimed**. A half-claimed standard
+is worse than none: it invites you to assume guarantees the code does not give.
+
 ## Capabilities
 
 | Capability | Purpose |
@@ -129,13 +144,6 @@ See the illustrated [User guide](docs/user-guide.md).
 - React 19, TypeScript, Vite, Ant Design
 - Azure OpenAI and Azure AI Search through `httpx`
 - Azure Container Apps/Bicep/azd assets for the pending Azure deployment
-
-## Standards
-
-OASIS XACML 3.0 (decisions, obligations, target matching, attribute naming),
-OMG DMN 1.5 / FEEL (decision tables and conditions), and OMG SBVR 1.5 concepts
-(deontic categories). See [Standards](docs/standards.md) for which one governs
-which decision — and what is deliberately not claimed.
 
 ## Checks
 

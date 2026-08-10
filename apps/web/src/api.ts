@@ -1,5 +1,5 @@
 /**
- * Typed HTTP client for the Policy Platform API.
+ * Typed HTTP client for the PolicyVerbAItim API.
  *
  * Mirrors src/policy_platform/api/schemas.py and contracts/evaluation.py.
  * Kept dependency-free (native fetch) since this is a thin admin/demo UI,

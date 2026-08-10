@@ -8,7 +8,7 @@ Generated: 2026-08-09
 
 ## 1. Project Overview
 
-**Goal:** Prepare a complete, deployment-ready Azure design and `azd`/Bicep kit for the Policy Platform without deploying any Azure resources.
+**Goal:** Prepare a complete, deployment-ready Azure design and `azd`/Bicep kit for PolicyVerbAItim without deploying any Azure resources.
 
 **Path:** Modernize an existing local-first application for Azure hosting.
 
