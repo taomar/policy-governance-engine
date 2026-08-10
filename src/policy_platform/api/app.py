@@ -80,9 +80,9 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="PolicyVerbAItim",
         description=(
-            "AI reads your policies. It never rewrites them. Source-traceable policy "
-            "formalization with deterministic evaluation — no model in the decision "
-            "path. Local build; see docs/known-limitations.md for what is "
+            "AI to read. Evidence to prove. Determinism to decide. Source-traceable "
+            "policy formalization with deterministic evaluation — no model in the "
+            "decision path. Local build; see docs/known-limitations.md for what is "
             "intentionally deferred."
         ),
         version="0.1.0",

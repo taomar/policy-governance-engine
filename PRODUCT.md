@@ -40,11 +40,12 @@ Unlike generic document-Q&A or summarization tools, this platform produces **str
 
 ## Brand Commitments
 
-- Name: "PolicyVerbAItim", tagline "AI reads your policies. It never rewrites them."
-  The name carries the product's core guarantee — *verbatim* source spans, with
-  the AI reading rather than deciding. Written plainly everywhere (docs, CLI,
-  package, domain); the AI infix is a wordmark treatment, not a spelling anyone
-  should have to reproduce by hand.
+- Name: "PolicyVerbAItim", tagline "AI to read. Evidence to prove. Determinism to decide."
+  Each clause maps to a real layer: the formulator reads, verbatim spans and
+  clause anchors prove what it read, and the deterministic evaluator decides
+  with no model in the path. The name carries the same guarantee — *verbatim*.
+  Written plainly everywhere (docs, CLI, package, domain); the AI infix is a
+  wordmark treatment, not a spelling anyone should have to reproduce by hand.
 - Existing visual language: dark indigo/purple sidebar, purple (#6366f1-ish) accent color, Ant Design v6 component set, card-based layouts. Treat this as an existing but not-yet-formalized visual world — the user has explicitly called the current Policies-page presentation "ugly" and not scalable, so the incumbent detail-card treatment is evidence/anti-reference for that surface, not a constraint to preserve as-is.
 
 ## Evidence on Hand

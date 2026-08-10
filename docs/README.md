@@ -1,6 +1,6 @@
 # PolicyVerbAItim documentation
 
-*AI reads your policies. It never rewrites them.*
+*AI to read. Evidence to prove. Determinism to decide.*
 
 Start with the [User guide](user-guide.md) to see the product, or
 [How we work](how-we-work.md) to contribute to it.
