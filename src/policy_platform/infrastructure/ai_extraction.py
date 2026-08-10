@@ -56,10 +56,7 @@ from policy_platform.domain.models import (
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_delta
-from policy_platform.infrastructure.formulation_mapping import (
-    formulation_to_candidate_rules,
-    link_topic_groups,
-)
+from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
     PassageExtractionError,
@@ -710,16 +707,14 @@ async def extract_candidate_rules(
         # incomplete. Because rows are now committed per batch, this pass
         # rewrites the stored payloads instead of mutating objects pre-insert.
         #
-        # The label pass runs first. Grouping below keys on `group_label`, so on
-        # its own it could only ever re-link rules that were already linked — a
-        # topic split across batches is labelled in neither and stayed invisible
-        # here despite this being the pass meant to catch it. `link_topic_groups`
-        # closes that gap using the same subject-and-predicate identity the DMN
-        # label is built from. Safe to apply document-wide because one run
-        # covers one document version; identical wording in two documents would
-        # be a coincidence of phrasing, not a stated relationship.
-        link_topic_groups(drafted)
-
+        # Known limitation, deliberately not patched here: this groups by
+        # `group_label`, so it can only re-link rules a decision table already
+        # named. A topic split across batches is labelled in neither and stays
+        # invisible. Filling the gap by matching subject-and-predicate wording
+        # was tried and reverted — under `contracts.relationships` that is a
+        # `candidate`, and candidates must not enter `related_rule_ids`, which
+        # consumers read as established fact. `relationship_discovery` is the
+        # right home for it, as a reviewable edge rather than a silent merge.
         groups: dict[str, list[str]] = {}
         for rule in drafted:
             if rule.group_label:
