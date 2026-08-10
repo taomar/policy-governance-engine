@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     azure_search_authoring_index: str = "policy-authoring"
     azure_search_evidence_index: str = "policy-evidence"
 
+    # Docling Graph dense extraction. Off by default: the dependency is an
+    # optional extra (`pip install -e .[graph]`), and importing it in a runtime
+    # that lacks it must fail as "disabled", not as a crash.
+    docling_graph_enabled: bool = False
+    #: LiteLLM model identifier. Defaults to the Azure OpenAI deployment above
+    #: so the platform has one model configuration rather than a second parallel
+    #: one that could silently drift to a different model.
+    docling_graph_model: str = "azure/gpt-4o"
+
     @property
     def ai_enabled(self) -> bool:
         """True only when both Azure OpenAI chat and embeddings are configured."""
@@ -64,6 +73,23 @@ class Settings(BaseSettings):
     @property
     def search_enabled(self) -> bool:
         return bool(self.azure_search_endpoint and self.azure_search_api_key)
+
+    @property
+    def graph_extraction_enabled(self) -> bool:
+        """True when dense extraction can actually run.
+
+        Deliberately requires a chat endpoint, key and deployment but *not* an
+        embedding deployment: dense extraction never embeds anything, and
+        gating it on `ai_enabled` would make it unavailable in an environment
+        that is perfectly capable of running it.
+        """
+
+        return bool(
+            self.docling_graph_enabled
+            and self.azure_openai_endpoint
+            and self.azure_openai_api_key
+            and self.azure_openai_deployment
+        )
 
 
 @lru_cache
