@@ -47,6 +47,21 @@ where = ["src"]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# Resolve through the approved Microsoft package feed proxy rather than PyPI
+# directly. Pinned here rather than left to ambient machine configuration so a
+# fresh clone resolves from the approved feed by default; reaching
+# files.pythonhosted.org directly fails the TLS handshake on managed networks,
+# which surfaces as an opaque "Request failed after 3 retries".
+[[tool.uv.index]]
+name = "microsoft-proxy"
+url = "https://packagefeedproxy.microsoft.io/pypi/simple"
+default = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The package lives under src/ and is not required to be installed to run the
+# suite. Without this, a venv that never ran `pip install -e .` fails every test
+# module at import with ModuleNotFoundError, which reads like broken tests
+# rather than a missing install step.
+pythonpath = ["src"]
