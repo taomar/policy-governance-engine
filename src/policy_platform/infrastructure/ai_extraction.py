@@ -57,6 +57,11 @@ from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_delta
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.relationship_discovery import (
+    RuleAnchor,
+    discover_semantic_role_relationships,
+    discover_structural_relationships,
+)
 from policy_platform.infrastructure.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
     PassageExtractionError,
@@ -309,6 +314,44 @@ async def _supersede_prior_candidates(
     )
     await session.flush()
     return int(result.rowcount or 0)
+
+
+def _relationship_anchors(rules: list[CanonicalRule]) -> list[RuleAnchor]:
+    """Describe drafted rules in the terms relationship discovery compares.
+
+    Every field is read from what the rule already carries — its evidence, its
+    scope, its canonical decomposition — so an anchor asserts nothing the
+    extraction did not already record. Rules that failed to compile are
+    included deliberately: a table row belongs to its table whether or not it
+    became executable, and dropping them here is how orphaned rows appear.
+    """
+
+    anchors: list[RuleAnchor] = []
+    for order, rule in enumerate(rules):
+        canonical = rule.formulation.canonical if rule.formulation else None
+        policy_rule = canonical.rule if canonical else None
+        # Section comes from evidence, not `rule.scope`. `scope` is the
+        # targeting scope — jurisdictions, personas, processes — and carries no
+        # document position at all; reading it here silently produced an empty
+        # section path, so the hierarchy detector could never fire.
+        section_path: list[str] = []
+        for ev in rule.evidence:
+            if ev.section and ev.section not in section_path:
+                section_path.append(ev.section)
+        anchors.append(
+            RuleAnchor(
+                rule_id=rule.rule_id,
+                element_ids=[ev.clause_id for ev in rule.evidence if ev.clause_id],
+                text=(canonical.source_text if canonical else "") or rule.description,
+                section_path=section_path,
+                fact_paths=sorted({fact.path for fact in rule.required_facts}),
+                actor=(policy_rule.subject if policy_rule else "") or "",
+                action=(policy_rule.predicate if policy_rule else "") or "",
+                rule_kind=(rule.rule_type.value if hasattr(rule.rule_type, "value") else str(rule.rule_type)).lower(),
+                order=order,
+            )
+        )
+    return anchors
 
 
 async def _classify_run_delta(
@@ -707,22 +750,54 @@ async def extract_candidate_rules(
         # incomplete. Because rows are now committed per batch, this pass
         # rewrites the stored payloads instead of mutating objects pre-insert.
         #
-        # Known limitation, deliberately not patched here: this groups by
-        # `group_label`, so it can only re-link rules a decision table already
-        # named. A topic split across batches is labelled in neither and stays
-        # invisible. Filling the gap by matching subject-and-predicate wording
-        # was tried and reverted — under `contracts.relationships` that is a
-        # `candidate`, and candidates must not enter `related_rule_ids`, which
-        # consumers read as established fact. `relationship_discovery` is the
-        # right home for it, as a reviewable edge rather than a silent merge.
+        # This pass alone can only re-link rules a decision table already named,
+        # so a rule that failed to compile carried no relationships at all —
+        # precisely when a reviewer most needs to see what it depends on.
+        # `relationship_discovery` supplies the rest from the document itself,
+        # below, and its confirmed edges are merged in here.
         groups: dict[str, list[str]] = {}
         for rule in drafted:
             if rule.group_label:
                 groups.setdefault(rule.group_label, []).append(rule.rule_id)
+
+        # Relationships the source establishes: rows of one table, section
+        # hierarchy, explicit cross-references, ordered steps, shared defined
+        # terms. Independent of whether either endpoint compiled.
+        #
+        # Only `confirmed` edges reach `related_rule_ids`. Candidates — layout
+        # adjacency, shared vocabulary — are a proposal, and writing a proposal
+        # into a field consumers read as established fact is how a machine's
+        # guess ends up in the reviewer's record.
+        confirmed_links: dict[str, list[str]] = {}
+        try:
+            anchors = _relationship_anchors(drafted)
+            edges = discover_structural_relationships(anchors)
+            edges += discover_semantic_role_relationships(anchors)
+            for edge in edges:
+                if edge.state != "confirmed":
+                    continue
+                if not edge.source_rule_id or not edge.target_rule_id:
+                    continue
+                confirmed_links.setdefault(edge.source_rule_id, []).append(edge.target_rule_id)
+                confirmed_links.setdefault(edge.target_rule_id, []).append(edge.source_rule_id)
+        except Exception:
+            # Discovery is additive. A failure here must not lose a run's rules,
+            # which are the expensive part; the rules simply keep the links the
+            # decision tables gave them.
+            logger.exception("relationship discovery failed for run %s", run.id)
+
         for rule in drafted:
-            if not rule.group_label:
-                continue
-            related = [rid for rid in groups[rule.group_label] if rid != rule.rule_id]
+            related = list(rule.related_rule_ids)
+            seen = set(related) | {rule.rule_id}
+            if rule.group_label:
+                for rid in groups[rule.group_label]:
+                    if rid not in seen:
+                        related.append(rid)
+                        seen.add(rid)
+            for rid in confirmed_links.get(rule.rule_id, []):
+                if rid not in seen:
+                    related.append(rid)
+                    seen.add(rid)
             if related == rule.related_rule_ids:
                 continue
             rule.related_rule_ids = related
