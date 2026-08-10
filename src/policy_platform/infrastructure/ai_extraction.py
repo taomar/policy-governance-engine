@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from policy_platform.contracts.passage import PolicyPassage
-from policy_platform.contracts.policy import CanonicalRule
+from policy_platform.contracts.policy import AmbiguityStatus, CanonicalRule
 from policy_platform.domain.models import (
     CandidateRule,
     Clause,
@@ -62,6 +62,7 @@ from policy_platform.infrastructure.continuation_adjudicator import (
     ClauseWindow,
     discover_continuations,
 )
+from policy_platform.infrastructure.policy_faithfulness import validate_rules
 from policy_platform.infrastructure.relationship_discovery import (
     RuleAnchor,
     discover_enumeration_relationships,
@@ -906,6 +907,45 @@ async def extract_candidate_rules(
             candidate = persisted.get(rule.rule_id)
             if candidate is not None:
                 candidate.payload_json = rule.model_dump(mode="json")
+
+        # Second-pass validation: re-read every drafted rule against the source
+        # it cites. Independent of the classification that produced it — the
+        # chain from passage to effect is lossy at every step, and the result
+        # always looks well-formed whether or not it survived intact.
+        try:
+            faithfulness = validate_rules(drafted)
+            if faithfulness:
+                blocking = [f for f in faithfulness if f.severity == "blocking"]
+                logger.warning(
+                    "run %s: %d faithfulness finding(s), %d blocking",
+                    run.id,
+                    len(faithfulness),
+                    len(blocking),
+                )
+                for finding in faithfulness:
+                    logger.warning(
+                        "  %s [%s] %s | source: %s",
+                        finding.rule_id,
+                        finding.code,
+                        finding.message,
+                        finding.source_quote[:80],
+                    )
+                # A rule whose logic may not match its source is not a rule a
+                # reviewer should skim past. Escalated rather than merely
+                # logged, because the finding is worthless if the only place it
+                # appears is a server log nobody reads.
+                flagged = {f.rule_id for f in blocking}
+                for rule in drafted:
+                    if rule.rule_id not in flagged:
+                        continue
+                    rule.ambiguity_status = AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+                    candidate = persisted.get(rule.rule_id)
+                    if candidate is not None:
+                        candidate.payload_json = rule.model_dump(mode="json")
+        except Exception:
+            # Validation is a check on the run, not part of producing it. A
+            # failure here must not cost the rules that were extracted.
+            logger.exception("faithfulness validation failed for run %s", run.id)
 
         # Delta last, after the linking pass has settled every payload. Related
         # rule ids are deliberately not part of a rule's fingerprint, but

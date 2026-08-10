@@ -1,0 +1,323 @@
+"""Checking that an extracted rule still says what its source said.
+
+Extraction is a chain of lossy steps: a passage is selected, decomposed into
+subject/predicate/object, classified, and projected to an effect. Each step can
+drop something, and the result always *looks* well-formed — a rule with a
+subject, an effect and a citation reads as correct whether or not it survived
+the journey intact.
+
+This module re-reads each rule against the source text it cites and reports
+where the two disagree. It is a second, independent pass by construction: it
+does not consult the classification that produced the rule, only the words the
+document used and the rule that came out.
+
+Every check here is deterministic and every finding names the evidence for it.
+That matters more than coverage: a faithfulness check that is itself a guess
+adds a second source of error to the one it was meant to catch. Semantic drift
+that no rule of this kind can see is left to the model pass, which must quote
+the source for anything it asserts.
+
+The checks exist because each corresponds to a defect found in real extracted
+output, not to a category someone imagined:
+
+* A source reading "shall NOT exceed 10%" produced a rule whose stated action
+  was "exceed 10% of the employee's current basic salary" — an instruction to do
+  the forbidden thing.
+* A source stating "not exceeding 5%" produced a rule carrying no 5% anywhere,
+  silently removing the limit.
+* A source stating conditions produced a rule with an empty condition tree and
+  no note that anything had been lost.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from policy_platform.contracts.policy import CanonicalRule, EffectType
+
+#: Negations as they appear in policy prose. Matched on word boundaries so
+#: "cannot" counts and "notify" does not.
+_NEGATION_RE = re.compile(
+    r"\b(?:not|never|cannot|shall\s+not|must\s+not|may\s+not|no\s+longer|neither|nor)\b",
+    re.IGNORECASE,
+)
+
+#: Quantities a policy turns on: percentages, money, counts, durations. A rule
+#: that drops one has usually dropped the limit that made it a rule.
+#:
+#: `%` is matched without a trailing word boundary. An earlier version ended the
+#: whole alternation with `\b`, which silently never matched a percentage: `%`
+#: and the space after it are both non-word characters, so there is no boundary
+#: between them and every "10%" in every document went unchecked.
+_QUANTITY_RE = re.compile(
+    r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|(?:percent|per\s+cent|days?|months?|years?|hours?|"
+    r"weeks?|times?|SAR|USD|EUR|GBP)\b)",
+    re.IGNORECASE,
+)
+
+#: Effects that assert something is required or allowed. A negated source must
+#: not produce one of these.
+_POSITIVE_EFFECTS = frozenset({EffectType.REQUIRE_ACTION, EffectType.ALLOW})
+
+
+@dataclass(frozen=True)
+class FaithfulnessFinding:
+    """One disagreement between a rule and the source it cites."""
+
+    rule_id: str
+    #: Stable identifier, so a consumer can filter or suppress by kind rather
+    #: than by matching prose.
+    code: str
+    #: What a reviewer needs to decide, in one sentence.
+    message: str
+    #: The source text that establishes the finding. Never model-authored: a
+    #: finding a reviewer cannot check against the document is an assertion.
+    source_quote: str = ""
+    severity: str = "warning"
+
+
+def _normalize(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _source_text(rule: CanonicalRule) -> str:
+    formulation = rule.formulation
+    canonical = formulation.canonical if formulation else None
+    return _normalize(canonical.source_text if canonical else "")
+
+
+def _rule_surface(rule: CanonicalRule, *, include_stated_condition: bool = True) -> str:
+    """Everything the rule says, as one string, for presence checks.
+
+    Deliberately includes the condition tree, the effect action and the
+    canonical decomposition: a quantity is preserved whether it landed in a
+    condition, in the action, or in the object, and demanding a particular
+    location would report faithful rules as defective.
+
+    `include_stated_condition` exists for the one caller that must not see it.
+    The canonical `condition` field is where the *source's* condition is
+    recorded, so a check asking "did this condition reach the rule's operative
+    parts" would otherwise compare the text against itself and never fire.
+    """
+
+    parts = [rule.title, rule.description, rule.effect.action if rule.effect else ""]
+    formulation = rule.formulation
+    canonical = formulation.canonical if formulation else None
+    policy_rule = canonical.rule if canonical else None
+    if policy_rule is not None:
+        parts += [
+            policy_rule.subject or "",
+            policy_rule.predicate or "",
+            policy_rule.object or "",
+        ]
+        if include_stated_condition:
+            parts.append(policy_rule.condition or "")
+    parts.append(rule.condition.model_dump_json() if rule.condition else "")
+    for decision in (formulation.dmn_decisions if formulation else []) or []:
+        projection = decision.semantic_projection
+        if projection is None:
+            continue
+        parts += [
+            projection.outcome or "",
+            projection.condition_source or "",
+            *(projection.conditions or []),
+        ]
+    return _normalize(" ".join(parts))
+
+
+def check_negation_preserved(rule: CanonicalRule) -> FaithfulnessFinding | None:
+    """A forbidding source must not become a requiring or permitting rule.
+
+    The most dangerous single failure available here. "Salary shall not exceed
+    10%" presented as an obligation to exceed 10% is not a degraded answer — it
+    is the opposite one, delivered with the same confidence and the same
+    citation.
+
+    The test is deliberately narrow: the rule's own action must be the source's
+    negated phrase *with the negation removed*. Merely finding "not" in the
+    source is not enough, and an earlier version that did exactly that was right
+    half the time — "in clinics that are not approved by the insurer, the
+    original receipt shall be submitted to HR" carries a negation inside a
+    condition while the obligation to submit is entirely real. A check that
+    cries wolf on half its findings teaches a reviewer to skip it, which leaves
+    the true inversions less visible than before it existed.
+    """
+
+    source = _source_text(rule)
+    if not source or rule.effect is None:
+        return None
+    if rule.effect.type not in _POSITIVE_EFFECTS:
+        return None
+    action = _normalize(rule.effect.action)
+    if not action:
+        return None
+
+    # If the action keeps a negation, nothing was stripped.
+    if _NEGATION_RE.search(action):
+        return None
+
+    # Does the source forbid precisely what the rule now requires? Compared on
+    # the opening words of the action, because a negated phrase continues into
+    # its object ("not exceed 10% of the employee's basic salary") and the whole
+    # action rarely matches a contiguous source span verbatim.
+    head = " ".join(action.split()[:4])
+    if len(head) < 6:
+        return None
+    pattern = re.compile(
+        r"\b(?:not|never|cannot)\s+(?:be\s+)?" + re.escape(head), re.IGNORECASE
+    )
+    match = pattern.search(source)
+    if match is None:
+        return None
+
+    return FaithfulnessFinding(
+        rule_id=rule.rule_id,
+        code="negation_dropped",
+        message=(
+            f"The source forbids '{match.group(0)}' and the rule requires '{head}…'. "
+            "Read literally it now instructs the opposite of the policy."
+        ),
+        source_quote=match.group(0),
+        severity="blocking",
+    )
+
+
+def check_quantities_preserved(rule: CanonicalRule) -> list[FaithfulnessFinding]:
+    """Every limit the source states must survive into the rule.
+
+    A dropped quantity is a silent weakening: "not exceeding 5%" becomes "not
+    exceeding", which reads as a complete rule and enforces nothing.
+    """
+
+    source = _source_text(rule)
+    if not source:
+        return []
+    surface = _rule_surface(rule)
+    findings: list[FaithfulnessFinding] = []
+    seen: set[str] = set()
+    for match in _QUANTITY_RE.finditer(source):
+        quantity = _normalize(match.group(0))
+        key = quantity.lower().replace(" ", "")
+        if key in seen:
+            continue
+        seen.add(key)
+        # Compared on digits alone: the source may write "10%" where the rule
+        # writes "10 percent", and reporting that as a loss would train a
+        # reviewer to ignore this check.
+        digits = re.sub(r"[^\d]", "", quantity)
+        if digits and digits in re.sub(r"[^\d]", "", surface):
+            continue
+        if quantity.lower() in surface.lower():
+            continue
+        findings.append(
+            FaithfulnessFinding(
+                rule_id=rule.rule_id,
+                code="quantity_dropped",
+                message=(
+                    f"The source states '{quantity}' and the rule does not carry it. "
+                    "A limit that is not represented cannot be enforced."
+                ),
+                source_quote=quantity,
+                severity="blocking",
+            )
+        )
+    return findings
+
+
+def check_conditions_represented(rule: CanonicalRule) -> FaithfulnessFinding | None:
+    """A source that states conditions must not yield an unconditional rule.
+
+    Distinct from the empty-tree provenance already recorded on the rule: this
+    reads the *source*, so it fires even when the projection reported no
+    conditions to lose.
+    """
+
+    formulation = rule.formulation
+    canonical = formulation.canonical if formulation else None
+    policy_rule = canonical.rule if canonical else None
+    stated = _normalize(policy_rule.condition if policy_rule else "")
+    if not stated:
+        return None
+
+    condition = rule.condition
+    empty_tree = condition is not None and (
+        (condition.type == "all" and not condition.all)
+        or (condition.type == "any" and not condition.any)
+    )
+    if not empty_tree:
+        return None
+
+    surface = _rule_surface(rule, include_stated_condition=False)
+    if stated.lower() in surface.lower():
+        # Carried as prose in the projection rather than compiled. Recorded
+        # elsewhere as a mapping gap; not a faithfulness failure, because
+        # nothing was lost.
+        return None
+
+    return FaithfulnessFinding(
+        rule_id=rule.rule_id,
+        code="condition_lost",
+        message=(
+            f"The source conditions this rule ('{stated[:80]}') and neither the condition "
+            "tree nor the projection carries it. The rule would apply unconditionally."
+        ),
+        source_quote=stated[:160],
+        severity="blocking",
+    )
+
+
+def check_action_is_not_a_fragment(rule: CanonicalRule) -> FaithfulnessFinding | None:
+    """An obligation's action must be something a reader could carry out.
+
+    "is calculated as twice the monthly basic salary up to a maximum of" is a
+    sentence fragment, not work. It appeared because a rule that derives a value
+    was projected as an obligation, and the fragment is the tell that the
+    projection was wrong rather than merely terse.
+    """
+
+    if rule.effect is None or rule.effect.type is not EffectType.REQUIRE_ACTION:
+        return None
+    action = _normalize(rule.effect.action)
+    if not action:
+        return FaithfulnessFinding(
+            rule_id=rule.rule_id,
+            code="action_missing",
+            message="The rule requires an action but names none.",
+            severity="blocking",
+        )
+    # A trailing preposition or copula is the reliable signal of a clause cut
+    # mid-thought. Checked on the final word only, so a long but complete action
+    # is not reported.
+    if re.search(r"\b(?:of|as|to|for|by|with|from|than|is|are|be)\s*$", action, re.IGNORECASE):
+        return FaithfulnessFinding(
+            rule_id=rule.rule_id,
+            code="action_fragment",
+            message=(
+                f"The required action ends mid-thought ('…{action[-48:]}'), so it does not "
+                "name work anything could carry out."
+            ),
+            source_quote=action[-80:],
+            severity="warning",
+        )
+    return None
+
+
+def validate_rule(rule: CanonicalRule) -> list[FaithfulnessFinding]:
+    """Every faithfulness check, for one rule."""
+
+    findings: list[FaithfulnessFinding] = []
+    for single in (
+        check_negation_preserved(rule),
+        check_conditions_represented(rule),
+        check_action_is_not_a_fragment(rule),
+    ):
+        if single is not None:
+            findings.append(single)
+    findings.extend(check_quantities_preserved(rule))
+    return findings
+
+
+def validate_rules(rules: list[CanonicalRule]) -> list[FaithfulnessFinding]:
+    """Every faithfulness check, across a run."""
+
+    return [finding for rule in rules for finding in validate_rule(rule)]

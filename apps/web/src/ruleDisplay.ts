@@ -342,6 +342,63 @@ export function buildVariationClusters(allRules: CanonicalRule[]): Map<string, R
     for (const r of members) result.set(r.rule_id, group);
   }
 
+  // Relationship pass: connected components of `related_rule_ids`.
+  //
+  // That field now carries the confirmed relationship graph — rows of one
+  // table, a governing stem and the clauses that complete it, an explicit
+  // cross-reference — while `group_label` only ever carried what a shared DMN
+  // decision table named. Banding read the second and ignored the first, so on
+  // a real document 22 rules had relationships and 4 were banded: the work of
+  // establishing the links was invisible exactly where a reviewer needed it.
+  //
+  // Only confirmed edges reach `related_rule_ids`, so treating them as a family
+  // holds them to the same standard as a curated group rather than a weaker one.
+  const remaining = allRules.filter((r) => !result.has(r.rule_id));
+  const byId = new Map(remaining.map((r) => [r.rule_id, r]));
+  const seen = new Set<string>();
+  for (const rule of remaining) {
+    if (seen.has(rule.rule_id)) continue;
+
+    // Walk the component. Edges are stored on both endpoints, but a one-sided
+    // edge would otherwise split one family into two, so neighbours are
+    // followed in both directions.
+    const component: CanonicalRule[] = [];
+    const queue = [rule.rule_id];
+    seen.add(rule.rule_id);
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      const current = byId.get(id);
+      if (!current) continue;
+      component.push(current);
+      const neighbours = new Set(current.related_rule_ids ?? []);
+      for (const other of remaining) {
+        if ((other.related_rule_ids ?? []).includes(id)) neighbours.add(other.rule_id);
+      }
+      for (const next of neighbours) {
+        if (seen.has(next) || !byId.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    if (component.length < 2) continue;
+
+    // Named after the member the others point at most — the governing stem of
+    // an enumeration is exactly the rule with the most inbound links, so the
+    // family reads as what it is rather than as whichever member sorted first.
+    const inbound = new Map<string, number>();
+    for (const member of component) {
+      for (const target of member.related_rule_ids ?? []) {
+        inbound.set(target, (inbound.get(target) ?? 0) + 1);
+      }
+    }
+    const anchor = component.reduce((best, r) =>
+      (inbound.get(r.rule_id) ?? 0) > (inbound.get(best.rule_id) ?? 0) ? r : best
+    );
+    const sorted = [...component].sort((a, b) => a.title.localeCompare(b.title));
+    const group: RuleVariationGroup = { key: anchor.title, kind: "group", members: sorted };
+    for (const member of component) result.set(member.rule_id, group);
+  }
+
   return result;
 }
 

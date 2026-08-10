@@ -444,6 +444,30 @@ def condition_provenance(policy: CanonicalPolicy, derived: object | None) -> tup
     )
 
 
+#: Modalities that forbid rather than require.
+#:
+#: The canonical record keeps the source's own modal word ("shall", "shall not",
+#: "may"), and the effect derived from a rule type alone loses the negation
+#: entirely. That produced a rule whose stated action was "exceed 10% of the
+#: employee's current basic salary" from a source reading "shall NOT exceed 10%
+#: …" — an instruction to do the forbidden thing, which is the worst output this
+#: system can produce, because it is confidently the inverse of the policy.
+#:
+#: Matched on the modal word only, never on the predicate or object: "no" inside
+#: a noun phrase ("no-fault termination") is not a negation of the rule, and
+#: reading further would start inferring meaning from wording.
+_NEGATIVE_MODALITY_RE = re.compile(
+    r"^\s*(?:shall|must|may|can|will|should|does|do|is|are)?\s*(?:not|never)\b|^\s*cannot\b|^\s*no\b",
+    re.IGNORECASE,
+)
+
+
+def is_negative_modality(modality: str | None) -> bool:
+    """True when the source's modal word forbids rather than requires."""
+
+    return bool(_NEGATIVE_MODALITY_RE.match(modality or ""))
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
@@ -790,6 +814,18 @@ def formulation_to_candidate_rules(
         guidance = is_document_guidance(canonical_rule)
         if guidance:
             rule_type, effect_type = RuleType.DEFINITION, EffectType.INFORMATIONAL
+
+        # A negated modality forbids; it never obliges or permits.
+        #
+        # The rule type alone does not carry the negation — "shall not exceed
+        # 10%" and "shall exceed 10%" are both `conditional_outcome` — so an
+        # effect derived from the type inverted the policy and told a decision
+        # point to do the forbidden thing. The modal word is in the canonical
+        # record, read from the source, so honouring it asserts nothing new.
+        elif effect_type in (EffectType.REQUIRE_ACTION, EffectType.ALLOW) and is_negative_modality(
+            canonical_rule.modality
+        ):
+            rule_type, effect_type = RuleType.PROHIBITION, EffectType.DENY
 
         decisions = formulation.decisions_for(index)
         derived = next(
