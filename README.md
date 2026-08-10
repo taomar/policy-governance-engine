@@ -12,13 +12,14 @@ are copied verbatim and verified in Python, never paraphrased. When the source
 is silent, the platform says so instead of filling the gap.
 
 That link survives publication. Uploaded documents are immutable versions
-identified by content hash, and every approved rule carries the document version,
-clause id and character offsets it came from, plus the extraction run, model
-deployment and prompt version that drafted it. Publishing snapshots the whole
-package rather than pointing at live drafts, so a version cannot change under a
-decision made against it. Each evaluation records a canonical SHA-256 over the
-policy version, the facts supplied and the outcome reached, and cites the
-document and clause behind every rule that fired.
+identified by content hash. Every approved rule cites the document version,
+clause id and content hash it came from, plus the extraction run, model
+deployment and prompt version that drafted it; the clause in turn carries the
+page and the exact character range its text occupies in that page. Publishing
+snapshots the whole package rather than pointing at live drafts, so a version
+cannot change under a decision made against it. Each evaluation records a
+canonical SHA-256 over the policy version, the facts supplied and the outcome
+reached, and cites the document and clause behind every rule that fired.
 
 The practical consequence: for any decision the system made, you can name the
 document release, the clause, and the characters within it — years later,
