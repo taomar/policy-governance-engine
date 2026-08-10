@@ -4352,6 +4352,49 @@
   background: var(--cluster-accent, #7c3aed);
 }
 
+/* Sibling rules of one topic. Laid out as rows rather than the inline tag
+   cluster used elsewhere, because a reviewer deciding whether to approve this
+   rule needs each sibling's status legible at a glance — inline tags hid it. */
+.inspector-decided-with {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inspector-decided-with-intro {
+  margin-bottom: 8px !important;
+}
+
+.inspector-decided-with-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--app-border, #f0f0f0);
+  border-radius: 6px;
+  background: var(--app-surface-subtle, #fafafa);
+}
+
+.inspector-decided-with-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--app-link, #1677ff);
+  font: inherit;
+}
+
+.inspector-decided-with-link:disabled {
+  cursor: default;
+  color: inherit;
+}
+
+.inspector-decided-with-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
 .policy-row-band--start {
   top: 10px;
   border-top-left-radius: 2px;

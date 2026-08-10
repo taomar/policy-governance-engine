@@ -303,6 +303,57 @@ export function PolicyInspector({
         )}
       </Descriptions>
 
+      {rule.related_rule_ids.length > 0 && (
+        <div className="rule-card-section">
+          <Text strong className="rule-card-section-title">
+            <ApartmentOutlined /> Decided together with
+          </Text>
+          <Paragraph type="secondary" className="inspector-decided-with-intro">
+            {rule.related_rule_ids.length + 1} rules state this topic
+            {rule.group_label ? ` — “${rule.group_label}”` : ""}. They come from the same document
+            and are reviewed as one set, so approving this one alone can leave the topic
+            half-decided.
+          </Paragraph>
+          <div className="inspector-decided-with">
+            {rule.related_rule_ids.map((rid) => {
+              const sibling = rulesById.get(rid);
+              if (!sibling) {
+                return (
+                  <div key={rid} className="inspector-decided-with-row">
+                    <Text code copyable={{ text: rid }} type="secondary">
+                      {rid}
+                    </Text>
+                    <Text type="secondary">not in this version</Text>
+                  </div>
+                );
+              }
+              return (
+                <div key={rid} className="inspector-decided-with-row">
+                  <button
+                    type="button"
+                    className="inspector-decided-with-link"
+                    onClick={() => onSelectRule?.(sibling)}
+                    disabled={!onSelectRule}
+                  >
+                    {sibling.title}
+                  </button>
+                  <Space size={4} wrap>
+                    <Tag bordered={false}>{sibling.review_status}</Tag>
+                    {!sibling.machine_executable && (
+                      <Tooltip title="No executable condition was projected for this rule, so it cannot be evaluated automatically">
+                        <Tag bordered={false} color="orange">
+                          needs mapping
+                        </Tag>
+                      </Tooltip>
+                    )}
+                  </Space>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="rule-card-section">
         <Text strong className="rule-card-section-title">
           <ReadOutlined /> Original source text — the exact words from the source document
