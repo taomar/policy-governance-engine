@@ -1,0 +1,292 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Drawer, Empty, Space, Spin, Statistic, Table, Tabs, Tag, Typography } from "antd";
+import type { ColumnsType } from "antd/es/table";
+import {
+  extractionApi,
+  type CoverageDisposition,
+  type CoverageResponse,
+  type ExtractionStagesResponse,
+  type ReadingPlanResponse,
+  type StructuralGraphResponse,
+} from "../api";
+
+const { Text, Paragraph } = Typography;
+
+/**
+ * Extraction transparency for one document version.
+ *
+ * Answers the three questions the existing review surfaces cannot: what
+ * happened to every element of the document, why the model was shown a
+ * particular piece of context alongside a rule, and how the run progressed.
+ *
+ * Deliberately read-only. Approving, rejecting and publishing already live in
+ * the review queue; duplicating them here would create a second place where
+ * policy decisions are made.
+ */
+
+interface ExtractionInsightDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  documentVersionId: string | null;
+  documentTitle?: string;
+}
+
+/**
+ * Colours carry meaning, so they are assigned rather than cycled.
+ *
+ * `unresolved` and anything unaccounted are the two states a reviewer must
+ * notice, so they are the only warm colours on the page — everything else is
+ * an answer, not a gap.
+ */
+const DISPOSITION_COLOUR: Record<CoverageDisposition, string> = {
+  policy_target: "green",
+  supporting_context: "blue",
+  dependency: "geekblue",
+  non_normative: "default",
+  duplicate_structure: "default",
+  unresolved: "orange",
+};
+
+const DISPOSITION_LABEL: Record<CoverageDisposition, string> = {
+  policy_target: "Policy target",
+  supporting_context: "Read as target",
+  dependency: "Supporting dependency",
+  non_normative: "Non-normative",
+  duplicate_structure: "Duplicate structure",
+  unresolved: "Unresolved",
+};
+
+export default function ExtractionInsightDrawer({
+  open,
+  onClose,
+  documentVersionId,
+  documentTitle,
+}: ExtractionInsightDrawerProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
+  const [plan, setPlan] = useState<ReadingPlanResponse | null>(null);
+  const [structure, setStructure] = useState<StructuralGraphResponse | null>(null);
+  const [stages, setStages] = useState<ExtractionStagesResponse | null>(null);
+
+  const load = useCallback(async (versionId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetched together because the four views are read as one answer: a
+      // coverage number without the plan that produced it is not actionable.
+      const [coverageResult, planResult, structureResult, stagesResult] = await Promise.all([
+        extractionApi.getCoverage(versionId),
+        extractionApi.getReadingPlan(versionId),
+        extractionApi.getStructure(versionId),
+        extractionApi.getStages(versionId),
+      ]);
+      setCoverage(coverageResult);
+      setPlan(planResult);
+      setStructure(structureResult);
+      setStages(stagesResult);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load extraction detail");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && documentVersionId) {
+      void load(documentVersionId);
+    }
+  }, [open, documentVersionId, load]);
+
+  const unaccounted = useMemo(
+    () => new Set(coverage?.unaccounted_element_ids ?? []),
+    [coverage]
+  );
+
+  const coverageColumns: ColumnsType<CoverageResponse["elements"][number]> = [
+    {
+      title: "Element",
+      dataIndex: "element_id",
+      width: 200,
+      render: (value: string) => <Text code>{value}</Text>,
+    },
+    {
+      title: "Disposition",
+      dataIndex: "disposition",
+      width: 190,
+      filters: (Object.keys(DISPOSITION_LABEL) as CoverageDisposition[]).map((key) => ({
+        text: DISPOSITION_LABEL[key],
+        value: key,
+      })),
+      onFilter: (value, record) => record.disposition === value,
+      render: (value: CoverageDisposition) => (
+        <Tag color={DISPOSITION_COLOUR[value]}>{DISPOSITION_LABEL[value]}</Tag>
+      ),
+    },
+    { title: "Why", dataIndex: "reason" },
+  ];
+
+  const stageColumns: ColumnsType<ExtractionStagesResponse["stages"][number]> = [
+    { title: "Stage", dataIndex: "stage_name", width: 240 },
+    {
+      title: "Status",
+      dataIndex: "status",
+      width: 110,
+      render: (value: string) => (
+        <Tag color={value === "ok" ? "green" : value === "skipped" ? "default" : "red"}>
+          {value}
+        </Tag>
+      ),
+    },
+    {
+      title: "Attempt",
+      dataIndex: "attempt",
+      width: 90,
+      // Shown because a stage that succeeded on its third attempt is a
+      // different operational story from one that succeeded first time.
+      render: (value: number) => (value > 1 ? <Tag color="orange">#{value}</Tag> : value),
+    },
+    {
+      title: "Seconds",
+      dataIndex: "duration_seconds",
+      width: 110,
+      render: (value: number | null) => (value == null ? "—" : value.toFixed(2)),
+    },
+    { title: "Detail", dataIndex: "detail" },
+  ];
+
+  const planColumns: ColumnsType<ReadingPlanResponse["units"][number]> = [
+    { title: "Unit", dataIndex: "unit_id", width: 190, render: (v: string) => <Text code>{v}</Text> },
+    {
+      title: "Under",
+      dataIndex: "heading_path",
+      render: (value: string[]) => (value.length ? value.join(" › ") : <Text type="secondary">—</Text>),
+    },
+    {
+      title: "Targets",
+      dataIndex: "target_element_ids",
+      width: 100,
+      render: (value: string[]) => value.length,
+    },
+    {
+      title: "Context (why)",
+      dataIndex: "context",
+      render: (value: ReadingPlanUnitContext[]) =>
+        value.length === 0 ? (
+          <Text type="secondary">none</Text>
+        ) : (
+          <Space size={[4, 4]} wrap>
+            {Array.from(new Set(value.map((entry) => entry.reason))).map((reason) => (
+              <Tag key={reason}>{reason.replace(/_/g, " ")}</Tag>
+            ))}
+          </Space>
+        ),
+    },
+  ];
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      width={980}
+      title={`Extraction detail${documentTitle ? ` — ${documentTitle}` : ""}`}
+      destroyOnClose
+    >
+      {loading ? (
+        <Spin />
+      ) : error ? (
+        <Alert type="error" message={error} showIcon />
+      ) : !coverage ? (
+        <Empty description="No extraction detail for this version" />
+      ) : (
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <Space size="large" wrap>
+            <Statistic title="Canonical leaves" value={coverage.total_leaf_elements} />
+            <Statistic
+              title="Accounted for"
+              value={coverage.accounted}
+              suffix={`/ ${coverage.total_leaf_elements}`}
+              valueStyle={{
+                color: coverage.is_complete ? "var(--success)" : "var(--danger)",
+              }}
+            />
+            <Statistic title="Reading units" value={plan?.unit_count ?? 0} />
+            <Statistic title="Structure edges" value={structure?.edge_count ?? 0} />
+          </Space>
+
+          {unaccounted.size > 0 && (
+            <Alert
+              type="error"
+              showIcon
+              message={`${unaccounted.size} element(s) received no disposition`}
+              description={
+                <Paragraph style={{ marginBottom: 0 }}>
+                  These were never considered by the run. That is different from an element
+                  deliberately marked <Text code>unresolved</Text>: content nobody looked at
+                  cannot be reviewed, so this blocks handoff until it is explained.
+                </Paragraph>
+              }
+            />
+          )}
+
+          {plan && !plan.is_exhaustive && (
+            <Alert
+              type="warning"
+              showIcon
+              message={`${plan.uncovered_target_ids.length} element(s) belong to no reading unit`}
+              description="Extraction would never have been shown this content."
+            />
+          )}
+
+          <Tabs
+            items={[
+              {
+                key: "coverage",
+                label: `Coverage (${coverage.elements.length})`,
+                children: (
+                  <Table
+                    size="small"
+                    rowKey="element_id"
+                    columns={coverageColumns}
+                    dataSource={coverage.elements}
+                    pagination={{ pageSize: 25, showSizeChanger: true }}
+                  />
+                ),
+              },
+              {
+                key: "plan",
+                label: `Reading plan (${plan?.unit_count ?? 0})`,
+                children: (
+                  <Table
+                    size="small"
+                    rowKey="unit_id"
+                    columns={planColumns}
+                    dataSource={plan?.units ?? []}
+                    pagination={{ pageSize: 25 }}
+                  />
+                ),
+              },
+              {
+                key: "stages",
+                label: `Run stages (${stages?.stages.length ?? 0})`,
+                children: (stages?.stages.length ?? 0) === 0 ? (
+                  <Empty description="No recorded stages for this version" />
+                ) : (
+                  <Table
+                    size="small"
+                    rowKey={(record) => `${record.idempotency_key}-${record.stage_name}-${record.attempt}`}
+                    columns={stageColumns}
+                    dataSource={stages?.stages ?? []}
+                    pagination={false}
+                  />
+                ),
+              },
+            ]}
+          />
+        </Space>
+      )}
+    </Drawer>
+  );
+}
+
+type ReadingPlanUnitContext = ReadingPlanResponse["units"][number]["context"][number];

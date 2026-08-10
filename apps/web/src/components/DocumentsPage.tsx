@@ -15,10 +15,16 @@ import {
   Typography,
   Upload,
 } from "antd";
-import { FileTextOutlined, InboxOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import {
+  FileTextOutlined,
+  InboxOutlined,
+  PartitionOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
 import { aiApi, api, PolicyPlatformApiError, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
+import ExtractionInsightDrawer from "./ExtractionInsightDrawer";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import ExtractionRunHistory from "./ExtractionRunHistory";
 
@@ -66,6 +72,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   const [bodyViewer, setBodyViewer] = useState<{ versionId: string; docTitle: string; versionLabel: string } | null>(
     null
   );
+  const [insightFor, setInsightFor] = useState<{ versionId: string; docTitle: string } | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -299,6 +306,15 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                           </Button>
                           <Button
                             size="small"
+                            icon={<PartitionOutlined />}
+                            onClick={() =>
+                              setInsightFor({ versionId: v.id, docTitle: `${doc.title} v${v.version_number}` })
+                            }
+                          >
+                            Extraction detail
+                          </Button>
+                          <Button
+                            size="small"
                             icon={<ThunderboltOutlined />}
                             disabled={scoped ? false : policySets.length === 0}
                             onClick={() => setExtractOpenFor(extractOpenFor === v.id ? null : v.id)}
@@ -392,6 +408,13 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         documentVersionId={bodyViewer?.versionId ?? null}
         documentTitle={bodyViewer?.docTitle}
         versionLabel={bodyViewer?.versionLabel}
+      />
+
+      <ExtractionInsightDrawer
+        open={insightFor !== null}
+        onClose={() => setInsightFor(null)}
+        documentVersionId={insightFor?.versionId ?? null}
+        documentTitle={insightFor?.docTitle}
       />
     </>
   );

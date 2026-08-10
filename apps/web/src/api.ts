@@ -1764,6 +1764,162 @@ export const auditApi = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Extraction surfaces (Docling integration)
+//
+// Read-only, and deliberately so: everything a reviewer *does* already has an
+// endpoint on `api` below. These answer the questions the existing surfaces
+// cannot — what the converter produced, how the document is structured, how the
+// run progressed, and what happened to every element.
+// ---------------------------------------------------------------------------
+
+export interface CanonicalSourceFragment {
+  page: number;
+  start_offset: number;
+  end_offset: number;
+  text: string;
+}
+
+export interface CanonicalElement {
+  element_id: string | null;
+  element_type: string | null;
+  sequence: number;
+  section: string | null;
+  page: number | null;
+  clause_ref: string;
+  text: string;
+  source_fragments: CanonicalSourceFragment[];
+}
+
+export interface CanonicalDocumentPage {
+  document_version_id: string;
+  total_elements: number;
+  offset: number;
+  elements: CanonicalElement[];
+}
+
+export interface StructuralNode {
+  element_id: string;
+  element_type: string;
+  reading_order: number;
+  section: string | null;
+  page: number | null;
+}
+
+export interface StructuralEdge {
+  source: string;
+  target: string;
+  kind: string;
+}
+
+export interface StructuralGraphResponse {
+  document_version_id: string;
+  node_count: number;
+  edge_count: number;
+  leaf_element_ids: string[];
+  nodes: StructuralNode[];
+  edges: StructuralEdge[];
+}
+
+export interface ReadingPlanContext {
+  element_id: string;
+  /** Why this element was shown alongside the target — the first question a
+   * reviewer asks about a wrong extraction. */
+  reason: string;
+  /** True when a candidate graph proposed it rather than deterministic
+   * structure, so an unverified suggestion never looks like a structural fact. */
+  is_candidate: boolean;
+}
+
+export interface ReadingPlanUnit {
+  unit_id: string;
+  heading_path: string[];
+  target_element_ids: string[];
+  context: ReadingPlanContext[];
+}
+
+export interface ReadingPlanResponse {
+  document_version_id: string;
+  unit_count: number;
+  is_exhaustive: boolean;
+  uncovered_target_ids: string[];
+  units: ReadingPlanUnit[];
+}
+
+/** Mirrors CoverageDisposition in contracts/graph_run.py. */
+export type CoverageDisposition =
+  | "policy_target"
+  | "supporting_context"
+  | "dependency"
+  | "non_normative"
+  | "duplicate_structure"
+  | "unresolved";
+
+export interface ElementCoverage {
+  element_id: string;
+  disposition: CoverageDisposition;
+  reason: string;
+}
+
+export interface CoverageResponse {
+  document_version_id: string;
+  total_leaf_elements: number;
+  accounted: number;
+  unresolved: number;
+  /** Elements that received no disposition at all. Distinct from `unresolved`,
+   * which is a deliberate "could not classify": these were never considered,
+   * which is the silent loss the coverage gate exists to catch. */
+  unaccounted_element_ids: string[];
+  is_complete: boolean;
+  elements: ElementCoverage[];
+}
+
+export interface ExtractionStageRecord {
+  idempotency_key: string;
+  stage_name: string;
+  sequence: number;
+  status: string;
+  attempt: number;
+  detail: string | null;
+  duration_seconds: number | null;
+  input_hash: string | null;
+  output_hash: string | null;
+}
+
+export interface ExtractionStagesResponse {
+  document_version_id: string;
+  stages: ExtractionStageRecord[];
+}
+
+export const extractionApi = {
+  getCanonicalDocument: (documentVersionId: string, offset = 0, limit = 500) =>
+    request<CanonicalDocumentPage>(
+      `/api/extraction/${encodeURIComponent(documentVersionId)}/canonical?offset=${offset}&limit=${limit}`
+    ),
+
+  getStructure: (documentVersionId: string) =>
+    request<StructuralGraphResponse>(
+      `/api/extraction/${encodeURIComponent(documentVersionId)}/structure`
+    ),
+
+  getReadingPlan: (documentVersionId: string) =>
+    request<ReadingPlanResponse>(
+      `/api/extraction/${encodeURIComponent(documentVersionId)}/reading-plan`
+    ),
+
+  getCoverage: (documentVersionId: string) =>
+    request<CoverageResponse>(
+      `/api/extraction/${encodeURIComponent(documentVersionId)}/coverage`
+    ),
+
+  getStages: (documentVersionId: string, idempotencyKey?: string) =>
+    request<ExtractionStagesResponse>(
+      `/api/extraction/${encodeURIComponent(documentVersionId)}/stages${
+        idempotencyKey ? `?idempotency_key=${encodeURIComponent(idempotencyKey)}` : ""
+      }`
+    ),
+};
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
 
