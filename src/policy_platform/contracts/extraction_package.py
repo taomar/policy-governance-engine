@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from policy_platform.contracts.canonical import canonical_hash
 from policy_platform.contracts.evidence_resolution import RejectedEvidence, ResolvedEvidence
+from policy_platform.contracts.formulation import DmnDecision
 from policy_platform.contracts.graph_run import CoverageReport, GraphRunArtifact
 
 #: Version of the package envelope itself, distinct from the extraction
@@ -135,7 +136,6 @@ class ProjectionCandidate(BaseModel):
     status: Literal["candidate", "requires_review", "not_projectable"] = "candidate"
     unsupported_reason: str | None = None
 
-
 class VerificationSummary(BaseModel):
     """Outcome of the independent verification pass."""
 
@@ -189,6 +189,10 @@ class PolicyExtractionPackage(BaseModel):
     canonical_rules: list[RuleCandidate] = Field(default_factory=list)
     rule_clusters: list[RuleCluster] = Field(default_factory=list)
     projections: list[ProjectionCandidate] = Field(default_factory=list)
+    #: The executable projection itself, kept alongside the candidate summaries
+    #: so verification can compile it and prove parity against the canonical
+    #: rules rather than taking the projection's own status on trust.
+    dmn_decisions: list[DmnDecision] = Field(default_factory=list)
     verification: VerificationSummary = Field(default_factory=VerificationSummary)
     application_handoff: ApplicationHandoff
 

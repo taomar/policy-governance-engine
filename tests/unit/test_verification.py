@@ -264,6 +264,107 @@ class TestReviewableConditions:
         assert any("weak_provenance" in w or "verbatim" in w for w in summary.warnings)
 
 
+class TestProjectionParity:
+    """The acceptance gate: zero supported DMN compilation or parity failures.
+
+    Deliberately asymmetric with `TestReviewableConditions`. Failing to project
+    is reviewable, because an inexpressible rule is still a valid policy rule.
+    A projection that *disagrees* with its canonical rule is a hard failure,
+    because it would execute something the approved policy does not say, and a
+    reviewer reading the canonical rule would have no way to see it.
+    """
+
+    def _decision(self, entries: list[str], status=None):
+        from policy_platform.contracts.formulation import (
+            DmnDecision,
+            DmnDecisionTable,
+            DmnMappingStatus,
+            DmnTableInput,
+            DmnTableOutput,
+            DmnTableRule,
+        )
+
+        return DmnDecision(
+            dmn_mapping_status=status or DmnMappingStatus.EXECUTABLE,
+            source_rule_indexes=[0],
+            decision_table=DmnDecisionTable(
+                hit_policy="UNIQUE",
+                inputs=[
+                    DmnTableInput(
+                        label="expense.amount", expression="expense.amount", type="number"
+                    )
+                ],
+                outputs=[DmnTableOutput(label="Outcome", name="outcome", type="string")],
+                rules=[DmnTableRule(input_entries=entries, output_entries=['"approved"'])],
+            ),
+        )
+
+    def test_a_faithful_projection_passes(self) -> None:
+        package = _package(dmn_decisions=[self._decision([">=100"])])
+        summary = verify_package(package, _document())
+
+        assert summary.ok
+
+    def test_an_executable_decision_that_does_not_compile_blocks(self) -> None:
+        """It asserts it is executable while containing FEEL nothing can run."""
+
+        package = _package(dmn_decisions=[self._decision(['date("2026-01-01")'])])
+        summary = verify_package(package, _document())
+
+        assert not summary.ok
+        assert any("does not compile" in b for b in summary.blockers)
+
+    def test_a_non_executable_decision_warns_rather_than_blocks(self) -> None:
+        from policy_platform.contracts.formulation import DmnMappingStatus
+
+        package = _package(
+            dmn_decisions=[
+                self._decision([">=100"], status=DmnMappingStatus.ENRICHMENT_REQUIRED)
+            ]
+        )
+        summary = verify_package(package, _document())
+
+        assert summary.ok
+        assert any("no parity check performed" in w for w in summary.warnings)
+
+    def test_a_disagreeing_projection_blocks(self) -> None:
+        """Injected disagreement must be caught, or the gate proves nothing."""
+
+        from policy_platform.infrastructure.docling import verification as module
+
+        original = module.check_parity
+
+        def failing(decision, source_rule_indexes=None, name=""):
+            from policy_platform.infrastructure.dmn_parity import ParityMismatch, ParityReport
+
+            return ParityReport(
+                scenarios_run=1,
+                mismatches=[
+                    ParityMismatch(
+                        decision_name="d",
+                        rule_index=0,
+                        facts={"expense.amount": 100},
+                        canonical="TRUE",
+                        dmn="FALSE",
+                    )
+                ],
+            )
+
+        module.check_parity = failing
+        try:
+            summary = verify_package(_package(dmn_decisions=[self._decision([">=100"])]), _document())
+        finally:
+            module.check_parity = original
+
+        assert not summary.ok
+        assert any("parity failure" in b for b in summary.blockers)
+
+    def test_a_package_with_no_projection_is_unaffected(self) -> None:
+        """Most documents produce no executable projection at all."""
+
+        assert verify_package(_package(), _document()).ok
+
+
 class TestIndependence:
     def test_verifying_without_the_document_is_reported(self) -> None:
         """A package verified without re-reading the source has not had its

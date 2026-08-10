@@ -32,6 +32,7 @@ from policy_platform.contracts.extraction_package import (
     VerificationSummary,
     rule_identity,
 )
+from policy_platform.infrastructure.dmn_parity import check_parity, compile_decision
 
 #: Rules whose evidence is entirely absent are not merely uncertain: the package
 #: is asserting a policy exists with nothing behind it.
@@ -57,6 +58,7 @@ def verify_package(
     _check_identity_independence(package, blockers)
     _check_cluster_membership(package, blockers)
     _check_projections(package, warnings)
+    _check_projection_parity(package, blockers, warnings)
     _check_graph_health(package, blockers, warnings)
 
     return VerificationSummary(
@@ -192,6 +194,10 @@ def _check_projections(package: PolicyExtractionPackage, warnings: list[str]) ->
     A rule that cannot be projected to DMN is still a valid policy rule; it
     simply is not executable. Blocking on it would refuse whole documents for
     being expressive.
+
+    Note the asymmetry with `_check_projection_parity`: *failing to project* is
+    reviewable, but a projection that disagrees with its canonical rule is a
+    hard failure, because it would execute something the policy does not say.
     """
 
     known_clusters = {cluster.cluster_key for cluster in package.rule_clusters}
@@ -205,6 +211,41 @@ def _check_projections(package: PolicyExtractionPackage, warnings: list[str]) ->
                 f"projection for {projection.cluster_key} is {projection.status}"
                 + (f": {projection.unsupported_reason}" if projection.unsupported_reason else "")
             )
+
+
+def _check_projection_parity(
+    package: PolicyExtractionPackage, blockers: list[str], warnings: list[str]
+) -> None:
+    """Compile every supported projection and prove it matches its canonical rule.
+
+    This is the acceptance gate "zero supported DMN/FEEL compilation or parity
+    failures". A projection that disagrees with the canonical rule it claims to
+    represent is a hard failure and not a review item: the canonical rule is the
+    semantic authority, so a disagreeing projection would execute something the
+    approved policy does not say — and a reviewer reading the canonical rule
+    would have no way to see it.
+    """
+
+    for decision in package.dmn_decisions:
+        report = compile_decision(decision)
+        if report.status == "not_projectable":
+            # Compilation failure of an *executable* decision is a blocker: the
+            # decision asserts it is executable while containing FEEL nothing
+            # can run.
+            blockers.append(
+                f"{report.decision_name}: declared executable but does not compile "
+                f"({'; '.join(report.errors[:3])})"
+            )
+            continue
+        if report.status == "requires_review":
+            warnings.append(f"{report.decision_name}: not executable, no parity check performed")
+            continue
+
+        parity = check_parity(decision)
+        for mismatch in parity.mismatches:
+            blockers.append(f"canonical/DMN parity failure — {mismatch.describe()}")
+        for skipped in parity.skipped:
+            warnings.append(f"parity skipped: {skipped}")
 
 
 def _check_graph_health(
