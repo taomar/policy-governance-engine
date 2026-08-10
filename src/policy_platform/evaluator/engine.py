@@ -10,7 +10,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from policy_platform.contracts.canonical import canonical_hash
-from policy_platform.contracts.conditions import ConditionNode
+from policy_platform.contracts.conditions import AllCondition, AnyCondition, ConditionNode
 from policy_platform.contracts.evaluation import (
     AggregateBreach,
     EvaluationRequest,
@@ -87,6 +87,29 @@ def _match_target(
     return "match", None, None
 
 
+def _is_vacuous(condition: ConditionNode) -> bool:
+    """True when a condition tree imposes no test at all.
+
+    An empty ``all`` is vacuously TRUE under ordinary boolean algebra, which
+    for a *policy* rule is the most dangerous possible reading: it matches every
+    request, so a rule whose conditions were never derived would silently apply
+    to everyone.
+
+    Today the extraction path pairs an empty tree with
+    ``machine_executable=False``, so the guard above already stops it. This is
+    defence in depth for every other way a rule can arrive — a hand-drafted
+    candidate, a version import, a future code path — none of which is forced to
+    maintain that pairing. The cost of being wrong here is not a bad answer but
+    a confidently universal one.
+    """
+
+    if isinstance(condition, AllCondition):
+        return not condition.all
+    if isinstance(condition, AnyCondition):
+        return not condition.any
+    return False
+
+
 def _evaluate_rule(rule: CanonicalRule, facts: dict[str, object | None]) -> RuleEvaluationResult:
     if not rule.machine_executable:
         return RuleEvaluationResult(
@@ -94,6 +117,18 @@ def _evaluate_rule(rule: CanonicalRule, facts: dict[str, object | None]) -> Rule
             rule_revision=rule.rule_revision,
             status=EvaluationStatus.NOT_APPLICABLE,
             not_applicable_reason="rule_not_machine_executable",
+        )
+
+    if _is_vacuous(rule.condition):
+        # Reported with its own reason rather than folded into the one above,
+        # because the remedies differ: a non-executable rule needs a fact-model
+        # mapping, while this one is claiming to be executable while carrying no
+        # test — a data defect a reviewer must see named.
+        return RuleEvaluationResult(
+            rule_id=rule.rule_id,
+            rule_revision=rule.rule_revision,
+            status=EvaluationStatus.NOT_APPLICABLE,
+            not_applicable_reason="rule_condition_empty",
         )
 
     target_outcome, target_dim, target_fact_key = _match_target(rule, facts)

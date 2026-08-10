@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 from policy_platform.contracts.conditions import (
     AllCondition,
+    AnyCondition,
     ConditionOperator,
     FactComparisonCondition,
 )
@@ -99,6 +100,42 @@ class TestEvaluatePolicy:
 
         assert response.rule_results[0].status == EvaluationStatus.NOT_APPLICABLE
         assert response.rule_results[0].not_applicable_reason == "rule_not_machine_executable"
+
+    def test_executable_rule_with_empty_all_does_not_match_everything(self):
+        # An empty `all` is vacuously TRUE under ordinary boolean algebra, so
+        # without a guard this rule would apply to every request ever made —
+        # the worst failure mode available to a policy engine, because it is
+        # silent and universal rather than merely wrong.
+        rule = make_rule("R1", AllCondition(all=[]), machine_executable=True)
+        package = make_package([rule])
+        request = EvaluationRequest(policy_set_id="test-policy", facts={"amount": 1})
+
+        response = evaluate_policy(package, request)
+
+        assert response.rule_results[0].status == EvaluationStatus.NOT_APPLICABLE
+        assert response.rule_results[0].not_applicable_reason == "rule_condition_empty"
+        # Not asserted against `applicable_rules`: that field lists every rule
+        # in effect on the date and considered, including ones ruled out — it
+        # is not the set that matched. What matters is that an empty condition
+        # can never reach a binding outcome.
+        assert "R1" not in response.satisfied_rules
+        assert response.required_actions == []
+        assert response.denied_actions == []
+
+    def test_executable_rule_with_empty_any_does_not_match_everything(self):
+        # `any: []` is vacuously FALSE, so it cannot over-match the way `all`
+        # does. It is still reported under the same reason: a rule claiming to
+        # be executable while carrying no test is a data defect either way, and
+        # a reviewer should not have to know the boolean identity of the empty
+        # set to find out that nothing was projected.
+        rule = make_rule("R1", AnyCondition(any=[]), machine_executable=True)
+        package = make_package([rule])
+        request = EvaluationRequest(policy_set_id="test-policy", facts={"amount": 1})
+
+        response = evaluate_policy(package, request)
+
+        assert response.rule_results[0].status == EvaluationStatus.NOT_APPLICABLE
+        assert response.rule_results[0].not_applicable_reason == "rule_condition_empty"
 
     def test_determinism_same_input_same_hash(self):
         rule = make_rule("R1", _fc("amount", ConditionOperator.LESS_THAN_OR_EQUAL, 100))
