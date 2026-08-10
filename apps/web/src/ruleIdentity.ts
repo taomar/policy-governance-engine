@@ -56,11 +56,21 @@ export function ruleIdentity(rule: CanonicalRule): RuleIdentity {
     document_version_ids: unique(evidence.map((e) => e.document_version_id)),
     clause_ids: unique(evidence.map((e) => e.clause_id)),
     source_hashes: unique(evidence.map((e) => e.source_hash)),
-    // Built from the same two parts the indexer uses
-    // (`clause_search_document_id`). Derived rather than stored so it cannot
-    // drift from the rule's own evidence, and omitted entirely for evidence
-    // with no clause — a half-formed key would look resolvable and resolve to
-    // nothing.
+    // Built from the same two parts the indexer uses. This duplicates a format
+    // owned by `clause_search_document_id` in
+    // infrastructure/search/indexing.py, whose own docstring warns against
+    // exactly that — so it is a deliberate, narrow duplication rather than an
+    // oversight. The proper fix is for the API to emit `search_document_id` on
+    // EvidenceReference the way it already does on the clause provenance view,
+    // which is out of scope while Search contracts are frozen.
+    //
+    // The format is pinned server-side by
+    // tests/unit/test_search_indexing.py::test_clause_search_document_id_matches_index_key_contract.
+    // If that test is ever changed, this line must change with it.
+    //
+    // Derived rather than stored so it cannot drift from the rule's own
+    // evidence, and omitted entirely for evidence with no clause — a
+    // half-formed key would look resolvable and resolve to nothing.
     search_document_ids: unique(
       evidence.map((e) => (e.clause_id ? `${e.document_version_id}_${e.clause_id}` : null))
     ),
