@@ -37,17 +37,23 @@ validated with Pydantic before use or persistence.
 
 ```mermaid
 flowchart LR
+    Doc[("PDF / DOCX")]
+    Convert["Docling conversion<br/>structured elements"]
     Clauses[("Source clauses")]
     Select["AI passage selection"]
     Verify{"Python verbatim check"}
     Formulate["AI rule formulation"]
     Map["Deterministic mapping"]
+    Link["Relationship discovery<br/>confirmed edges only"]
     Candidate[("Candidate rule")]
 
-    Clauses --> Select --> Verify
-    Verify -- valid --> Formulate --> Map --> Candidate
+    Doc --> Convert --> Clauses --> Select --> Verify
+    Verify -- valid --> Formulate --> Map --> Link --> Candidate
     Verify -- invalid --> Drop["Discard + diagnostic"]
 ```
+
+Conversion turns the document into offset-anchored elements — see
+[Docling](docling.md).
 
 Stage 1 copies policy-bearing text. `verify_verbatim()` rejects passages that are
 not present in the canonical source.
@@ -56,8 +62,24 @@ Stage 2 produces canonical and DMN-shaped rule data. Deterministic mapping deriv
 identifiers, conditions, effects, and executability. Unsupported FEEL expressions
 produce no condition rather than a guessed condition.
 
+Linking ties each rule to the others the *document* places it with — a table row
+to its table, a subsection to the rule it qualifies. Only relationships the
+source establishes enter `related_rule_ids`; similarity-based candidates are
+surfaced for review and never written there. See
+[Relationships](relationships.md).
+
 Rules become machine-executable only when the project's `trusted_config` supplies
 the required fact/output mappings.
+
+### When a rule does not compile
+
+A rule whose projection is `enrichment_required`, `ambiguous` or
+`not_directly_mappable` has no executable condition. The formulator still
+records what the source *stated* in its semantic projection, and the review UI
+shows that in XACML terms — labelled **not executable**, and never written into
+the rule's condition. A statement whose subject is the document itself ("This
+template is provided as a tool…") is tagged `document_guidance` and made
+non-enforcing, but kept for a reviewer to decide.
 
 ## AI capabilities
 

@@ -1,17 +1,21 @@
 # Documentation
 
-Start with the [User guide](user-guide.md). Use the remaining pages when you
-need implementation or operating detail.
+Start with the [User guide](user-guide.md) to see the product, or
+[How we work](how-we-work.md) to contribute to it.
 
 ## Core
 
 | Page | Purpose |
 |---|---|
 | [User guide](user-guide.md) | End-to-end journey with screenshots |
+| [How we work](how-we-work.md) | Engineering agreements and the reasoning behind them |
+| [Standards](standards.md) | Which published standard governs which decision |
 | [Architecture](architecture.md) | Components, boundaries, and trust model |
+| [Relationships](relationships.md) | How rules are linked, and what is deliberately not claimed |
+| [Docling](docling.md) | Document conversion and graph discovery |
+| [AI assistance](ai-assistance.md) | Extraction, grounding, and validation |
 | [Workflows](workflows.md) | Concise operational lifecycle |
 | [Capability flows](capability-flows.md) | High-impact diagrams |
-| [AI assistance](ai-assistance.md) | Extraction, grounding, and validation |
 | [API](api.md) | Endpoints and common sequences |
 | [Configuration](configuration.md) | Local setup and troubleshooting |
 | [Testing](testing.md) | Commands, fixtures, and coverage |
@@ -31,8 +35,7 @@ need implementation or operating detail.
 
 ## Technical reference
 
-- [Frameworks](frameworks.md)
+- [Frameworks](frameworks.md) — the technologies actually used
 - [Microsoft services](microsoft-technologies.md)
-- [Standards research](policy-standards-research.md)
-- [ADRs](adr/)
-- [Ingestion specifications](specs/)
+- [Standards research](policy-standards-research.md) — the full survey, including what was evaluated and rejected
+- [Ingestion specifications](specs/) — Docling integration, PDF ingestion, verbatim passage extraction

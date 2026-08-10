@@ -65,7 +65,9 @@ at the centre and depend on nothing else in the codebase.
 | Deterministic decision | `evaluator/engine.py`, `evaluator/conditions.py`, `evaluator/precedence.py` |
 | Policy-test execution | `evaluator/test_runner.py` (pure) + `infrastructure/policy_test_execution.py` (DB-aware) |
 | Document parsing | `infrastructure/document_ingestion.py` → `infrastructure/document_extraction.py` |
+| Document conversion & graph discovery | `infrastructure/docling/` (converter, pipeline, verification, handoff) — see [Docling](docling.md) |
 | Extraction pipeline | `infrastructure/ai_extraction.py`, `passage_extractor.py`, `policy_formulator.py`, `formulation_mapping.py` |
+| Rule relationships | `contracts/relationships.py`, `infrastructure/relationship_discovery.py` — see [Relationships](relationships.md) |
 | Quality analysis | `infrastructure/ai_quality.py` |
 | Cross-rule correlation | `infrastructure/correlation_service.py` + `correlation_agent.py` |
 | Version diff & narrative | `infrastructure/ai_compare.py`, `rule_delta.py`, `rule_change_explainer.py` |

@@ -12,12 +12,20 @@ Only technologies used by the implementation are listed here.
 | PostgreSQL 16 | System of record |
 | SQLAlchemy async / asyncpg | Application persistence |
 | Alembic / psycopg | Schema migrations |
-| pdfplumber / python-docx | PDF/DOCX layout-aware ingestion |
+| Docling 2.118.0 | PDF/DOCX conversion to structured, offset-anchored elements |
+| docling-graph 1.9.1 | Dense graph discovery over converted documents |
+| pdfplumber / python-docx | Legacy layout-aware ingestion, retained for shadow comparison |
 | httpx | Azure OpenAI and Azure AI Search REST calls |
 
 FastAPI request/response models reuse the same Pydantic contracts consumed by
 the evaluator. PostgreSQL JSONB stores canonical payloads alongside queryable
 columns.
+
+Docling and `docling-graph` are **exactly pinned and deliberately optional**:
+they pull torch, torchvision, accelerate and scipy, which the API runtime image
+must not carry, and `docling-graph` requires `httpx>=0.28` where the API pins
+`<0.28`. Extraction therefore runs in its own environment. See
+[Docling](docling.md).
 
 ## Frontend
 
@@ -52,13 +60,15 @@ database, or network dependency.
 | Docker | API and web images |
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
 cd apps\web
+npx tsc --noEmit
 npm run build
-npm run lint
 ```
 
-There is no frontend test runner or CI/CD pipeline.
+`pyproject.toml` sets `pythonpath = ["src"]`, so the suite runs without an
+editable install, and pins the approved Microsoft package feed proxy as the
+default index. There is no frontend test runner or CI/CD pipeline.
 
 ## Deployment tooling
 
@@ -74,6 +84,10 @@ provisioning and validation.
 
 ## Standards vocabulary
 
-The code aligns with OpenAPI, JSON Schema, XACML concepts, DMN/FEEL concepts,
-ISO governance practices, and OPA-style decision logging. See
-[Standards research](policy-standards-research.md) for optional depth.
+Three standards are implemented: **OASIS XACML 3.0** (decisions, obligations,
+target matching, attribute naming), **OMG DMN 1.5 / FEEL** (decision tables and
+condition expressions), and **OMG SBVR 1.5** concepts (deontic rule categories).
+
+[Standards](standards.md) is the binding statement of which one governs which
+decision, and what is deliberately not claimed.
+[Standards research](policy-standards-research.md) holds the full survey.

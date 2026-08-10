@@ -91,17 +91,25 @@ See the illustrated [User guide](docs/user-guide.md).
 
 - Python 3.11, FastAPI, Pydantic, SQLAlchemy async, Alembic
 - PostgreSQL 16
+- Docling 2.118.0 + docling-graph 1.9.1 for document conversion and graph discovery
 - React 19, TypeScript, Vite, Ant Design
 - Azure OpenAI and Azure AI Search through `httpx`
 - Azure Container Apps/Bicep/azd assets for the pending Azure deployment
 
+## Standards
+
+OASIS XACML 3.0 (decisions, obligations, target matching, attribute naming),
+OMG DMN 1.5 / FEEL (decision tables and conditions), and OMG SBVR 1.5 concepts
+(deontic categories). See [Standards](docs/standards.md) for which one governs
+which decision — and what is deliberately not claimed.
+
 ## Checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest tests/unit -q
 cd apps\web
+npx tsc --noEmit
 npm run build
-npm run lint
 ```
 
 ## Important boundaries
@@ -120,15 +128,19 @@ See [Known limitations](docs/known-limitations.md) and the
 | Page | Purpose |
 |---|---|
 | [User guide](docs/user-guide.md) | End-to-end journey with screenshots |
+| [How we work](docs/how-we-work.md) | Engineering agreements and the reasoning behind them |
+| [Standards](docs/standards.md) | Which standard governs which decision |
 | [Architecture](docs/architecture.md) | System boundaries and trust model |
+| [Relationships](docs/relationships.md) | How rules are linked, and what is not claimed |
+| [Docling](docs/docling.md) | Document conversion and graph discovery |
+| [AI assistance](docs/ai-assistance.md) | Extraction, grounding, and validation |
 | [Workflows](docs/workflows.md) | Concise operational flows |
 | [Capability flows](docs/capability-flows.md) | Seven high-impact diagrams |
-| [AI assistance](docs/ai-assistance.md) | Extraction, grounding, and validation |
 | [API](docs/api.md) | Endpoint groups and common sequences |
 | [Configuration](docs/configuration.md) | Environment, local operation, and troubleshooting |
 | [Testing](docs/testing.md) | Commands and coverage boundaries |
 | [Azure deployment](docs/azure-deployment.md) | Pending Container Apps deployment |
 | [Data model](docs/data-model.md) | Tables and lifecycle invariants |
 
-Detailed ADRs, ingestion specifications, and standards research remain available
-under `docs/` as technical reference.
+Ingestion specifications and the full standards survey remain under `docs/` as
+technical reference.

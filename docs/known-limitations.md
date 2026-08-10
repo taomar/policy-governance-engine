@@ -57,3 +57,13 @@ does not prove the complete deployed system:
 
 See [Testing and scripts](testing.md#current-coverage-gaps) for the
 verified module-level inventory and commands.
+
+## Documentation gaps
+
+- **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is
+  referenced from five places in the code and no `docs/adr/` directory exists.
+  The decision itself is real and is described in [Standards](standards.md); the
+  record was never committed.
+- **RFC 9457 is not implemented.** API errors use FastAPI's default
+  `{"detail": ...}` rather than `application/problem+json`. Adopting it would be
+  a small change; until then it is not claimed.
