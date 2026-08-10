@@ -7402,6 +7402,27 @@
 /* Where material leaves the pipeline. Deliberately not a stage box: it sits
    below the chain, muted and dashed, because nothing passes from it to a next
    step. A solid box in the row would read as somewhere work arrives. */
+.extract-delta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border, #f0f0f0);
+}
+
+.extract-delta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.extract-delta-items {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 .extract-dropout {
   display: flex;
   margin: -4px 0 10px;

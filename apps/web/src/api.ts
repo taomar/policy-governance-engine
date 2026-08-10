@@ -932,6 +932,19 @@ export interface ExtractionProgress {
   /** Rules that gained at least one confirmed relationship. */
   linked?: number;
   superseded?: number;
+  /**
+   * How this run's rules differ from the previous extraction of the same
+   * document. Populated once, at the end.
+   *
+   * These are the numbers a reviewer acts on: a run of 190 rules where 187 are
+   * unchanged needs three decisions, not 190, and reporting only the total
+   * hides that. `delta_removed` has no row of its own anywhere, so without it
+   * a rule the previous run found and this one did not is invisible.
+   */
+  delta_new?: number;
+  delta_changed?: number;
+  delta_unchanged?: number;
+  delta_removed?: number;
   run_reference?: string;
   error?: string | null;
   elapsed_seconds?: number;

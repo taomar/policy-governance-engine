@@ -229,6 +229,10 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     skipped = 0,
     linked = 0,
     superseded = 0,
+    delta_new: deltaNew = 0,
+    delta_changed: deltaChanged = 0,
+    delta_unchanged: deltaUnchanged = 0,
+    delta_removed: deltaRemoved = 0,
     elapsed_seconds: elapsed = 0,
   } = progress;
 
@@ -280,6 +284,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   };
 
   const activeIndex = STAGES.findIndex((s) => s.key === activeStage);
+
+  // Shown only when a previous extraction exists to compare against. On a first
+  // run every counter is zero, and a "since the previous extraction" heading
+  // over nothing would imply one happened.
+  const deltaTotal = deltaNew + deltaChanged + deltaUnchanged + deltaRemoved;
 
   // Counters joined into one line with a separator rather than stacked, so the
   // readout stays a fixed height no matter how many counters exist.
@@ -390,6 +399,44 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
             This keeps running if you navigate away — rules appear in the review queue as each
             batch commits.
           </Text>
+        </div>
+      )}
+      {done && deltaTotal > 0 && (
+        // What actually needs reviewing. A completed run reported its rule
+        // count and nothing else, so a re-extraction of 190 rules where 187
+        // are unchanged looked like 190 decisions rather than three.
+        <div className="extract-delta">
+          <Text type="secondary" className="extract-delta-label">
+            Since the previous extraction
+          </Text>
+          <div className="extract-delta-items">
+            {deltaNew > 0 && (
+              <Tooltip title="Rules this run found that the previous one did not.">
+                <Tag bordered={false} color="green">
+                  {deltaNew} new
+                </Tag>
+              </Tooltip>
+            )}
+            {deltaChanged > 0 && (
+              <Tooltip title="Rules that exist in both runs but whose content differs.">
+                <Tag bordered={false} color="gold">
+                  {deltaChanged} changed
+                </Tag>
+              </Tooltip>
+            )}
+            {deltaRemoved > 0 && (
+              <Tooltip title="Rules the previous run produced that this one did not. They generate no row of their own, so this is the only place they appear.">
+                <Tag bordered={false} color="red">
+                  {deltaRemoved} no longer found
+                </Tag>
+              </Tooltip>
+            )}
+            {deltaUnchanged > 0 && (
+              <Tooltip title="Rules identical to the previous extraction. Nothing to decide on these.">
+                <Tag bordered={false}>{deltaUnchanged} unchanged</Tag>
+              </Tooltip>
+            )}
+          </div>
         </div>
       )}
       {failed && progress.error && (
