@@ -148,11 +148,16 @@ See the illustrated [User guide](docs/user-guide.md).
 ## Checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/unit -q
+.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q   # 1026 tests
 cd apps\web
 npx tsc --noEmit
 npm run build
 ```
+
+The suite needs the `graph` extra: 13 modules import Docling directly, and in a
+`.venv` built from `.[dev]` alone they fail at collection. The torch footprint
+matters for the runtime image, not for a development machine — so install
+`.[dev,graph]` if you intend to run the tests.
 
 ## Important boundaries
 

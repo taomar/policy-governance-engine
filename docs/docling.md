@@ -32,12 +32,12 @@ reports nothing, because the constraint lives in an extra rather than in the
 installed distribution's metadata — so the divergence is silent.
 
 ```powershell
-# Everyday work: API, and 706 of 1026 unit tests
+# Runs the API. Does not run the full test suite — 13 modules import
+# Docling directly and fail at collection here.
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# Conversion work: adds Docling and the remaining 320 tests,
-# at the cost of httpx 0.28
+# Conversion work and the full 1026-test suite, at the cost of httpx 0.28
 python -m venv .venv-graph
 .\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
 ```

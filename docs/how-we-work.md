@@ -105,10 +105,7 @@ two describe the same rule.
 ## Checks before committing
 
 ```powershell
-# Backend — 706 of 1026 unit tests; no database or network required
-.\.venv\Scripts\python.exe -m pytest tests/unit -q
-
-# The remaining 320 cover Docling conversion and need the graph extra
+# Backend — 1026 unit tests; no database or network required
 .\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
 
 # Frontend
@@ -116,6 +113,10 @@ cd apps\web
 npx tsc --noEmit
 npm run build
 ```
+
+The suite needs the `graph` extra: 13 modules import Docling directly and fail
+at collection in a `.venv` built from `.[dev]` alone. The torch footprint is a
+constraint on the runtime image, not on a development machine.
 
 `pyproject.toml` sets `pythonpath = ["src"]`, so the suite runs without an
 editable install, and pins the approved Microsoft package feed proxy as the
