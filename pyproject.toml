@@ -24,6 +24,10 @@ dev = [
   "pytest>=8.3,<9.0",
   "pytest-asyncio>=0.24,<0.25",
   "httpx>=0.27,<0.28",
+  # Lets repository tests run against a real database engine instead of a mock.
+  # A schema change verified only against a double proves nothing about whether
+  # it applies; Postgres is not available in every environment this suite runs in.
+  "aiosqlite>=0.20,<0.22",
 ]
 # Docling-based document conversion and graph discovery. Deliberately optional:
 # `docling` resolves to `docling-slim[standard]`, which pulls torch,
