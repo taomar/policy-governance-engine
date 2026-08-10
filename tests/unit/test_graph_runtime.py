@@ -24,6 +24,10 @@ def _settings(**overrides) -> Settings:
         "database_url": "postgresql+asyncpg://u:p@localhost:5433/db",
         "alembic_database_url": "postgresql+psycopg://u:p@localhost:5433/db",
         "docling_graph_enabled": True,
+        # Set explicitly rather than left to the environment: these tests pin
+        # derivation behaviour, and a developer's own .env must not change the
+        # verdict.
+        "docling_graph_model": "",
         "azure_openai_endpoint": "https://foundryfordevtarek.cognitiveservices.azure.com/",
         "azure_openai_api_key": "test-key",
         "azure_openai_deployment": "gpt-4o",
@@ -72,8 +76,23 @@ class TestSharedModelConfiguration:
         assert runtime.run_config.model_provider == "azure_openai"
         assert runtime.run_config.model_deployment == "gpt-4o"
 
-    def test_model_defaults_to_the_configured_deployment(self) -> None:
-        assert build_runtime(_settings()).model == "azure/gpt-4o"
+    def test_model_is_derived_from_the_configured_deployment(self) -> None:
+        """Not a literal default: a hardcoded model would keep pointing at one
+        deployment after the platform's own was changed."""
+
+        assert build_runtime(_settings(docling_graph_model="")).model == "azure/gpt-4o"
+
+    def test_changing_the_deployment_moves_extraction_with_it(self) -> None:
+        runtime = build_runtime(
+            _settings(azure_openai_deployment="gpt-5.6-sol", docling_graph_model="")
+        )
+        assert runtime.model == "azure/gpt-5.6-sol"
+
+    def test_an_explicit_override_wins(self) -> None:
+        """Routing extraction at a different model must still be possible."""
+
+        runtime = build_runtime(_settings(docling_graph_model="azure/other-deployment"))
+        assert runtime.model == "azure/other-deployment"
 
     def test_embedding_deployment_is_not_required(self) -> None:
         """Dense extraction embeds nothing; requiring it would disable the

@@ -3,6 +3,7 @@ import { Alert, Drawer, Empty, Space, Spin, Statistic, Table, Tabs, Tag, Typogra
 import type { ColumnsType } from "antd/es/table";
 import {
   extractionApi,
+  type CanonicalElement,
   type CoverageDisposition,
   type CoverageResponse,
   type ExtractionStagesResponse,
@@ -13,11 +14,11 @@ import {
 const { Text, Paragraph } = Typography;
 
 /**
- * Extraction transparency for one document version.
+ * Everything the extraction pipeline knows about one document version.
  *
- * Answers the three questions the existing review surfaces cannot: what
- * happened to every element of the document, why the model was shown a
- * particular piece of context alongside a rule, and how the run progressed.
+ * Consolidates the document's own text with what the pipeline made of it, so a
+ * reviewer answers "what does it say" and "what happened to it" in one place
+ * rather than by opening two drawers and correlating them by eye.
  *
  * Deliberately read-only. Approving, rejecting and publishing already live in
  * the review queue; duplicating them here would create a second place where
@@ -68,23 +69,27 @@ export default function ExtractionInsightDrawer({
   const [plan, setPlan] = useState<ReadingPlanResponse | null>(null);
   const [structure, setStructure] = useState<StructuralGraphResponse | null>(null);
   const [stages, setStages] = useState<ExtractionStagesResponse | null>(null);
+  const [elements, setElements] = useState<CanonicalElement[]>([]);
 
   const load = useCallback(async (versionId: string) => {
     setLoading(true);
     setError(null);
     try {
-      // Fetched together because the four views are read as one answer: a
-      // coverage number without the plan that produced it is not actionable.
-      const [coverageResult, planResult, structureResult, stagesResult] = await Promise.all([
-        extractionApi.getCoverage(versionId),
-        extractionApi.getReadingPlan(versionId),
-        extractionApi.getStructure(versionId),
-        extractionApi.getStages(versionId),
-      ]);
+      // Fetched together because the views are read as one answer: a coverage
+      // number without the text it describes is not actionable.
+      const [coverageResult, planResult, structureResult, stagesResult, canonicalResult] =
+        await Promise.all([
+          extractionApi.getCoverage(versionId),
+          extractionApi.getReadingPlan(versionId),
+          extractionApi.getStructure(versionId),
+          extractionApi.getStages(versionId),
+          extractionApi.getCanonicalDocument(versionId, 0, 500),
+        ]);
       setCoverage(coverageResult);
       setPlan(planResult);
       setStructure(structureResult);
       setStages(stagesResult);
+      setElements(canonicalResult.elements);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load extraction detail");
     } finally {
@@ -184,6 +189,39 @@ export default function ExtractionInsightDrawer({
     },
   ];
 
+  const documentColumns: ColumnsType<CanonicalElement> = [
+    { title: "#", dataIndex: "sequence", width: 60 },
+    {
+      title: "Type",
+      dataIndex: "element_type",
+      width: 120,
+      render: (value: string | null) => <Tag>{value ?? "—"}</Tag>,
+    },
+    {
+      title: "Section",
+      dataIndex: "section",
+      width: 190,
+      render: (value: string | null) => value ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: "Text",
+      dataIndex: "text",
+      render: (value: string, record) => (
+        <Space direction="vertical" size={0}>
+          <Text>{value}</Text>
+          {/* The offsets are what make a citation checkable rather than
+              plausible, so they are shown rather than kept for machines. */}
+          {record.source_fragments.length > 0 && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              p{record.source_fragments[0].page} ·{" "}
+              {record.source_fragments[0].start_offset}–{record.source_fragments[0].end_offset}
+            </Text>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <Drawer
       open={open}
@@ -240,6 +278,19 @@ export default function ExtractionInsightDrawer({
 
           <Tabs
             items={[
+              {
+                key: "document",
+                label: `Document (${elements.length})`,
+                children: (
+                  <Table
+                    size="small"
+                    rowKey={(record) => record.element_id ?? String(record.sequence)}
+                    columns={documentColumns}
+                    dataSource={elements}
+                    pagination={{ pageSize: 25, showSizeChanger: true }}
+                  />
+                ),
+              },
               {
                 key: "coverage",
                 label: `Coverage (${coverage.elements.length})`,

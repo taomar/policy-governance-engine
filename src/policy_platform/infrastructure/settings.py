@@ -66,10 +66,13 @@ class Settings(BaseSettings):
     # optional extra (`pip install -e .[graph]`), and importing it in a runtime
     # that lacks it must fail as "disabled", not as a crash.
     docling_graph_enabled: bool = False
-    #: LiteLLM model identifier. Defaults to the Azure OpenAI deployment above
-    #: so the platform has one model configuration rather than a second parallel
-    #: one that could silently drift to a different model.
-    docling_graph_model: str = "azure/gpt-4o"
+    #: LiteLLM model identifier. Left empty by default so it is *derived* from
+    #: `azure_openai_deployment` rather than hardcoded: a literal default would
+    #: keep pointing at one deployment after the platform's own was changed,
+    #: which is exactly the silent drift the shared-configuration rule exists to
+    #: prevent. Set it explicitly only to route extraction at a different model
+    #: on purpose.
+    docling_graph_model: str = ""
 
     @property
     def ai_enabled(self) -> bool:
@@ -123,6 +126,20 @@ class Settings(BaseSettings):
     @property
     def search_enabled(self) -> bool:
         return bool(self.azure_search_endpoint and self.azure_search_api_key)
+
+    @property
+    def graph_extraction_model(self) -> str:
+        """LiteLLM identifier for dense extraction.
+
+        Derived from the platform's own chat deployment unless overridden, so
+        changing the deployment moves extraction with it. Two independently
+        configured models drift, and the resulting failure is a run extracted by
+        a different model than the one that was validated.
+        """
+
+        if self.docling_graph_model:
+            return self.docling_graph_model
+        return f"azure/{self.azure_openai_deployment}" if self.azure_openai_deployment else ""
 
     @property
     def graph_extraction_enabled(self) -> bool:

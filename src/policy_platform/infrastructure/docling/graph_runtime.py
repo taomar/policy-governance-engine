@@ -118,7 +118,7 @@ def build_runtime(settings: Settings | None = None) -> DoclingGraphRuntime:
     )
 
     return DoclingGraphRuntime(
-        model=settings.docling_graph_model,
+        model=settings.graph_extraction_model,
         api_base=settings.azure_openai_endpoint,
         api_version=settings.azure_openai_api_version,
         api_key=settings.azure_openai_api_key,

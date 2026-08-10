@@ -16,7 +16,6 @@ import {
   Upload,
 } from "antd";
 import {
-  FileTextOutlined,
   InboxOutlined,
   PartitionOutlined,
   ThunderboltOutlined,
@@ -297,21 +296,12 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                         <Space size={6}>
                           <Button
                             size="small"
-                            icon={<FileTextOutlined />}
-                            onClick={() =>
-                              setBodyViewer({ versionId: v.id, docTitle: doc.title, versionLabel: `v${v.version_number}` })
-                            }
-                          >
-                            View full text
-                          </Button>
-                          <Button
-                            size="small"
                             icon={<PartitionOutlined />}
                             onClick={() =>
                               setInsightFor({ versionId: v.id, docTitle: `${doc.title} v${v.version_number}` })
                             }
                           >
-                            Extraction detail
+                            View document &amp; structure
                           </Button>
                           <Button
                             size="small"

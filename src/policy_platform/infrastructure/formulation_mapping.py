@@ -334,6 +334,43 @@ def _is_separator_predicate(predicate: str) -> bool:
     return bool(predicate) and not any(c.isalnum() for c in predicate)
 
 
+def condition_provenance(policy: CanonicalPolicy, derived: object | None) -> tuple[str, str]:
+    """Explain *why* a rule's condition tree looks the way it does.
+
+    Both an unconditional rule and a rule whose conditions could not be
+    projected end up with an empty `all: []` tree, and until this existed they
+    were indistinguishable. That conflation is the dangerous one: "this rule
+    genuinely applies always" and "this rule has conditions we failed to
+    encode" demand opposite responses from a reviewer, and reading the second
+    as the first turns a narrow permission into an open one.
+
+    An empty tree is never repaired here by inventing a placeholder condition.
+    A synthesised always-false node would be a constraint the document never
+    stated — the same fabrication the pointer-only design exists to prevent.
+    The honest move is to say which case it is and route it to a human.
+
+    Returns ``(code, message)``.
+    """
+
+    stated = (getattr(policy.rule, "condition", None) or "").strip() if policy.rule else ""
+
+    if derived is not None:
+        return ("derived", "Conditions were projected into an executable tree.")
+    if stated:
+        return (
+            "conditions_not_projected",
+            "The source states conditions, but they could not be projected into "
+            f"executable bindings: {stated!r}. The rule must not be treated as "
+            "unconditional — a reviewer must supply the missing mapping.",
+        )
+    return (
+        "no_scope_derived",
+        "No conditions were found in the source. The rule may genuinely be "
+        "unconditional, or its scope may have been missed during extraction; a "
+        "reviewer must decide which before it can be relied on.",
+    )
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
@@ -379,7 +416,9 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     return " ".join(" ".join(parts).split())
 
 
-def _ambiguity_for(policy: CanonicalPolicy, executable: bool) -> AmbiguityStatus:
+def _ambiguity_for(
+    policy: CanonicalPolicy, executable: bool, condition_code: str = "derived"
+) -> AmbiguityStatus:
     """Map extraction/ambiguity signals onto the platform's ambiguity ladder.
 
     `ambiguity_status` answers one question only: is the rule's *meaning*
@@ -402,6 +441,13 @@ def _ambiguity_for(policy: CanonicalPolicy, executable: bool) -> AmbiguityStatus
     """
 
     if policy.ambiguity or policy.extraction_status == ExtractionStatus.AMBIGUOUS:
+        return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+    # A rule whose source states conditions that were not projected is *not*
+    # merely unconfigured. Its stored tree says "always applies" while the
+    # document says otherwise, so a human must reconcile the two before it can
+    # be relied on — treating this as NON_BLOCKING would let a narrow
+    # permission read as an open one.
+    if condition_code == "conditions_not_projected":
         return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
     if policy.extraction_status == ExtractionStatus.INCOMPLETE or policy.missing_components:
         return AmbiguityStatus.NON_BLOCKING
@@ -653,6 +699,11 @@ def formulation_to_candidate_rules(
             condition, required_facts = derived
             machine_executable = True
 
+        # Why the tree is empty, when it is. Recorded rather than inferred later
+        # from the tree's shape, because the shape cannot distinguish "no
+        # conditions exist" from "conditions exist but were not projected".
+        condition_code, condition_note = condition_provenance(policy, derived)
+
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the
         # function docstring — this is what stops one rule from a multi-topic
@@ -690,7 +741,8 @@ def formulation_to_candidate_rules(
                 rule_id=f"AI-{uuid.uuid4().hex[:10]}",
                 rule_revision=1,
                 title=_title_for(policy),
-                description=_description_for(policy, decisions, rule_source_note),
+                description=_description_for(policy, decisions, rule_source_note)
+                + f"\n[Conditions: {condition_code} — {condition_note}]",
                 rule_type=rule_type,
                 authority=PolicyAuthority(level="ai_drafted", owner="policy-formulator", rank=0),
                 scope=PolicyScope(),
@@ -699,7 +751,7 @@ def formulation_to_candidate_rules(
                 required_facts=required_facts,
                 effective_from=date.today(),
                 machine_executable=machine_executable,
-                ambiguity_status=_ambiguity_for(policy, machine_executable),
+                ambiguity_status=_ambiguity_for(policy, machine_executable, condition_code),
                 review_status=ReviewStatus.CANDIDATE,
                 evidence=rule_evidence,
                 lineage=RuleLineage(

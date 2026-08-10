@@ -1,0 +1,62 @@
+{
+  "fact_model": {
+    "actor role": { "feel_expression": "actor.role", "type": "string" },
+    "requester role": { "feel_expression": "actor.role", "type": "string" },
+    "severity": { "feel_expression": "incident.severity", "type": "string" },
+    "incident severity": { "feel_expression": "incident.severity", "type": "string" },
+    "incident status": { "feel_expression": "incident.status", "type": "string" },
+    "emergency access": { "feel_expression": "request.emergencyAccess", "type": "boolean" },
+    "access duration": { "feel_expression": "request.accessHours", "type": "number" },
+    "total hours": { "feel_expression": "request.accessHours", "type": "number" },
+    "grant time": { "feel_expression": "grant.grantedAt", "type": "date" },
+    "expiration time": { "feel_expression": "grant.expiresAt", "type": "date" },
+    "approver": { "feel_expression": "approval.approver", "type": "string" },
+    "manager approval": { "feel_expression": "approval.manager", "type": "boolean" },
+    "security lead approval": { "feel_expression": "approval.securityLead", "type": "boolean" },
+    "ciso approval": { "feel_expression": "approval.ciso", "type": "boolean" },
+    "business justification": { "feel_expression": "request.justification", "type": "string" },
+    "review completed": { "feel_expression": "review.completed", "type": "boolean" },
+    "system criticality": { "feel_expression": "system.criticality", "type": "string" }
+  },
+  "output_model": {
+    "Response SLA": { "feel_name": "responseSla", "type": "string" },
+    "response sla": { "feel_name": "responseSla", "type": "string" },
+    "Escalation Contact": { "feel_name": "escalationContact", "type": "string" },
+    "escalation contact": { "feel_name": "escalationContact", "type": "string" },
+    "decision": { "feel_name": "decision", "type": "string" },
+    "approval route": { "feel_name": "approvalRoute", "type": "string" },
+    "outcome": { "feel_name": "outcome", "type": "string" }
+  },
+  "type_model": {
+    "incident.severity": "string",
+    "request.accessHours": "number",
+    "approval.manager": "boolean",
+    "approval.securityLead": "boolean",
+    "approval.ciso": "boolean"
+  },
+  "value_normalization": {
+    "incident.severity": {
+      "P1 - Critical": "P1",
+      "P2 - High": "P2",
+      "P3 - Medium": "P3",
+      "P4 - Low": "P4"
+    }
+  },
+  "hit_policy": {
+    "default": "UNIQUE"
+  },
+  "decision_precedence": {
+    "strategy": "document_order",
+    "note": "Clauses in this document are non-overlapping, and the severity table is a lookup keyed by one severity value, so its rows are mutually exclusive."
+  },
+  "definitions": {
+    "emergency access": "Temporary elevated access granted outside the standard request process.",
+    "security incident": "An event that compromises or threatens the confidentiality, integrity or availability of a system."
+  },
+  "numeric_normalization": true,
+  "unit_conversions": {
+    "hours": 1,
+    "days": 24,
+    "minutes": 0.0166667
+  }
+}
