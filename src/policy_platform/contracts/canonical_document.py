@@ -183,6 +183,21 @@ class CanonicalElement(BaseModel):
         ge=0,
         description="0-based nesting depth for list/list_item elements.",
     )
+    list_marker: str | None = Field(
+        default=None,
+        description=(
+            "Enumeration label a list item is printed with ('D.', '1.', a bullet glyph). "
+            "Held separately from `text` because converters treat it as structure and "
+            "strip it, yet reviewers cite clauses by it ('Section 5.D')."
+        ),
+    )
+    list_enumerated: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the marker is an ordered label rather than a bullet. A bullet "
+            "identifies nothing, so only enumerated markers are usable in a citation."
+        ),
+    )
     table_cell: TableCellRef | None = Field(
         default=None,
         description="Position and merge span, set on table_cell elements.",

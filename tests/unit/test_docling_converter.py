@@ -56,6 +56,8 @@ class _Text:
     label: str = "text"
     self_ref: str = "#/texts/0"
     prov: list[_Prov] = field(default_factory=list)
+    marker: str | None = None
+    enumerated: bool = False
 
 
 @dataclass
@@ -319,6 +321,119 @@ class TestStructure:
         assert bbox is not None
         assert bbox.coord_origin == "bottom_left"
         assert bbox.page_width == 612.0
+
+
+class TestListMarkers:
+    """Docling strips 'D.' from the text and holds it as list structure.
+
+    Nothing is lost by the converter, but the clause label reviewers cite
+    ('Section 5.D') disappears unless it is captured explicitly.
+    """
+
+    def test_enumerated_marker_is_captured(self) -> None:
+        document = _convert(
+            _StubDocument(
+                [
+                    _Text(
+                        "The outside employment should not embarrass the Foundation.",
+                        label="list_item",
+                        marker="D.",
+                        enumerated=True,
+                    )
+                ]
+            )
+        )
+        element = document.elements[0]
+
+        assert element.list_marker == "D."
+        assert element.list_enumerated is True
+
+    def test_marker_is_not_spliced_into_the_element_text(self) -> None:
+        """The text must stay exactly what the converter extracted."""
+
+        document = _convert(
+            _StubDocument([_Text("A clause.", label="list_item", marker="D.", enumerated=True)])
+        )
+        assert document.elements[0].text == "A clause."
+        assert document.verify_fragments() == []
+
+    def test_bullet_markers_are_recorded_as_unenumerated(self) -> None:
+        """A bullet identifies nothing and is unusable in a citation."""
+
+        document = _convert(
+            _StubDocument([_Text("A clause.", label="list_item", marker="\u25cf")])
+        )
+        element = document.elements[0]
+
+        assert element.list_marker == "\u25cf"
+        assert element.list_enumerated is False
+
+    def test_markers_are_only_read_from_list_items(self) -> None:
+        document = _convert(_StubDocument([_Text("A paragraph.", marker="D.", enumerated=True)]))
+        assert document.elements[0].list_marker is None
+        assert document.elements[0].list_enumerated is None
+
+    def test_marker_does_not_participate_in_identity(self) -> None:
+        """Renumbering a list must not repoint stored spans.
+
+        A converter upgrade that relabels 'D.' as '4.' changes presentation, not
+        the clause, so identity must be unaffected.
+        """
+
+        first = _convert(
+            _StubDocument([_Text("A clause.", label="list_item", marker="D.", enumerated=True)])
+        )
+        second = _convert(
+            _StubDocument([_Text("A clause.", label="list_item", marker="4.", enumerated=True)])
+        )
+        assert first.elements[0].element_id == second.elements[0].element_id
+
+
+class TestJoinAnomalies:
+    """Docling occasionally joins across a line break with no space.
+
+    Observed as 'SafetyAct' and 'StandardsAct' on a 53-page PDF. Reported, never
+    repaired: inserting a space would rewrite canonical text.
+    """
+
+    def test_suspected_join_is_reported(self) -> None:
+        document = _convert(
+            _StubDocument([_Text("Under the Occupational Health and SafetyAct employees must.")])
+        )
+        codes = [d.code for d in document.diagnostics]
+
+        assert "suspected_missing_space" in codes
+
+    def test_text_is_left_exactly_as_extracted(self) -> None:
+        """A silently 'fixed' string cannot be audited."""
+
+        source = "Under the Occupational Health and SafetyAct."
+        document = _convert(_StubDocument([_Text(source)]))
+
+        assert document.elements[0].text == source
+        assert document.verify_fragments() == []
+
+    def test_the_diagnostic_is_informational_not_an_error(self) -> None:
+        document = _convert(_StubDocument([_Text("The SafetyAct applies.")]))
+        finding = next(d for d in document.diagnostics if d.code == "suspected_missing_space")
+
+        assert finding.severity == "info"
+        assert not document.has_errors
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Employees must apply in writing.",
+            "See POLICYID for details.",
+            "The ED/CEO approves.",
+            "Refer to Appendix A.",
+        ],
+    )
+    def test_ordinary_and_capitalised_text_is_not_flagged(self, text: str) -> None:
+        """A detector that fires on normal prose would be noise, not signal."""
+
+        document = _convert(_StubDocument([_Text(text)]))
+        assert "suspected_missing_space" not in [d.code for d in document.diagnostics]
 
 
 class TestFailureModes:

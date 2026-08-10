@@ -143,9 +143,70 @@ PDF provenance returns `CoordOrigin.BOTTOMLEFT`. Most renderers are top-left, so
 the origin is recorded on every bounding box. A silently flipped highlight looks
 to a reviewer like a wrong extraction.
 
+### List enumeration labels are structure, not text
+
+Docling strips the enumeration label from a list item's text and exposes it as
+`ListItem.marker` with an `enumerated` flag:
+
+| | Text |
+|---|---|
+| Legacy | `"D. The outside employment should not embarrass the Foundation."` |
+| Docling | `"The outside employment should not embarrass the Foundation."` + `marker="D."` |
+
+Nothing is lost by the converter, but the label a reviewer cites ("Section 5.D")
+disappears unless captured explicitly. `CanonicalElement` therefore carries
+`list_marker` and `list_enumerated`, held separately from `text` so the text
+stays exactly what was extracted.
+
+The marker is deliberately **excluded from element identity**: a converter
+upgrade that relabels `D.` as `4.` changes presentation, not the clause, and
+must not repoint stored spans.
+
+Measured on the 53-page PDF: 146 list items carry a marker, 83 of them
+enumerated. The rest are bullets, which identify nothing and are unusable in a
+citation.
+
+### Docling occasionally joins words without a space
+
+At some line breaks Docling concatenates without a separator, producing tokens
+such as `SafetyAct`, `EmploymentStandards`, and `WorkSafe`. Seven such elements
+were found in the 53-page PDF.
+
+These are **reported, never repaired**. Inserting a space would rewrite
+canonical text, which is exactly what INVARIANT 6 forbids: every character of an
+element must come from the source. A reviewer seeing a
+`suspected_missing_space` diagnostic can judge it; a silently corrected string
+cannot be audited, and the same heuristic would eventually corrupt a legitimate
+compound. The diagnostic is `info` severity and does not fail the document.
+
 ---
 
-## 4. Verified invariants
+## 4. Shadow comparison results
+
+Legacy parsers versus Docling across the sample corpus, measured by whether
+content tokens survived (`scripts/docling_shadow_report.py`):
+
+| Document | Recall | Verdict |
+|---|---|---|
+| `HR-Special-Leave-Policy-v1.0.docx` | 1.0000 | no content loss |
+| `IT-Security-Incident-Emergency-Access-Policy-v1.0.docx` | 1.0000 | no content loss |
+| `Workplace-Hardware-Provisioning-Policy-v3.2.docx` | 1.0000 | no content loss |
+| `Workplace-Hardware-Provisioning-Policy-v3.3.docx` | 1.0000 | no content loss |
+| `HR-Guide-Policy-and-Procedure-Template.pdf` | 1.0000 | no content loss |
+
+Docling additionally recovers content the legacy path dropped: table headers
+(`Severity`, `SLA`, `Escalation Contact`), and on the PDF it resolves 148 list
+items against the legacy parser's 88 and extracts 82 table cells where the
+legacy PDF path found no tables at all.
+
+The comparison is token-based rather than string- or element-based because the
+two converters legitimately disagree about segmentation. Comparing element
+counts would report a large difference that means nothing, while comparing text
+alone would report a relocated list marker as loss.
+
+---
+
+## 5. Verified invariants
 
 Confirmed by executing against the real sample documents:
 

@@ -41,6 +41,7 @@ values and carry their position and merge span as structured data.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,8 @@ class _PendingElement:
     self_ref: str | None = None
     parent_ref: str | None = None
     list_level: int | None = None
+    list_marker: str | None = None
+    list_enumerated: bool | None = None
     table_id: str | None = None
     table_headers: list[str] | None = None
     table_cell: TableCellRef | None = None
@@ -226,6 +229,7 @@ def _collect_text_elements(document: Any) -> list[_PendingElement]:
         page = _page_of(item)
         prov = (getattr(item, "prov", None) or [None])[0]
 
+        marker = getattr(item, "marker", None)
         pending.append(
             _PendingElement(
                 element_type=element_type,
@@ -235,6 +239,12 @@ def _collect_text_elements(document: Any) -> list[_PendingElement]:
                 sibling_index=sibling_index,
                 self_ref=self_ref,
                 list_level=(level if element_type == "list_item" else None),
+                list_marker=(str(marker) if element_type == "list_item" and marker else None),
+                list_enumerated=(
+                    bool(getattr(item, "enumerated", False))
+                    if element_type == "list_item"
+                    else None
+                ),
                 bbox=_bbox_from_prov(prov, page_sizes.get(page)) if prov is not None else None,
             )
         )
@@ -332,6 +342,51 @@ def _build_pages(
     return pages, offsets
 
 
+def _ends_mid_sentence(text: str) -> bool:
+    stripped = text.rstrip()
+    return bool(stripped) and stripped[-1] not in ".!?:;"
+
+
+#: A lowercase letter immediately followed by an uppercase one, where neither is
+#: part of a longer run of capitals. Deliberately narrow: it must not fire on
+#: legitimate compounds the document actually prints ("PolicyID", "eCommerce").
+_SUSPECT_JOIN_RE = re.compile(r"(?<![A-Z])[a-z]{2,}[A-Z][a-z]{2,}")
+
+
+def detect_join_anomalies(document: CanonicalDocument) -> list[IngestionDiagnostic]:
+    """Report words that look like two words joined without a space.
+
+    Docling occasionally concatenates across a line break with no separator,
+    producing tokens such as ``SafetyAct`` where the source printed "Safety Act"
+    on two lines. Three such tokens were observed in ~2,490 on a 53-page PDF.
+
+    This is *reported, never repaired*. Inserting a space would rewrite the
+    canonical text, which is the one thing INVARIANT 6 forbids: every character
+    of an element must come from the source. A reviewer seeing the diagnostic
+    can judge it; a silently "fixed" string cannot be audited at all, and the
+    same heuristic would eventually corrupt a legitimate compound.
+    """
+
+    diagnostics: list[IngestionDiagnostic] = []
+    for element in document.elements:
+        suspects = _SUSPECT_JOIN_RE.findall(element.text)
+        if not suspects:
+            continue
+        fragment = element.source_fragments[0] if element.source_fragments else None
+        diagnostics.append(
+            IngestionDiagnostic(
+                code="suspected_missing_space",
+                severity="info",
+                page=fragment.page if fragment else None,
+                detail=(
+                    f"{element.element_id}: {sorted(set(suspects))[:5]} may be words joined "
+                    "without a space at a line break; text is left exactly as extracted"
+                ),
+            )
+        )
+    return diagnostics
+
+
 def convert_document(
     storage_path: str | Path,
     *,
@@ -413,6 +468,8 @@ def convert_document(
                 table_headers=item.table_headers,
                 table_cell=item.table_cell,
                 list_level=item.list_level,
+                list_marker=item.list_marker,
+                list_enumerated=item.list_enumerated,
                 self_ref=item.self_ref,
                 parent_element_id=ref_to_id.get(item.parent_ref) if item.parent_ref else None,
                 caption_for=ref_to_id.get(item.caption_for_ref) if item.caption_for_ref else None,
@@ -429,6 +486,11 @@ def convert_document(
         conversion=_provenance(source_hash),
         fidelity="unsupported_source" if not pending else "complete",
     )
+
+    # Reported after the document exists so each diagnostic can name the element
+    # it concerns. Never repaired: rewriting the text to "fix" a join would
+    # violate the rule that every character comes from the source.
+    canonical.diagnostics.extend(detect_join_anomalies(canonical))
 
     # Cheap, and the failure it catches is the dangerous kind: an offset that
     # does not resolve makes an unverifiable extraction look verified.
