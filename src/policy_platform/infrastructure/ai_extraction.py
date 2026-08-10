@@ -58,6 +58,10 @@ from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_delta
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure import source_structure
+from policy_platform.infrastructure.continuation_adjudicator import (
+    ClauseWindow,
+    discover_continuations,
+)
 from policy_platform.infrastructure.relationship_discovery import (
     RuleAnchor,
     discover_enumeration_relationships,
@@ -826,6 +830,61 @@ async def extract_candidate_rules(
                 run.id,
                 len(unresolved_stems),
             )
+
+        # Second pass: the model reviews what structure could not resolve.
+        #
+        # Runs after the deterministic tiers, over the clauses they left
+        # unlinked, so it is asked only about material where numbering and
+        # phrasing gave no answer — which keeps the cost proportional to the
+        # difficulty of the document rather than its length.
+        #
+        # Its output is held to the same standard as everything else: the model
+        # must quote the parent's own promise, the quote is checked verbatim
+        # against the source, and only a verified quote produces a `confirmed`
+        # edge eligible for `related_rule_ids`. An unverified one is recorded as
+        # a candidate for a reviewer, never merged silently.
+        if ai_client is not None and confirmed_links is not None:
+            try:
+                rule_by_clause = {
+                    ev.clause_id: rule.rule_id
+                    for rule in drafted
+                    for ev in rule.evidence
+                    if ev.clause_id
+                }
+                windows = [
+                    ClauseWindow(
+                        element_id=str(clause.element_id or clause.id),
+                        rule_id=rule_by_clause[str(clause.id)],
+                        text=clause.text or "",
+                    )
+                    for clause in clauses
+                    if str(clause.id) in rule_by_clause
+                ]
+                linked_rule_ids = set(confirmed_links)
+                resolved = {w.element_id for w in windows if w.rule_id in linked_rule_ids}
+                adjudicated = await discover_continuations(
+                    ai_client, settings, windows, resolved_element_ids=resolved
+                )
+                for edge in adjudicated:
+                    if edge.state != "confirmed":
+                        continue
+                    if not edge.source_rule_id or not edge.target_rule_id:
+                        continue
+                    confirmed_links.setdefault(edge.source_rule_id, []).append(
+                        edge.target_rule_id
+                    )
+                    confirmed_links.setdefault(edge.target_rule_id, []).append(
+                        edge.source_rule_id
+                    )
+                if adjudicated:
+                    logger.info(
+                        "run %s: adjudicator proposed %d link(s), %d with a verified quote",
+                        run.id,
+                        len(adjudicated),
+                        sum(1 for e in adjudicated if e.state == "confirmed"),
+                    )
+            except Exception:
+                logger.exception("continuation adjudication failed for run %s", run.id)
 
         extraction_progress.advance(progress_key, linked=len(confirmed_links))
 

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from policy_platform.contracts.reading_plan import build_reading_plan
 from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.domain.models import Clause, DocumentVersion
+from policy_platform.infrastructure import source_structure
 from policy_platform.infrastructure.db import get_session
 from policy_platform.infrastructure.extraction_stage_repository import (
     ExtractionStageRepository,
@@ -155,11 +156,52 @@ async def get_structural_graph(
     document = _canonical_from_clauses(str(document_version_id), clauses)
     graph = build_structural_graph(document)
 
+    # Policy hierarchy, alongside the layout hierarchy above.
+    #
+    # `parent_heading` and `contains` describe where text sits on the page. They
+    # do not say that 3.2.1 completes 3.2, and on a document whose clauses all
+    # sit under one flat heading they say nothing at all — which is exactly the
+    # case where a governing stem and its enumerated cases were extracted as
+    # unrelated rules. Outline numbering and unsatisfied promises are the
+    # signals that recover it, so the structure view reports them rather than
+    # leaving the reviewer to notice the omission after extraction.
+    text_by_element = {str(c.element_id): (c.text or "") for c in clauses}
+    outline_by_element: dict[str, tuple[int, ...]] = {}
+    stems: list[str] = []
+    for element_id, text in text_by_element.items():
+        path = source_structure.outline_path(text)
+        if path:
+            outline_by_element[element_id] = path
+        if source_structure.promises_enumeration(text):
+            stems.append(element_id)
+
+    # Stem → case edges, from numbering. Emitted as their own kind so a reader
+    # can tell a policy relationship from a layout one.
+    by_path: dict[tuple[int, ...], str] = {}
+    for element_id, path in outline_by_element.items():
+        by_path.setdefault(path, element_id)
+    enumerates: list[dict] = []
+    for element_id, path in outline_by_element.items():
+        if len(path) < 2:
+            continue
+        parent = by_path.get(path[:-1])
+        if parent and parent != element_id:
+            enumerates.append({"source": parent, "target": element_id, "kind": "enumerates"})
+
+    satisfied = {e["source"] for e in enumerates}
+    unsatisfied = [s for s in stems if s not in satisfied]
+
     return {
         "document_version_id": str(document_version_id),
         "node_count": len(graph.nodes),
-        "edge_count": len(graph.edges),
+        "edge_count": len(graph.edges) + len(enumerates),
         "leaf_element_ids": graph.leaf_element_ids,
+        # Clauses that promise material they do not contain. An entry here that
+        # also appears in `unsatisfied_promises` is a provable extraction gap:
+        # the document says "in one of the following cases only:" and nothing
+        # was attached.
+        "governing_stems": stems,
+        "unsatisfied_promises": unsatisfied,
         "nodes": [
             {
                 "element_id": node.element_id,
@@ -167,13 +209,21 @@ async def get_structural_graph(
                 "reading_order": node.reading_order,
                 "section": node.section,
                 "page": node.page,
+                "outline_number": (
+                    ".".join(str(p) for p in outline_by_element[node.element_id])
+                    if node.element_id in outline_by_element
+                    else None
+                ),
+                "outline_depth": len(outline_by_element.get(node.element_id, ())),
+                "promises_enumeration": node.element_id in stems,
             }
             for node in graph.reading_order()
         ],
         "edges": [
             {"source": edge.source, "target": edge.target, "kind": edge.kind}
             for edge in graph.edges
-        ],
+        ]
+        + enumerates,
     }
 
 
