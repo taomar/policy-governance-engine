@@ -61,15 +61,38 @@ npm install
 Run in separate terminals:
 
 ```powershell
-# API: http://127.0.0.1:8010
-.\.venv\Scripts\python.exe -m uvicorn policy_platform.api.app:app --host 127.0.0.1 --port 8010
+# API — reads API_PORT from .env, defaults to 8010
+.\scripts\run_api.ps1
 
 # Web: Vite prints the URL
 cd apps\web
 npm run dev
 ```
 
-Interactive API documentation: <http://127.0.0.1:8010/docs>.
+Use `scripts/run_api.ps1` rather than invoking uvicorn directly. It clears
+ambient `AZURE_OPENAI_*` variables first, which otherwise outrank `.env` and
+pair one resource's endpoint with another's key — Azure answers that with a bare
+`401` that reads like a bad key. It also binds `0.0.0.0`: `--host 127.0.0.1`
+leaves the browser unable to connect when it resolves `localhost` to `::1`,
+while `curl` still succeeds.
+
+Interactive API documentation: `http://127.0.0.1:<API_PORT>/docs`.
+
+### Document conversion (optional)
+
+Docling conversion and graph discovery are an optional extra, because they pull
+torch, torchvision, accelerate and scipy — a footprint the API neither imports
+nor needs. Install them only to work on conversion itself:
+
+```powershell
+python -m venv .venv-graph
+.\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
+```
+
+This environment resolves `httpx` to 0.28 to satisfy `docling-graph`, above the
+`<0.28` the API pins, so keep it separate from `.venv` rather than treating it
+as the default. `scripts/run_api.ps1` prefers `.venv` and falls back to
+`.venv-graph`. See [Docling](docs/docling.md).
 
 AI-assisted features require Azure OpenAI. Retrieval-grounded features also
 require Azure AI Search. See [Configuration](docs/configuration.md).

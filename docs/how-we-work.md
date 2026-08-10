@@ -105,7 +105,10 @@ two describe the same rule.
 ## Checks before committing
 
 ```powershell
-# Backend — 1000+ unit tests, no database or network required
+# Backend — 706 of 1026 unit tests; no database or network required
+.\.venv\Scripts\python.exe -m pytest tests/unit -q
+
+# The remaining 320 cover Docling conversion and need the graph extra
 .\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
 
 # Frontend
@@ -115,8 +118,8 @@ npm run build
 ```
 
 `pyproject.toml` sets `pythonpath = ["src"]`, so the suite runs without an
-editable install. Dependencies resolve through the approved Microsoft package
-feed proxy — resolving directly to `files.pythonhosted.org` fails the TLS
+editable install, and pins the approved Microsoft package feed proxy as the
+default index — resolving directly to `files.pythonhosted.org` fails the TLS
 handshake on managed networks and surfaces as an opaque retry error.
 
 ## Environment traps

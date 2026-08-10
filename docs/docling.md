@@ -20,24 +20,30 @@ why a range is not acceptable here.
 ## Deliberately optional
 
 `docling` resolves to `docling-slim[standard]`, which pulls **torch,
-torchvision, accelerate and scipy**. The API runtime image must not carry that
-footprint — the deterministic evaluator needs none of it, and shipping it would
-make a policy decision service depend on a machine-learning stack it never
-calls.
+torchvision, accelerate and scipy**. Neither the API's startup nor its
+extraction path imports any of it — verified, not assumed — so the runtime image
+must not carry that footprint. Shipping it would make a policy decision service
+depend on a machine-learning stack it never calls.
 
-So the dependency is optional and extraction runs in its own environment:
+There is a second, harder reason to keep it separate: `docling-graph` pulls
+`litellm`, which requires `httpx>=0.28`, while the API pins `httpx>=0.27,<0.28`.
+Installing the extra **resolves httpx above the API's own pin**. `pip check`
+reports nothing, because the constraint lives in an extra rather than in the
+installed distribution's metadata — so the divergence is silent.
 
 ```powershell
-# Extraction environment — carries the Docling stack
-.venv-graph\Scripts\python.exe
+# Everyday work: API, and 706 of 1026 unit tests
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# The API runtime image carries neither torch nor Docling
+# Conversion work: adds Docling and the remaining 320 tests,
+# at the cost of httpx 0.28
+python -m venv .venv-graph
+.\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
 ```
 
-There is a second, harder reason the environments are separate: `docling-graph`
-pulls `litellm`, which requires `httpx>=0.28`, while the API pins
-`httpx>=0.27,<0.28`. The two cannot coexist in one resolved environment. That is
-a constraint, not a preference.
+`scripts/run_api.ps1` prefers `.venv` and falls back to `.venv-graph`, so a
+checkout set up for conversion still runs the API without a second install.
 
 ## What conversion produces
 

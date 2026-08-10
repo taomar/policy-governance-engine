@@ -35,7 +35,22 @@ if ($Port -eq 0) {
     if ($Port -eq 0) { $Port = 8010 }
 }
 
-Write-Host "API on http://127.0.0.1:$Port (bind $BindHost)"
+# Prefer .venv, the documented environment. .venv-graph additionally carries the
+# Docling stack and resolves httpx above the API's own pin, so it is a fallback
+# for a checkout set up for conversion work rather than the default.
+$python = $null
+foreach ($candidate in @(".venv", ".venv-graph")) {
+    $exe = Join-Path $root "$candidate\Scripts\python.exe"
+    if (Test-Path $exe) { $python = $exe; break }
+}
+if (-not $python) {
+    throw "No virtual environment found. Create one with: python -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e `".[dev]`""
+}
+
+# Bound to 0.0.0.0 by default, not 127.0.0.1: browsers resolve localhost to ::1
+# first, and an IPv4-only bind then fails in the browser while curl still
+# succeeds — which makes the fault look like a CORS or application error.
+Write-Host "API on http://127.0.0.1:$Port (bind $BindHost) using $(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $python)))"
 
 $env:PYTHONPATH = Join-Path $root "src"
-& (Join-Path $root ".venv-graph\Scripts\python.exe") -m uvicorn policy_platform.api.app:app --host $BindHost --port $Port
+& $python -m uvicorn policy_platform.api.app:app --host $BindHost --port $Port

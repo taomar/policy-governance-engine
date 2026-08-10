@@ -60,11 +60,14 @@ database, or network dependency.
 | Docker | API and web images |
 
 ```powershell
-.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
+.\.venv\Scripts\python.exe -m pytest tests/unit -q
 cd apps\web
 npx tsc --noEmit
 npm run build
 ```
+
+The 320 Docling conversion tests need the `graph` extra and its own
+environment — see [Docling](docling.md).
 
 `pyproject.toml` sets `pythonpath = ["src"]`, so the suite runs without an
 editable install, and pins the approved Microsoft package feed proxy as the
