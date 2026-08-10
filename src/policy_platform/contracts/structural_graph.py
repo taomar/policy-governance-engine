@@ -1,0 +1,368 @@
+"""Deterministic structural graph over a canonical document.
+
+This is the *lossless reading skeleton* the directive requires as a separate
+layer from Docling Graph's semantic candidates. The two must not be confused:
+
+* this graph is built without an LLM, contains every canonical element, and is
+  a pure restatement of document structure — it can be recomputed exactly from
+  the canonical artifact at any time;
+* the candidate graph proposes meaning, may be wrong, and is never authoritative.
+
+Keeping them apart is what makes coverage accounting honest. "Every canonical
+element appears in the structural graph" is a mechanical fact this module
+guarantees by construction. "Every material clause was discovered" is a claim
+about the candidate graph that must be measured, not assumed. If the two were
+one graph, a node missing because the model failed would be indistinguishable
+from a node missing because the document did not contain it.
+
+The graph is deliberately built from plain dataclasses rather than a graph
+library. Nothing here needs traversal algorithms — the operations are "children
+of", "ancestors of", "reading order" — and a dependency-free structure keeps
+this importable in the API runtime, which does not install the extraction
+extra.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Literal
+
+from policy_platform.contracts.canonical_document import CanonicalDocument, CanonicalElement
+
+#: Relationships between structural nodes. Each is a fact about the document's
+#: own layout, never an interpretation of what the text means.
+EdgeKind = Literal[
+    "contains",
+    "precedes",
+    "parent_heading",
+    "list_child",
+    "table_cell_of",
+    "header_for",
+    "merged_with",
+    "caption_for",
+    "footnote_marker_to_note",
+    "continues_on",
+]
+
+
+@dataclass(frozen=True)
+class StructuralEdge:
+    """One directed relationship between two structural nodes."""
+
+    source: str
+    target: str
+    kind: EdgeKind
+
+
+@dataclass
+class StructuralNode:
+    """One canonical element, plus its place in the document's structure."""
+
+    element_id: str
+    element_type: str
+    #: Position in the document's total reading order. Used for ordering and
+    #: adjacency only; never for identity, which the ordinal scheme proved
+    #: unsafe.
+    reading_order: int
+    text: str
+    page: int | None = None
+    section: str | None = None
+    table_id: str | None = None
+
+
+@dataclass
+class StructuralGraph:
+    """The complete structural view of one canonical document."""
+
+    document_id: str
+    nodes: dict[str, StructuralNode] = field(default_factory=dict)
+    edges: list[StructuralEdge] = field(default_factory=list)
+
+    _outgoing: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
+    _incoming: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
+
+    def index(self) -> None:
+        """Build adjacency lookups. Called once after construction."""
+
+        outgoing: dict[tuple[str, str], list[str]] = defaultdict(list)
+        incoming: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for edge in self.edges:
+            outgoing[(edge.source, edge.kind)].append(edge.target)
+            incoming[(edge.target, edge.kind)].append(edge.source)
+        self._outgoing = dict(outgoing)
+        self._incoming = dict(incoming)
+
+    def targets(self, element_id: str, kind: EdgeKind) -> list[str]:
+        return list(self._outgoing.get((element_id, kind), ()))
+
+    def sources(self, element_id: str, kind: EdgeKind) -> list[str]:
+        return list(self._incoming.get((element_id, kind), ()))
+
+    def heading_path(self, element_id: str) -> list[str]:
+        """Every heading governing `element_id`, outermost first.
+
+        Walks `parent_heading` edges rather than re-reading `section`, which
+        holds only the nearest heading. A rule under "2.1 Annual Leave" is also
+        under "2. Leave", and the outer heading routinely carries the scope that
+        makes the inner rule interpretable.
+
+        The walk is bounded by the node count, so a malformed graph containing a
+        cycle cannot hang the caller.
+        """
+
+        path: list[str] = []
+        seen: set[str] = set()
+        current = element_id
+        for _ in range(len(self.nodes) + 1):
+            parents = self.targets(current, "parent_heading")
+            if not parents:
+                break
+            parent = parents[0]
+            if parent in seen:
+                break
+            seen.add(parent)
+            path.append(parent)
+            current = parent
+        return list(reversed(path))
+
+    def reading_order(self) -> list[StructuralNode]:
+        return sorted(self.nodes.values(), key=lambda n: n.reading_order)
+
+    @property
+    def leaf_element_ids(self) -> list[str]:
+        """Elements carrying content, i.e. those that contain nothing else.
+
+        Coverage is asserted over leaves: a heading is accounted for through the
+        clauses beneath it, and requiring a separate disposition for every
+        container would make the coverage report noise rather than signal.
+        """
+
+        containers = {edge.source for edge in self.edges if edge.kind == "contains"}
+        return [node_id for node_id in self.nodes if node_id not in containers]
+
+
+def build_structural_graph(document: CanonicalDocument) -> StructuralGraph:
+    """Build the lossless structural graph for `document`.
+
+    Every canonical element becomes exactly one node. That is the property
+    coverage accounting depends on, and it is asserted rather than assumed by
+    `verify_structural_coverage`.
+    """
+
+    graph = StructuralGraph(document_id=document.document_id)
+
+    for element in document.elements:
+        fragment = element.source_fragments[0] if element.source_fragments else None
+        graph.nodes[element.element_id] = StructuralNode(
+            element_id=element.element_id,
+            element_type=element.element_type,
+            reading_order=element.logical_order,
+            text=element.text,
+            page=fragment.page if fragment else None,
+            section=element.section,
+            table_id=element.table_id,
+        )
+
+    ordered = sorted(document.elements, key=lambda e: e.logical_order)
+    _add_reading_order_edges(graph, ordered)
+    _add_heading_edges(graph, ordered)
+    _add_list_edges(graph, ordered)
+    _add_table_edges(graph, ordered)
+    _add_reference_edges(graph, ordered)
+    _add_continuation_edges(graph, ordered)
+
+    graph.index()
+    return graph
+
+
+def _add_reading_order_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    for previous, nxt in zip(ordered, ordered[1:]):
+        graph.edges.append(StructuralEdge(previous.element_id, nxt.element_id, "precedes"))
+
+
+def _add_heading_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    """Attach every element to the heading stack in force at its position.
+
+    The stack is maintained by walking the document once, so a heading that
+    returns to a shallower level correctly closes the deeper ones. `contains`
+    is emitted from the nearest heading only, keeping the containment tree a
+    tree rather than a fan from every ancestor.
+    """
+
+    stack: list[tuple[int, str]] = []
+
+    for element in ordered:
+        if element.element_type in ("title", "heading"):
+            level = _heading_level(element)
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if stack:
+                parent = stack[-1][1]
+                graph.edges.append(
+                    StructuralEdge(element.element_id, parent, "parent_heading")
+                )
+                graph.edges.append(StructuralEdge(parent, element.element_id, "contains"))
+            stack.append((level, element.element_id))
+            continue
+
+        if stack:
+            parent = stack[-1][1]
+            graph.edges.append(StructuralEdge(element.element_id, parent, "parent_heading"))
+            graph.edges.append(StructuralEdge(parent, element.element_id, "contains"))
+
+
+def _heading_level(element: CanonicalElement) -> int:
+    """Depth of a heading, with a title always outermost.
+
+    Canonical elements carry no explicit heading level, so depth is inferred
+    from the numbering the document itself uses ("2.1.3" is depth 3). Documents
+    with no numbering fall back to a single level, which keeps the graph flat
+    but never wrong — an invented hierarchy would be worse than a shallow one.
+    """
+
+    if element.element_type == "title":
+        return 0
+    label = element.text.split(None, 1)[0].rstrip(".") if element.text.split() else ""
+    if label and all(part.isdigit() for part in label.split(".") if part):
+        return max(len([part for part in label.split(".") if part]), 1)
+    return 1
+
+
+def _add_list_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    """Link nested list items to their parent item.
+
+    A sub-item routinely qualifies its parent ("...except where (a) applies"),
+    so losing nesting turns one conditional rule into two unrelated statements.
+    """
+
+    stack: list[tuple[int, str]] = []
+    for element in ordered:
+        if element.element_type != "list_item":
+            stack.clear()
+            continue
+        level = element.list_level or 0
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        if stack:
+            graph.edges.append(
+                StructuralEdge(stack[-1][1], element.element_id, "list_child")
+            )
+        stack.append((level, element.element_id))
+
+
+def _add_table_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    """Connect cells to their table, to their headers, and across merges."""
+
+    cells_by_table: dict[str, list[CanonicalElement]] = defaultdict(list)
+    for element in ordered:
+        if element.table_id and element.table_cell is not None:
+            cells_by_table[element.table_id].append(element)
+
+    for table_id, cells in cells_by_table.items():
+        headers_by_column: dict[int, str] = {}
+        for cell in cells:
+            assert cell.table_cell is not None
+            if cell.table_cell.is_header:
+                headers_by_column[cell.table_cell.column_index] = cell.element_id
+
+        for cell in cells:
+            assert cell.table_cell is not None
+            graph.edges.append(StructuralEdge(cell.element_id, table_id, "table_cell_of"))
+
+            header_id = headers_by_column.get(cell.table_cell.column_index)
+            if header_id and header_id != cell.element_id:
+                graph.edges.append(StructuralEdge(header_id, cell.element_id, "header_for"))
+
+            # A merged region spans several columns; every column it covers is
+            # qualified by it, which is exactly the meaning the legacy prose
+            # flattening destroyed.
+            if cell.table_cell.column_span > 1:
+                span = range(
+                    cell.table_cell.column_index + 1,
+                    cell.table_cell.column_index + cell.table_cell.column_span,
+                )
+                for covered in span:
+                    for other in cells:
+                        assert other.table_cell is not None
+                        if (
+                            other.table_cell.column_index == covered
+                            and other.table_cell.row_index == cell.table_cell.row_index
+                        ):
+                            graph.edges.append(
+                                StructuralEdge(cell.element_id, other.element_id, "merged_with")
+                            )
+
+
+def _add_reference_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    """Attach captions to what they describe and footnotes to their markers."""
+
+    for element in ordered:
+        if element.caption_for:
+            graph.edges.append(
+                StructuralEdge(element.element_id, element.caption_for, "caption_for")
+            )
+        for footnote_id in element.references_footnote_ids:
+            graph.edges.append(
+                StructuralEdge(element.element_id, footnote_id, "footnote_marker_to_note")
+            )
+
+
+def _add_continuation_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
+    """Link an element to the one continuing it across a page boundary.
+
+    A sentence split by a page break is one statement. Without this edge, the
+    reading plan can hand a model half a rule and the half that carries the
+    exception is silently missing.
+    """
+
+    for previous, nxt in zip(ordered, ordered[1:]):
+        previous_pages = previous.pages
+        next_pages = nxt.pages
+        if not previous_pages or not next_pages:
+            continue
+        if previous_pages[-1] == next_pages[0]:
+            continue
+        if previous.element_type != nxt.element_type:
+            continue
+        if _ends_mid_sentence(previous.text):
+            graph.edges.append(
+                StructuralEdge(previous.element_id, nxt.element_id, "continues_on")
+            )
+
+
+def _ends_mid_sentence(text: str) -> bool:
+    stripped = text.rstrip()
+    return bool(stripped) and stripped[-1] not in ".!?:;"
+
+
+def verify_structural_coverage(
+    document: CanonicalDocument, graph: StructuralGraph
+) -> list[str]:
+    """Prove the graph lost nothing, returning one message per problem.
+
+    Checked mechanically on every build because it is cheap and because the
+    failure it catches is silent: a coverage report computed over a graph that
+    is already missing elements would confidently report full coverage.
+    """
+
+    problems: list[str] = []
+    element_ids = {element.element_id for element in document.elements}
+
+    missing = element_ids - set(graph.nodes)
+    if missing:
+        problems.append(f"{len(missing)} canonical element(s) absent from the graph")
+
+    extra = set(graph.nodes) - element_ids
+    if extra:
+        problems.append(f"{len(extra)} graph node(s) not present in the canonical document")
+
+    dangling = {
+        endpoint
+        for edge in graph.edges
+        for endpoint in (edge.source, edge.target)
+        if endpoint not in graph.nodes and not endpoint.startswith("#/")
+    }
+    if dangling:
+        problems.append(f"{len(dangling)} edge endpoint(s) reference unknown nodes")
+
+    return problems
