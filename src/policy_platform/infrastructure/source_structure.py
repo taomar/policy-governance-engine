@@ -202,6 +202,68 @@ def section_key(section_path: list[str]) -> str:
     return " / ".join(part.strip() for part in section_path if part.strip()).casefold()
 
 
+def outline_path(text: str) -> tuple[int, ...]:
+    """The outline number a clause carries, as a comparable path.
+
+    ``"3.2.1. Annual increase..."`` becomes ``(3, 2, 1)``, which makes
+    parent/child a tuple-prefix test rather than string matching. Returns an
+    empty tuple when the clause carries no outline number.
+
+    Deliberately reuses `heading_number`, so a clause and a heading are read by
+    one parser: a document that numbers its clauses is numbering its structure,
+    and two readings of the same convention would eventually disagree.
+    """
+
+    number = heading_number(text)
+    if not number:
+        return ()
+    try:
+        return tuple(int(part) for part in number.split("."))
+    except ValueError:
+        return ()
+
+
+#: Words that point *forward* at material the clause does not itself contain.
+#:
+#: Domain-neutral by construction: these are English discourse markers, not
+#: policy vocabulary. A statute, an HR handbook and a procurement manual all use
+#: them and none means anything different by them.
+_CATAPHORIC_RE = re.compile(
+    r"\b(?:the\s+following|as\s+follows|these\s+are|namely|"
+    r"listed\s+below|set\s+out\s+below|below)\b",
+    re.IGNORECASE,
+)
+
+#: How far back from the colon a marker may sit and still be pointing at it.
+#: "…in one of the following cases only:" has two words of tail; a marker forty
+#: words earlier in a long paragraph is describing something else.
+_PROMISE_TAIL_CHARS = 90
+
+
+def promises_enumeration(text: str) -> bool:
+    """True when a clause promises material that must follow it.
+
+    The generalisation behind enumeration linking: whatever numbering scheme a
+    document uses — or none at all — a clause ending "in one of the following
+    cases only:" is *incomplete by its own words*. That makes an unsatisfied
+    promise a provable extraction failure rather than a matter of taste, and it
+    holds for unstructured documents where no outline number exists to follow.
+
+    Two conditions, both required. The clause must end in a colon, which is how
+    documents almost universally open an enumeration; and a forward-pointing
+    marker must sit close to that colon. Either alone over-fires: a bare
+    "Definitions:" heading is a label rather than a promise, and a paragraph
+    mentioning "the following" mid-sentence before going on to state its own
+    rule is complete.
+    """
+
+    stripped = " ".join((text or "").split()).rstrip()
+    if not stripped.endswith((":", "：")):
+        return False
+    tail = stripped[-_PROMISE_TAIL_CHARS:]
+    return bool(_CATAPHORIC_RE.search(tail))
+
+
 def is_definition_text(text: str) -> bool:
     """True when this text reads as introducing defined vocabulary."""
 

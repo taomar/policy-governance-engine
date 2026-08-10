@@ -57,10 +57,13 @@ from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_delta
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure import source_structure
 from policy_platform.infrastructure.relationship_discovery import (
     RuleAnchor,
+    discover_enumeration_relationships,
     discover_semantic_role_relationships,
     discover_structural_relationships,
+    stems_needing_adjudication,
 )
 from policy_platform.infrastructure.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
@@ -316,7 +319,9 @@ async def _supersede_prior_candidates(
     return int(result.rowcount or 0)
 
 
-def _relationship_anchors(rules: list[CanonicalRule]) -> list[RuleAnchor]:
+def _relationship_anchors(
+    rules: list[CanonicalRule], clause_texts_by_id: dict[str, str] | None = None
+) -> list[RuleAnchor]:
     """Describe drafted rules in the terms relationship discovery compares.
 
     Every field is read from what the rule already carries — its evidence, its
@@ -324,8 +329,14 @@ def _relationship_anchors(rules: list[CanonicalRule]) -> list[RuleAnchor]:
     extraction did not already record. Rules that failed to compile are
     included deliberately: a table row belongs to its table whether or not it
     became executable, and dropping them here is how orphaned rows appear.
+
+    `clause_texts_by_id` supplies the clause's original text, which still
+    carries the outline number the canonical decomposition strips ("3.2.1." is
+    structure, not part of the rule's statement). Without it the enumeration
+    tier is blind to numbering and every stem falls through to adjudication.
     """
 
+    clause_texts_by_id = clause_texts_by_id or {}
     anchors: list[RuleAnchor] = []
     for order, rule in enumerate(rules):
         canonical = rule.formulation.canonical if rule.formulation else None
@@ -338,17 +349,27 @@ def _relationship_anchors(rules: list[CanonicalRule]) -> list[RuleAnchor]:
         for ev in rule.evidence:
             if ev.section and ev.section not in section_path:
                 section_path.append(ev.section)
+        # Outline number and enumeration promise are read from the clause's own
+        # text, which keeps the numbering the canonical decomposition strips.
+        clause_text = clause_texts_by_id.get(
+            rule.evidence[0].clause_id if rule.evidence else "", ""
+        )
+        anchor_text = (canonical.source_text if canonical else "") or rule.description
         anchors.append(
             RuleAnchor(
                 rule_id=rule.rule_id,
                 element_ids=[ev.clause_id for ev in rule.evidence if ev.clause_id],
-                text=(canonical.source_text if canonical else "") or rule.description,
+                text=anchor_text,
                 section_path=section_path,
                 fact_paths=sorted({fact.path for fact in rule.required_facts}),
                 actor=(policy_rule.subject if policy_rule else "") or "",
                 action=(policy_rule.predicate if policy_rule else "") or "",
                 rule_kind=(rule.rule_type.value if hasattr(rule.rule_type, "value") else str(rule.rule_type)).lower(),
                 order=order,
+                outline_path=source_structure.outline_path(clause_text or anchor_text),
+                promises_enumeration=source_structure.promises_enumeration(
+                    clause_text or anchor_text
+                ),
             )
         )
     return anchors
@@ -769,10 +790,23 @@ async def extract_candidate_rules(
         # into a field consumers read as established fact is how a machine's
         # guess ends up in the reviewer's record.
         confirmed_links: dict[str, list[str]] = {}
+        unresolved_stems: list[str] = []
         try:
-            anchors = _relationship_anchors(drafted)
+            clause_texts_by_id = {str(c.id): c.text for c in clauses}
+            anchors = _relationship_anchors(drafted, clause_texts_by_id)
             edges = discover_structural_relationships(anchors)
             edges += discover_semantic_role_relationships(anchors)
+            # Governing stems and the clauses that complete them. Without this a
+            # stem states an exhaustive limit with nothing to limit it to, and
+            # every case is a rule that cannot say what it is a case of.
+            enumeration_edges = discover_enumeration_relationships(anchors)
+            edges += enumeration_edges
+            # Stems whose extent the document does not state deterministically.
+            # Reported rather than approximated: guessing where an unnumbered
+            # promise ends is how an unrelated rule gets merged into a policy.
+            unresolved_stems = [
+                a.rule_id for a in stems_needing_adjudication(anchors, enumeration_edges)
+            ]
             for edge in edges:
                 if edge.state != "confirmed":
                     continue
@@ -785,6 +819,13 @@ async def extract_candidate_rules(
             # which are the expensive part; the rules simply keep the links the
             # decision tables gave them.
             logger.exception("relationship discovery failed for run %s", run.id)
+
+        if unresolved_stems:
+            logger.info(
+                "run %s: %d governing stem(s) need continuation adjudication",
+                run.id,
+                len(unresolved_stems),
+            )
 
         extraction_progress.advance(progress_key, linked=len(confirmed_links))
 
