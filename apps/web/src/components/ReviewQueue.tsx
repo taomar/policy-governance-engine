@@ -465,6 +465,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     return ids.size;
   }, [filteredCandidates, clusterMap]);
 
+  // How many rows carry no family at all. A reviewer looking at a flat,
+  // unbanded list cannot otherwise tell whether grouping is switched off,
+  // broken, or correctly reporting that no relationship was derived — and the
+  // three call for completely different responses. Counted rather than
+  // inferred from `bandedFamilyCount`, which counts families, not rows.
+  const unfamiliedCount = useMemo(
+    () => filteredCandidates.filter((c) => !clusterMap.get(c.rule.rule_id)).length,
+    [filteredCandidates, clusterMap]
+  );
+
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of candidates) counts[c.review_status] = (counts[c.review_status] ?? 0) + 1;
@@ -1234,7 +1244,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               <div>
                 <dt>Related families</dt>
                 <dd>{bandedFamilyCount}</dd>
-                <small>In the current view</small>
+                <small>
+                  {unfamiliedCount > 0
+                    ? `${unfamiliedCount} of ${filteredCandidates.length} stand alone`
+                    : "In the current view"}
+                </small>
               </div>
               <div>
                 <dt>Quality findings</dt>
@@ -1290,7 +1304,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                   api.exportCandidateRules(selectedKey, format, statusFilter === "all" ? undefined : statusFilter)
                 }
               />
-              {bandedFamilyCount > 0 && (
+              {(bandedFamilyCount > 0 || unfamiliedCount > 0) && (
                 <Tooltip
                   title={
                     <>
@@ -1302,11 +1316,27 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         1. a curated <b>variation group</b> on the rule, when set; otherwise
                       </div>
                       <div>2. same rule type testing the same fact with differing values.</div>
+                      {unfamiliedCount > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          {unfamiliedCount} rule{unfamiliedCount === 1 ? "" : "s"} here match neither, so
+                          {unfamiliedCount === 1 ? " it is" : " they are"} shown standing alone. A variation
+                          group is only set when one DMN decision covers two or more rules, and the fact
+                          test needs a projected condition — so rules extracted without a fact model have
+                          nothing to group on. That is reported rather than guessed at: relating them on
+                          wording or position would assert a link the document never made.
+                        </div>
+                      )}
                     </>
                   }
                 >
-                  <Tag icon={<ClusterOutlined />} color="blue" style={{ cursor: "help", marginInlineEnd: 0 }}>
-                    {bandedFamilyCount} banded {bandedFamilyCount === 1 ? "family" : "families"}
+                  <Tag
+                    icon={<ClusterOutlined />}
+                    color={bandedFamilyCount > 0 ? "blue" : "default"}
+                    style={{ cursor: "help", marginInlineEnd: 0 }}
+                  >
+                    {bandedFamilyCount > 0
+                      ? `${bandedFamilyCount} banded ${bandedFamilyCount === 1 ? "family" : "families"}`
+                      : "No families derived"}
                   </Tag>
                 </Tooltip>
               )}
