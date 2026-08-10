@@ -68,7 +68,16 @@ DependencyReason = Literal[
 #: Element kinds that can carry an obligation. Headings and furniture are
 #: excluded as *targets* but remain available as context: a heading scopes a
 #: rule, it does not state one.
-_TARGETABLE = frozenset({"paragraph", "list_item", "table_cell", "other", "formula", "code"})
+#:
+#: `table_row` is included alongside `table_cell` because the two parsers
+#: disagree about table granularity — Docling emits cells, the legacy parsers
+#: emit whole rows — and a row like "P1 | Active data breach | 15 minutes" is
+#: as policy-bearing as the cells it is made of. Omitting it left every
+#: legacy-parsed table row belonging to no unit, and therefore reported as
+#: unaccounted content the run had silently ignored.
+_TARGETABLE = frozenset(
+    {"paragraph", "list_item", "table_cell", "table_row", "other", "formula", "code"}
+)
 
 #: "Section 4.2", "clause 7", "paragraph 3.1(a)". Deliberately requires an
 #: explicit keyword: bare numbers appear constantly in policy text ("within 5

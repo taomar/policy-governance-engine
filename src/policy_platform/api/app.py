@@ -88,18 +88,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS: allow the configured web dev server port plus Vite's common
-    # fallback ports (Vite auto-increments if its preferred port is taken,
-    # which happened locally since 5173 was already in use). A wider range
-    # is allowed here since multiple concurrent local sessions may each grab
-    # a different port in this range.
-    web_ports = {settings.web_dev_server_port, *range(5173, 5180)}
-    allowed_origins = [f"http://localhost:{p}" for p in web_ports] + [
-        f"http://127.0.0.1:{p}" for p in web_ports
-    ]
+    # CORS origins come from configuration (see Settings.allowed_cors_origins).
+    # They used to be a hardcoded port range here, which meant running the UI on
+    # any other port required editing application code — and the symptom is a
+    # silent browser-side block rather than anything visible in a server log.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=allowed_origins,
+        allow_origins=settings.allowed_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

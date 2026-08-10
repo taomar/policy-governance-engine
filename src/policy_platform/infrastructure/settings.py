@@ -31,6 +31,18 @@ class Settings(BaseSettings):
 
     web_dev_server_port: int = 5173
     vite_api_base_url: str = "http://localhost:8000"
+    #: Comma-separated browser origins allowed to call the API. Empty means
+    #: "derive them", which is the developer-friendly default.
+    #:
+    #: Previously the allowlist was a hardcoded port range inside the app
+    #: factory, so running the UI on any other port meant editing application
+    #: code — and the resulting failure is a silent CORS block in the browser
+    #: rather than a server-side error anyone would see in a log.
+    cors_allowed_origins: str = ""
+    #: Ports probed when `cors_allowed_origins` is empty. Vite increments its
+    #: port when the preferred one is taken, so a single port is not enough to
+    #: make `npm run dev` reliably work out of the box.
+    cors_dev_port_range: str = "5173-5180"
 
     # Azure OpenAI (chat/extraction/rewrite/quality + embeddings). All
     # optional so the app still boots with AI features disabled if unset.
@@ -69,6 +81,44 @@ class Settings(BaseSettings):
             and self.azure_openai_deployment
             and self.azure_openai_embedding_deployment
         )
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        """Browser origins permitted to call the API.
+
+        An explicit `CORS_ALLOWED_ORIGINS` wins outright: an operator who names
+        origins means those and no others, and quietly unioning them with a
+        development range would widen production beyond what was asked for.
+
+        With nothing set, the configured UI port and the Vite fallback range are
+        allowed on both `localhost` and `127.0.0.1`. Both hostnames are needed
+        because they are different origins to a browser, and which one a
+        developer types is not predictable.
+        """
+
+        explicit = [origin.strip() for origin in self.cors_allowed_origins.split(",")]
+        explicit = [origin for origin in explicit if origin]
+        if explicit:
+            return explicit
+
+        ports = {self.web_dev_server_port, *self._dev_port_range()}
+        return [f"http://localhost:{port}" for port in sorted(ports)] + [
+            f"http://127.0.0.1:{port}" for port in sorted(ports)
+        ]
+
+    def _dev_port_range(self) -> range:
+        """Parse `cors_dev_port_range`, falling back rather than failing to boot.
+
+        A malformed range is a configuration typo. Refusing to start over it
+        would turn a cosmetic mistake into an outage, so the documented default
+        is used instead.
+        """
+
+        try:
+            low, _, high = self.cors_dev_port_range.partition("-")
+            return range(int(low), int(high) + 1)
+        except (TypeError, ValueError):
+            return range(5173, 5181)
 
     @property
     def search_enabled(self) -> bool:

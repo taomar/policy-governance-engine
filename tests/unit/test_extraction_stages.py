@@ -241,13 +241,37 @@ class TestMigration:
         Path(__file__).resolve().parents[2]
         / "alembic"
         / "versions"
-        / "a1b2c3d4e5f6_extraction_stages_table.py"
+        / "e7f4a9c2b615_extraction_stages_table.py"
     )
 
     def test_migration_exists_and_chains_to_the_previous_head(self) -> None:
         source = self.MIGRATION.read_text(encoding="utf-8")
-        assert 'revision: str = "a1b2c3d4e5f6"' in source
+        assert 'revision: str = "e7f4a9c2b615"' in source
         assert '"d2e3f4a5b6c7"' in source
+
+    def test_every_revision_id_in_the_tree_is_unique(self) -> None:
+        """A duplicate id makes alembic report a cycle and refuse to migrate.
+
+        This is not hypothetical: the first version of this migration reused an
+        id already present in the tree, and the failure surfaced only when
+        `alembic upgrade head` was run against a real database — as an
+        unrelated-looking "cycle is detected" error naming ten revisions.
+
+        Both declaration styles are matched, because the collision was missed
+        the first time by a check that only recognised the annotated form.
+        """
+
+        import re
+
+        pattern = re.compile(r"""^revision(?::\s*str)?\s*=\s*["']([^"']+)""", re.MULTILINE)
+        ids: list[str] = []
+        for path in self.MIGRATION.parent.glob("*.py"):
+            match = pattern.search(path.read_text(encoding="utf-8"))
+            if match:
+                ids.append(match.group(1))
+
+        duplicates = {value for value in ids if ids.count(value) > 1}
+        assert not duplicates, f"duplicate alembic revision id(s): {sorted(duplicates)}"
 
     def test_migration_only_creates_new_objects(self) -> None:
         """No existing table or column may be touched, so this is safe to apply

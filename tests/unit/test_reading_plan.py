@@ -98,6 +98,26 @@ class TestExhaustiveness:
         assert plan.is_exhaustive
         assert all("E1" not in u.target_element_ids for u in plan.units)
 
+    def test_legacy_table_rows_are_targetable(self) -> None:
+        """The two parsers disagree about table granularity.
+
+        Docling emits cells; the legacy parsers emit whole rows. A row like
+        "P1 | Active data breach | 15 minutes" is as policy-bearing as the cells
+        it is made of, and omitting the type left every legacy-parsed table row
+        in no unit at all — reported as content the run had silently ignored.
+        """
+
+        plan = _plan(
+            [
+                _element("E1", "2. Severity", "heading", 0),
+                _element("E2", "P1 - Critical | Active breach | 15 minutes", "table_row", 1),
+            ]
+        )
+        covered = {t for unit in plan.units for t in unit.target_element_ids}
+
+        assert "E2" in covered
+        assert plan.is_exhaustive
+
     def test_empty_document_produces_an_exhaustive_empty_plan(self) -> None:
         plan = _plan([])
         assert plan.units == [] or all(not u.target_element_ids for u in plan.units)

@@ -8,7 +8,7 @@ final value leaves an operator with nothing when it fails partway.
 Additive only: no existing table or column is touched, so this migration is
 safe to apply to a populated database and safe to reverse.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: e7f4a9c2b615
 Revises: d2e3f4a5b6c7
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "e7f4a9c2b615"
 down_revision: Union[str, Sequence[str], None] = "d2e3f4a5b6c7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
