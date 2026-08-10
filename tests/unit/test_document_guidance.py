@@ -149,3 +149,57 @@ class TestGuidanceProjection:
 
         assert rules[0].effect.type == EffectType.REQUIRE_ACTION
         assert DOCUMENT_GUIDANCE_TAG not in rules[0].tags
+
+
+class TestCalculationIsNotAnObligation:
+    """A rule that derives a value does not oblige anyone to act.
+
+    "The housing allowance is calculated as twice the monthly basic salary up to
+    a maximum of..." became an Obligation whose action was the sentence fragment
+    "is calculated as twice the monthly basic salary up to a maximum of" — an
+    instruction no decision point can carry out. Under XACML §7.18 an Obligation
+    is work a PEP must discharge, and a derived amount is not work.
+    """
+
+    def _project(self, rule_type: CanonicalRuleType):
+        from policy_platform.contracts.formulation import DmnProjection, PolicyFormulation
+        from policy_platform.infrastructure.formulation_mapping import (
+            formulation_to_candidate_rules,
+        )
+
+        formulation = PolicyFormulation(
+            canonical_policies=[
+                CanonicalPolicy(
+                    source_text="The allowance is calculated as twice the basic salary.",
+                    rule=CanonicalPolicyRule(
+                        rule_type=rule_type,
+                        subject="The housing allowance",
+                        predicate="is calculated as",
+                        object="twice the monthly basic salary",
+                    ),
+                )
+            ],
+            dmn_projection=DmnProjection(decisions=[]),
+        )
+        rules, _ = formulation_to_candidate_rules(
+            formulation,
+            policy_set_id="ps",
+            extraction_run_id="run",
+            deployment_name="d",
+            prompt_version="p",
+            parser_version="v",
+        )
+        return rules
+
+    def test_calculation_is_informational(self):
+        rules = self._project(CanonicalRuleType.CALCULATION)
+
+        assert rules[0].effect.type == EffectType.INFORMATIONAL
+        assert rules[0].rule_type == RuleType.CALCULATION
+
+    def test_obligation_still_requires_action(self):
+        # The boundary: correcting calculation must not quietly disarm the rules
+        # that genuinely do oblige a decision point to act.
+        rules = self._project(CanonicalRuleType.OBLIGATION)
+
+        assert rules[0].effect.type == EffectType.REQUIRE_ACTION

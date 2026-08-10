@@ -87,13 +87,23 @@ from policy_platform.contracts.policy import (
 #:
 #: `non_normative` is absent on purpose — see `_SKIPPED_RULE_TYPES`.
 #:
-#: `classification`/`definition` map to `EffectType.INFORMATIONAL`, not
-#: `ALLOW`: neither authorizes nor forbids anything, so `ALLOW` was a
-#: dishonest projection — most visibly when the source is phrased negatively
-#: ("shall NOT be included...") and the forced `ALLOW` asserts the literal
-#: inverse of the rule's own text. See `ai_quality._definition_effect_findings`
-#: for the defect this closes and `_apply_combining_algorithm` for why an
-#: informational effect never competes on the allow/deny axis.
+#: `classification`/`definition`/`calculation` map to `EffectType.INFORMATIONAL`,
+#: not `ALLOW` or `REQUIRE_ACTION`: none of them authorizes, forbids, or
+#: obliges anyone to act, so any other effect was a dishonest projection — most
+#: visibly when the source is phrased negatively ("shall NOT be included...")
+#: and the forced `ALLOW` asserts the literal inverse of the rule's own text.
+#:
+#: `calculation` was the last of the three to be corrected, and its tell was the
+#: same. "The housing allowance is calculated as twice the monthly basic salary
+#: up to a maximum of..." became an Obligation whose `action` was the sentence
+#: fragment "is calculated as twice the monthly basic salary up to a maximum
+#: of" — an instruction no decision point can carry out, because the rule states
+#: how a *value* is derived rather than something to be done. Under XACML §7.18
+#: an Obligation is work a PEP must discharge; a derived amount is not work.
+#:
+#: See `ai_quality._definition_effect_findings` for the defect this closes and
+#: `_apply_combining_algorithm` for why an informational effect never competes
+#: on the allow/deny axis.
 _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.OBLIGATION: (RuleType.OBLIGATION, EffectType.REQUIRE_ACTION),
     CanonicalRuleType.PROHIBITION: (RuleType.PROHIBITION, EffectType.DENY),
@@ -102,7 +112,7 @@ _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.ELIGIBILITY: (RuleType.ELIGIBILITY, EffectType.ALLOW),
     CanonicalRuleType.INELIGIBILITY: (RuleType.ELIGIBILITY, EffectType.DENY),
     CanonicalRuleType.CONDITIONAL_OUTCOME: (RuleType.ROUTING, EffectType.REQUIRE_ACTION),
-    CanonicalRuleType.CALCULATION: (RuleType.CALCULATION, EffectType.REQUIRE_ACTION),
+    CanonicalRuleType.CALCULATION: (RuleType.CALCULATION, EffectType.INFORMATIONAL),
     CanonicalRuleType.CLASSIFICATION: (RuleType.DEFINITION, EffectType.INFORMATIONAL),
     CanonicalRuleType.RECOMMENDATION: (RuleType.HUMAN_JUDGMENT_REQUIREMENT, EffectType.REQUIRE_ACTION),
     CanonicalRuleType.DEFINITION: (RuleType.DEFINITION, EffectType.INFORMATIONAL),
