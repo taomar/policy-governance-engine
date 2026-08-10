@@ -24,6 +24,7 @@ import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
 import { JsonView } from "./JsonView";
+import { withRuleIdentity } from "../ruleIdentity";
 import { NotesPanel } from "./NotesPanel";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
@@ -236,7 +237,12 @@ export function PolicyInspector({
   // the machine-readable form is reachable without leaving the summary, and
   // uncapped in its own tab for actually reading a long rule in this narrow
   // panel. Same component, so they can never drift apart.
-  const overviewJsonBlock = <JsonView value={rule} downloadName={`${rule.rule_id}.json`} maxHeight={420} />;
+  //
+  // Carries the same `_identity` block as the canonical and DMN views so all
+  // three downloads name the rule, its documents, and its Search keys
+  // identically — the rule body alone never mentioned Search at all.
+  const ruleJson = withRuleIdentity(rule, rule);
+  const overviewJsonBlock = <JsonView value={ruleJson} downloadName={`${rule.rule_id}.json`} maxHeight={420} />;
 
   const overview = (
     <div className="inspector-pane">
@@ -678,7 +684,7 @@ export function PolicyInspector({
           evaluation time.
         </>
       ),
-      value: rule,
+      value: ruleJson,
       downloadName: `${rule.rule_id}.json`,
     },
     canonical: {
@@ -688,7 +694,7 @@ export function PolicyInspector({
           The source-grounded subject, predicate, and object decomposition produced before executable mapping.
         </>
       ),
-      value: rule.formulation?.canonical ?? null,
+      value: rule.formulation?.canonical ? withRuleIdentity(rule.formulation.canonical, rule) : null,
       downloadName: `${rule.rule_id}-canonical.json`,
     },
     dmn: {
@@ -698,7 +704,9 @@ export function PolicyInspector({
           The paired OMG DMN 1.5 decision projection and FEEL mapping produced by the formulator.
         </>
       ),
-      value: rule.formulation?.dmn_decisions ?? null,
+      value: rule.formulation
+        ? withRuleIdentity({ dmn_decisions: rule.formulation.dmn_decisions }, rule)
+        : null,
       downloadName: `${rule.rule_id}-dmn.json`,
     },
   } satisfies Record<string, { title: string; description: ReactNode; value: unknown; downloadName: string }>;

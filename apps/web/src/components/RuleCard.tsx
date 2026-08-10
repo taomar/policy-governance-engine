@@ -22,6 +22,7 @@ import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { ambiguityMeta, describeScope, hasAmbiguityFlag } from "../ruleDisplay";
+import { withRuleIdentity } from "../ruleIdentity";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
 const { Text, Paragraph } = Typography;
@@ -513,7 +514,11 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                         label: "Canonical JSON — subject/predicate/object as the AI decomposed it, before mapping",
                         children: (
                           <JsonView
-                            value={rule.formulation.canonical ?? null}
+                            value={
+                              rule.formulation.canonical
+                                ? withRuleIdentity(rule.formulation.canonical, rule)
+                                : null
+                            }
                             downloadName={`${rule.rule_id}-canonical.json`}
                             maxHeight={320}
                           />
@@ -524,7 +529,10 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                         label: "DMN JSON — OMG DMN 1.5 / FEEL decision projection",
                         children: (
                           <JsonView
-                            value={rule.formulation.dmn_decisions}
+                            value={withRuleIdentity(
+                              { dmn_decisions: rule.formulation.dmn_decisions },
+                              rule
+                            )}
                             downloadName={`${rule.rule_id}-dmn.json`}
                             maxHeight={320}
                           />
