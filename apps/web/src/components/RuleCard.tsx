@@ -21,7 +21,8 @@ import { NotesPanel } from "./NotesPanel";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
-import { ambiguityMeta, describeScope, hasAmbiguityFlag } from "../ruleDisplay";
+import { ambiguityMeta, describeScope, hasAmbiguityFlag, isEmptyCondition } from "../ruleDisplay";
+import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
 import { withRuleIdentity } from "../ruleIdentity";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
@@ -256,7 +257,18 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                   Condition — when this rule fires
                 </Text>
                 <div className="cond-box">
-                  <ConditionView node={rule.condition} />
+                  {isEmptyCondition(rule.condition) ? (
+                    hasSemanticProjection(rule) ? (
+                      <SemanticProjectionView rule={rule} />
+                    ) : (
+                      <Text type="secondary">
+                        No conditions were derived. The rule may genuinely be unconditional, or its
+                        scope may have been missed during extraction — a reviewer must decide which.
+                      </Text>
+                    )
+                  ) : (
+                    <ConditionView node={rule.condition} />
+                  )}
                 </div>
               </div>
 

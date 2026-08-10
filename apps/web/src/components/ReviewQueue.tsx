@@ -73,6 +73,7 @@ import {
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
+import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
@@ -1385,8 +1386,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         const findings = qualityFindings?.get(candidate.rule.rule_id) ?? [];
                         const editability = candidateEditability(candidate.review_status);
                         const cluster = clusterMap.get(candidate.rule.rule_id);
+                        const band = bandInfo.get(candidate.rule.rule_id);
                         return (
                           <div key={candidate.id} className="candidate-item">
+                            {cluster && band?.isStart && (
+                              <FamilyCompositeHeader
+                                cluster={cluster}
+                                members={cluster.members}
+                                accent={clusterColor(cluster)}
+                                memberCountInView={band.total}
+                              />
+                            )}
                             <CandidateRow
                               candidate={candidate}
                               expanded={selectedCandidateId === candidate.id}
@@ -1394,7 +1404,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               selectable={editability.canReview}
                               cluster={cluster}
                               clusterColor={cluster ? clusterColor(cluster) : undefined}
-                              band={bandInfo.get(candidate.rule.rule_id)}
+                              band={band}
                               findingsCount={findings.length}
                               statusColor={STATUS_COLOR[candidate.review_status] ?? "default"}
                               statusLabel={STATUS_LABEL[candidate.review_status] ?? candidate.review_status}

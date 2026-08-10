@@ -23,6 +23,7 @@ import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause, Note
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
+import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
 import { JsonView } from "./JsonView";
 import { withRuleIdentity } from "../ruleIdentity";
 import { NotesPanel } from "./NotesPanel";
@@ -37,6 +38,7 @@ import {
   findRuleVariations,
   formatConditionValue,
   hasAmbiguityFlag,
+  isEmptyCondition,
   ruleDecisionSummary,
   scopeEntries,
 } from "../ruleDisplay";
@@ -498,7 +500,18 @@ export function PolicyInspector({
           Condition — when this rule fires
         </Text>
         <div className="cond-box">
-          <ConditionView node={rule.condition} />
+          {isEmptyCondition(rule.condition) ? (
+            hasSemanticProjection(rule) ? (
+              <SemanticProjectionView rule={rule} />
+            ) : (
+              <Text type="secondary">
+                No conditions were derived. The rule may genuinely be unconditional, or its scope
+                may have been missed during extraction — a reviewer must decide which.
+              </Text>
+            )
+          ) : (
+            <ConditionView node={rule.condition} />
+          )}
         </div>
       </div>
 

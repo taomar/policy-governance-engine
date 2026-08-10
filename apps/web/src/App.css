@@ -4343,6 +4343,146 @@
    it. Rounded only at the true start/end of a run of consecutive same-family
    rows, so N adjacent siblings read as one continuous rail while an isolated
    single row still gets a short, clearly-intentional segment. */
+/* The stated-but-not-executable logic shown in place of an empty condition
+   tree. Visually distinct from `.cond-*` on purpose: a reviewer must never
+   mistake a description of the source for a compiled decision. */
+.semantic-projection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.semantic-projection-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.semantic-projection-tag {
+  align-self: flex-start;
+}
+
+.semantic-projection-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.semantic-projection-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.semantic-projection-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.semantic-projection-line {
+  padding: 6px 10px;
+  border-left: 2px solid var(--app-border, #d9d9d9);
+  background: var(--app-surface-subtle, #fafafa);
+  border-radius: 0 4px 4px 0;
+}
+
+.semantic-projection-spo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.semantic-projection-spo > div {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-left: 2px solid var(--app-border, #d9d9d9);
+  background: var(--app-surface-subtle, #fafafa);
+}
+
+.semantic-projection-spo > div:first-child {
+  border-radius: 0 4px 0 0;
+}
+
+.semantic-projection-spo > div:last-child {
+  border-radius: 0 0 4px 0;
+}
+
+.semantic-projection-spo dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--app-text-secondary, #8c8c8c);
+}
+
+.semantic-projection-spo dd {
+  margin: 0;
+}
+
+/* Composite header sitting above a family band: the one policy its rules
+   collectively state. Shares the band's accent so the header and the spine
+   below it read as one object. */
+.family-composite {
+  margin: 14px 0 2px;
+  padding: 10px 12px 10px 26px;
+  position: relative;
+  border: 1px solid var(--app-border, #f0f0f0);
+  border-left: 3px solid var(--cluster-accent, #7c3aed);
+  border-radius: 8px 8px 4px 4px;
+  background: var(--app-surface-subtle, #fafafa);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.family-composite-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.family-composite-icon {
+  color: var(--cluster-accent, #7c3aed);
+}
+
+.family-composite-title {
+  font-size: 13px;
+}
+
+.family-composite-count {
+  font-size: 11px;
+}
+
+.family-composite-statement {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.family-composite-subject {
+  font-weight: 500;
+}
+
+.family-composite-varies {
+  font-style: italic;
+}
+
+.family-composite-flags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.family-composite-flags:empty {
+  display: none;
+}
+
 .policy-row-band {
   position: absolute;
   left: 13px;

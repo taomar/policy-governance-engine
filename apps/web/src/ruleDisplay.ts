@@ -34,6 +34,20 @@ export const OPERATOR_SYMBOLS: Record<string, string> = {
   countGreaterThan: "count >",
 };
 
+/**
+ * True when a condition tree imposes no test at all.
+ *
+ * Mirrors `_is_vacuous` in the evaluator, which refuses to let such a rule
+ * match. Shown rather than rendered as a tree because an empty `all` draws a
+ * bare "ALL of" with nothing under it, which tells a reviewer nothing about
+ * the policy on the one panel meant to explain when it fires.
+ */
+export function isEmptyCondition(node: ConditionNode): boolean {
+  if (node.type === "all") return node.all.length === 0;
+  if (node.type === "any") return node.any.length === 0;
+  return false;
+}
+
 export function formatConditionValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return `[${value.map(formatConditionValue).join(", ")}]`;

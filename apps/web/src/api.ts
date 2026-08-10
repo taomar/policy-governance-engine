@@ -475,11 +475,36 @@ export interface CanonicalPolicy {
   missing_components: unknown[];
 }
 
+/**
+ * The source-grounded meaning the formulator recorded when it could not
+ * generate executable FEEL (spec Sections 88-90).
+ *
+ * Deliberately NOT expressed as a `ConditionNode`. Those types are the
+ * evaluator's language: a `factComparison` names a fact path the fact model is
+ * expected to supply. Projecting "The ED/CEO" into `subject.role = "ED/CEO"`
+ * would put a path no fact model defines into the executable contract — the
+ * same invention the pointer-only design exists to prevent, just relocated.
+ *
+ * Shapes differ by status, so every field is optional: `subject`/`predicate`/
+ * `object` for `not_directly_mappable`, `conditions`/`outcome` for
+ * `enrichment_required`, `condition_source`/`outcome_source` for `ambiguous`.
+ */
+export interface DmnSemanticProjection {
+  rule_type?: string | null;
+  subject?: string | null;
+  predicate?: string | null;
+  object?: string | null;
+  conditions?: string[];
+  outcome?: string | null;
+  condition_source?: string | null;
+  outcome_source?: string | null;
+}
+
 export interface DmnDecision {
   source_rule_indexes: number[];
   dmn_mapping_status: string;
   requirements: string[];
-  semantic_projection?: Record<string, unknown>;
+  semantic_projection?: DmnSemanticProjection | null;
   decision_table?: Record<string, unknown> | null;
   literal_expression?: Record<string, unknown>;
   dependencies: string[];
