@@ -570,6 +570,79 @@ def _narrow_refs_to_policy(
     return narrowed or refs
 
 
+def _topic_key(subject: str, predicate: str) -> str:
+    """Identity of a policy topic: its subject and its predicate.
+
+    Sole definition of "these two statements are about the same thing", used
+    both for the DMN-derived label below and for the cross-batch pass that
+    links statements a single decision table never happened to cover.
+    """
+
+    return " ".join(f"{subject} {predicate}".split())[:120]
+
+
+def _canonical_topic_key(rule: CanonicalRule) -> str:
+    """Topic key for an already-built rule, read from its own canonical record.
+
+    Returns "" when the rule carries no canonical subject/predicate, which is
+    the honest answer for a statement whose topic was never decomposed — such a
+    rule is left unlinked rather than grouped on a guess.
+    """
+
+    formulation = rule.formulation
+    canonical = formulation.canonical if formulation else None
+    policy_rule = canonical.rule if canonical else None
+    if policy_rule is None:
+        return ""
+    return _topic_key(policy_rule.subject or "", policy_rule.predicate or "")
+
+
+def link_topic_groups(rules: list[CanonicalRule]) -> int:
+    """Link statements about one topic that no single DMN decision covered.
+
+    `_group_labels` can only see one batch's formulation, and only labels a
+    statement when one decision table covers two or more of them. A policy
+    topic that straddles a batch boundary therefore appears alone in each
+    batch, is labelled in neither, and reaches the reviewer as unrelated rows —
+    measured on a real document as 23 families (64 rules) left unlinked while
+    only 26 rules carried a label.
+
+    The pass that was supposed to catch this could not: it grouped by
+    `group_label`, so it only ever re-linked rules that were already linked.
+
+    This uses the same subject-and-predicate identity the DMN-derived label is
+    built from, so it introduces no new notion of relatedness — it applies the
+    existing one to the whole document instead of to whichever batch a
+    statement happened to land in. Callers must pass rules from a single
+    document: identical wording in two documents is a coincidence of phrasing,
+    not evidence that either document meant to relate them.
+
+    An existing label always wins. A shared decision table is a stated
+    relationship; matching wording is only an observed one, and the stronger
+    evidence must not be overwritten by the weaker.
+
+    Returns the number of rules newly labelled.
+    """
+
+    by_topic: dict[str, list[CanonicalRule]] = {}
+    for rule in rules:
+        if rule.group_label:
+            continue
+        topic = _canonical_topic_key(rule)
+        if not topic:
+            continue
+        by_topic.setdefault(topic, []).append(rule)
+
+    linked = 0
+    for topic, members in by_topic.items():
+        if len(members) < 2:
+            continue
+        for rule in members:
+            rule.group_label = topic
+            linked += 1
+    return linked
+
+
 def _group_labels(formulation: PolicyFormulation) -> dict[int, str]:
     """Cluster canonical policies that a single DMN decision covers.
 
@@ -595,7 +668,7 @@ def _group_labels(formulation: PolicyFormulation) -> dict[int, str]:
         ) else None
         subject = (anchor.rule.subject if anchor and anchor.rule else "") or ""
         predicate = (anchor.rule.predicate if anchor and anchor.rule else "") or ""
-        label = " ".join(f"{subject} {predicate}".split())[:120]
+        label = _topic_key(subject, predicate)
         if not label:
             continue
         for index in indexes:

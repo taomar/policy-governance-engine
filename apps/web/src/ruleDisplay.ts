@@ -261,29 +261,57 @@ export interface RuleVariationGroup {
  * `null` entries), so `map.has(ruleId)` doubles as the "is this rule part
  * of a visible family" check.
  */
+/**
+ * Which document a rule was extracted from, as a stable scoping key.
+ *
+ * Rules with no evidence share the empty scope. That groups all unsourced
+ * rules together rather than isolating each one, which is the safer of the two
+ * wrong answers: an unsourced rule cannot be shown to belong to any document,
+ * so excluding it from every family would silently hide real relationships.
+ */
+function documentScope(rule: CanonicalRule): string {
+  const ids = Array.from(new Set((rule.evidence ?? []).map((e) => e.document_version_id)));
+  return ids.sort().join(",");
+}
+
 export function buildVariationClusters(allRules: CanonicalRule[]): Map<string, RuleVariationGroup> {
   const result = new Map<string, RuleVariationGroup>();
 
   // Curated pass: bucket by group_label first so it always wins over the heuristic below.
+  //
+  // Bucketed per source document, not by label alone. A label is derived from a
+  // statement's subject and predicate, so two unrelated documents that happen to
+  // phrase something the same way ("This policy applies to") produce the same
+  // label — measured on real data as 7 topic keys spanning up to 3 documents.
+  // Merging those would assert a relationship neither document stated, and the
+  // reviewer would see one family whose members contradict each other for no
+  // visible reason. Cross-document relationships need their own evidence.
   const byGroupLabel = new Map<string, CanonicalRule[]>();
   for (const r of allRules) {
     if (!r.group_label) continue;
-    if (!byGroupLabel.has(r.group_label)) byGroupLabel.set(r.group_label, []);
-    byGroupLabel.get(r.group_label)!.push(r);
+    const bucket = `${documentScope(r)}\u0000${r.group_label}`;
+    if (!byGroupLabel.has(bucket)) byGroupLabel.set(bucket, []);
+    byGroupLabel.get(bucket)!.push(r);
   }
-  for (const [label, members] of byGroupLabel) {
+  for (const members of byGroupLabel.values()) {
     if (members.length < 2) continue;
     const sorted = [...members].sort((a, b) => a.title.localeCompare(b.title));
-    const group: RuleVariationGroup = { key: label, kind: "group", members: sorted };
+    // Keyed on the label the user reads, not the internal bucket — the document
+    // is a scoping boundary, never part of the family's name.
+    const group: RuleVariationGroup = { key: members[0].group_label, kind: "group", members: sorted };
     for (const r of members) result.set(r.rule_id, group);
   }
 
   // Heuristic pass: only for rules the curated pass didn't already place.
+  // Scoped per document for the same reason as the curated pass — two policies
+  // testing the same fact are not variations of one decision just because they
+  // share a fact name, and presenting them as one family would invent a
+  // relationship across documents that neither one states.
   const byFactAndType = new Map<string, CanonicalRule[]>();
   for (const r of allRules) {
     if (result.has(r.rule_id)) continue;
     if (r.condition.type !== "factComparison") continue;
-    const bucketKey = `${r.rule_type}::${r.condition.fact}`;
+    const bucketKey = `${documentScope(r)}\u0000${r.rule_type}::${r.condition.fact}`;
     if (!byFactAndType.has(bucketKey)) byFactAndType.set(bucketKey, []);
     byFactAndType.get(bucketKey)!.push(r);
   }

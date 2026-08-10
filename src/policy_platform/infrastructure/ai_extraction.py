@@ -56,7 +56,10 @@ from policy_platform.domain.models import (
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_delta
-from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.formulation_mapping import (
+    formulation_to_candidate_rules,
+    link_topic_groups,
+)
 from policy_platform.infrastructure.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
     PassageExtractionError,
@@ -706,6 +709,17 @@ async def extract_candidate_rules(
         # can straddle the batch boundary, and per-batch links would then be
         # incomplete. Because rows are now committed per batch, this pass
         # rewrites the stored payloads instead of mutating objects pre-insert.
+        #
+        # The label pass runs first. Grouping below keys on `group_label`, so on
+        # its own it could only ever re-link rules that were already linked — a
+        # topic split across batches is labelled in neither and stayed invisible
+        # here despite this being the pass meant to catch it. `link_topic_groups`
+        # closes that gap using the same subject-and-predicate identity the DMN
+        # label is built from. Safe to apply document-wide because one run
+        # covers one document version; identical wording in two documents would
+        # be a coincidence of phrasing, not a stated relationship.
+        link_topic_groups(drafted)
+
         groups: dict[str, list[str]] = {}
         for rule in drafted:
             if rule.group_label:
