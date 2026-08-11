@@ -71,8 +71,48 @@ _PARTY_FIELDS: tuple[str, ...] = ("actor", "beneficiary", "recipient", "candidat
 #:
 #: Keys are lemma stems so that "grants", "granted" and "granting" all reach
 #: "grant" without a stemmer pulling in false matches.
+#:
+#: The suffix set has to include the bare `e`. An earlier version used
+#: `(?:e?[sd]|ing)?`, which matched "provides", "provided" and "providing" but
+#: not "provide": after the stem `provid` the `e` needs an `s` or `d` to
+#: follow, so the group matched nothing and the word boundary then failed
+#: mid-word. The same verb was therefore recognised in three grammatical forms
+#: and refused in the fourth — and every `-e` verb in the lexicon carried the
+#: same hole.
+#:
+#: It also has to allow the doubled final consonant English writes before
+#: `-ed` and `-ing` on some verbs — "transferred", "submitted". Those were
+#: refused for the same reason and found the same way: by exercising each entry
+#: through the forms a sentence actually uses, rather than reading the table
+#: and assuming an entry that is present works.
+def _stem_pattern(stem: str) -> str:
+    """A word-bounded pattern matching `stem` in its ordinary inflections."""
+
+    forms = ["e", "es", "ed", "ing", "s", "d"]
+    tail = stem[-1]
+    if tail.isalpha():
+        forms += [f"{tail}ed", f"{tail}ing"]
+    return rf"\b{stem}(?:{'|'.join(forms)})?\b"
+
+
+#: Stems whose lemma is not formed by adding a suffix to a verb root, so the
+#: general pattern above cannot reach them. `eligib` never matched anything at
+#: all: "eligible" is `eligib` + `le`, which is not in the suffix set, so the
+#: entry sat in the lexicon looking like coverage it did not provide.
+_ACTION_IRREGULAR: tuple[tuple[str, str], ...] = (
+    (r"eligib(?:le|ility)", "determine-eligibility"),
+    # Limit constructions. English states a bound in several ways and they mean
+    # the same thing; recognising only the comparative form left the others
+    # with no action while an identical rule phrased with "exceed" got one.
+    (r"limited\s+to", "limit"),
+    (r"up\s+to\s+a\s+maximum\s+of", "limit"),
+    (r"no\s+more\s+than", "limit"),
+    (r"at\s+most", "limit"),
+    (r"capped\s+at", "limit"),
+)
+
 _ACTION_LEXICON: tuple[tuple[re.Pattern[str], str], ...] = tuple(
-    (re.compile(rf"\b{stem}(?:e?[sd]|ing)?\b", re.IGNORECASE), action)
+    (re.compile(_stem_pattern(stem), re.IGNORECASE), action)
     for stem, action in (
         (r"grant", "grant"),
         (r"pay", "pay"),
@@ -87,10 +127,12 @@ _ACTION_LEXICON: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"deduct", "deduct"),
         (r"terminat", "terminate"),
         (r"entitl", "entitle"),
-        (r"eligib", "determine-eligibility"),
         (r"cover", "cover"),
         (r"exceed", "limit"),
     )
+) + tuple(
+    (re.compile(rf"\b{pattern}\b", re.IGNORECASE), action)
+    for pattern, action in _ACTION_IRREGULAR
 )
 
 #: Source constructions that introduce a condition or dependency. Recognising
