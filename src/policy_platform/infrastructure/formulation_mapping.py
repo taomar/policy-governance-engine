@@ -34,7 +34,9 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from dataclasses import dataclass, field
 from datetime import date
+from enum import Enum
 
 from policy_platform.contracts.conditions import (
     AllCondition,
@@ -354,37 +356,118 @@ def _fact_name(column: DmnTableInput) -> str:
     return (column.expression or column.label or "").strip()
 
 
-def derive_condition(
-    decision: DmnDecision, index: int
-) -> tuple[ConditionNode, list[RequiredFact]] | None:
-    """Derive an executable condition for canonical policy `index`, or None.
+class ConditionDerivationReason(str, Enum):
+    """Why `derive_condition` did or did not produce an executable tree.
 
-    Returns None unless the agent itself declared the decision `executable`.
-    That gate matters: `executable` is the agent's assertion that every fact
+    Every value below previously collapsed into a bare `None`. That conflation
+    is what hid a platform limitation behind a message telling reviewers to fix
+    their fact model: measured against live AD-103 output, five of six
+    decisions the agent declared `executable` were expressed as a FEEL
+    *literal expression*, which this module never reads, and the sixth was a
+    decision table whose unary tests compared a fact against a percentage of
+    another fact, which `parse_feel_unary_test` cannot represent. All six
+    returned the same `None` as an ordinary non-executable rule.
+    """
+
+    DERIVED = "derived"
+    #: The agent did not declare the decision executable. Expected and common.
+    NOT_DECLARED_EXECUTABLE = "not_declared_executable"
+    #: Executable, but no decision-table row maps to this canonical policy.
+    NO_TABLE_ROW = "no_table_row"
+    #: Executable via `literal_expression`. A legal shape (prompt Section 87)
+    #: that this module does not implement — see `_LITERAL_EXPRESSION_NOTE`.
+    LITERAL_EXPRESSION_UNSUPPORTED = "literal_expression_unsupported"
+    #: Executable, but neither a decision table nor a literal expression.
+    NO_EXECUTABLE_BODY = "no_executable_body"
+    #: Row width does not match the table's declared inputs.
+    TABLE_SHAPE_MISMATCH = "table_shape_mismatch"
+    #: An input column carried neither an expression nor a label.
+    NO_FACT_FOR_COLUMN = "no_fact_for_column"
+    #: A unary test this parser does not understand (e.g. fact-relative
+    #: arithmetic such as `<= employee.compensation.basic_salary * 0.05`).
+    UNSUPPORTED_UNARY_TEST = "unsupported_unary_test"
+    #: Every column was "any value", so the row imposes no test at all.
+    VACUOUS = "vacuous"
+
+
+#: Reasons that mean "the agent produced grounded, executable logic that this
+#: platform could not represent" — as opposed to "there was nothing to compile".
+#: Kept as an explicit set because the distinction drives the reviewer's remedy:
+#: these need a platform change, not a fact-model change.
+PLATFORM_LIMITED_REASONS = frozenset(
+    {
+        ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED,
+        ConditionDerivationReason.UNSUPPORTED_UNARY_TEST,
+    }
+)
+
+
+@dataclass(frozen=True)
+class ConditionDerivation:
+    """The outcome of one attempt to compile a decision into a condition tree."""
+
+    reason: ConditionDerivationReason
+    condition: ConditionNode | None = None
+    facts: tuple[RequiredFact, ...] = ()
+    #: The exact agent text that could not be compiled, when there was one.
+    #: Recorded verbatim so a reviewer sees what the agent actually produced
+    #: rather than a paraphrase of it.
+    unsupported_expression: str = ""
+
+    @property
+    def derived(self) -> bool:
+        return self.condition is not None
+
+    @property
+    def platform_limited(self) -> bool:
+        return self.reason in PLATFORM_LIMITED_REASONS
+
+
+def derive_condition_outcome(decision: DmnDecision, index: int) -> ConditionDerivation:
+    """Compile canonical policy `index` of `decision`, reporting *why* on failure.
+
+    `derive_condition` is the tuple-or-None wrapper over this function; this is
+    the single implementation, so the two can never disagree about whether a
+    decision compiles.
+
+    The `executable` gate matters: it is the agent's assertion that every fact
     path, type and value came from source or trusted configuration rather than
     from invention (spec Sections 42-44). Without it, any condition built here
     would rest on facts nobody vouched for.
     """
 
     if decision.dmn_mapping_status != DmnMappingStatus.EXECUTABLE:
-        return None
+        return ConditionDerivation(ConditionDerivationReason.NOT_DECLARED_EXECUTABLE)
+
     table = decision.decision_table
+    if table is None:
+        literal = decision.literal_expression
+        if literal is not None:
+            return ConditionDerivation(
+                ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED,
+                unsupported_expression=(literal.feel or "").strip(),
+            )
+        return ConditionDerivation(ConditionDerivationReason.NO_EXECUTABLE_BODY)
+
     row_index = _row_for_index(decision, index)
-    if table is None or row_index is None:
-        return None
+    if row_index is None:
+        return ConditionDerivation(ConditionDerivationReason.NO_TABLE_ROW)
     row = table.rules[row_index]
     if len(row.input_entries) != len(table.inputs):
-        return None
+        return ConditionDerivation(ConditionDerivationReason.TABLE_SHAPE_MISMATCH)
 
     leaves: list[ConditionNode] = []
     facts: list[RequiredFact] = []
     for column, entry in zip(table.inputs, row.input_entries):
         fact = _fact_name(column)
         if not fact:
-            return None
+            return ConditionDerivation(ConditionDerivationReason.NO_FACT_FOR_COLUMN)
         parsed = parse_feel_unary_test(fact, entry)
         if parsed is None:
-            return None
+            return ConditionDerivation(
+                ConditionDerivationReason.UNSUPPORTED_UNARY_TEST,
+                unsupported_expression=f"{fact} {entry}".strip(),
+            )
         if not parsed:
             continue
         leaves.extend(parsed)
@@ -394,8 +477,30 @@ def derive_condition(
         # Every column was "any value": the table row imposes no test at all,
         # so it is not a condition — treat it as non-derivable rather than
         # emitting a vacuously-true rule that claims to be executable.
+        return ConditionDerivation(ConditionDerivationReason.VACUOUS)
+
+    return ConditionDerivation(
+        ConditionDerivationReason.DERIVED,
+        condition=AllCondition(all=leaves),
+        facts=tuple(facts),
+    )
+
+
+def derive_condition(
+    decision: DmnDecision, index: int
+) -> tuple[ConditionNode, list[RequiredFact]] | None:
+    """Derive an executable condition for canonical policy `index`, or None.
+
+    Thin wrapper over `derive_condition_outcome` for callers that only need to
+    know whether a condition was produced. Prefer the outcome function where
+    the *reason* matters, since a bare `None` cannot distinguish "nothing to
+    compile" from "grounded logic this platform cannot yet represent".
+    """
+
+    outcome = derive_condition_outcome(decision, index)
+    if outcome.condition is None:
         return None
-    return AllCondition(all=leaves), facts
+    return outcome.condition, list(outcome.facts)
 
 
 def _is_separator_predicate(predicate: str) -> bool:
@@ -414,7 +519,27 @@ def _is_separator_predicate(predicate: str) -> bool:
     return bool(predicate) and not any(c.isalnum() for c in predicate)
 
 
-def condition_provenance(policy: CanonicalPolicy, derived: object | None) -> tuple[str, str]:
+#: Explains the platform limitation behind `LITERAL_EXPRESSION_UNSUPPORTED` and
+#: `UNSUPPORTED_UNARY_TEST` in the reviewer's own terms.
+#:
+#: Both mean the same thing operationally: the trusted configuration did its
+#: job, the agent grounded every fact path in it, and the compiler is what
+#: fell short. Saying "supply the missing mapping" here would send a reviewer
+#: to edit a fact model that is already complete.
+_PLATFORM_LIMIT_NOTE = (
+    "This is a platform limitation, not a missing mapping: the condition tree "
+    "compares one fact against a literal value, and cannot yet represent a "
+    "comparison against an expression over another fact (for example a "
+    "percentage of basic salary). Extending it requires a change to the "
+    "condition contract and the evaluator, not to the trusted configuration."
+)
+
+
+def condition_provenance(
+    policy: CanonicalPolicy,
+    derived: object | None,
+    outcome: "ConditionDerivation | None" = None,
+) -> tuple[str, str]:
     """Explain *why* a rule's condition tree looks the way it does.
 
     Both an unconditional rule and a rule whose conditions could not be
@@ -423,6 +548,12 @@ def condition_provenance(policy: CanonicalPolicy, derived: object | None) -> tup
     genuinely applies always" and "this rule has conditions we failed to
     encode" demand opposite responses from a reviewer, and reading the second
     as the first turns a narrow permission into an open one.
+
+    `outcome`, when supplied, separates a third case that used to hide inside
+    the second: the agent produced complete, configuration-grounded executable
+    logic that this platform cannot represent. That one needs an engineering
+    change, so reporting it as a missing mapping wastes a reviewer's time on a
+    fact model that is already correct.
 
     An empty tree is never repaired here by inventing a placeholder condition.
     A synthesised always-false node would be a constraint the document never
@@ -436,6 +567,16 @@ def condition_provenance(policy: CanonicalPolicy, derived: object | None) -> tup
 
     if derived is not None:
         return ("derived", "Conditions were projected into an executable tree.")
+
+    if outcome is not None and outcome.platform_limited:
+        produced = outcome.unsupported_expression
+        return (
+            "conditions_not_representable",
+            "The agent produced executable logic grounded in the trusted "
+            f"configuration, but it could not be compiled: {produced!r}. "
+            + _PLATFORM_LIMIT_NOTE,
+        )
+
     if stated:
         return (
             "conditions_not_projected",
@@ -587,6 +728,17 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     return " ".join(" ".join(parts).split())
 
 
+#: Provenance codes whose stored condition tree *understates* the source.
+#:
+#: In each of these the tree ends up empty — reading as "always applies" —
+#: while the document states conditions that do apply. The danger is identical
+#: regardless of why projection failed, and it is the dangerous direction:
+#: a narrow permission read as an open one. Membership is therefore decided by
+#: that shared consequence, not by the cause, which is recorded separately in
+#: the provenance note.
+_TREE_UNDERSTATES_SOURCE = frozenset({"conditions_not_projected", "conditions_not_representable"})
+
+
 def _ambiguity_for(
     policy: CanonicalPolicy, executable: bool, condition_code: str = "derived"
 ) -> AmbiguityStatus:
@@ -618,7 +770,11 @@ def _ambiguity_for(
     # document says otherwise, so a human must reconcile the two before it can
     # be relied on — treating this as NON_BLOCKING would let a narrow
     # permission read as an open one.
-    if condition_code == "conditions_not_projected":
+    #
+    # This holds whether projection failed because nothing was mapped or
+    # because the agent's grounded logic outran what the condition contract can
+    # represent: the stored tree is equally wrong in both cases.
+    if condition_code in _TREE_UNDERSTATES_SOURCE:
         return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
     if policy.extraction_status == ExtractionStatus.INCOMPLETE or policy.missing_components:
         return AmbiguityStatus.NON_BLOCKING
@@ -902,22 +1058,30 @@ def formulation_to_candidate_rules(
             rule_type, effect_type = RuleType.PROHIBITION, EffectType.DENY
 
         decisions = formulation.decisions_for(index)
-        derived = next(
-            (d for d in (derive_condition(dec, index) for dec in decisions) if d is not None),
-            None,
+        outcomes = [derive_condition_outcome(dec, index) for dec in decisions]
+        derived = next((o for o in outcomes if o.derived), None)
+        # When nothing compiled, report the most actionable failure rather than
+        # the first. A decision the agent grounded but we could not represent
+        # tells a reviewer something an ordinary non-executable one does not,
+        # and it must not be masked by a sibling that was simply never
+        # declared executable.
+        blocking = next(
+            (o for o in outcomes if o.platform_limited),
+            outcomes[0] if outcomes else None,
         )
         if derived is None:
             condition: ConditionNode = _VACUOUS_CONDITION
             required_facts: list[RequiredFact] = []
             machine_executable = False
         else:
-            condition, required_facts = derived
+            condition = derived.condition  # type: ignore[assignment]
+            required_facts = list(derived.facts)
             machine_executable = True
 
         # Why the tree is empty, when it is. Recorded rather than inferred later
         # from the tree's shape, because the shape cannot distinguish "no
         # conditions exist" from "conditions exist but were not projected".
-        condition_code, condition_note = condition_provenance(policy, derived)
+        condition_code, condition_note = condition_provenance(policy, derived, blocking)
 
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the
