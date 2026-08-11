@@ -162,6 +162,15 @@ class RuleLineage(BaseModel):
     prompt_version: str | None = None
     parser_version: str | None = None
     schema_version: str = CANONICAL_SCHEMA_VERSION
+    #: Which document element(s) this specific rule was formulated from, e.g.
+    #: "p5-6-E000050". Scoped to the rule rather than the whole batch, which is
+    #: what stops one rule from a multi-topic batch appearing to come from
+    #: another rule's clause.
+    #:
+    #: It lived in the description until the description became the policy as
+    #: written. Attribution is lineage, not prose, and a reviewer reading the
+    #: rule's text should not have to step over it.
+    source_elements: str = ""
 
 
 class Advice(BaseModel):

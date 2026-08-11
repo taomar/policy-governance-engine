@@ -790,7 +790,7 @@ _PLATFORM_LIMIT_NOTE = (
     "This is a platform limitation, not a missing mapping: the condition tree "
     "compares one fact against a literal value, and cannot yet represent a "
     "comparison against an expression over another fact (for example a "
-    "percentage of basic salary). Extending it requires a change to the "
+    "proportion of some other quantity). Extending it requires a change to the "
     "condition contract and the evaluator, not to the trusted configuration."
 )
 
@@ -1078,27 +1078,40 @@ def _ambiguity_for(
 
 
 def _description_for(policy: CanonicalPolicy, decisions: list[DmnDecision], source_note: str) -> str:
-    """Human-facing description: verbatim source first, then honest caveats.
+    """The policy as written. Nothing else.
 
-    Reviewers judge a drafted rule against what the document actually said, so
-    the source text leads. The notes that follow name every reason the rule is
-    not executable, using the specification's own requirement codes, so a
-    reviewer can see *what would have to be supplied* rather than just that
-    something was missing.
+    This used to append five machine annotations to every description — the
+    formulating agent and source element, the DMN mapping status, any
+    enrichment requirement codes, ambiguity codes, and missing components —
+    followed by a sixth from the caller explaining the condition tree. A
+    reviewer opening a rule met its sentence and then a paragraph of brackets:
+
+        "The recommendations of the director on allowances and benefits are
+         subject to the approval of the President. [Formulated by policy agent
+         — source: p1-E000008] [DMN mapping: not_directly_mappable]
+         [Conditions: no_scope_derived — No conditions were found in the
+         source. …]"
+
+    Every one of those facts is already carried structurally, and was even
+    then: the source element on `lineage`, the mapping status and requirement
+    codes on `formulation.dmn_decisions`, ambiguity and missing components on
+    `formulation.canonical`, and the condition reason on
+    `condition_provenance`. The annotations were a second copy in prose of
+    data the record already held.
+
+    The duplication was not merely untidy. `policy_faithfulness` had to stop
+    reading `description` altogether, because the appended note quotes the very
+    condition it reports as lost — which made a check for lost conditions
+    incapable of failing, and it reported zero findings across 47 rules while
+    three housing-allowance rules had each dropped the staff category that
+    distinguished them.
+
+    `decisions` and `source_note` are retained in the signature: callers pass
+    them, and the projection status is deliberately *not* part of the
+    description because it describes the projection rather than the policy.
     """
 
-    lines = [policy.source_text.strip(), "", f"[Formulated by policy agent — source: {source_note}]"]
-    statuses = {d.dmn_mapping_status.value for d in decisions}
-    if statuses:
-        lines.append(f"[DMN mapping: {', '.join(sorted(statuses))}]")
-    requirements = sorted({r.value for d in decisions for r in d.requirements})
-    if requirements:
-        lines.append(f"[Enrichment required: {', '.join(requirements)}]")
-    if policy.ambiguity:
-        lines.append(f"[Ambiguity: {', '.join(a.value for a in policy.ambiguity)}]")
-    if policy.missing_components:
-        lines.append(f"[Missing: {', '.join(str(m) for m in policy.missing_components)}]")
-    return "\n".join(lines).strip()
+    return policy.source_text.strip()
 
 
 def _passage_matches_for_policy(source_text: str, passages: list[PolicyPassage]) -> list[int]:
@@ -1414,8 +1427,7 @@ def formulation_to_candidate_rules(
                 rule_id=f"AI-{uuid.uuid4().hex[:10]}",
                 rule_revision=1,
                 title=_title_for(policy),
-                description=_description_for(policy, decisions, rule_source_note)
-                + f"\n[Conditions: {provenance.code} — {provenance.message}]",
+                description=_description_for(policy, decisions, rule_source_note),
                 rule_type=rule_type,
                 authority=PolicyAuthority(level="ai_drafted", owner="policy-formulator", rank=0),
                 scope=PolicyScope(),
@@ -1434,6 +1446,7 @@ def formulation_to_candidate_rules(
                     deployment_name=deployment_name,
                     prompt_version=prompt_version,
                     parser_version=parser_version,
+                    source_elements=rule_source_note,
                 ),
                 category=category,
                 tags=[DOCUMENT_GUIDANCE_TAG] if guidance else [],

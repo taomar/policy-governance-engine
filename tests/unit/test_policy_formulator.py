@@ -387,7 +387,11 @@ def test_non_decision_obligation_stays_non_executable_but_is_kept():
     assert rule.rule_type.value == "obligation"
     assert rule.effect.type.value == "require_action"
     assert rule.effect.action == "evaluate the performance of employees they supervise"
-    assert "not_directly_mappable" in rule.description
+    # The projection status stays on the projection. It describes DMN, not the
+    # policy, so it no longer pollutes the description a reviewer reads.
+    assert rule.description == rule.formulation.canonical.source_text.strip()
+    assert "not_directly_mappable" not in rule.description
+    assert rule.formulation.dmn_decisions[0].dmn_mapping_status.value == "not_directly_mappable"
 
 
 def test_enrichment_required_surfaces_its_requirement_codes_to_reviewers():
@@ -423,8 +427,12 @@ def test_enrichment_required_surfaces_its_requirement_codes_to_reviewers():
 
     (rule,) = rules
     assert rule.machine_executable is False
-    assert "FACT_MODEL_REQUIRED" in rule.description
-    assert "VALUE_NORMALIZATION_REQUIRED" in rule.description
+    # The codes are technical notes to a configuration author, so they live on
+    # the projection that raised them rather than in the reviewer's
+    # description. What matters is that nothing was lost in moving them.
+    assert rule.description == rule.formulation.canonical.source_text.strip()
+    codes = [r.value for r in rule.formulation.dmn_decisions[0].requirements]
+    assert codes == ["FACT_MODEL_REQUIRED", "VALUE_NORMALIZATION_REQUIRED"]
     # Section 66: an entitlement must not be promoted to an obligation.
     assert rule.rule_type.value == "permission"
     assert rule.formulation.canonical.rule.rule_type.value == "entitlement"
@@ -580,7 +588,9 @@ def test_ambiguous_extraction_forces_human_judgment():
     (rule,) = rules
     assert rule.rule_type.value == "human_judgment_requirement"
     assert rule.ambiguity_status.value == "human_judgment_required"
-    assert "AMBIGUOUS_THRESHOLD" in rule.description
+    # The ambiguity code is on the canonical record, which is where it was
+    # raised. The description stays the policy as written.
+    assert [a.value for a in rule.formulation.canonical.ambiguity] == ["AMBIGUOUS_THRESHOLD"]
 
 
 def test_shared_decision_table_maps_each_row_to_its_own_rule():
@@ -806,8 +816,8 @@ def test_evidence_is_scoped_to_the_matching_passage_not_the_whole_batch():
     # unrelated seasonal-worker clause the old whole-batch evidence would
     # have attached.
     assert [ev.clause_id for ev in null_and_void_rule.evidence] == ["c-50"]
-    assert "p5-6-E000050" in null_and_void_rule.description
-    assert "p5-E000039" not in null_and_void_rule.description
+    assert "p5-6-E000050" in null_and_void_rule.lineage.source_elements
+    assert "p5-E000039" not in null_and_void_rule.lineage.source_elements
 
 
 def test_evidence_falls_back_to_whole_batch_when_no_passage_matches():
@@ -952,7 +962,7 @@ def test_evidence_narrows_to_the_clause_that_actually_contains_the_rule():
     # "Minor" is defined inside the first clause only. Its three neighbours in
     # the same passage span are other provisions, not this rule's source.
     assert [ev.clause_id for ev in minor_rule.evidence] == ["c-16"]
-    assert "p3-E000017" not in minor_rule.description
+    assert "p3-E000017" not in minor_rule.lineage.source_elements
 
     # The continuous-service rule legitimately spans the numbered items, so it
     # keeps exactly those — the converse containment direction — and does not

@@ -122,24 +122,34 @@ _PARTY_FIELDS: tuple[tuple[str, PartyRole], ...] = (
 #: approval of the President" the verb sits in `predicate` and the party in
 #: `object`, so no one field contains the phrase.
 #:
-#: Every alternative carries an explicit delegation head. A bare passive
-#: ("approved by X") was tried and removed: it matched "clinics and hospitals
-#: that are not approved by the insurance company", a relative clause saying
-#: which hospitals qualify, and reported the insurer as the authority deciding
-#: that rule. The insurer approves hospitals; the rule's actual obligation is
-#: to submit invoices to HR, under nobody's approval. A delegation head cannot
-#: appear that way, which is why the loose form is gone rather than patched.
+#: A bare passive ("approved by X") was tried and removed: it matched a
+#: relative clause qualifying *which* entities are approved and reported the
+#: approver as the authority deciding the rule. A delegation head cannot appear
+#: that way, which is why the loose form is gone rather than patched.
+#:
+#: The party capture ends at punctuation, at end of text, or at an "and" that
+#: begins a **new clause**. The last of those is decided grammatically — an
+#: "and" followed within a few words by a modal or auxiliary verb starts a new
+#: predicate — rather than by naming the nouns a particular document happens to
+#: use. An earlier version listed three, which meant the capture terminated
+#: correctly only for documents drawn from one domain and ran on into the next
+#: clause for every other. "and the Board of Trustees" (a compound party) must
+#: still be captured, while "and the reviewer shall …" (a new clause) must not.
+_NEW_CLAUSE_AFTER_AND = (
+    r"\band\s+(?:the\s+)?(?:[\w'’\-]+\s+){0,3}?"
+    r"(?:shall|must|may|will|would|should|can|is|are|was|were|has|have|had|becomes?|remains?)\b"
+)
 _DELEGATION_RE = re.compile(
-    r"""(?P<marker>
-          subject\s+to\s+the\s+(?:[\w\s]{0,40}?\s+)??(?:approval|judgment|judgement|discretion|consent)\s+of
+    rf"""(?P<marker>
+          subject\s+to\s+the\s+(?:[\w\s]{{0,40}}?\s+)??(?:approval|judgment|judgement|discretion|consent)\s+of
         | at\s+the\s+(?:sole\s+)?discretion\s+of
         | (?:requires?|require)\s+the\s+(?:prior\s+)?(?:approval|authori[sz]ation|consent|endorsement)\s+of
         | with\s+the\s+(?:prior\s+)?(?:approval|authori[sz]ation|consent)\s+of
         | upon\s+the\s+recommendation\s+of
         | as\s+(?:determined|approved|authori[sz]ed|decided)\s+by
     )
-    \s+(?P<party>.{2,80}?)
-    (?=\s*(?:[,;.]|\band\s+(?:the\s+)?(?:employee|staff|manager)\b|$))""",
+    \s+(?P<party>.{{2,80}}?)
+    (?=\s*(?:[,;.]|{_NEW_CLAUSE_AFTER_AND}|$))""",
     re.IGNORECASE | re.VERBOSE,
 )
 

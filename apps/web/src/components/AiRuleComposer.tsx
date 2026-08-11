@@ -15,7 +15,7 @@ const { TextArea } = Input;
 
 const EXAMPLES = [
   "Workers under 18 may not be assigned to night shifts between 11pm and 6am.",
-  "Any expense over 5,000 SAR requires written approval from the finance controller before it is incurred.",
+  "Any expense over 5,000 requires written approval from the finance controller before it is incurred.",
   "An employee who has completed one year of continuous service is entitled to 21 days of paid annual leave.",
 ];
 

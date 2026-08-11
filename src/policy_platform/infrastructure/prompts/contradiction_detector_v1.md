@@ -665,7 +665,7 @@ The objects differ.
 Example:
 
 A:
-Employees receive 10K housing allowance.
+Employees receive a 10K accommodation entitlement.
 
 B:
 Employees receive 5K transport allowance.

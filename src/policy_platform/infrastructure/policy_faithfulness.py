@@ -49,10 +49,33 @@ _NEGATION_RE = re.compile(
 #: whole alternation with `\b`, which silently never matched a percentage: `%`
 #: and the space after it are both non-word characters, so there is no boundary
 #: between them and every "10%" in every document went unchecked.
+#:
+#: Money is matched structurally rather than by listing currencies. An earlier
+#: version enumerated four codes, which meant a document denominated in any
+#: other currency had its every monetary limit go unchecked — the check passed
+#: because it could not see the amounts, not because they survived. A currency
+#: is now any ISO-4217-shaped code (three capitals) or any Unicode currency
+#: symbol, on either side of the number, which is a property of how money is
+#: written rather than of which money a particular customer uses.
+#:
+#: Case sensitivity is scoped rather than global. The whole pattern cannot be
+#: case-insensitive, because `[A-Z]{3}` would then match ordinary words and
+#: read "for", "the" and "and" as currencies. It also cannot be wholly
+#: case-sensitive, because a document writing "30 DAYS" or "10 PERCENT" would
+#: have those limits go unchecked. The unit words therefore carry an inline
+#: `(?i:…)` and the currency code does not.
+_CURRENCY_SYMBOLS = "$€£¥₹₽₩₪₦₨₫₴₸₺﷼"
+_UNIT_WORDS = r"(?i:percent|per\s+cent|days?|months?|years?|hours?|weeks?|times?)"
 _QUANTITY_RE = re.compile(
-    r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|(?:percent|per\s+cent|days?|months?|years?|hours?|"
-    r"weeks?|times?|SAR|USD|EUR|GBP)\b)",
-    re.IGNORECASE,
+    r"(?:"
+    # A currency written before the amount: "USD 5,000", "$5,000".
+    rf"(?:\b[A-Z]{{3}}\b|[{_CURRENCY_SYMBOLS}])\s*\d[\d,]*(?:\.\d+)?"
+    r"|"
+    # An amount followed by a percentage, a unit of time or count, or a
+    # currency written after it: "10%", "30 days", "5,000 USD", "5,000 €".
+    r"\b\d[\d,]*(?:\.\d+)?\s*"
+    rf"(?:%|[{_CURRENCY_SYMBOLS}]|\b[A-Z]{{3}}\b|{_UNIT_WORDS}\b)"
+    r")"
 )
 
 #: Effects that assert something is required or allowed. A negated source must
