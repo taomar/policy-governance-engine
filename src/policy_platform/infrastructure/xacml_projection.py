@@ -30,6 +30,7 @@ reviewer can see is unresolved beats a confident wrong category nobody checks.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from policy_platform.contracts.formulation import (
     CanonicalPolicy,
@@ -378,7 +379,57 @@ def split_conditions(phrase: str) -> list[str]:
     if not text:
         return []
     return [part.strip(" ,;") for part in _CONDITION_SPLIT_RE.split(text) if part.strip(" ,;")]
-def _condition_from(text: str) -> SourceCondition:
+def resolve_fact_status(
+    concept: str, source_phrase: str, fact_model: Mapping[str, object] | None
+) -> tuple[FactModelStatus, str | None]:
+    """Look the concept up in the policy set's fact model.
+
+    Replaces a hardcoded `MISSING` on every condition. That constant happened
+    to be true for a policy set with an empty `trusted_config`, but it was
+    never checked — a three-value enum that only ever emitted one value, which
+    is an assertion wearing the clothes of a finding.
+
+    The fact model is keyed by *source term* (`{"age of the worker":
+    {"feel_expression": "worker.ageYears"}}`), and that key exists precisely so
+    source wording can be recognised. So two things count as a match, both of
+    them quotation rather than similarity:
+
+    * the concept identifier equals a configured term's identifier;
+    * a configured term appears verbatim inside the condition's own sentence.
+
+    Nothing fuzzy. Inventing a correspondence between "director recommendation"
+    and some plausibly-related configured attribute is the same failure as
+    inventing a fact path, and it would be harder to spot because it produces a
+    green badge.
+
+    Returns `(status, matched_term)`.
+    """
+
+    if not fact_model:
+        return FactModelStatus.NOT_CONFIGURED, None
+
+    phrase_slug = _slug(source_phrase)
+    matches: list[str] = []
+    for term in fact_model:
+        term_slug = _slug(str(term))
+        if not term_slug:
+            continue
+        if term_slug == concept or (phrase_slug and term_slug in phrase_slug):
+            matches.append(str(term))
+
+    if not matches:
+        return FactModelStatus.MISSING, None
+    if len(matches) > 1:
+        # Choosing between them would be a guess about which the document
+        # meant, and a wrong choice compiles into a rule that silently tests
+        # the wrong thing.
+        return FactModelStatus.AMBIGUOUS, " | ".join(sorted(matches))
+    return FactModelStatus.MAPPED, matches[0]
+
+
+def _condition_from(
+    text: str, fact_model: Mapping[str, object] | None = None
+) -> SourceCondition:
     """Read one condition phrase into a predicate, or record that it has none.
 
     The distinction this makes is the whole point of the module. A source that
@@ -388,56 +439,66 @@ def _condition_from(text: str) -> SourceCondition:
 
     phrase = " ".join((text or "").split())
 
+    def finish(
+        concept: str,
+        predicate_status: PredicateStatus,
+        operator: str | None = None,
+        value: str | None = None,
+        unspecified_note: str | None = None,
+    ) -> SourceCondition:
+        status, matched = resolve_fact_status(concept, phrase, fact_model)
+        return SourceCondition(
+            source_text=phrase,
+            concept=concept,
+            predicate_status=predicate_status,
+            operator=operator,
+            value=value,
+            unspecified_note=unspecified_note,
+            fact_model_status=status,
+            mapped_to=matched,
+        )
+
     for pattern, operator, value in _RESOLVED_PREDICATE_RE:
         match = pattern.search(phrase)
         if not match:
             continue
         concept = " ".join(match.group("concept").split()).rstrip(".,;")
-        return SourceCondition(
-            source_text=phrase,
-            concept=_slug(concept) or _slug(phrase),
-            predicate_status=PredicateStatus.RESOLVED,
+        return finish(
+            _slug(concept) or _slug(phrase),
+            PredicateStatus.SPECIFIED,
             operator=operator,
             # `value` is None for comparisons whose bound is the concept
             # itself ("not exceeding 5% of basic salary"): the operator and the
             # quantity are both stated, and quoting the quantity as the concept
             # keeps it verbatim rather than parsing a number out of prose.
             value=value if value is not None else concept,
-            fact_model_status=FactModelStatus.MISSING,
         )
 
     match = _DEPENDENCY_ONLY_RE.search(phrase)
     if match:
         concept = " ".join(match.group("concept").split()).rstrip(".,;")
-        return SourceCondition(
-            source_text=phrase,
-            concept=_slug(concept) or _slug(phrase),
-            predicate_status=PredicateStatus.UNRESOLVED,
-            unresolved_reason=(
-                "the source identifies the dependency but does not state the qualifying "
-                "value or comparison"
+        return finish(
+            _slug(concept) or _slug(phrase),
+            PredicateStatus.NOT_SPECIFIED_BY_SOURCE,
+            unspecified_note=(
+                "the condition is stated; the source does not say what value or "
+                "comparison satisfies it"
             ),
-            fact_model_status=FactModelStatus.MISSING,
         )
 
     if any(marker in phrase.casefold() for marker in _DEPENDENCY_MARKERS):
-        return SourceCondition(
-            source_text=phrase,
-            concept=_slug(phrase),
-            predicate_status=PredicateStatus.UNRESOLVED,
-            unresolved_reason=(
-                "the source uses conditional language but states no comparison this "
-                "extraction can read without inventing one"
+        return finish(
+            _slug(phrase),
+            PredicateStatus.NOT_SPECIFIED_BY_SOURCE,
+            unspecified_note=(
+                "the condition is stated; the source does not say what satisfies it"
             ),
-            fact_model_status=FactModelStatus.MISSING,
         )
 
-    return SourceCondition(
-        source_text=phrase,
-        concept=_slug(phrase),
-        predicate_status=PredicateStatus.UNRESOLVED,
-        unresolved_reason="no testable predicate could be read from this phrase",
-        fact_model_status=FactModelStatus.MISSING,
+    return finish(
+        _slug(phrase),
+        PredicateStatus.NOT_SPECIFIED_BY_SOURCE,
+        unspecified_note="the source does not state a comparison for this condition",
     )
 
 
@@ -483,8 +544,16 @@ def _effect_for(
     return None, "the source's normative force could not be read, so no Effect is asserted"
 
 
-def build_xacml_view(policy: CanonicalPolicy | None) -> PolicyXacmlView:
-    """Project one canonical policy into the four separated layers."""
+def build_xacml_view(
+    policy: CanonicalPolicy | None, fact_model: Mapping[str, object] | None = None
+) -> PolicyXacmlView:
+    """Project one canonical policy into the four separated layers.
+
+    `fact_model` is the policy set's `trusted_config["fact_model"]` — keyed by
+    source term. Omitting it means no fact model is configured, and every
+    condition reports `not_configured` rather than `missing`: those are
+    different jobs, and only one of them is per-attribute.
+    """
 
     if policy is None or policy.rule is None:
         return PolicyXacmlView()
@@ -500,7 +569,7 @@ def build_xacml_view(policy: CanonicalPolicy | None) -> PolicyXacmlView:
         if (phrase or "").strip()
     ]
     conditions = [
-        _condition_from(part)
+        _condition_from(part, fact_model)
         for phrase in condition_phrases
         for part in split_conditions(phrase or "")
     ]
@@ -564,6 +633,7 @@ def build_xacml_view(policy: CanonicalPolicy | None) -> PolicyXacmlView:
             attribute_id=condition.concept,
             status=condition.fact_model_status,
             source_phrase=condition.source_text,
+            mapped_to=condition.mapped_to,
         )
         for condition in conditions
     ]
@@ -572,7 +642,7 @@ def build_xacml_view(policy: CanonicalPolicy | None) -> PolicyXacmlView:
         compilation = (
             CompilationStatus.EXECUTABLE if effect else CompilationStatus.NOT_EXECUTABLE
         )
-    elif all(c.predicate_status is PredicateStatus.RESOLVED for c in conditions):
+    elif all(c.predicate_status is PredicateStatus.SPECIFIED for c in conditions):
         compilation = CompilationStatus.PARTIALLY_EXECUTABLE
     else:
         compilation = CompilationStatus.NOT_EXECUTABLE
@@ -600,6 +670,9 @@ def build_xacml_view(policy: CanonicalPolicy | None) -> PolicyXacmlView:
             advice_expressions=advice,
             compilation_status=compilation,
         ),
-        fact_model_readiness=FactModelReadiness(required_attributes=required),
+        fact_model_readiness=FactModelReadiness(
+            required_attributes=required,
+            fact_model_configured=bool(fact_model),
+        ),
         runtime_evaluation=None,
     )

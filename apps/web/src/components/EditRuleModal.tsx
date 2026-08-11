@@ -24,9 +24,11 @@ import {
   PolicyPlatformApiError,
   type CandidateRule,
   type CanonicalRule,
+  type ConditionNode,
   type PolicyScope,
   type ScenarioEvaluation,
 } from "../api";
+import { machineExecutableFor } from "../ruleExecutability";
 import { RuleCard } from "./RuleCard";
 import { ScopeFieldsEditor } from "./ScopeEditor";
 import { normalizeScope } from "../scopeUtils";
@@ -164,6 +166,20 @@ export function EditRuleModal(props: EditRuleModalProps) {
       }
     }
     const filteredRows = conditionRows.filter((r) => r.fact.trim() !== "");
+    // Clearing every row must actually clear the condition. Falling back to
+    // `rule.condition` whenever the list was empty made that impossible: the
+    // rows vanished from the form, the save succeeded, and the old condition
+    // came back with nothing to explain it. The fallback still applies when
+    // `rowsFromCondition` is null — that means the stored condition is richer
+    // than the row editor can show (OR/NOT/nesting) and the modal is in raw
+    // JSON mode, so an empty list there means "never editable here", not
+    // "cleared".
+    const nextCondition: ConditionNode =
+      filteredRows.length > 0
+        ? buildCondition(filteredRows)
+        : rowsFromCondition === null
+          ? rule.condition
+          : { type: "all", all: [] };
     return {
       ...rule,
       rule_revision: isRevise ? rule.rule_revision + 1 : rule.rule_revision,
@@ -184,7 +200,11 @@ export function EditRuleModal(props: EditRuleModalProps) {
       supersedes_rule_ids: supersedesRuleIds,
       group_label: groupLabel,
       related_rule_ids: relatedRuleIds,
-      condition: filteredRows.length > 0 ? buildCondition(filteredRows) : rule.condition,
+      condition: nextCondition,
+      // Derived, never carried over. Spreading `...rule` kept the extracted
+      // `false` even after a reviewer had supplied a real condition, so the
+      // engine short-circuited to NOT_APPLICABLE and the edit never ran.
+      machine_executable: machineExecutableFor(nextCondition),
       required_facts:
         filteredRows.length > 0
           ? filteredRows.map((r) => ({
@@ -192,9 +212,11 @@ export function EditRuleModal(props: EditRuleModalProps) {
               data_type: isNaN(Number(r.value)) ? "string" : "number",
               required: true,
             }))
-          : rule.required_facts,
+          : rowsFromCondition === null
+            ? rule.required_facts
+            : [],
     };
-  }, [advancedMode, advancedJson, rule, isRevise, title, description, ruleType, effectType, effectAction, priority, effectiveFrom, effectiveTo, category, tagsText, scope, isExplicitOverride, supersedesRuleIds, groupLabel, relatedRuleIds, conditionRows]);
+  }, [advancedMode, advancedJson, rule, rowsFromCondition, isRevise, title, description, ruleType, effectType, effectAction, priority, effectiveFrom, effectiveTo, category, tagsText, scope, isExplicitOverride, supersedesRuleIds, groupLabel, relatedRuleIds, conditionRows]);
 
   const handleSave = async () => {
     setError(null);

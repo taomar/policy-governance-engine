@@ -94,7 +94,7 @@ def _condition_summary(rule: CanonicalRule) -> str:
     if node_type == "any":
         return f"any of {len(node.any)} comparison(s)"
     if node_type == "alwaysTrue":
-        return "always true (placeholder — not machine executable)"
+        return "always true (placeholder — no fact mapping, so the engine cannot decide it)"
     return str(node_type or "unknown")
 
 

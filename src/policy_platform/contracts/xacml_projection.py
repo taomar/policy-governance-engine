@@ -58,18 +58,29 @@ class PredicateStatus(str, Enum):
     Entirely about the document. Independent of whether this deployment can
     supply the attribute — that is `FactModelStatus`, and conflating the two is
     the defect this module exists to fix.
+
+    Neither value says the condition is deficient. In both cases the condition
+    is identified: "depending on the recommendation of the director of the
+    concerned Department" names its condition completely — the director's
+    recommendation is what governs. What varies is whether the source also said
+    what would *satisfy* it. Presenting `UNRESOLVED` as a flaw in the condition
+    misreads a clear sentence as an unclear one.
     """
 
     #: The source states a complete test. "after the trial period has expired"
     #: means `trial-period-expired = true`; nothing has to be invented to know
     #: what would satisfy it.
-    RESOLVED = "resolved"
-    #: The source names a dependency but never says what qualifies. "depending
-    #: on the financial position of the University" establishes that financial
-    #: position matters and does not say whether that means a threshold, a
-    #: boolean, or a judgement. Inventing `financial-position = good` would
-    #: manufacture a test the policy never wrote.
-    UNRESOLVED = "unresolved"
+    SPECIFIED = "specified"
+    #: The condition is identified and the source never says what qualifies.
+    #: "depending on the financial position of the University" establishes that
+    #: financial position governs and does not say whether that means a
+    #: threshold, a boolean, or a judgement. Inventing `financial-position =
+    #: good` would manufacture a test the policy never wrote.
+    #:
+    #: This is a property of the document, not a failure of extraction, and
+    #: frequently the correct and final state — many policies delegate rather
+    #: than specify.
+    NOT_SPECIFIED_BY_SOURCE = "not_specified_by_source"
 
 
 class FactModelStatus(str, Enum):
@@ -85,6 +96,18 @@ class FactModelStatus(str, Enum):
     #: More than one candidate attribute could serve, and choosing would be a
     #: guess about which the document meant.
     AMBIGUOUS = "ambiguous"
+    #: No fact model exists for this policy set at all.
+    #:
+    #: Distinct from `missing`, and the distinction is the difference between
+    #: two very different jobs. `missing` says a fact model exists and does not
+    #: cover this attribute — go and add one entry. `not_configured` says
+    #: nothing has been set up, so *every* attribute would read `missing` and
+    #: there is no per-attribute gap to hunt for; the work is to author a fact
+    #: model at all.
+    #:
+    #: Collapsing them sends a reviewer looking for one absent attribute when
+    #: the truth is that nothing was ever configured.
+    NOT_CONFIGURED = "not_configured"
 
 
 class EntityRole(str, Enum):
@@ -180,15 +203,23 @@ class SourceCondition(BaseModel):
     #: could be derived — `trial-period-expired`, `university-financial-position`.
     concept: str
     predicate_status: PredicateStatus
-    #: The comparison, when `predicate_status` is `resolved`. Left None for
-    #: `unresolved`: a rule that names a dependency without stating its test
-    #: has no operator, and supplying one would manufacture the policy.
+    #: The comparison, when `predicate_status` is `specified`. Left None
+    #: otherwise: a condition whose qualifying test the source never stated has
+    #: no operator, and supplying one would manufacture the policy.
     operator: str | None = None
     value: str | None = None
-    #: Why the predicate is unresolved, for a reviewer deciding whether to go
-    #: back to the document or to the policy owner.
-    unresolved_reason: str | None = None
-    fact_model_status: FactModelStatus = FactModelStatus.MISSING
+    #: What the source left open, phrased as an observation about the document
+    #: rather than a fault. Only set when the test is unspecified.
+    unspecified_note: str | None = None
+    #: Defaults to `NOT_CONFIGURED` rather than `MISSING`. Until a fact model
+    #: is actually consulted, "this attribute is absent from the fact model" is
+    #: a claim nobody has checked — and the earlier version hardcoded `MISSING`
+    #: on every condition, which was an assertion dressed as a finding.
+    fact_model_status: FactModelStatus = FactModelStatus.NOT_CONFIGURED
+    #: The fact-model entry this resolved to, when it resolved. Quoted so a
+    #: reviewer can see which configured term matched rather than trust that
+    #: one did.
+    mapped_to: str | None = None
 
 
 class ObligationExpression(BaseModel):
@@ -263,20 +294,44 @@ class RequiredAttribute(BaseModel):
     #: The source phrase that gave rise to it, verbatim, so a reviewer mapping
     #: it to a customer schema can see what it has to mean.
     source_phrase: str
+    mapped_to: str | None = None
 
 
 class FactModelReadiness(BaseModel):
     """Whether this deployment can evaluate the rule. Never a decision."""
 
     required_attributes: list[RequiredAttribute] = Field(default_factory=list)
+    #: True when the policy set has no fact model at all. Reported once for the
+    #: rule rather than repeated per attribute: when nothing is configured,
+    #: every attribute is unresolvable for the same single reason, and listing
+    #: that reason N times reads as N separate problems.
+    fact_model_configured: bool = False
 
     @property
     def missing(self) -> list[RequiredAttribute]:
+        """Attributes a configured fact model does not cover.
+
+        Excludes `NOT_CONFIGURED`, which is not a per-attribute gap — see
+        `FactModelStatus.NOT_CONFIGURED`. Counting those here would report
+        "12 missing attributes" for a policy set whose only real finding is
+        that nobody has authored a fact model.
+        """
+
         return [a for a in self.required_attributes if a.status is FactModelStatus.MISSING]
 
     @property
+    def unresolvable(self) -> list[RequiredAttribute]:
+        """Everything that cannot be supplied today, whatever the reason."""
+
+        return [
+            a
+            for a in self.required_attributes
+            if a.status in (FactModelStatus.MISSING, FactModelStatus.NOT_CONFIGURED, FactModelStatus.AMBIGUOUS)
+        ]
+
+    @property
     def ready(self) -> bool:
-        return not self.missing
+        return not self.unresolvable
 
 
 class PolicyXacmlView(BaseModel):

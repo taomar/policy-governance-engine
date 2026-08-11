@@ -70,6 +70,7 @@ import {
   CONDITION_OPERATORS,
   type ConditionRow,
 } from "../conditionRows";
+import { machineExecutableFor } from "../ruleExecutability";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
@@ -645,6 +646,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         rule = JSON.parse(advancedJson);
       } else {
         const filledRows = conditionRows.filter((r) => r.fact.trim() !== "");
+        // Only override the generated condition once the user has actually
+        // entered one; an untouched form must not silently replace extracted
+        // logic with an empty conjunction.
+        const draftCondition =
+          filledRows.length > 0
+            ? buildCondition(filledRows)
+            : (aiGeneratedRule?.condition ?? buildCondition([]));
         rule = {
           // Start from the generated rule (when there is one) so agent-authored
           // fields without a widget — formulation, lineage, ambiguity status —
@@ -663,13 +671,14 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           supersedes_rule_ids: draftSupersedesRuleIds,
           group_label: draftGroupLabel,
           related_rule_ids: draftRelatedRuleIds,
-          // Only override the generated condition once the user has actually
-          // entered one; an untouched form must not silently replace extracted
-          // logic with an empty conjunction.
-          condition:
-            filledRows.length > 0
-              ? buildCondition(filledRows)
-              : (aiGeneratedRule?.condition ?? buildCondition([])),
+          condition: draftCondition,
+          // Derived from the condition, in both directions. Neither source was
+          // right before: with no AI rule the field was absent, so the server
+          // default (True) paired with an empty conjunction and claimed a rule
+          // with nothing to test was executable; with an AI rule the spread
+          // carried its `false` over a condition the user had just built by
+          // hand, so the engine short-circuited before ever reading it.
+          machine_executable: machineExecutableFor(draftCondition),
           effect: { type: effectType, action: effectAction },
           required_facts:
             filledRows.length > 0
@@ -1247,7 +1256,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 <dd>{bandedFamilyCount}</dd>
                 <small>
                   {unfamiliedCount > 0
-                    ? `${unfamiliedCount} of ${filteredCandidates.length} stand alone`
+                    ? `${unfamiliedCount} of ${totalCandidates} stand alone`
                     : "In the current view"}
                 </small>
               </div>

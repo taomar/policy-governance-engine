@@ -24,6 +24,7 @@ import type {
 import { ruleDecisionSummary } from "../ruleDisplay";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyInspector } from "./PolicyInspector";
+import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Text, Title } = Typography;
 
@@ -573,7 +574,7 @@ export function QualityFindingDrawer({
                           </div>
                           <div className="quality-policy-evidence-meta">
                             <span>Priority {rule.priority}</span>
-                            <span>{rule.machine_executable ? "Machine-executable" : "Documentation only"}</span>
+                            <span>{rule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}</span>
                             <span>Effective {rule.effective_from} → {rule.effective_to ?? "open-ended"}</span>
                             <span>
                               {evidence

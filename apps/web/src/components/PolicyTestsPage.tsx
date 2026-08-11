@@ -771,14 +771,15 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         <Alert
           type="warning"
           showIcon
-          message="No rule in the published version is machine-executable yet"
+          message="No published rule can be decided by the deterministic engine yet"
           description={
             <span>
-              All {executableCount.total} published rules are documented prose that has not been reduced to executable
-              logic. The evaluator returns <Tag>NOT_APPLICABLE</Tag> for such a rule immediately, without reading its
-              scope or condition — so this policy set cannot return <Tag>SATISFIED</Tag> for anything, and any test
-              expecting it will fail every time. Check a proposal before accepting it, and treat{" "}
-              <Tag>NOT_APPLICABLE</Tag> as the correct expectation here until the rules are made executable.
+              None of the {executableCount.total} published rules has a fact mapping, so the engine returns{" "}
+              <Tag>NOT_APPLICABLE</Tag> for each of them before reading scope or condition — which means this policy set
+              cannot return <Tag>SATISFIED</Tag> for anything, and a test expecting it will fail every time. That is a
+              configuration gap on our side, not a judgement about the policies: a rule can state its terms perfectly
+              and still have no attribute mapped onto them. Treat <Tag>NOT_APPLICABLE</Tag> as the correct expectation
+              here until a fact model is configured.
             </span>
           }
         />
@@ -788,8 +789,8 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         <Alert
           type="info"
           showIcon
-          message={`${executableCount.executable} of ${executableCount.total} published rules are machine-executable`}
-          description="The remaining rules are documented prose and always evaluate to NOT_APPLICABLE, whatever their scope or condition says. Tests aimed at those rules can only assert NOT_APPLICABLE."
+          message={`${executableCount.executable} of ${executableCount.total} published rules have a fact mapping`}
+          description="The rest always evaluate to NOT_APPLICABLE in the deterministic engine, whatever their scope or condition says, because nothing maps their terms onto readable attributes. Tests aimed at those rules can only assert NOT_APPLICABLE — that is a limit of this engine, not a statement that the rules are unclear."
         />
       )}
 

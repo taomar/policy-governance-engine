@@ -7,7 +7,6 @@ import {
   ExclamationCircleOutlined,
   ReadOutlined,
   RightOutlined,
-  ToolOutlined,
 } from "@ant-design/icons";
 import type { CandidateRule } from "../api";
 import {
@@ -23,6 +22,7 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { ExecutabilityFlag } from "./ExecutabilityBadge";
 import { DELTA_META } from "./ReviewFilterBar";
 
 interface CandidateRowProps {
@@ -151,11 +151,7 @@ export function CandidateRow({
                 />
               </Tooltip>
             )}
-            {!rule.machine_executable && (
-              <Tooltip title="Manual rule — not machine-executable">
-                <ToolOutlined className="policy-row-flag" />
-              </Tooltip>
-            )}
+            <ExecutabilityFlag rule={rule} />
           </span>
           <span className="policy-row-statuses">
             <PolicyEffectBadge effect={rule.effect} size="small" />

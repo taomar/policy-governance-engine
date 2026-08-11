@@ -32,6 +32,7 @@ import { PolicyInspector } from "./PolicyInspector";
 import { JsonView } from "./JsonView";
 import { ruleDecisionSummary } from "../ruleDisplay";
 import { resolveClausesById } from "../clauseCache";
+import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -721,7 +722,7 @@ export function PolicyValidationLab({
               <Text strong>Policies under test</Text>
               <Text type="secondary">
                 {selectedRuleIds.size} selected · {executableRules.length} testable · {excludedDefinitionCount} definitions excluded ·{" "}
-                {excludedDocumentationCount} documentation-only excluded
+                {excludedDocumentationCount} awaiting a fact mapping
               </Text>
             </div>
             <Button
@@ -809,7 +810,7 @@ export function PolicyValidationLab({
                   </span>
                   <PolicyEffectBadge effect={rule.effect} size="small" />
                   <Tag color={rule.machine_executable ? "green" : "default"}>
-                    {rule.machine_executable ? "Executable" : "Documentation only"}
+                    {rule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}
                   </Tag>
                 </div>
               ))}
@@ -1259,7 +1260,7 @@ export function PolicyValidationLab({
                 <>
                   <div className="validation-test-policy-badges">
                     <PolicyEffectBadge effect={previewRule.effect} />
-                    <Tag>{previewRule.machine_executable ? "Machine-executable" : "Documentation only"}</Tag>
+                    <Tag>{previewRule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}</Tag>
                     <Tag>{previewRule.evidence.length} source citation{previewRule.evidence.length === 1 ? "" : "s"}</Tag>
                   </div>
                   <div className="validation-test-policy-decision">

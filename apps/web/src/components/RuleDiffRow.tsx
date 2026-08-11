@@ -1,10 +1,11 @@
 import { Button, Tag, Tooltip } from "antd";
-import { CrownOutlined, DownOutlined, ExclamationCircleOutlined, ToolOutlined, UpOutlined } from "@ant-design/icons";
+import { CrownOutlined, DownOutlined, ExclamationCircleOutlined, UpOutlined } from "@ant-design/icons";
 import type { CanonicalRule } from "../api";
 import { ambiguityMeta, hasAmbiguityFlag, ruleConditionLine } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { ExecutabilityFlag } from "./ExecutabilityBadge";
 
 interface RuleDiffRowProps {
   rule: CanonicalRule;
@@ -65,11 +66,7 @@ export function RuleDiffRow({ rule, diffKind, expanded, onToggleExpand }: RuleDi
                 />
               </Tooltip>
             )}
-            {!rule.machine_executable && (
-              <Tooltip title="Manual rule — not machine-executable">
-                <ToolOutlined className="policy-row-flag" />
-              </Tooltip>
-            )}
+            <ExecutabilityFlag rule={rule} />
           </span>
           <PolicyEffectBadge effect={rule.effect} size="small" />
         </div>

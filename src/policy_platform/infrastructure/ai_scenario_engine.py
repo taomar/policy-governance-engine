@@ -243,10 +243,10 @@ async def run_rule_scenario(
 
     mapping_statuses, formulation_requirements = _formulation_status(rule)
 
-    # A documentation-only rule is deliberately skipped by the evaluator before
-    # it reads facts. Do not spend two AI calls translating a scenario the real
-    # engine is contractually unable to evaluate, and do not let an explainer
-    # guess that the scenario merely omitted facts.
+    # A rule with no fact mapping is deliberately skipped by the evaluator
+    # before it reads facts. Do not spend two AI calls translating a scenario
+    # the real engine is contractually unable to evaluate, and do not let an
+    # explainer guess that the scenario merely omitted facts.
     if not rule.machine_executable:
         request = EvaluationRequest(
             policy_set_id=package.policy_set_id,
@@ -260,6 +260,19 @@ async def run_rule_scenario(
         rule_result = find_rule_result(rule_id, response.rule_results)
         requirements = ", ".join(formulation_requirements) or "a formal fact/condition mapping"
         mapping = ", ".join(mapping_statuses) or "not mapped"
+        # Says what is actually true of *this engine*, and — where the readiness
+        # assessment exists — what is true of the rule. The earlier wording
+        # called the rule "documentation-only", which a reader takes as a
+        # verdict on the policy. It is not: the same rule may state its subject,
+        # its threshold and its approver completely and still have nothing
+        # mapping those terms onto attributes the engine can read.
+        readiness = rule.decision_readiness
+        readiness_note = ""
+        if readiness is not None:
+            readiness_note = (
+                f" Read against its own source, this rule is '{readiness.evaluability}' — "
+                f"{readiness.reason}"
+            )
         return {
             "rule_id": rule_id,
             "rule_title": rule.title,
@@ -271,11 +284,12 @@ async def run_rule_scenario(
             "overall_evaluation_status": response.overall_status.value,
             "missing_facts": [],
             "explanation": (
-                "This is not a failed policy decision. The published rule is documentation-only "
-                "(machine_executable=false), so the deterministic evaluator returns NOT_APPLICABLE "
-                f"before reading scenario facts. Its DMN mapping is {mapping} and requires {requirements}. "
-                "Publish a revision with executable required facts and a formal condition before scenario "
-                "testing can produce SATISFIED or NOT_SATISFIED."
+                "This is not a failed policy decision. No fact model maps this rule's terms onto "
+                "attributes the deterministic engine can read (machine_executable=false), so it "
+                "returns NOT_APPLICABLE before reading scenario facts. Its DMN mapping is "
+                f"{mapping} and requires {requirements}.{readiness_note} Configure a fact model, or "
+                "publish a revision with a formal condition, before scenario testing here can "
+                "produce SATISFIED or NOT_SATISFIED."
             ),
             "reasoning_effort": reasoning_effort,
             "evaluation_timestamp": response.evaluation_timestamp.isoformat(),

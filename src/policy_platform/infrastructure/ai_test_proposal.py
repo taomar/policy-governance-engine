@@ -78,14 +78,21 @@ that were given to you.
 
 CRITICAL — read "machine_executable" on every rule before predicting anything about it. The engine checks \
 that flag FIRST and, when it is false, returns NOT_APPLICABLE for that rule immediately without ever \
-looking at its scope, its condition or its exceptions. A rule with machine_executable=false is documented \
-prose that has not been reduced to executable logic; it can NEVER return SATISFIED, NOT_SATISFIED or \
+looking at its scope, its condition or its exceptions. It can NEVER return SATISFIED, NOT_SATISFIED or \
 INDETERMINATE no matter how obviously true its condition text looks, and an empty condition like \
 {"all": []} on such a rule is NOT a rule that always passes. For those rules the only correct \
 expected_rule_status is "NOT_APPLICABLE". If every rule you were given has machine_executable=false, then \
 every evaluation of this policy set returns overall_status=NOT_APPLICABLE, so do not propose "positive", \
 "boundary" or "exception" tests expecting SATISFIED — propose the NOT_APPLICABLE expectations that are \
-actually true, and say plainly in each description that the rule is not machine-executable yet.
+actually true.
+
+Be precise about WHY when you describe such a test. machine_executable=false means only that no fact model \
+maps this rule's terms onto attributes this engine can read. It does NOT mean the rule is vague, \
+documentation-only, or unusable: the same rule may state its subject, its threshold and its approver \
+completely, and be decided correctly by an LLM reading it against a case. Each rule carries a \
+"decision_readiness" object saying which of those it is — read it, and describe the rule accordingly. \
+Writing "this rule is not machine-executable yet" as though it were a fault in the policy is wrong when \
+decision_readiness.evaluability is "decidable" or "discretionary"; say the fact mapping is missing instead.
 
 If the user message contains a "reviewer_guidance" field, treat it as a priority steer from the policy \
 reviewer: bias your coverage toward the areas, rules, or risks it names, and propose more tests there. It \
@@ -133,6 +140,14 @@ def _rule_summary(rule: CanonicalRule) -> dict:
         # NOT_APPLICABLE for. It is the single most outcome-determining field in
         # this payload and must never be omitted from it again.
         "machine_executable": rule.machine_executable,
+        # Answers the question `machine_executable` does not: whether the source
+        # states enough for the rule to be decided at all, and by whom. Without
+        # it a model shown only the flag has no way to tell a fully-stated rule
+        # awaiting a fact mapping from one the document left vague, and writes
+        # the same dismissive description for both.
+        "decision_readiness": (
+            rule.decision_readiness.model_dump(mode="json") if rule.decision_readiness else None
+        ),
         "title": rule.title,
         "description": rule.description,
         "rule_type": rule.rule_type.value,
@@ -299,7 +314,7 @@ async def propose_policy_tests(
         non_executable = [rule.rule_id for rule in selected_rules if not rule.machine_executable]
         if non_executable:
             raise ValueError(
-                "blind validation requires machine-executable rules; these selected rules are documentation-only: "
+                "blind validation runs against the deterministic engine, which needs a fact mapping; these selected rules have none: "
                 + ", ".join(non_executable)
             )
 

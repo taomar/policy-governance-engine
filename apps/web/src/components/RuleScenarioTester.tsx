@@ -23,6 +23,7 @@ import {
   type EvaluationStatus,
   type RuleScenarioTestResult,
 } from "../api";
+import { DETERMINISTIC_LABEL, DETERMINISTIC_REASON } from "../ruleExecutability";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -87,7 +88,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         message={
           rule.machine_executable
             ? "Runs the real deterministic engine"
-            : "This published rule is documentation-only and cannot be scenario-tested yet"
+            : DETERMINISTIC_REASON
         }
         description={
           rule.machine_executable ? (
@@ -145,7 +146,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
           loading={loading}
           disabled={!scenario.trim() || !rule.machine_executable}
         >
-          {rule.machine_executable ? (loading ? "Running…" : "Test with real engine") : "Not testable yet"}
+          {rule.machine_executable ? (loading ? "Running…" : "Test with real engine") : "Needs a fact mapping"}
         </Button>
       </Space>
 
@@ -180,7 +181,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
               </Tooltip>
             )}
             <Tag>Reasoning effort: {result.reasoning_effort}</Tag>
-            {result.testability_reason && <Tag color="gold">Documentation-only rule</Tag>}
+            {result.testability_reason && <Tag color="gold">{DETERMINISTIC_LABEL.no}</Tag>}
           </Space>
 
           <Paragraph>{result.explanation}</Paragraph>

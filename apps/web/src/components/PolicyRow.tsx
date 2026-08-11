@@ -8,7 +8,6 @@ import {
   EditOutlined,
   ExclamationCircleOutlined,
   MoreOutlined,
-  ToolOutlined,
 } from "@ant-design/icons";
 import type { CanonicalRule } from "../api";
 import {
@@ -24,6 +23,7 @@ import {
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { ExecutabilityFlag } from "./ExecutabilityBadge";
 
 export type PolicyDensity = "comfortable" | "compact";
 
@@ -233,11 +233,7 @@ export function PolicyRow({
                 />
               </Tooltip>
             )}
-            {!rule.machine_executable && (
-              <Tooltip title="Manual rule — not machine-executable">
-                <ToolOutlined className="policy-row-flag" />
-              </Tooltip>
-            )}
+            <ExecutabilityFlag rule={rule} />
           </span>
           <span className="policy-row-statuses">
             <PolicyEffectBadge effect={rule.effect} size="small" />

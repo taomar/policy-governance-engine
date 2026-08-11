@@ -27,6 +27,7 @@ from policy_platform.infrastructure.xacml_projection import (
     classify_entities,
     is_passive_predicate,
     normalize_action,
+    resolve_fact_status,
     split_conditions,
 )
 
@@ -52,7 +53,7 @@ class TestA_ResolvedPredicateSurvivesAMissingFactModel:
 
     def test_predicate_is_resolved(self) -> None:
         condition = self._view().source_semantics.conditions[0]
-        assert condition.predicate_status is PredicateStatus.RESOLVED
+        assert condition.predicate_status is PredicateStatus.SPECIFIED
 
     def test_predicate_is_a_boolean_equality_on_the_named_concept(self) -> None:
         condition = self._view().source_semantics.conditions[0]
@@ -60,17 +61,38 @@ class TestA_ResolvedPredicateSurvivesAMissingFactModel:
         assert condition.operator == "boolean-equal"
         assert condition.value == "true"
 
-    def test_fact_model_is_missing_and_that_does_not_change_the_semantics(self) -> None:
+    def test_fact_model_is_unresolvable_and_that_does_not_change_the_semantics(self) -> None:
         """The two axes are independent. A perfectly stated condition we
-        cannot yet supply an attribute for is `resolved` + `missing`."""
+        cannot yet supply an attribute for stays `resolved` either way."""
 
         condition = self._view().source_semantics.conditions[0]
-        assert condition.predicate_status is PredicateStatus.RESOLVED
+        assert condition.predicate_status is PredicateStatus.SPECIFIED
+        assert condition.fact_model_status is FactModelStatus.NOT_CONFIGURED
+
+    def test_a_configured_model_lacking_the_term_says_missing(self) -> None:
+        """`missing` and `not_configured` are different jobs: add one entry
+        versus author a fact model at all. The semantics are identical in both
+        cases, which is the point."""
+
+        view = build_xacml_view(
+            CanonicalPolicy(
+                source_text="The allowance is paid after the trial period has expired.",
+                rule=CanonicalPolicyRule(
+                    rule_type=CanonicalRuleType.ENTITLEMENT,
+                    subject="The allowance",
+                    predicate="is paid",
+                    condition="after the trial period has expired",
+                ),
+            ),
+            fact_model={"basic salary": {"feel_expression": "employee.salary.basic"}},
+        )
+        condition = view.source_semantics.conditions[0]
+        assert condition.predicate_status is PredicateStatus.SPECIFIED
         assert condition.fact_model_status is FactModelStatus.MISSING
 
     def test_readiness_reports_the_gap_separately(self) -> None:
         readiness = self._view().fact_model_readiness
-        assert [a.attribute_id for a in readiness.missing] == ["trial-period"]
+        assert [a.attribute_id for a in readiness.unresolvable] == ["trial-period"]
         assert not readiness.ready
 
 
@@ -97,7 +119,7 @@ class TestB_DependencyWithoutAStatedTest:
 
     def test_predicate_is_unresolved(self) -> None:
         condition = self._view().source_semantics.conditions[0]
-        assert condition.predicate_status is PredicateStatus.UNRESOLVED
+        assert condition.predicate_status is PredicateStatus.NOT_SPECIFIED_BY_SOURCE
 
     def test_no_operator_is_invented(self) -> None:
         """The source never says whether this means a threshold, a boolean or
@@ -108,12 +130,13 @@ class TestB_DependencyWithoutAStatedTest:
         assert condition.value is None
 
     def test_the_dependency_is_still_recorded(self) -> None:
-        """Unresolved is not discarded. The source said financial position
-        matters, and losing that is as wrong as inventing a test for it."""
+        """An unspecified test is not a discarded condition. The source said
+        financial position governs, and losing that is as wrong as inventing a
+        test for it."""
 
         condition = self._view().source_semantics.conditions[0]
         assert condition.concept == "financial-position-of-the-university"
-        assert "does not state the qualifying" in (condition.unresolved_reason or "")
+        assert "the condition is stated" in (condition.unspecified_note or "")
 
 
 class TestC_ApprovalConditionIsStructured:
@@ -137,7 +160,7 @@ class TestC_ApprovalConditionIsStructured:
             )
         )
         condition = view.source_semantics.conditions[0]
-        assert condition.predicate_status is PredicateStatus.RESOLVED
+        assert condition.predicate_status is PredicateStatus.SPECIFIED
         assert condition.operator == "boolean-equal"
         assert condition.value == "true"
         assert "president" in condition.concept
@@ -420,7 +443,7 @@ class TestI_NoRuntimeResultIsProducedAtExtraction:
 
     def test_the_missing_mapping_is_reported_as_readiness_not_as_a_decision(self) -> None:
         for view in self._views():
-            assert view.fact_model_readiness.missing
+            assert view.fact_model_readiness.unresolvable
             assert view.xacml_projection.compilation_status in {
                 CompilationStatus.NOT_EXECUTABLE,
                 CompilationStatus.PARTIALLY_EXECUTABLE,
@@ -450,7 +473,7 @@ class TestJ_MissingCoverageStaysVisible:
         )
         assert len(view.fact_model_readiness.required_attributes) == 1
         attribute = view.fact_model_readiness.required_attributes[0]
-        assert attribute.status is FactModelStatus.MISSING
+        assert attribute.status is FactModelStatus.NOT_CONFIGURED
         assert attribute.source_phrase.startswith("depending on the recommendation")
 
     def test_readiness_quotes_the_source_phrase(self) -> None:
@@ -622,6 +645,209 @@ class TestChainedConditionsAreSeparated:
             )
         )
         assert len(view.fact_model_readiness.required_attributes) == 2
+
+
+class TestFactModelIsActuallyConsulted:
+    """The status was hardcoded `MISSING` on every condition.
+
+    It happened to be true for a policy set with an empty `trusted_config`,
+    but nothing checked — a three-value enum that only ever emitted one value
+    is an assertion wearing the clothes of a finding. These prove the lookup
+    runs and can reach every outcome.
+    """
+
+    _FACT_MODEL = {
+        "the trial period": {"feel_expression": "employment.trialPeriodExpired"},
+        "basic salary": {"feel_expression": "employee.salary.basic"},
+    }
+
+    def test_no_fact_model_is_not_configured_not_missing(self) -> None:
+        """Different jobs. `missing` says go add one entry; `not_configured`
+        says nobody has authored a fact model, so there is no per-attribute
+        gap to hunt for."""
+
+        status, matched = resolve_fact_status("trial-period", "after the trial period has expired", None)
+        assert status is FactModelStatus.NOT_CONFIGURED
+        assert matched is None
+
+    def test_empty_fact_model_is_also_not_configured(self) -> None:
+        assert resolve_fact_status("x", "y", {})[0] is FactModelStatus.NOT_CONFIGURED
+
+    def test_a_configured_term_appearing_in_the_sentence_maps(self) -> None:
+        """The fact model is keyed by source term precisely so wording can be
+        recognised. Matching on that is quotation, not similarity."""
+
+        status, matched = resolve_fact_status(
+            "trial-period", "after the trial period has expired", self._FACT_MODEL
+        )
+        assert status is FactModelStatus.MAPPED
+        assert matched == "the trial period"
+
+    def test_a_configured_model_that_lacks_the_term_is_missing(self) -> None:
+        status, matched = resolve_fact_status(
+            "financial-position-of-the-university",
+            "depending on the financial position of the University",
+            self._FACT_MODEL,
+        )
+        assert status is FactModelStatus.MISSING
+        assert matched is None
+
+    def test_two_candidate_terms_are_ambiguous_not_a_guess(self) -> None:
+        """Choosing between them would compile a rule that silently tests the
+        wrong thing."""
+
+        status, matched = resolve_fact_status(
+            "salary",
+            "not exceeding 10% of basic salary and current basic salary",
+            {
+                "basic salary": {"feel_expression": "employee.salary.basic"},
+                "current basic salary": {"feel_expression": "employee.salary.current"},
+            },
+        )
+        assert status is FactModelStatus.AMBIGUOUS
+        assert "basic salary" in (matched or "")
+
+    def test_nothing_fuzzy_matches(self) -> None:
+        """A green badge produced by resemblance is harder to spot than a red
+        one, and is the same failure as inventing a fact path."""
+
+        status, _ = resolve_fact_status(
+            "director-recommendation",
+            "depending on the recommendation of the director",
+            {"manager approval": {"feel_expression": "approval.manager"}},
+        )
+        assert status is FactModelStatus.MISSING
+
+    def test_the_view_reports_which_term_matched(self) -> None:
+        view = build_xacml_view(
+            CanonicalPolicy(
+                source_text="The allowance is paid after the trial period has expired.",
+                rule=CanonicalPolicyRule(
+                    rule_type=CanonicalRuleType.ENTITLEMENT,
+                    subject="The allowance",
+                    predicate="is paid",
+                    condition="after the trial period has expired",
+                ),
+            ),
+            fact_model=self._FACT_MODEL,
+        )
+        condition = view.source_semantics.conditions[0]
+        assert condition.fact_model_status is FactModelStatus.MAPPED
+        assert condition.mapped_to == "the trial period"
+        assert view.fact_model_readiness.ready
+
+    def test_not_configured_is_excluded_from_the_missing_count(self) -> None:
+        """Counting them would report "12 missing attributes" for a policy set
+        whose only real finding is that nobody authored a fact model."""
+
+        view = build_xacml_view(
+            CanonicalPolicy(
+                source_text="Paid after the trial period has expired.",
+                rule=CanonicalPolicyRule(
+                    rule_type=CanonicalRuleType.ENTITLEMENT,
+                    subject="The allowance",
+                    predicate="is paid",
+                    condition="after the trial period has expired",
+                ),
+            )
+        )
+        readiness = view.fact_model_readiness
+        assert readiness.missing == []
+        assert len(readiness.unresolvable) == 1
+        assert not readiness.fact_model_configured
+        assert not readiness.ready
+
+    def test_the_semantic_layer_is_untouched_by_either_outcome(self) -> None:
+        """A resolved predicate stays resolved whether or not we can supply the
+        attribute. That independence is the whole point."""
+
+        policy = CanonicalPolicy(
+            source_text="Paid after the trial period has expired.",
+            rule=CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.ENTITLEMENT,
+                subject="The allowance",
+                predicate="is paid",
+                condition="after the trial period has expired",
+            ),
+        )
+        without = build_xacml_view(policy).source_semantics.conditions[0]
+        with_model = build_xacml_view(policy, self._FACT_MODEL).source_semantics.conditions[0]
+        assert without.predicate_status is with_model.predicate_status is PredicateStatus.SPECIFIED
+        assert without.operator == with_model.operator == "boolean-equal"
+        assert without.fact_model_status is not with_model.fact_model_status
+
+
+class TestAStatedConditionIsNotReportedAsDeficient:
+    """"depending on the recommendation of the director of the concerned
+    Department" *is* the condition — completely identified.
+
+    An earlier version flagged the condition itself as unresolved and stamped a
+    second deficiency beside it for a fact model that does not exist. Two
+    negative labels on a sentence the document states clearly.
+    """
+
+    def _condition(self):
+        return build_xacml_view(
+            CanonicalPolicy(
+                source_text=(
+                    "FBSU grants employee benefits depending on the recommendation of "
+                    "the director of the concerned Department."
+                ),
+                rule=CanonicalPolicyRule(
+                    rule_type=CanonicalRuleType.PERMISSION,
+                    subject="FBSU",
+                    predicate="grants",
+                    condition=(
+                        "depending on the recommendation of the director of the "
+                        "concerned Department"
+                    ),
+                ),
+            )
+        ).source_semantics.conditions[0]
+
+    def test_the_condition_is_identified(self) -> None:
+        condition = self._condition()
+        assert condition.concept == "recommendation-of-the-director-of-the-concerned-department"
+        assert condition.source_text.startswith("depending on the recommendation")
+
+    def test_only_the_test_is_unspecified_and_it_is_said_that_way(self) -> None:
+        """The note describes what the document left open, not a fault in the
+        extraction or in the condition."""
+
+        condition = self._condition()
+        assert condition.predicate_status is PredicateStatus.NOT_SPECIFIED_BY_SOURCE
+        assert condition.unspecified_note == (
+            "the condition is stated; the source does not say what value or "
+            "comparison satisfies it"
+        )
+
+    def test_no_wording_calls_the_condition_missing_or_unresolved(self) -> None:
+        """Guards the vocabulary. "missing" and "unresolved" both read as a
+        deficiency in the condition, which is exactly the misreading being
+        fixed — the condition is present and identified."""
+
+        blob = self._condition().model_dump_json().lower()
+        assert "unresolved" not in blob
+        assert "missing" not in blob
+
+    def test_when_no_fact_model_exists_nothing_is_reported_as_missing(self) -> None:
+        """Nothing is pending: no fact model was ever configured, so there is
+        no per-attribute gap. Reporting one sends a reviewer hunting for an
+        attribute nobody ever declared."""
+
+        readiness = build_xacml_view(
+            CanonicalPolicy(
+                source_text="Granted depending on the recommendation of the director.",
+                rule=CanonicalPolicyRule(
+                    rule_type=CanonicalRuleType.PERMISSION,
+                    subject="Benefits",
+                    predicate="are granted",
+                    condition="depending on the recommendation of the director",
+                ),
+            )
+        ).fact_model_readiness
+        assert readiness.missing == []
+        assert not readiness.fact_model_configured
 
 
 class TestEntityClassificationGeneralises:

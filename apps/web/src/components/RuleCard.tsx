@@ -26,6 +26,7 @@ import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProject
 import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { withRuleIdentity } from "../ruleIdentity";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { ExecutabilityFlag } from "./ExecutabilityBadge";
 
 const { Text, Paragraph } = Typography;
 
@@ -134,7 +135,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
             </Tooltip>
           )}
           {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
-          {!rule.machine_executable && <Tag color="orange">Manual</Tag>}
+          <ExecutabilityFlag rule={rule} />
           {hasAmbiguityFlag(rule.ambiguity_status) && (
             <Tag color={ambiguityMeta(rule.ambiguity_status).color}>{ambiguityMeta(rule.ambiguity_status).label}</Tag>
           )}

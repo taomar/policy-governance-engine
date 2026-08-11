@@ -62,7 +62,7 @@ const STATUS_NOTE: Record<string, string> = {
   ambiguous:
     "The source wording admits more than one reading, so it was not compiled into a decision table.",
   enrichment_required:
-    "The source states its conditions; no attribute in this policy set's fact model covers them yet, so no executable expression could be compiled. That is a gap in this deployment's configuration, not in the document, and it is not a decision — no request has been evaluated.",
+    "The conditions below are what the source states. No fact model has been configured for this policy set, so none of them has been bound to an attribute yet — that is a setup step on our side, not a gap in the document, and no request has been evaluated.",
 };
 
 /** One `attribute op "value"` leaf, matching the executable condition view. */
@@ -126,18 +126,23 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
     }
   }
 
-  // CONDITIONS. Each shown as what the source states, with fact-model coverage
-  // reported on its own line.
+  // CONDITIONS. Shown as what the source states, and nothing more.
   //
   // These used to be badged `Indeterminate · missing-attribute`, which was
   // three errors at once: Indeterminate is a PDP result and no PDP has run;
   // missing-attribute is raised when a PDP cannot *obtain* an attribute during
-  // evaluation; and both blamed the document for a gap in our fact model. A
-  // condition the source states perfectly well ("after the trial period has
-  // expired") was being reported as though the policy were unclear.
+  // evaluation; and both blamed the document for a gap in our fact model.
   //
-  // Coverage is still shown — removing the wrong badge must not mean going
-  // quiet about the gap — but as readiness, which is what it is.
+  // Replacing it with a per-condition "Fact mapping: missing" was still wrong,
+  // for two reasons. No fact model is configured for these policy sets at all,
+  // so nothing is pending — every condition would carry the same badge for one
+  // shared reason, which reads as N problems instead of one piece of context.
+  // And "depending on the recommendation of the director of the concerned
+  // Department" *is* the condition: it is completely identified, and stamping a
+  // deficiency beside it misreads a clear sentence as an unclear one.
+  //
+  // The banner above already states the fact-model position once. A condition
+  // the source stated is shown as stated.
   const statedConditions = [
     ...(projection.conditions ?? []),
     ...(projection.condition_source ? [projection.condition_source] : []),
@@ -146,13 +151,8 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
     whenChildren.push({
       key: `proj-cond-${index}`,
       title: (
-        <span className="cond-leaf cond-leaf--stacked">
+        <span className="cond-leaf">
           <Text>{condition}</Text>
-          <Tooltip title="The source states this condition. No attribute in this policy set's fact model covers it yet, so it cannot be compiled into an executable expression — a gap in our configuration, not in the document.">
-            <Tag bordered={false} className="semantic-projection-inline-tag">
-              Fact mapping: missing
-            </Tag>
-          </Tooltip>
         </span>
       ),
     });
