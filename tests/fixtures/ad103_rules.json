@@ -1,0 +1,4993 @@
+[
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU provides its employees and their eligible dependents in the medical insurance program as per the requirement of the labor law in Saudi Arabia.\n\n[Formulated by policy agent — source: p3-E000025]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED]\n[Ambiguity: AMBIGUOUS_REFERENCE]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "provides its employees and their eligible dependents in the medical insurance program",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "aae1f5fd-322d-460d-b043-912dc322bfc7",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "ambiguity": [
+     "AMBIGUOUS_REFERENCE"
+    ],
+    "evidence": {
+     "object": "its employees and their eligible dependents in the medical insurance program",
+     "predicate": "provides",
+     "subject": "FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "its employees and their eligible dependents",
+     "constraint": "as per the requirement of the labor law in Saudi Arabia",
+     "object": "its employees and their eligible dependents in the medical insurance program",
+     "predicate": "provides",
+     "rule_type": "obligation",
+     "subject": "FBSU"
+    },
+    "source_text": "FBSU provides its employees and their eligible dependents in the medical insurance program as per the requirement of the labor law in Saudi Arabia."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "condition_source": "as per the requirement of the labor law in Saudi Arabia",
+      "outcome_source": "provides its employees and their eligible dependents in the medical insurance program"
+     },
+     "source_rule_indexes": [
+      6
+     ]
+    }
+   ],
+   "source_index": 6
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-04e4c421f1",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU provides its employees and their eligible dependents in the medical insurance program",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Directors of administrative units may also be eligible as set per the university salary scale.\n\n[Formulated by policy agent — source: p3-E000036]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, HIT_POLICY_REQUIRED, OUTPUT_MODEL_REQUIRED, RULE_OVERLAP_RESOLUTION_REQUIRED]\n[Ambiguity: AMBIGUOUS_REFERENCE]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'as set per the university salary scale'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be eligible “A” Class",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "43f4d9ac-10df-439d-b172-77502c5a828f",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "ambiguity": [
+     "AMBIGUOUS_REFERENCE"
+    ],
+    "evidence": {
+     "condition": "as set per the university salary scale",
+     "object": "“A” Class",
+     "predicate": "be eligible",
+     "subject": "Directors of administrative units"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "candidate": "Directors of administrative units",
+     "condition": "as set per the university salary scale",
+     "modality": "may",
+     "object": "“A” Class",
+     "predicate": "be eligible",
+     "rule_type": "eligibility",
+     "source_origin": "inherited_context",
+     "subject": "Directors of administrative units"
+    },
+    "source_text": "Directors of administrative units may also be eligible as set per the university salary scale."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED",
+      "RULE_OVERLAP_RESOLUTION_REQUIRED",
+      "HIT_POLICY_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "their grades and job offer",
+       "the top managers of the University, i.e. President and Vice President",
+       "academic Deans and faculty members holding Ph.D. degree",
+       "Directors of administrative units",
+       "as set per the university salary scale",
+       "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+      ],
+      "outcome": "FBSU medical insurance coverage"
+     },
+     "source_rule_indexes": [
+      17,
+      18,
+      19,
+      20,
+      21
+     ]
+    }
+   ],
+   "source_index": 20
+  },
+  "group_label": "FBSU medical insurance coverage is based on",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-1830797d83",
+   "AI-bf564041ab",
+   "AI-cf09c86e6a",
+   "AI-22c0b8781c"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-0af18f50ad",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Directors of administrative units may be eligible “A” Class",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company, the original medical invoices and reports must be submitted to the Human Resources Department and the coverage will be in accordance with the health insurance policy.\n\n[Formulated by policy agent — source: p3-E000032]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED]\n[Ambiguity: AMBIGUOUS_REFERENCE]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'In the case of medical treatment in clinics and hospitals that are not approved by the insurance company'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be in accordance with the health insurance policy",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "065e902d-13b9-4dc0-93ae-2b33547a69a1",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "ambiguity": [
+     "AMBIGUOUS_REFERENCE"
+    ],
+    "evidence": {
+     "condition": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company",
+     "object": "in accordance with the health insurance policy",
+     "predicate": "be",
+     "subject": "the coverage"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "condition": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company",
+     "modality": "will",
+     "object": "in accordance with the health insurance policy",
+     "predicate": "be",
+     "rule_type": "conditional_outcome",
+     "subject": "the coverage"
+    },
+    "source_text": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company, the original medical invoices and reports must be submitted to the Human Resources Department and the coverage will be in accordance with the health insurance policy."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "condition_source": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company",
+      "outcome_source": "the coverage will be in accordance with the health insurance policy"
+     },
+     "source_rule_indexes": [
+      14
+     ]
+    }
+   ],
+   "source_index": 14
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-0be76d87ff",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the coverage will be in accordance with the health insurance policy",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "⁃ Fifteen thousand (15,000) SAR for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers.\n\n[Formulated by policy agent — source: p2-E000018]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED, UNIT_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "is calculated",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "d5a489f8-e2d5-46cf-ba7e-a46ef962e91e",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [
+   {
+    "condition": null,
+    "description": "Unless otherwise stipulated in the employment contract",
+    "effect_override": null,
+    "exception_id": "EXC-5cba36d3d3",
+    "limit_unit": null,
+    "limit_value": null
+   }
+  ],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+     "predicate": "is calculated",
+     "subject": "The housing allowance per calendar year (12 months)"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "calculation": "as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR",
+     "condition": "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+     "currency": "SAR",
+     "exception": "Unless otherwise stipulated in the employment contract",
+     "predicate": "is calculated",
+     "rule_type": "calculation",
+     "source_origin": "inherited_context",
+     "subject": "The housing allowance per calendar year (12 months)",
+     "threshold": "Fifteen thousand (15,000) SAR"
+    },
+    "source_text": "⁃ Fifteen thousand (15,000) SAR for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "UNIT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Unless otherwise stipulated in the employment contract",
+       "for administrative, technical and service staff",
+       "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+       "for full-time faculty members holding the rank of Assistant, Associate or Full Professor"
+      ],
+      "outcome": "The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR or Twenty-five thousand (25,000) SAR according to the stated staff category"
+     },
+     "source_rule_indexes": [
+      16,
+      17,
+      18,
+      19
+     ]
+    }
+   ],
+   "source_index": 18
+  },
+  "group_label": "The housing allowance per calendar year (12 months) is calculated",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-6e023f9fbe",
+   "AI-5d7af9974b",
+   "AI-41a22a826b"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-110738ea19",
+  "rule_revision": 1,
+  "rule_type": "calculation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance per calendar year (12 months) is calculated",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "A work nature allowance at the rate of (200) two hundred SR per month is paid to each of the security employees and cleaning workers after the trial period has expired.\n\n[Formulated by policy agent — source: p2-E000014]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'after the trial period has expired'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "is paid at the rate of (200) two hundred SR per month",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "52470c96-c8b7-4a40-afd8-68349635bfbd",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "after the trial period has expired",
+     "object": "at the rate of (200) two hundred SR per month",
+     "predicate": "is paid",
+     "subject": "A work nature allowance"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "condition": "after the trial period has expired",
+     "currency": "SR",
+     "frequency": "per month",
+     "object": "at the rate of (200) two hundred SR per month",
+     "predicate": "is paid",
+     "recipient": "each of the security employees and cleaning workers",
+     "rule_type": "entitlement",
+     "subject": "A work nature allowance"
+    },
+    "source_text": "A work nature allowance at the rate of (200) two hundred SR per month is paid to each of the security employees and cleaning workers after the trial period has expired."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "each of the security employees and cleaning workers",
+       "after the trial period has expired"
+      ],
+      "outcome": "A work nature allowance at the rate of (200) two hundred SR per month is paid"
+     },
+     "source_rule_indexes": [
+      13
+     ]
+    }
+   ],
+   "source_index": 13
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-1190f4996a",
+  "rule_revision": 1,
+  "rule_type": "permission",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "A work nature allowance is paid at the rate of (200) two hundred SR per month",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The staff members are entitled to join the health insurance plan at FBSU free of charge except for a co-payment of medical cost in accordance with the health insurance plan.\n\n[Formulated by policy agent — source: p3-E000031]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED]\n[Ambiguity: AMBIGUOUS_REFERENCE]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "are entitled to join the health insurance plan at FBSU",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "13f3cf59-a18e-492b-b440-db4002a4e851",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [
+   {
+    "condition": null,
+    "description": "except for a co-payment of medical cost in accordance with the health insurance plan",
+    "effect_override": null,
+    "exception_id": "EXC-aadcc2c39a",
+    "limit_unit": null,
+    "limit_value": null
+   }
+  ],
+  "formulation": {
+   "canonical": {
+    "ambiguity": [
+     "AMBIGUOUS_REFERENCE"
+    ],
+    "evidence": {
+     "object": "the health insurance plan at FBSU",
+     "predicate": "are entitled to join",
+     "subject": "The staff members"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "The staff members",
+     "constraint": "free of charge",
+     "exception": "except for a co-payment of medical cost in accordance with the health insurance plan",
+     "object": "the health insurance plan at FBSU",
+     "predicate": "are entitled to join",
+     "rule_type": "entitlement",
+     "subject": "The staff members"
+    },
+    "source_text": "The staff members are entitled to join the health insurance plan at FBSU free of charge except for a co-payment of medical cost in accordance with the health insurance plan."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "condition_source": "except for a co-payment of medical cost in accordance with the health insurance plan",
+      "outcome_source": "entitled to join the health insurance plan at FBSU free of charge"
+     },
+     "source_rule_indexes": [
+      12
+     ]
+    }
+   ],
+   "source_index": 12
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-14bdffb88e",
+  "rule_revision": 1,
+  "rule_type": "permission",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The staff members are entitled to join the health insurance plan at FBSU",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [
+   {
+    "reason": "definition attached to the nearest preceding rule in its section; 14 rules in this section could be the target",
+    "relationship_type": "definition_used_by",
+    "target_rule_id": "AI-dd34b7a193"
+   }
+  ],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU medical insurance coverage is based on their grades and job offer as follow:\n\n[Formulated by policy agent — source: p3-E000034]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, HIT_POLICY_REQUIRED, OUTPUT_MODEL_REQUIRED, RULE_OVERLAP_RESOLUTION_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is based on their grades and job offer",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "3ba36d8e-1a99-4c52-ba1b-57c257cb5855",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "their grades and job offer",
+     "predicate": "is based on",
+     "subject": "FBSU medical insurance coverage"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "their grades and job offer",
+     "predicate": "is based on",
+     "rule_type": "classification",
+     "source_origin": "inherited_context",
+     "subject": "FBSU medical insurance coverage"
+    },
+    "source_text": "FBSU medical insurance coverage is based on their grades and job offer as follow:"
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED",
+      "RULE_OVERLAP_RESOLUTION_REQUIRED",
+      "HIT_POLICY_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "their grades and job offer",
+       "the top managers of the University, i.e. President and Vice President",
+       "academic Deans and faculty members holding Ph.D. degree",
+       "Directors of administrative units",
+       "as set per the university salary scale",
+       "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+      ],
+      "outcome": "FBSU medical insurance coverage"
+     },
+     "source_rule_indexes": [
+      17,
+      18,
+      19,
+      20,
+      21
+     ]
+    }
+   ],
+   "source_index": 17
+  },
+  "group_label": "FBSU medical insurance coverage is based on",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab",
+   "AI-cf09c86e6a",
+   "AI-0af18f50ad",
+   "AI-22c0b8781c"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-1830797d83",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU medical insurance coverage is based on their grades and job offer",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "“BT” Class: Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.\n\n[Formulated by policy agent — source: p3-E000037]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, HIT_POLICY_REQUIRED, OUTPUT_MODEL_REQUIRED, RULE_OVERLAP_RESOLUTION_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is defined as Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "2f27a8f0-6d30-46ad-9374-796c26c7522a",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
+     "subject": "“BT” Class"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
+     "predicate": "is defined as",
+     "rule_type": "definition",
+     "subject": "“BT” Class"
+    },
+    "source_text": "“BT” Class: Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED",
+      "RULE_OVERLAP_RESOLUTION_REQUIRED",
+      "HIT_POLICY_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "their grades and job offer",
+       "the top managers of the University, i.e. President and Vice President",
+       "academic Deans and faculty members holding Ph.D. degree",
+       "Directors of administrative units",
+       "as set per the university salary scale",
+       "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+      ],
+      "outcome": "FBSU medical insurance coverage"
+     },
+     "source_rule_indexes": [
+      17,
+      18,
+      19,
+      20,
+      21
+     ]
+    }
+   ],
+   "source_index": 21
+  },
+  "group_label": "FBSU medical insurance coverage is based on",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-1830797d83",
+   "AI-bf564041ab",
+   "AI-cf09c86e6a",
+   "AI-0af18f50ad"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-22c0b8781c",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "“BT” Class is defined as Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU shall provide eligible employees with adequate furnished housing for nominal amount or a housing allowance.\n\n[Formulated by policy agent — source: p2-E000016]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "provide adequate furnished housing for nominal amount or a housing allowance",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "acbae20f-9b43-4a0e-8345-d11e14ecc08d",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "adequate furnished housing for nominal amount or a housing allowance",
+     "predicate": "provide",
+     "subject": "FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "eligible employees",
+     "modality": "shall",
+     "object": "adequate furnished housing for nominal amount or a housing allowance",
+     "predicate": "provide",
+     "rule_type": "obligation",
+     "subject": "FBSU"
+    },
+    "source_text": "FBSU shall provide eligible employees with adequate furnished housing for nominal amount or a housing allowance."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "eligible employees"
+      ],
+      "outcome": "adequate furnished housing for nominal amount or a housing allowance"
+     },
+     "source_rule_indexes": [
+      15
+     ]
+    }
+   ],
+   "source_index": 15
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-2bccd7e83e",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU shall provide adequate furnished housing for nominal amount or a housing allowance",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Annual increase which shall not exceed 10% of the employee’s current basic salary, the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal.\n\n[Formulated by policy agent — source: p1-E000010]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is associated with his/her Performance Appraisal",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "2414d699-e4a0-4aa2-85c7-6ae0a9c24060",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "his/her Performance Appraisal",
+     "predicate": "is associated with",
+     "subject": "the annual salary increase of an employee at FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "his/her Performance Appraisal",
+     "predicate": "is associated with",
+     "rule_type": "classification",
+     "subject": "the annual salary increase of an employee at FBSU"
+    },
+    "source_text": "Annual increase which shall not exceed 10% of the employee’s current basic salary, the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "shall not exceed 10% of the employee’s current basic salary",
+       "is associated with his/her Performance Appraisal"
+      ],
+      "outcome": "Annual increase"
+     },
+     "source_rule_indexes": [
+      3,
+      4,
+      5
+     ]
+    }
+   ],
+   "source_index": 5
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-2e8958afb2",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "In the case of a married couple are employed by FBSU or Astra Internal School, the allowance will be calculated based on the higher basic salary of the couple.\n\n[Formulated by policy agent — source: p2-E000020]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'In the case of a married couple are employed by FBSU or Astra Internal School'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be calculated",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "0995c9bd-32fc-4546-94fd-58912f788bca",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "In the case of a married couple are employed by FBSU or Astra Internal School",
+     "predicate": "be calculated",
+     "subject": "the allowance"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "calculation": "based on the higher basic salary of the couple",
+     "condition": "In the case of a married couple are employed by FBSU or Astra Internal School",
+     "modality": "will",
+     "predicate": "be calculated",
+     "rule_type": "calculation",
+     "subject": "the allowance"
+    },
+    "source_text": "In the case of a married couple are employed by FBSU or Astra Internal School, the allowance will be calculated based on the higher basic salary of the couple."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "In the case of a married couple are employed by FBSU or Astra Internal School"
+      ],
+      "outcome": "the allowance will be calculated based on the higher basic salary of the couple"
+     },
+     "source_rule_indexes": [
+      1
+     ]
+    }
+   ],
+   "source_index": 1
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-377611a68e",
+  "rule_revision": 1,
+  "rule_type": "calculation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the allowance will be calculated",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The housing allowance is limited to one employee of the married couple (husband and wife).\n\n[Formulated by policy agent — source: p2-E000020]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is limited to one employee of the married couple (husband and wife)",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "0995c9bd-32fc-4546-94fd-58912f788bca",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "one employee of the married couple (husband and wife)",
+     "predicate": "is limited to",
+     "subject": "The housing allowance"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "one employee of the married couple (husband and wife)",
+     "predicate": "is limited to",
+     "recipient": "one employee of the married couple (husband and wife)",
+     "rule_type": "conditional_outcome",
+     "subject": "The housing allowance"
+    },
+    "source_text": "The housing allowance is limited to one employee of the married couple (husband and wife)."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "condition_source": "one employee of the married couple (husband and wife)",
+      "outcome_source": "The housing allowance is limited to one employee of the married couple (husband and wife)"
+     },
+     "source_rule_indexes": [
+      0
+     ]
+    }
+   ],
+   "source_index": 0
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-3906e24f6e",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance is limited to one employee of the married couple (husband and wife)",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Increase due to inflation with a percentage not exceeding 5% of the employee’s basic salary, and subject to the judgment and approval of the Board of Trustees.\n\n[Formulated by policy agent — source: p2-E000012]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'depending on the financial position of the University and subject to the approval of the President'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be increased",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "1ebb1f1a-5c47-487d-9070-391fa75a040c",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "depending on the financial position of the University and subject to the approval of the President",
+     "predicate": "be increased",
+     "subject": "Increase due to inflation"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "condition": "depending on the financial position of the University and subject to the approval of the President",
+     "constraint": "with a percentage not exceeding 5% of the employee’s basic salary",
+     "modality": "shall",
+     "predicate": "be increased",
+     "rule_type": "conditional_outcome",
+     "source_origin": "inherited_context",
+     "subject": "Increase due to inflation",
+     "threshold": "5% of the employee’s basic salary"
+    },
+    "source_text": "Increase due to inflation with a percentage not exceeding 5% of the employee’s basic salary, and subject to the judgment and approval of the Board of Trustees."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "with a percentage not exceeding 5% of the employee’s basic salary",
+       "subject to the judgment and approval of the Board of Trustees"
+      ],
+      "outcome": "Increase due to inflation"
+     },
+     "source_rule_indexes": [
+      3,
+      9,
+      10
+     ]
+    }
+   ],
+   "source_index": 9
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-3b45e66767",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Increase due to inflation shall be increased",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "⁃ Twenty-five thousand (25,000) SAR for full-time faculty members holding the rank of Assistant, Associate or Full Professor.\n\n[Formulated by policy agent — source: p2-E000019]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED, UNIT_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'for full-time faculty members holding the rank of Assistant, Associate or Full Professor'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "is calculated",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "b67ea559-5e85-42aa-a5c5-74c347a61b65",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [
+   {
+    "condition": null,
+    "description": "Unless otherwise stipulated in the employment contract",
+    "effect_override": null,
+    "exception_id": "EXC-5cba36d3d3",
+    "limit_unit": null,
+    "limit_value": null
+   }
+  ],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "for full-time faculty members holding the rank of Assistant, Associate or Full Professor",
+     "predicate": "is calculated",
+     "subject": "The housing allowance per calendar year (12 months)"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "calculation": "as twice the monthly basic salary up to a maximum of Twenty-five thousand (25,000) SAR",
+     "condition": "for full-time faculty members holding the rank of Assistant, Associate or Full Professor",
+     "currency": "SAR",
+     "exception": "Unless otherwise stipulated in the employment contract",
+     "predicate": "is calculated",
+     "rule_type": "calculation",
+     "source_origin": "inherited_context",
+     "subject": "The housing allowance per calendar year (12 months)",
+     "threshold": "Twenty-five thousand (25,000) SAR"
+    },
+    "source_text": "⁃ Twenty-five thousand (25,000) SAR for full-time faculty members holding the rank of Assistant, Associate or Full Professor."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "UNIT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Unless otherwise stipulated in the employment contract",
+       "for administrative, technical and service staff",
+       "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+       "for full-time faculty members holding the rank of Assistant, Associate or Full Professor"
+      ],
+      "outcome": "The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR or Twenty-five thousand (25,000) SAR according to the stated staff category"
+     },
+     "source_rule_indexes": [
+      16,
+      17,
+      18,
+      19
+     ]
+    }
+   ],
+   "source_index": 19
+  },
+  "group_label": "The housing allowance per calendar year (12 months) is calculated",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-6e023f9fbe",
+   "AI-5d7af9974b",
+   "AI-110738ea19"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-41a22a826b",
+  "rule_revision": 1,
+  "rule_type": "calculation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance per calendar year (12 months) is calculated",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The exceptional increase requires the approval of the President.\n\n[Formulated by policy agent — source: p2-E000013]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "requires the approval of the President",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "453a48ee-4565-4ba8-8ead-c2c89d77bd14",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "the approval of the President",
+     "predicate": "requires",
+     "subject": "The exceptional increase"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "object": "the approval of the President",
+     "predicate": "requires",
+     "rule_type": "obligation",
+     "subject": "The exceptional increase"
+    },
+    "source_text": "The exceptional increase requires the approval of the President."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "for specific cases that the university deems necessary",
+       "requires the approval of the President"
+      ],
+      "outcome": "Exceptional Increase may be granted"
+     },
+     "source_rule_indexes": [
+      3,
+      11,
+      12
+     ]
+    }
+   ],
+   "source_index": 12
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-47a3f0a087",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The exceptional increase requires the approval of the President",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Increase due to inflation with a percentage not exceeding 5% of the employee’s basic salary, and subject to the judgment and approval of the Board of Trustees.\n\n[Formulated by policy agent — source: p2-E000012]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "subject to the judgment and approval of the Board of Trustees",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "1ebb1f1a-5c47-487d-9070-391fa75a040c",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "the judgment and approval of the Board of Trustees",
+     "predicate": "subject to",
+     "subject": "Increase due to inflation"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the Board of Trustees",
+     "object": "the judgment and approval of the Board of Trustees",
+     "predicate": "subject to",
+     "rule_type": "obligation",
+     "subject": "Increase due to inflation"
+    },
+    "source_text": "Increase due to inflation with a percentage not exceeding 5% of the employee’s basic salary, and subject to the judgment and approval of the Board of Trustees."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "with a percentage not exceeding 5% of the employee’s basic salary",
+       "subject to the judgment and approval of the Board of Trustees"
+      ],
+      "outcome": "Increase due to inflation"
+     },
+     "source_rule_indexes": [
+      3,
+      9,
+      10
+     ]
+    }
+   ],
+   "source_index": 10
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-4bfc2273be",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Increase due to inflation subject to the judgment and approval of the Board of Trustees",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Full time employees as well as their spouses and children enrolled in FBSU programs are eligible for tuition fees discount.\n\n[Formulated by policy agent — source: p2-E000023]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "are eligible for tuition fees discount",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "7c79b85f-6c05-4967-b94b-fdb95bf454a2",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "tuition fees discount",
+     "predicate": "are eligible for",
+     "subject": "Full time employees as well as their spouses and children enrolled in FBSU programs"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "Full time employees as well as their spouses and children enrolled in FBSU programs",
+     "object": "tuition fees discount",
+     "predicate": "are eligible for",
+     "rule_type": "eligibility",
+     "subject": "Full time employees as well as their spouses and children enrolled in FBSU programs"
+    },
+    "source_text": "Full time employees as well as their spouses and children enrolled in FBSU programs are eligible for tuition fees discount."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Full time employees as well as their spouses and children enrolled in FBSU programs"
+      ],
+      "outcome": "tuition fees discount"
+     },
+     "source_rule_indexes": [
+      4
+     ]
+    }
+   ],
+   "source_index": 4
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-4fccb8b43e",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Full time employees as well as their spouses and children enrolled in FBSU programs are eligible for tuition fees discount",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Non Saudi staff employee and his/her eligible dependence who are not covered by any other medical insurance.\n\n[Formulated by policy agent — source: p3-E000026]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'who are not covered by any other medical insurance'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "are eligible for the medical insurance program",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "3fdb3f2c-297f-4562-82e8-5d9aba010c3e",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "who are not covered by any other medical insurance",
+     "object": "the medical insurance program",
+     "predicate": "provides",
+     "subject": "Non Saudi staff employee and his/her eligible dependence"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "Non Saudi staff employee and his/her eligible dependence",
+     "condition": "who are not covered by any other medical insurance",
+     "object": "the medical insurance program",
+     "predicate": "are eligible for",
+     "rule_type": "eligibility",
+     "source_origin": "inherited_context",
+     "subject": "Non Saudi staff employee and his/her eligible dependence"
+    },
+    "source_text": "Non Saudi staff employee and his/her eligible dependence who are not covered by any other medical insurance."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Non Saudi staff employee and his/her eligible dependence",
+       "who are not covered by any other medical insurance"
+      ],
+      "outcome": "the medical insurance program"
+     },
+     "source_rule_indexes": [
+      7
+     ]
+    }
+   ],
+   "source_index": 7
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-5c49e56977",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Non Saudi staff employee and his/her eligible dependence are eligible for the medical insurance program",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Exceptional Increase may be granted for specific cases that the university deems necessary.\n\n[Formulated by policy agent — source: p2-E000013]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'for specific cases that the university deems necessary'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be granted",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "453a48ee-4565-4ba8-8ead-c2c89d77bd14",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "for specific cases that the university deems necessary",
+     "predicate": "be granted",
+     "subject": "Exceptional Increase"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the university",
+     "condition": "for specific cases that the university deems necessary",
+     "modality": "may",
+     "predicate": "be granted",
+     "prerequisite": "depending on the financial position of the University and subject to the approval of the President",
+     "rule_type": "permission",
+     "source_origin": "inherited_context",
+     "subject": "Exceptional Increase"
+    },
+    "source_text": "Exceptional Increase may be granted for specific cases that the university deems necessary."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "for specific cases that the university deems necessary",
+       "requires the approval of the President"
+      ],
+      "outcome": "Exceptional Increase may be granted"
+     },
+     "source_rule_indexes": [
+      3,
+      11,
+      12
+     ]
+    }
+   ],
+   "source_index": 11
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-5d12b2629b",
+  "rule_revision": 1,
+  "rule_type": "permission",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Exceptional Increase may be granted",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "⁃ Fifteen thousand (15,000) SAR for administrative, technical and service staff.\n\n[Formulated by policy agent — source: p2-E000017]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED, UNIT_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'for administrative, technical and service staff'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "is calculated",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "58e65367-10c3-4077-9975-738fbdf80160",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [
+   {
+    "condition": null,
+    "description": "Unless otherwise stipulated in the employment contract",
+    "effect_override": null,
+    "exception_id": "EXC-5cba36d3d3",
+    "limit_unit": null,
+    "limit_value": null
+   }
+  ],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "for administrative, technical and service staff",
+     "predicate": "is calculated",
+     "subject": "The housing allowance per calendar year (12 months)"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "calculation": "as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR",
+     "condition": "for administrative, technical and service staff",
+     "currency": "SAR",
+     "exception": "Unless otherwise stipulated in the employment contract",
+     "predicate": "is calculated",
+     "rule_type": "calculation",
+     "source_origin": "inherited_context",
+     "subject": "The housing allowance per calendar year (12 months)",
+     "threshold": "Fifteen thousand (15,000) SAR"
+    },
+    "source_text": "⁃ Fifteen thousand (15,000) SAR for administrative, technical and service staff."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "UNIT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Unless otherwise stipulated in the employment contract",
+       "for administrative, technical and service staff",
+       "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+       "for full-time faculty members holding the rank of Assistant, Associate or Full Professor"
+      ],
+      "outcome": "The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR or Twenty-five thousand (25,000) SAR according to the stated staff category"
+     },
+     "source_rule_indexes": [
+      16,
+      17,
+      18,
+      19
+     ]
+    }
+   ],
+   "source_index": 17
+  },
+  "group_label": "The housing allowance per calendar year (12 months) is calculated",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-6e023f9fbe",
+   "AI-110738ea19",
+   "AI-41a22a826b"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-5d7af9974b",
+  "rule_revision": 1,
+  "rule_type": "calculation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance per calendar year (12 months) is calculated",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion and it won’t lead to salary increase.\n\n[Formulated by policy agent — source: p1-E000011]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "cannot be considered as promotion",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "03f59335-6a77-4126-8206-ff400dbe851a",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "promotion",
+     "predicate": "cannot be considered as",
+     "subject": "Lateral transfer of an employee, within the same department, or to another department"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "promotion",
+     "predicate": "cannot be considered as",
+     "rule_type": "classification",
+     "subject": "Lateral transfer of an employee, within the same department, or to another department"
+    },
+    "source_text": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion and it won’t lead to salary increase."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "upon the promotion of an employee to a new position",
+       "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion"
+      ],
+      "outcome": "Increase due to promotion"
+     },
+     "source_rule_indexes": [
+      3,
+      6,
+      7,
+      8
+     ]
+    }
+   ],
+   "source_index": 7
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-6695c74866",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Unless otherwise stipulated in the employment contract, the housing allowance is as follows:  The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of:\n\n[Formulated by policy agent — source: p2-E000016]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED, UNIT_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is calculated",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "acbae20f-9b43-4a0e-8345-d11e14ecc08d",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [
+   {
+    "condition": null,
+    "description": "Unless otherwise stipulated in the employment contract",
+    "effect_override": null,
+    "exception_id": "EXC-5cba36d3d3",
+    "limit_unit": null,
+    "limit_value": null
+   }
+  ],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "predicate": "is calculated",
+     "subject": "The housing allowance per calendar year (12 months)"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "calculation": "as twice the monthly basic salary up to a maximum of",
+     "exception": "Unless otherwise stipulated in the employment contract",
+     "predicate": "is calculated",
+     "rule_type": "calculation",
+     "subject": "The housing allowance per calendar year (12 months)"
+    },
+    "source_text": "Unless otherwise stipulated in the employment contract, the housing allowance is as follows:  The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of:"
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "UNIT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Unless otherwise stipulated in the employment contract",
+       "for administrative, technical and service staff",
+       "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+       "for full-time faculty members holding the rank of Assistant, Associate or Full Professor"
+      ],
+      "outcome": "The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary up to a maximum of Fifteen thousand (15,000) SAR or Twenty-five thousand (25,000) SAR according to the stated staff category"
+     },
+     "source_rule_indexes": [
+      16,
+      17,
+      18,
+      19
+     ]
+    }
+   ],
+   "source_index": 16
+  },
+  "group_label": "The housing allowance per calendar year (12 months) is calculated",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-5d7af9974b",
+   "AI-110738ea19",
+   "AI-41a22a826b"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-6e023f9fbe",
+  "rule_revision": 1,
+  "rule_type": "calculation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance per calendar year (12 months) is calculated",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU outsources and signs an agreement only with reputable medical insurance companies.\n\n[Formulated by policy agent — source: p3-E000030]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "outsources and signs an agreement",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "33dc4e19-18d2-41fb-aea7-eb70f1f2e36d",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "an agreement",
+     "predicate": "outsources and signs",
+     "subject": "FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "constraint": "only with reputable medical insurance companies",
+     "object": "an agreement",
+     "predicate": "outsources and signs",
+     "rule_type": "obligation",
+     "subject": "FBSU"
+    },
+    "source_text": "FBSU outsources and signs an agreement only with reputable medical insurance companies."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "an agreement",
+      "predicate": "outsources and signs",
+      "rule_type": "obligation",
+      "subject": "FBSU"
+     },
+     "source_rule_indexes": [
+      11
+     ]
+    }
+   ],
+   "source_index": 11
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-78dad1f9bf",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU outsources and signs an agreement",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger) are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance according to their contracts and at the end of service.\n\n[Formulated by policy agent — source: p3-E000039]\n[DMN mapping: ambiguous]\n[Enrichment required: LOGICAL_RELATIONSHIP_AMBIGUOUS]\n[Ambiguity: AMBIGUOUS_DECISION_SEMANTICS]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "e150e77c-64d8-4352-9995-2bd1b890f59d",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "ambiguity": [
+     "AMBIGUOUS_DECISION_SEMANTICS"
+    ],
+    "evidence": {
+     "object": "annual travel tickets and Exit/Entry visas or travel allowance",
+     "predicate": "are entitled to obtain",
+     "subject": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)",
+     "constraint": "according to their contracts",
+     "object": "annual travel tickets and Exit/Entry visas or travel allowance",
+     "predicate": "are entitled to obtain",
+     "rule_type": "entitlement",
+     "subject": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)",
+     "temporal_constraint": "at the end of service"
+    },
+    "source_text": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger) are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance according to their contracts and at the end of service."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "LOGICAL_RELATIONSHIP_AMBIGUOUS"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)",
+       "according to their contracts",
+       "at the end of service"
+      ],
+      "outcome": "annual travel tickets and Exit/Entry visas or travel allowance"
+     },
+     "source_rule_indexes": [
+      1
+     ]
+    }
+   ],
+   "source_index": 1
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-80e98be40b",
+  "rule_revision": 1,
+  "rule_type": "permission",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger) are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Medical benefits begin on the employee’s first working day.\n\n[Formulated by policy agent — source: p3-E000029]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, TEMPORAL_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "begin",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "f59cba59-91d3-4511-8d9e-6460bf144efc",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "predicate": "begin",
+     "subject": "Medical benefits"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "predicate": "begin",
+     "rule_type": "conditional_outcome",
+     "subject": "Medical benefits",
+     "temporal_constraint": "on the employee’s first working day"
+    },
+    "source_text": "Medical benefits begin on the employee’s first working day."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "TEMPORAL_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "on the employee’s first working day"
+      ],
+      "outcome": "Medical benefits begin"
+     },
+     "source_rule_indexes": [
+      10
+     ]
+    }
+   ],
+   "source_index": 10
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-836e1dc555",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Medical benefits begin",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The housing allowance is to be paid in monthly prorated installments.\n\n[Formulated by policy agent — source: p2-E000021]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "paid in monthly prorated installments",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "145d4e05-e2ad-4ec1-ba10-1f612cf15448",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": null,
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "in monthly prorated installments",
+     "predicate": "paid",
+     "subject": "The housing allowance"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "frequency": "monthly",
+     "modality": "is to be",
+     "object": "in monthly prorated installments",
+     "predicate": "paid",
+     "rule_type": "obligation",
+     "subject": "The housing allowance"
+    },
+    "source_text": "The housing allowance is to be paid in monthly prorated installments."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "in monthly prorated installments",
+      "predicate": "paid",
+      "rule_type": "obligation",
+      "subject": "The housing allowance"
+     },
+     "source_rule_indexes": [
+      2
+     ]
+    }
+   ],
+   "source_index": 2
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-847370241e",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance is to be paid in monthly prorated installments",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Saudi staff employee and his/her spouse and children included in the Family Card who are not covered by any other medical insurance.\n\n[Formulated by policy agent — source: p3-E000027]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'who are not covered by any other medical insurance'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "are eligible for the medical insurance program",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "23ff639f-728e-405d-b316-344b908e30b1",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "who are not covered by any other medical insurance",
+     "object": "the medical insurance program",
+     "predicate": "provides",
+     "subject": "Saudi staff employee and his/her spouse and children included in the Family Card"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "Saudi staff employee and his/her spouse and children included in the Family Card",
+     "condition": "who are not covered by any other medical insurance",
+     "object": "the medical insurance program",
+     "predicate": "are eligible for",
+     "rule_type": "eligibility",
+     "source_origin": "inherited_context",
+     "subject": "Saudi staff employee and his/her spouse and children included in the Family Card"
+    },
+    "source_text": "Saudi staff employee and his/her spouse and children included in the Family Card who are not covered by any other medical insurance."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "Saudi staff employee and his/her spouse and children included in the Family Card",
+       "who are not covered by any other medical insurance"
+      ],
+      "outcome": "the medical insurance program"
+     },
+     "source_rule_indexes": [
+      8
+     ]
+    }
+   ],
+   "source_index": 8
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-87cda1515d",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Saudi staff employee and his/her spouse and children included in the Family Card are eligible for the medical insurance program",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Employee basic salary shall be increased depending on the financial position of the University and subject to the approval of the President, in one of the following cases only:\n\n[Formulated by policy agent — source: p1-E000009]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'depending on the financial position of the University and subject to the approval of the President, in one of the following cases only'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be increased",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "c67602a1-3d23-4311-a9a2-832e48ebd9f0",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "depending on the financial position of the University and subject to the approval of the President, in one of the following cases only",
+     "predicate": "be increased",
+     "subject": "Employee basic salary"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "condition": "depending on the financial position of the University and subject to the approval of the President, in one of the following cases only",
+     "modality": "shall",
+     "predicate": "be increased",
+     "rule_type": "conditional_outcome",
+     "subject": "Employee basic salary"
+    },
+    "source_text": "Employee basic salary shall be increased depending on the financial position of the University and subject to the approval of the President, in one of the following cases only:"
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "shall not exceed 10% of the employee’s current basic salary",
+       "is associated with his/her Performance Appraisal"
+      ],
+      "outcome": "Annual increase"
+     },
+     "source_rule_indexes": [
+      3,
+      4,
+      5
+     ]
+    },
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "upon the promotion of an employee to a new position",
+       "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion"
+      ],
+      "outcome": "Increase due to promotion"
+     },
+     "source_rule_indexes": [
+      3,
+      6,
+      7,
+      8
+     ]
+    },
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "with a percentage not exceeding 5% of the employee’s basic salary",
+       "subject to the judgment and approval of the Board of Trustees"
+      ],
+      "outcome": "Increase due to inflation"
+     },
+     "source_rule_indexes": [
+      3,
+      9,
+      10
+     ]
+    },
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "for specific cases that the university deems necessary",
+       "requires the approval of the President"
+      ],
+      "outcome": "Exceptional Increase may be granted"
+     },
+     "source_rule_indexes": [
+      3,
+      11,
+      12
+     ]
+    }
+   ],
+   "source_index": 3
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-97526dc4b7",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Employee basic salary shall be increased",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU grants employee benefits based on their functions and depending on the recommendation of the director of the concerned Department.\n\n[Formulated by policy agent — source: p1-E000008]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'based on their functions and depending on the recommendation of the director of the concerned Department'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "grants employee benefits",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "b9714725-c5cc-46fe-9c8e-6b42ec5e6fe2",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "based on their functions and depending on the recommendation of the director of the concerned Department",
+     "object": "employee benefits",
+     "predicate": "grants",
+     "subject": "FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the director of the concerned Department",
+     "condition": "based on their functions and depending on the recommendation of the director of the concerned Department",
+     "object": "employee benefits",
+     "predicate": "grants",
+     "rule_type": "conditional_outcome",
+     "subject": "FBSU"
+    },
+    "source_text": "FBSU grants employee benefits based on their functions and depending on the recommendation of the director of the concerned Department."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "based on their functions",
+       "depending on the recommendation of the director of the concerned Department"
+      ],
+      "outcome": "FBSU grants employee benefits"
+     },
+     "source_rule_indexes": [
+      0
+     ]
+    }
+   ],
+   "source_index": 0
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-9f077eb824",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU grants employee benefits",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company, the original medical invoices and reports must be submitted to the Human Resources Department and the coverage will be in accordance with the health insurance policy.\n\n[Formulated by policy agent — source: p3-E000032]\n[DMN mapping: not_directly_mappable]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'In the case of medical treatment in clinics and hospitals that are not approved by the insurance company'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be submitted",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "065e902d-13b9-4dc0-93ae-2b33547a69a1",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company",
+     "predicate": "be submitted",
+     "subject": "the original medical invoices and reports"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "condition": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company",
+     "modality": "must",
+     "predicate": "be submitted",
+     "recipient": "the Human Resources Department",
+     "rule_type": "obligation",
+     "subject": "the original medical invoices and reports"
+    },
+    "source_text": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company, the original medical invoices and reports must be submitted to the Human Resources Department and the coverage will be in accordance with the health insurance policy."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "the Human Resources Department",
+      "predicate": "be submitted",
+      "rule_type": "obligation",
+      "subject": "the original medical invoices and reports"
+     },
+     "source_rule_indexes": [
+      13
+     ]
+    }
+   ],
+   "source_index": 13
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-ab0515cb25",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the original medical invoices and reports must be submitted",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Annual increase which shall not exceed 10% of the employee’s current basic salary, the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal.\n\n[Formulated by policy agent — source: p1-E000010]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'depending on the financial position of the University and subject to the approval of the President'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "exceed 10% of the employee’s current basic salary",
+   "type": "deny"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "2414d699-e4a0-4aa2-85c7-6ae0a9c24060",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "depending on the financial position of the University and subject to the approval of the President",
+     "object": "10% of the employee’s current basic salary",
+     "predicate": "exceed",
+     "subject": "Annual increase"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "condition": "depending on the financial position of the University and subject to the approval of the President",
+     "constraint": "shall not exceed 10% of the employee’s current basic salary",
+     "modality": "shall not",
+     "object": "10% of the employee’s current basic salary",
+     "predicate": "exceed",
+     "rule_type": "obligation",
+     "source_origin": "inherited_context",
+     "subject": "Annual increase",
+     "threshold": "10% of the employee’s current basic salary"
+    },
+    "source_text": "Annual increase which shall not exceed 10% of the employee’s current basic salary, the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "shall not exceed 10% of the employee’s current basic salary",
+       "is associated with his/her Performance Appraisal"
+      ],
+      "outcome": "Annual increase"
+     },
+     "source_rule_indexes": [
+      3,
+      4,
+      5
+     ]
+    }
+   ],
+   "source_index": 4
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-adf7d23711",
+  "rule_revision": 1,
+  "rule_type": "prohibition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Annual increase shall not exceed 10% of the employee’s current basic salary",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The University Council decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents.\n\n[Formulated by policy agent — source: p2-E000023]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "7c79b85f-6c05-4967-b94b-fdb95bf454a2",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+     "predicate": "decides on",
+     "subject": "The University Council"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "The University Council",
+     "beneficiary": "FBSU staff members and their dependents",
+     "object": "the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+     "predicate": "decides on",
+     "rule_type": "obligation",
+     "subject": "The University Council"
+    },
+    "source_text": "The University Council decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+      "predicate": "decides on",
+      "rule_type": "obligation",
+      "subject": "The University Council"
+     },
+     "source_rule_indexes": [
+      5
+     ]
+    }
+   ],
+   "source_index": 5
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-afa66cfe2f",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The University Council decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The recommendations of the director on allowances and benefits are subject to the approval of the President.\n\n[Formulated by policy agent — source: p1-E000008]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "are subject to the approval of the President",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "b9714725-c5cc-46fe-9c8e-6b42ec5e6fe2",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "the approval of the President",
+     "predicate": "are subject to",
+     "subject": "The recommendations of the director on allowances and benefits"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "object": "the approval of the President",
+     "predicate": "are subject to",
+     "rule_type": "obligation",
+     "subject": "The recommendations of the director on allowances and benefits"
+    },
+    "source_text": "The recommendations of the director on allowances and benefits are subject to the approval of the President."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "the approval of the President",
+      "predicate": "are subject to",
+      "rule_type": "obligation",
+      "subject": "The recommendations of the director on allowances and benefits"
+     },
+     "source_rule_indexes": [
+      1
+     ]
+    }
+   ],
+   "source_index": 1
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-b2c540eba0",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The recommendations of the director on allowances and benefits are subject to the approval of the President",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "“VIP” Class: This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.\n\n[Formulated by policy agent — source: p3-E000035]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, HIT_POLICY_REQUIRED, OUTPUT_MODEL_REQUIRED, RULE_OVERLAP_RESOLUTION_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is defined as This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "2881ce55-6311-4d02-840d-48f4333cb816",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.",
+     "subject": "“VIP” Class"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.",
+     "predicate": "is defined as",
+     "rule_type": "definition",
+     "subject": "“VIP” Class"
+    },
+    "source_text": "“VIP” Class: This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED",
+      "RULE_OVERLAP_RESOLUTION_REQUIRED",
+      "HIT_POLICY_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "their grades and job offer",
+       "the top managers of the University, i.e. President and Vice President",
+       "academic Deans and faculty members holding Ph.D. degree",
+       "Directors of administrative units",
+       "as set per the university salary scale",
+       "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+      ],
+      "outcome": "FBSU medical insurance coverage"
+     },
+     "source_rule_indexes": [
+      17,
+      18,
+      19,
+      20,
+      21
+     ]
+    }
+   ],
+   "source_index": 18
+  },
+  "group_label": "FBSU medical insurance coverage is based on",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-1830797d83",
+   "AI-cf09c86e6a",
+   "AI-0af18f50ad",
+   "AI-22c0b8781c",
+   "AI-04e4c421f1",
+   "AI-5c49e56977",
+   "AI-87cda1515d",
+   "AI-e8999fd2fd",
+   "AI-78dad1f9bf"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-bf564041ab",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "“VIP” Class is defined as This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The University insures all employees with social insurance in accordance with the rules of the General Organization for Social Insurance.\n\n[Formulated by policy agent — source: p3-E000040]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "insures all employees with social insurance",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "f769df08-4e43-4db1-be12-b3a50f28379c",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "all employees with social insurance",
+     "predicate": "insures",
+     "subject": "The University"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "constraint": "in accordance with the rules of the General Organization for Social Insurance",
+     "object": "all employees with social insurance",
+     "predicate": "insures",
+     "rule_type": "obligation",
+     "subject": "The University"
+    },
+    "source_text": "The University insures all employees with social insurance in accordance with the rules of the General Organization for Social Insurance."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "all employees with social insurance",
+      "predicate": "insures",
+      "rule_type": "obligation",
+      "subject": "The University"
+     },
+     "source_rule_indexes": [
+      2
+     ]
+    }
+   ],
+   "source_index": 2
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-c227da3307",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The University insures all employees with social insurance",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The housing allowance is to be paid in monthly prorated installments.\n\n[Formulated by policy agent — source: p3-E000038]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "be paid monthly prorated installments",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "1bece223-6b8a-4a41-b5d5-4568fd161df5",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "monthly prorated installments",
+     "predicate": "be paid",
+     "subject": "The housing allowance"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "constraint": "prorated installments",
+     "frequency": "monthly",
+     "modality": "is to",
+     "object": "monthly prorated installments",
+     "predicate": "be paid",
+     "rule_type": "obligation",
+     "subject": "The housing allowance"
+    },
+    "source_text": "The housing allowance is to be paid in monthly prorated installments."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "monthly prorated installments",
+      "predicate": "be paid",
+      "rule_type": "obligation",
+      "subject": "The housing allowance"
+     },
+     "source_rule_indexes": [
+      0
+     ]
+    }
+   ],
+   "source_index": 0
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-cbbc789e71",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The housing allowance is to be paid monthly prorated installments",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [
+   {
+    "reason": "definition attached to the nearest preceding rule in its section; 2 rules in this section could be the target",
+    "relationship_type": "definition_used_by",
+    "target_rule_id": "AI-b2c540eba0"
+   }
+  ],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "In all cases, the benefits and allowances of FBSU faculty and staff members are governed by the individual contracts of appointment.\n\n[Formulated by policy agent — source: p1-E000008]\n[DMN mapping: not_directly_mappable]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'In all cases'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "are governed by the individual contracts of appointment",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "b9714725-c5cc-46fe-9c8e-6b42ec5e6fe2",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "In all cases",
+     "object": "the individual contracts of appointment",
+     "predicate": "are governed by",
+     "subject": "the benefits and allowances of FBSU faculty and staff members"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "condition": "In all cases",
+     "object": "the individual contracts of appointment",
+     "predicate": "are governed by",
+     "rule_type": "classification",
+     "subject": "the benefits and allowances of FBSU faculty and staff members"
+    },
+    "source_text": "In all cases, the benefits and allowances of FBSU faculty and staff members are governed by the individual contracts of appointment."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "the individual contracts of appointment",
+      "predicate": "are governed by",
+      "rule_type": "classification",
+      "subject": "the benefits and allowances of FBSU faculty and staff members"
+     },
+     "source_rule_indexes": [
+      2
+     ]
+    }
+   ],
+   "source_index": 2
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-cd989fc237",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the benefits and allowances of FBSU faculty and staff members are governed by the individual contracts of appointment",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "“A” Class: This class is reserved for academic Deans and faculty members holding Ph.D. degree.\n\n[Formulated by policy agent — source: p3-E000036]\n[DMN mapping: ambiguous]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, HIT_POLICY_REQUIRED, OUTPUT_MODEL_REQUIRED, RULE_OVERLAP_RESOLUTION_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "is defined as This class is reserved for academic Deans and faculty members holding Ph.D. degree.",
+   "type": "informational"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "43f4d9ac-10df-439d-b172-77502c5a828f",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "This class is reserved for academic Deans and faculty members holding Ph.D. degree.",
+     "subject": "“A” Class"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "This class is reserved for academic Deans and faculty members holding Ph.D. degree.",
+     "predicate": "is defined as",
+     "rule_type": "definition",
+     "subject": "“A” Class"
+    },
+    "source_text": "“A” Class: This class is reserved for academic Deans and faculty members holding Ph.D. degree."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "ambiguous",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED",
+      "RULE_OVERLAP_RESOLUTION_REQUIRED",
+      "HIT_POLICY_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "their grades and job offer",
+       "the top managers of the University, i.e. President and Vice President",
+       "academic Deans and faculty members holding Ph.D. degree",
+       "Directors of administrative units",
+       "as set per the university salary scale",
+       "Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors."
+      ],
+      "outcome": "FBSU medical insurance coverage"
+     },
+     "source_rule_indexes": [
+      17,
+      18,
+      19,
+      20,
+      21
+     ]
+    }
+   ],
+   "source_index": 19
+  },
+  "group_label": "FBSU medical insurance coverage is based on",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-1830797d83",
+   "AI-bf564041ab",
+   "AI-0af18f50ad",
+   "AI-22c0b8781c"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-cf09c86e6a",
+  "rule_revision": 1,
+  "rule_type": "definition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "“A” Class is defined as This class is reserved for academic Deans and faculty members holding Ph.D. degree.",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion and it won’t lead to salary increase.\n\n[Formulated by policy agent — source: p1-E000011]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "won’t lead to salary increase",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "03f59335-6a77-4126-8206-ff400dbe851a",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "salary increase",
+     "predicate": "won’t lead to",
+     "subject": "Lateral transfer of an employee, within the same department, or to another department"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "object": "salary increase",
+     "predicate": "won’t lead to",
+     "rule_type": "conditional_outcome",
+     "subject": "Lateral transfer of an employee, within the same department, or to another department"
+    },
+    "source_text": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion and it won’t lead to salary increase."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "upon the promotion of an employee to a new position",
+       "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion"
+      ],
+      "outcome": "Increase due to promotion"
+     },
+     "source_rule_indexes": [
+      3,
+      6,
+      7,
+      8
+     ]
+    }
+   ],
+   "source_index": 8
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-ff6ad64927",
+   "AI-6695c74866",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-d7a05428d3",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Lateral transfer of an employee, within the same department, or to another department won’t lead to salary increase",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "the employee must carefully read the insurance contract to understand the articles of the insurance policy.\n\n[Formulated by policy agent — source: p3-E000033]\n[DMN mapping: not_directly_mappable]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "carefully read the insurance contract",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "cc8fad41-ec29-4527-b661-8ca6f003cf8e",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "the insurance contract",
+     "predicate": "carefully read",
+     "subject": "the employee"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "constraint": "to understand the articles of the insurance policy",
+     "modality": "must",
+     "object": "the insurance contract",
+     "predicate": "carefully read",
+     "rule_type": "obligation",
+     "subject": "the employee"
+    },
+    "source_text": "the employee must carefully read the insurance contract to understand the articles of the insurance policy."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "not_directly_mappable",
+     "requirements": [],
+     "semantic_projection": {
+      "object": "the insurance contract",
+      "predicate": "carefully read",
+      "rule_type": "obligation",
+      "subject": "the employee"
+     },
+     "source_rule_indexes": [
+      16
+     ]
+    }
+   ],
+   "source_index": 16
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-dd34b7a193",
+  "rule_revision": 1,
+  "rule_type": "obligation",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "the employee must carefully read the insurance contract",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "The employees who are not under the University’s sponsorship will not be enrolled in FBSU medical insurance program.\n\n[Formulated by policy agent — source: p3-E000028]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'who are not under the University’s sponsorship'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be enrolled in FBSU medical insurance program",
+   "type": "deny"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "8316f08b-8dd3-4aad-bddf-5576613274d4",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "who are not under the University’s sponsorship",
+     "object": "FBSU medical insurance program",
+     "predicate": "be enrolled in",
+     "subject": "The employees"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "candidate": "The employees",
+     "condition": "who are not under the University’s sponsorship",
+     "modality": "will not",
+     "object": "FBSU medical insurance program",
+     "predicate": "be enrolled in",
+     "rule_type": "ineligibility",
+     "subject": "The employees"
+    },
+    "source_text": "The employees who are not under the University’s sponsorship will not be enrolled in FBSU medical insurance program."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "who are not under the University’s sponsorship"
+      ],
+      "outcome": "will not be enrolled in FBSU medical insurance program"
+     },
+     "source_rule_indexes": [
+      9
+     ]
+    }
+   ],
+   "source_index": 9
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-bf564041ab"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-e8999fd2fd",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "The employees will not be enrolled in FBSU medical insurance program",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU will not bear any responsibility in any ruled-out insurance coverage;\n\n[Formulated by policy agent — source: p3-E000033]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'in any ruled-out insurance coverage'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "bear any responsibility",
+   "type": "deny"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "cc8fad41-ec29-4527-b661-8ca6f003cf8e",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 3,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "in any ruled-out insurance coverage",
+     "object": "any responsibility",
+     "predicate": "bear",
+     "subject": "FBSU"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "condition": "in any ruled-out insurance coverage",
+     "modality": "will not",
+     "object": "any responsibility",
+     "predicate": "bear",
+     "rule_type": "conditional_outcome",
+     "subject": "FBSU"
+    },
+    "source_text": "FBSU will not bear any responsibility in any ruled-out insurance coverage;"
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "in any ruled-out insurance coverage"
+      ],
+      "outcome": "FBSU will not bear any responsibility"
+     },
+     "source_rule_indexes": [
+      15
+     ]
+    }
+   ],
+   "source_index": 15
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-fa5b209734",
+  "rule_revision": 1,
+  "rule_type": "prohibition",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU will not bear any responsibility",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "human_judgment_required",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "Increase due to promotion, which shall be provided upon the promotion of an employee to a new position.\n\n[Formulated by policy agent — source: p1-E000011]\n[DMN mapping: enrichment_required]\n[Enrichment required: DECISION_CONTEXT_REQUIRED, FACT_MODEL_REQUIRED, OUTPUT_MODEL_REQUIRED]\n[Conditions: conditions_not_projected — The source states conditions, but they could not be projected into executable bindings: 'upon the promotion of an employee to a new position'. The rule must not be treated as unconditional — a reviewer must supply the missing mapping.]",
+  "effect": {
+   "action": "be provided",
+   "type": "require_action"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "03f59335-6a77-4126-8206-ff400dbe851a",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 1,
+    "section": "Employee Benefits Policy",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "condition": "upon the promotion of an employee to a new position",
+     "predicate": "be provided",
+     "subject": "Increase due to promotion"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "assigner": "the President",
+     "condition": "upon the promotion of an employee to a new position",
+     "modality": "shall",
+     "predicate": "be provided",
+     "prerequisite": "depending on the financial position of the University and subject to the approval of the President",
+     "rule_type": "conditional_outcome",
+     "source_origin": "inherited_context",
+     "subject": "Increase due to promotion"
+    },
+    "source_text": "Increase due to promotion, which shall be provided upon the promotion of an employee to a new position."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED",
+      "OUTPUT_MODEL_REQUIRED",
+      "DECISION_CONTEXT_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "depending on the financial position of the University",
+       "subject to the approval of the President",
+       "upon the promotion of an employee to a new position",
+       "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion"
+      ],
+      "outcome": "Increase due to promotion"
+     },
+     "source_rule_indexes": [
+      3,
+      6,
+      7,
+      8
+     ]
+    }
+   ],
+   "source_index": 6
+  },
+  "group_label": "Employee basic salary be increased",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [
+   "AI-97526dc4b7",
+   "AI-adf7d23711",
+   "AI-2e8958afb2",
+   "AI-6695c74866",
+   "AI-d7a05428d3",
+   "AI-3b45e66767",
+   "AI-4bfc2273be",
+   "AI-5d12b2629b",
+   "AI-47a3f0a087"
+  ],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-ff6ad64927",
+  "rule_revision": 1,
+  "rule_type": "routing",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "Increase due to promotion shall be provided",
+  "xacml_view": null
+ },
+ {
+  "advice": [],
+  "ambiguity_status": "non_blocking",
+  "authority": {
+   "level": "ai_drafted",
+   "owner": "policy-formulator",
+   "rank": 0
+  },
+  "candidate_relationships": [],
+  "category": "",
+  "condition": {
+   "all": [],
+   "type": "all"
+  },
+  "decision_readiness": null,
+  "description": "FBSU employees are eligible to receive a monthly transportation stipend to travel between their local residence and the University and/or to fulfill their job requirements (See the related Transportation and Transportation Allowance guideline).\n\n[Formulated by policy agent — source: p2-E000022]\n[DMN mapping: enrichment_required]\n[Enrichment required: FACT_MODEL_REQUIRED]\n[Conditions: no_scope_derived — No conditions were found in the source. The rule may genuinely be unconditional, or its scope may have been missed during extraction; a reviewer must decide which before it can be relied on.]",
+  "effect": {
+   "action": "are eligible to receive a monthly transportation stipend",
+   "type": "allow"
+  },
+  "effective_from": "2026-08-11",
+  "effective_to": null,
+  "evidence": [
+   {
+    "clause_id": "efc2c0db-0c5f-4f6a-8f6e-ab1ee3aad3d6",
+    "document_version_id": "45c5f4ac-79f1-49fa-a35c-6d50a12735e9",
+    "end_offset": null,
+    "page": 2,
+    "section": " The housing allowance is to be paid in monthly prorated installments.",
+    "source_hash": "5e80047e4dfc06dcaa7639d375dad00d830860fed71bee829f00d71b6347f775",
+    "start_offset": null
+   }
+  ],
+  "exceptions": [],
+  "formulation": {
+   "canonical": {
+    "evidence": {
+     "object": "a monthly transportation stipend",
+     "predicate": "are eligible to receive",
+     "subject": "FBSU employees"
+    },
+    "extraction_status": "complete",
+    "rule": {
+     "beneficiary": "FBSU employees",
+     "constraint": "to travel between their local residence and the University and/or to fulfill their job requirements",
+     "frequency": "monthly",
+     "object": "a monthly transportation stipend",
+     "predicate": "are eligible to receive",
+     "rule_type": "eligibility",
+     "subject": "FBSU employees"
+    },
+    "source_text": "FBSU employees are eligible to receive a monthly transportation stipend to travel between their local residence and the University and/or to fulfill their job requirements (See the related Transportation and Transportation Allowance guideline)."
+   },
+   "dmn_decisions": [
+    {
+     "decision_table": null,
+     "dmn_mapping_status": "enrichment_required",
+     "requirements": [
+      "FACT_MODEL_REQUIRED"
+     ],
+     "semantic_projection": {
+      "conditions": [
+       "FBSU employees",
+       "to travel between their local residence and the University and/or to fulfill their job requirements"
+      ],
+      "outcome": "a monthly transportation stipend"
+     },
+     "source_rule_indexes": [
+      3
+     ]
+    }
+   ],
+   "source_index": 3
+  },
+  "group_label": "",
+  "is_explicit_override": false,
+  "lineage": {
+   "deployment_name": "gpt-5.6-sol",
+   "extraction_run_id": "31a4898f-543f-4e83-a5be-75f97942f8fd",
+   "parser_version": "formulation-mapping-v1",
+   "prompt_version": "verbatim-passage-extractor-v1+dmn-formulator-v1",
+   "schema_version": "1.0"
+  },
+  "machine_executable": false,
+  "policy_set_id": "c9b0b57d-673c-44a7-98e0-7c9f57eedf47",
+  "policy_version_id": "draft",
+  "priority": 0,
+  "related_rule_ids": [],
+  "required_facts": [],
+  "review_status": "candidate",
+  "rule_id": "AI-ffb2f7a68f",
+  "rule_revision": 1,
+  "rule_type": "eligibility",
+  "schema_version": "1.0",
+  "scope": {
+   "jurisdictions": [],
+   "organizational_units": [],
+   "personas": [],
+   "processes": []
+  },
+  "supersedes_rule_ids": [],
+  "tags": [],
+  "title": "FBSU employees are eligible to receive a monthly transportation stipend",
+  "xacml_view": null
+ }
+]
