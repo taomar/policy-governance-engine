@@ -193,6 +193,17 @@ export type ConditionOperator =
   | "countEquals"
   | "countGreaterThan";
 
+/**
+ * Why a rule's condition tree is what it is, as the server derived it.
+ * Mirrors `contracts/policy.ConditionProvenance`.
+ */
+export interface ConditionProvenance {
+  /** `derived` | `conditions_not_projected` | `conditions_not_representable` | `no_scope_derived` */
+  code: string;
+  message: string;
+  unsupported_expression: string;
+}
+
 export interface FactComparisonCondition {
   type: "factComparison";
   fact: string;
@@ -555,6 +566,8 @@ export interface CanonicalRule {
   authority: PolicyAuthority;
   scope: PolicyScope;
   condition: ConditionNode;
+  /** Why `condition` is what it is. Absent on hand-authored rules. */
+  condition_provenance?: ConditionProvenance | null;
   effect: Effect;
   required_facts: RequiredFact[];
   exceptions: RuleException[];

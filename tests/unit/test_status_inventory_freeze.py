@@ -209,6 +209,46 @@ def test_no_rule_claims_executability_without_a_condition(corpus):
     assert not liars, f"executable rules with an empty condition: {liars}"
 
 
+def test_the_provenance_field_and_the_description_note_never_disagree(corpus):
+    """One source, two renderings — they must not drift.
+
+    The code is exposed as a structured field *and* appended to `description`
+    as `[Conditions: <code> — …]`. Two copies of one fact is how a correction
+    gets applied to one of them. Checked over the real corpus rather than a
+    constructed pair, because the note is written at extraction time and the
+    field is derived on read, so only stored data exercises both paths.
+    """
+
+    for rule in corpus:
+        status = status_for(rule)
+        from_note = status["condition_provenance_code"]
+        from_field = status["condition_provenance_field_code"]
+        if from_note is None:
+            continue
+        assert from_note == from_field, (
+            f"{status['rule_id']}: description note says {from_note!r} but the "
+            f"condition_provenance field says {from_field!r}"
+        )
+
+
+def test_every_rule_reaches_the_interface_with_a_provenance_field(corpus):
+    """The interface cannot explain an empty tree without this.
+
+    Before it existed, every non-executable rule showed one sentence — "no fact
+    model maps this rule's terms" — which is the wrong instruction for 25 of
+    these 44, whose source states no condition at all. There is nothing to map,
+    so no mapping could have fixed them.
+    """
+
+    without = [
+        status["rule_id"]
+        for status in (status_for(rule) for rule in corpus)
+        if status["condition_provenance_field_code"] is None
+    ]
+
+    assert not without, f"rules reaching the interface with no provenance: {without}"
+
+
 def test_authorities_are_named_verbatim_not_invented(corpus):
     """Party names must be phrases the document supplies.
 

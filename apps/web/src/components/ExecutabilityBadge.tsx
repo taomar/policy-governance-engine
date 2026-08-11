@@ -2,11 +2,11 @@ import { Space, Tag, Tooltip } from "antd";
 import { ToolOutlined } from "@ant-design/icons";
 import type { CanonicalRule } from "../api";
 import {
-  DETERMINISTIC_LABEL,
-  DETERMINISTIC_REASON,
   READINESS_COLOR,
   READINESS_LABEL,
   READINESS_REASON,
+  deterministicLabel,
+  deterministicReason,
 } from "../ruleExecutability";
 
 /**
@@ -33,20 +33,21 @@ export function ExecutabilityBadge({
   showReadiness = true,
   size = "default",
 }: {
-  rule: Pick<CanonicalRule, "machine_executable" | "decision_readiness">;
+  rule: Pick<CanonicalRule, "machine_executable" | "decision_readiness" | "condition_provenance">;
   /** Hide the readiness half where space is tight, e.g. a dense table row. */
   showReadiness?: boolean;
   size?: "default" | "small";
 }) {
   const readiness = rule.decision_readiness;
   const evaluability = readiness?.evaluability;
+  const provenance = rule.condition_provenance;
   const className = size === "small" ? "executability-badge is-small" : "executability-badge";
 
   return (
     <Space size={4} wrap className={className}>
-      <Tooltip title={rule.machine_executable ? undefined : DETERMINISTIC_REASON}>
+      <Tooltip title={rule.machine_executable ? undefined : deterministicReason(provenance)}>
         <Tag bordered={false} color={rule.machine_executable ? "green" : "default"}>
-          {rule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}
+          {deterministicLabel(rule.machine_executable, provenance)}
         </Tag>
       </Tooltip>
       {showReadiness && evaluability && (
@@ -72,17 +73,19 @@ export function ExecutabilityBadge({
 export function ExecutabilityFlag({
   rule,
 }: {
-  rule: Pick<CanonicalRule, "machine_executable" | "decision_readiness">;
+  rule: Pick<CanonicalRule, "machine_executable" | "decision_readiness" | "condition_provenance">;
 }) {
   if (rule.machine_executable) return null;
   const evaluability = rule.decision_readiness?.evaluability;
   const readable = evaluability ? (READINESS_LABEL[evaluability] ?? evaluability) : null;
+  const label = deterministicLabel(false, rule.condition_provenance);
+  const reason = deterministicReason(rule.condition_provenance);
   return (
     <Tooltip
       title={
         readable
-          ? `${DETERMINISTIC_LABEL.no}. ${DETERMINISTIC_REASON} Readiness for LLM evaluation: ${readable}.`
-          : `${DETERMINISTIC_LABEL.no}. ${DETERMINISTIC_REASON}`
+          ? `${label}. ${reason} Readiness for LLM evaluation: ${readable}.`
+          : `${label}. ${reason}`
       }
     >
       <ToolOutlined className="policy-row-flag" />

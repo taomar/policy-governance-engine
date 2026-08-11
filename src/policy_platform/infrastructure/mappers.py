@@ -28,7 +28,10 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
     # Imported here rather than at module scope: `formulation_mapping` imports
     # the contracts this module also imports, and hoisting it makes the cycle
     # an import-time failure instead of a lazy one.
-    from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
+    from policy_platform.infrastructure.formulation_mapping import (
+        _decision_readiness_for,
+        condition_provenance_for,
+    )
     from policy_platform.infrastructure.xacml_projection import build_xacml_view
 
     formulation = (
@@ -115,6 +118,11 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
             if formulation and formulation.canonical
             else None
         ),
+        # Same again. Why a rule's condition tree is empty is a question about
+        # the formulation, not a separate fact about the rule, and a reviewer
+        # reading a published rule needs the current answer rather than the one
+        # that happened to be current on the day it was approved.
+        condition_provenance=condition_provenance_for(formulation),
     )
 
 

@@ -548,20 +548,22 @@ def test_platform_limit_does_not_blame_the_fact_model():
     """
 
     outcome = derive_condition_outcome(_decision(UNSUPPORTED_LITERAL_DECISION), 0)
-    code, message = condition_provenance(
+    provenance = condition_provenance(
         _policy("annual increase not exceeding 10% of current basic salary"),
         None,
         outcome,
     )
 
-    assert code == "conditions_not_representable"
+    assert provenance.code == "conditions_not_representable"
+    assert provenance.is_platform_limitation is True
     # It must not *instruct* a reviewer to go and supply a mapping; saying
     # "not a missing mapping" is exactly the correction being asserted.
-    assert "supply the missing mapping" not in message
-    assert "not a missing mapping" in message
-    assert "platform limitation" in message
+    assert "supply the missing mapping" not in provenance.message
+    assert "not a missing mapping" in provenance.message
+    assert "platform limitation" in provenance.message
     # The agent's actual expression is quoted, so the gap is auditable.
-    assert "proposed_annual_increase" in message
+    assert "proposed_annual_increase" in provenance.message
+    assert "proposed_annual_increase" in provenance.unsupported_expression
 
 
 def test_missing_mapping_message_survives_for_the_case_it_describes():
@@ -571,20 +573,21 @@ def test_missing_mapping_message_survives_for_the_case_it_describes():
         _decision({"source_rule_indexes": [0], "dmn_mapping_status": "enrichment_required"}),
         0,
     )
-    code, message = condition_provenance(_policy("only for P1 incidents"), None, outcome)
+    provenance = condition_provenance(_policy("only for P1 incidents"), None, outcome)
 
-    assert code == "conditions_not_projected"
-    assert "supply the missing mapping" in message
+    assert provenance.code == "conditions_not_projected"
+    assert provenance.is_platform_limitation is False
+    assert "supply the missing mapping" in provenance.message
 
 
 def test_provenance_without_an_outcome_is_unchanged():
     """Existing callers that pass no outcome keep their previous behaviour."""
 
-    assert condition_provenance(_policy("only for P1 incidents"), None)[0] == (
+    assert condition_provenance(_policy("only for P1 incidents"), None).code == (
         "conditions_not_projected"
     )
-    assert condition_provenance(_policy(None), None)[0] == "no_scope_derived"
-    assert condition_provenance(_policy("anything"), object())[0] == "derived"
+    assert condition_provenance(_policy(None), None).code == "no_scope_derived"
+    assert condition_provenance(_policy("anything"), object()).code == "derived"
 
 
 # --------------------------------------------------------------------------

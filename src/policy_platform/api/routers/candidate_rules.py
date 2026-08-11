@@ -39,7 +39,10 @@ from policy_platform.api.schemas import (
 )
 from policy_platform.contracts.policy import AggregateLimit, AggregateLimitContribution, CanonicalRule
 from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
+from policy_platform.infrastructure.formulation_mapping import (
+    _decision_readiness_for,
+    condition_provenance_for,
+)
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 from policy_platform.infrastructure.export import (
     ExportFormat,
@@ -131,6 +134,12 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
         update={
             "decision_readiness": _decision_readiness_for(canonical),
             "xacml_view": build_xacml_view(canonical),
+            # Re-derived for the same reason as the two above. A candidate
+            # stores it at extraction time, so reading it back would work — but
+            # then a corrected message would reach published rules (which
+            # derive it) and not candidates, and the two views of the same rule
+            # would disagree about why its condition is empty.
+            "condition_provenance": condition_provenance_for(rule.formulation),
         }
     )
 

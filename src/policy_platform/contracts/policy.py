@@ -315,6 +315,42 @@ class CandidateRelationship(BaseModel):
     reason: str = ""
 
 
+class ConditionProvenance(BaseModel):
+    """Why a rule's condition tree looks the way it does.
+
+    Promoted to a field because it was previously only appended to
+    `description` as `[Conditions: <code> — <message>]`. Prose in a description
+    cannot be rendered as a status, cannot be filtered on, and cannot be
+    counted — so the interface showed every non-executable rule the same
+    sentence regardless of which of four quite different things had happened.
+
+    It had already caused a concrete defect: `policy_faithfulness` had to stop
+    reading `description` entirely, because the note quotes the very condition
+    it reports as lost, which made a check for lost conditions unable to fail.
+
+    `unsupported_expression` carries the exact text that could not be compiled,
+    when there was one, so a reviewer sees what the agent actually produced
+    rather than a paraphrase of it.
+    """
+
+    #: `derived` | `conditions_not_projected` | `conditions_not_representable`
+    #: | `no_scope_derived`.
+    code: str
+    message: str
+    unsupported_expression: str = ""
+
+    @property
+    def is_platform_limitation(self) -> bool:
+        """True when the configuration was sufficient and the compiler was not.
+
+        The distinction a reviewer acts on: everything else in this model asks
+        them to supply something, and this one asks them to wait for an
+        engineering change.
+        """
+
+        return self.code == "conditions_not_representable"
+
+
 class CanonicalRule(BaseModel):
     """A single approved, versioned, machine-executable rule.
 
@@ -332,6 +368,9 @@ class CanonicalRule(BaseModel):
     authority: PolicyAuthority
     scope: PolicyScope
     condition: ConditionNode
+    #: Why `condition` is what it is. Absent on hand-authored rules, which have
+    #: no formulation to derive it from.
+    condition_provenance: ConditionProvenance | None = None
     effect: Effect
     required_facts: list[RequiredFact] = Field(default_factory=list)
     exceptions: list[RuleException] = Field(default_factory=list)

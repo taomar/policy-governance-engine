@@ -122,6 +122,14 @@ def status_for(rule: CanonicalRule) -> dict[str, Any]:
         "machine_executable": resolved.machine_executable,
         "condition_is_vacuous": _is_vacuous(resolved),
         "condition_provenance_code": condition_code,
+        # The same fact as the line above, but taken from the structured field
+        # the interface reads rather than parsed out of the description. Both
+        # are recorded so a drift between them is visible; they are written at
+        # different times (extraction vs read) and only real stored data
+        # exercises both paths.
+        "condition_provenance_field_code": (
+            resolved.condition_provenance.code if resolved.condition_provenance else None
+        ),
         "ambiguity_status_stored": resolved.ambiguity_status.value,
         "ambiguity_status_derived": derived_ambiguity,
         "evaluability": readiness.evaluability if readiness else None,

@@ -62,6 +62,7 @@ from policy_platform.infrastructure.passage_extractor import _normalize
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
+    ConditionProvenance,
     DecisionReadiness,
     Effect,
     EffectType,
@@ -798,7 +799,7 @@ def condition_provenance(
     policy: CanonicalPolicy,
     derived: object | None,
     outcome: "ConditionDerivation | None" = None,
-) -> tuple[str, str]:
+) -> ConditionProvenance:
     """Explain *why* a rule's condition tree looks the way it does.
 
     Both an unconditional rule and a rule whose conditions could not be
@@ -818,37 +819,71 @@ def condition_provenance(
     A synthesised always-false node would be a constraint the document never
     stated — the same fabrication the pointer-only design exists to prevent.
     The honest move is to say which case it is and route it to a human.
-
-    Returns ``(code, message)``.
     """
 
     stated = (getattr(policy.rule, "condition", None) or "").strip() if policy.rule else ""
 
     if derived is not None:
-        return ("derived", "Conditions were projected into an executable tree.")
+        return ConditionProvenance(
+            code="derived", message="Conditions were projected into an executable tree."
+        )
 
     if outcome is not None and outcome.platform_limited:
         produced = outcome.unsupported_expression
-        return (
-            "conditions_not_representable",
-            "The agent produced executable logic grounded in the trusted "
-            f"configuration, but it could not be compiled: {produced!r}. "
-            + _PLATFORM_LIMIT_NOTE,
+        return ConditionProvenance(
+            code="conditions_not_representable",
+            message=(
+                "The agent produced executable logic grounded in the trusted "
+                f"configuration, but it could not be compiled: {produced!r}. "
+                + _PLATFORM_LIMIT_NOTE
+            ),
+            unsupported_expression=produced,
         )
 
     if stated:
-        return (
-            "conditions_not_projected",
-            "The source states conditions, but they could not be projected into "
-            f"executable bindings: {stated!r}. The rule must not be treated as "
-            "unconditional — a reviewer must supply the missing mapping.",
+        return ConditionProvenance(
+            code="conditions_not_projected",
+            message=(
+                "The source states conditions, but they could not be projected into "
+                f"executable bindings: {stated!r}. The rule must not be treated as "
+                "unconditional — a reviewer must supply the missing mapping."
+            ),
         )
-    return (
-        "no_scope_derived",
-        "No conditions were found in the source. The rule may genuinely be "
-        "unconditional, or its scope may have been missed during extraction; a "
-        "reviewer must decide which before it can be relied on.",
+    return ConditionProvenance(
+        code="no_scope_derived",
+        message=(
+            "No conditions were found in the source. The rule may genuinely be "
+            "unconditional, or its scope may have been missed during extraction; a "
+            "reviewer must decide which before it can be relied on."
+        ),
     )
+
+
+def condition_provenance_for(formulation: "RuleFormulation | None") -> ConditionProvenance | None:
+    """Re-derive a stored rule's condition provenance from its formulation.
+
+    The read-path counterpart to what `formulation_to_candidate_rules` computes
+    at extraction time, and the same reasoning as `_decision_readiness_for`: it
+    is a pure function of `formulation`, which is persisted, so a stored second
+    copy could only ever disagree with the record it came from — and correcting
+    a message would leave every already-published rule carrying the old one.
+
+    `source_index` is what makes this exact rather than approximate. A DMN
+    decision may span several canonical rules (spec Section 91), so the
+    provenance depends on *which* row belongs to this rule, and that is the
+    field retained to answer it.
+    """
+
+    if formulation is None or formulation.canonical is None:
+        return None
+    index = formulation.source_index
+    outcomes = [derive_condition_outcome(d, index) for d in formulation.dmn_decisions]
+    derived = next((o for o in outcomes if o.derived), None)
+    blocking = next(
+        (o for o in outcomes if o.platform_limited),
+        outcomes[0] if outcomes else None,
+    )
+    return condition_provenance(formulation.canonical, derived, blocking)
 
 
 #: Modalities that forbid rather than require.
@@ -1340,7 +1375,7 @@ def formulation_to_candidate_rules(
         # Why the tree is empty, when it is. Recorded rather than inferred later
         # from the tree's shape, because the shape cannot distinguish "no
         # conditions exist" from "conditions exist but were not projected".
-        condition_code, condition_note = condition_provenance(policy, derived, blocking)
+        provenance = condition_provenance(policy, derived, blocking)
 
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the
@@ -1380,17 +1415,18 @@ def formulation_to_candidate_rules(
                 rule_revision=1,
                 title=_title_for(policy),
                 description=_description_for(policy, decisions, rule_source_note)
-                + f"\n[Conditions: {condition_code} — {condition_note}]",
+                + f"\n[Conditions: {provenance.code} — {provenance.message}]",
                 rule_type=rule_type,
                 authority=PolicyAuthority(level="ai_drafted", owner="policy-formulator", rank=0),
                 scope=PolicyScope(),
                 condition=condition,
+                condition_provenance=provenance,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,
                 exceptions=_exceptions_for(canonical_rule),
                 effective_from=date.today(),
                 machine_executable=machine_executable,
-                ambiguity_status=_ambiguity_for(policy, machine_executable, condition_code),
+                ambiguity_status=_ambiguity_for(policy, machine_executable, provenance.code),
                 review_status=ReviewStatus.CANDIDATE,
                 evidence=rule_evidence,
                 lineage=RuleLineage(

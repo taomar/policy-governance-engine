@@ -1,4 +1,4 @@
-import type { ConditionNode } from "./api";
+import type { ConditionNode, ConditionProvenance } from "./api";
 import { isVacuousCondition } from "./conditionRows";
 
 /**
@@ -59,12 +59,74 @@ export const DETERMINISTIC_LABEL = {
  * Why the deterministic engine cannot decide this rule, in one sentence that
  * does not overclaim.
  *
- * Deliberately mentions the fact model rather than the rule: the missing piece
- * is a mapping from the document's wording onto a customer's schema, and that
- * is work nobody has done yet rather than a defect in the extraction.
+ * @deprecated Prefer `deterministicReason(provenance)`, which distinguishes the
+ * four reasons a tree can be empty. This constant states the
+ * `conditions_not_projected` case and is kept only for callers that have no
+ * provenance to hand — a hand-authored rule, or a summary over mixed rules.
  */
 export const DETERMINISTIC_REASON =
   "No fact model maps this rule's terms onto attributes the deterministic engine can read, so it returns NOT_APPLICABLE before looking at any scenario. That is a configuration gap on our side, not a judgement about the policy.";
+
+/**
+ * Why the deterministic engine cannot decide this rule.
+ *
+ * There is no single answer, and pretending there was one is how the interface
+ * came to give a reviewer the wrong instruction. Every non-executable rule used
+ * to show the same sentence — "no fact model maps this rule's terms" — which is
+ * true for one of four cases and actively misleading for the others:
+ *
+ * * `conditions_not_representable`: the fact model *did* map every term and the
+ *   agent produced grounded, executable logic. We could not compile it. Telling
+ *   a reviewer to supply a mapping sends them to edit a configuration that is
+ *   already correct and cannot possibly fix it.
+ * * `no_scope_derived`: the source states no condition at all. There is nothing
+ *   to map, so a missing mapping is not what is holding it back.
+ * * `conditions_not_projected`: the original sentence, and still right.
+ *
+ * The server derives the code, so this only chooses wording — it never decides
+ * which case a rule is in.
+ */
+export function deterministicReason(provenance?: ConditionProvenance | null): string {
+  switch (provenance?.code) {
+    case "conditions_not_representable":
+      return (
+        "The trusted configuration is complete for this rule and the extraction produced " +
+        "executable logic from it, but this platform's condition format cannot yet express " +
+        "that comparison — it compares a fact against a fixed value, and this rule compares " +
+        "one fact against a proportion of another. Nothing you can change in the fact model " +
+        "will resolve it; it needs an engineering change."
+      );
+    case "no_scope_derived":
+      return (
+        "The source states no condition for this rule, so there is nothing to map onto the " +
+        "deterministic engine. It may genuinely apply always, or its scope may have been " +
+        "missed during extraction — that is a reading of the document, not a configuration gap."
+      );
+    case "conditions_not_projected":
+    default:
+      return (
+        "No fact model maps this rule's terms onto attributes the deterministic engine can " +
+        "read, so it returns NOT_APPLICABLE before looking at any scenario. That is a " +
+        "configuration gap on our side, not a judgement about the policy."
+      );
+  }
+}
+
+/**
+ * Short label for the same distinction, for places with no room for a sentence.
+ *
+ * `DETERMINISTIC_LABEL.no` says "Needs a fact mapping", which is the wrong
+ * instruction for a rule whose mapping is already complete.
+ */
+export function deterministicLabel(
+  machineExecutable: boolean,
+  provenance?: ConditionProvenance | null
+): string {
+  if (machineExecutable) return DETERMINISTIC_LABEL.yes;
+  if (provenance?.code === "conditions_not_representable") return "Not yet expressible";
+  if (provenance?.code === "no_scope_derived") return "No condition stated";
+  return DETERMINISTIC_LABEL.no;
+}
 
 /** Short readiness wording, matching the server's `evaluability` values. */
 export const READINESS_LABEL: Record<string, string> = {
