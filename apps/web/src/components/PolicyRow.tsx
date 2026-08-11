@@ -241,7 +241,20 @@ export function PolicyRow({
         </div>
         <div className="policy-decision-line" title={decision.text}>
           <span className="policy-decision-key">When</span>
-          <span className="policy-decision-value">{highlight(decision.condition, searchQuery)}</span>
+          <span
+            className={
+              decision.conditionIsStatedOnly
+                ? "policy-decision-value is-stated-only"
+                : "policy-decision-value"
+            }
+            title={
+              decision.conditionIsStatedOnly
+                ? "Stated by the source. No fact model compiles it yet, so the deterministic engine does not test it."
+                : undefined
+            }
+          >
+            {highlight(decision.condition, searchQuery)}
+          </span>
           <span className="policy-decision-arrow">→</span>
           <span className="policy-decision-key">Then</span>
           <span className="policy-decision-result">{highlight(decision.action, searchQuery)}</span>

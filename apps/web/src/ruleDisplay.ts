@@ -137,20 +137,57 @@ export interface RuleDecisionSummary {
   action: string;
   text: string;
   truncated: boolean;
+  /**
+   * True when `condition` is the source's own wording rather than a compiled
+   * tree. The caller should mark it, because a stated-but-uncompiled condition
+   * is not something the deterministic engine will test.
+   */
+  conditionIsStatedOnly: boolean;
 }
 
-/** Structured decision summary shared by candidate rows, published-policy
- * rows, and the inspector. Keeping WHEN and THEN separate lets the UI establish
- * a real reading order without reparsing a display string. */
+/**
+ * The condition the source states, when the compiled tree is empty.
+ *
+ * An empty tree used to render as "Always", which is a false statement about
+ * every rule whose condition could not be compiled. Three housing-allowance
+ * rules — one per staff category, at two different limits — all displayed as
+ * "WHEN Always", so each claimed to apply to everyone, and the two capped at
+ * 15,000 SAR became indistinguishable on screen because the staff category was
+ * the only thing separating them and it was exactly what went missing.
+ *
+ * The wording is read from the canonical decomposition and the semantic
+ * projection, both of which already carry it verbatim. Nothing is inferred:
+ * if the source states no condition, this returns null and "Always" is then
+ * the truth.
+ */
+function statedCondition(rule: CanonicalRule): string | null {
+  const canonical = rule.formulation?.canonical?.rule?.condition;
+  if (canonical && canonical.trim()) return canonical.trim();
+  for (const decision of rule.formulation?.dmn_decisions ?? []) {
+    const projection = decision.semantic_projection;
+    if (!projection) continue;
+    const phrases = [...(projection.conditions ?? []), projection.condition_source ?? ""].filter(
+      (p) => p && p.trim()
+    );
+    if (phrases.length > 0) return phrases.join(" · ");
+  }
+  return null;
+}
+
 export function ruleDecisionSummary(rule: CanonicalRule, maxTerms = 3): RuleDecisionSummary {
   const cond = summarizeCondition(rule.condition, maxTerms);
-  const condition = cond.text || "Always";
+  const stated = cond.text ? null : statedCondition(rule);
+  // "Always" only when the source genuinely conditions nothing. Saying it for
+  // a rule the document did condition is not a simplification — it inverts the
+  // rule's scope, from "these staff" to "everyone".
+  const condition = cond.text || stated || "Always";
   const action = humanizeAction(rule.effect.action || rule.effect.type);
   return {
     condition,
     action,
     text: `${condition} → ${action}`,
     truncated: cond.truncated,
+    conditionIsStatedOnly: !cond.text && stated !== null,
   };
 }
 

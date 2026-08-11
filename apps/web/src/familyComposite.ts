@@ -132,12 +132,32 @@ export function effectivePolicy(members: CanonicalRule[]): EffectivePolicy {
     perMember.every((lines) => JSON.stringify(lines) === firstKey);
   const sharedConditions = allIdentical ? perMember[0] : [];
 
+  // The object is usually what varies across a family (the severity band, the
+  // SLA value), but not always — and when it does not, labelling by it makes
+  // two genuinely different rules look like one.
+  //
+  // The housing allowance is the case that proved it: three rules, one per
+  // staff category, at two limits. Two of them carry the identical object
+  // "Fifteen thousand (15,000) SAR", so both rendered with the same label and
+  // a reviewer saw what looked like a duplicated row. What distinguishes them
+  // is the condition — "for administrative, technical and service staff"
+  // versus "for full time lecturers, instructors…" — which the label ignored.
+  const rawLabels = members.map((rule, index) => {
+    const canonical = canonicals[index];
+    return (canonical?.object ?? "").trim() || rule.title;
+  });
+  const labelCounts = rawLabels.reduce<Record<string, number>>((acc, label) => {
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const cases: EffectiveCase[] = members.map((rule, index) => {
     const canonical = canonicals[index];
-    // The object is what varies across a family (the severity band, the SLA
-    // value). Falls back to the title only when the decomposition has none,
-    // so a case is never left unlabelled.
-    const label = (canonical?.object ?? "").trim() || rule.title;
+    const base = rawLabels[index];
+    // Disambiguate only where it is needed. Appending the condition to every
+    // case would bury the varying value under repeated qualifying text.
+    const qualifier = (canonical?.condition ?? "").trim();
+    const label = labelCounts[base] > 1 && qualifier ? `${base} — ${qualifier}` : base;
     return {
       ruleId: rule.rule_id,
       label,

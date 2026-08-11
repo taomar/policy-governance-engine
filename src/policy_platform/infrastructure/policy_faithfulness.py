@@ -86,7 +86,12 @@ def _source_text(rule: CanonicalRule) -> str:
     return _normalize(canonical.source_text if canonical else "")
 
 
-def _rule_surface(rule: CanonicalRule, *, include_stated_condition: bool = True) -> str:
+def _rule_surface(
+    rule: CanonicalRule,
+    *,
+    include_stated_condition: bool = True,
+    include_description: bool = True,
+) -> str:
     """Everything the rule says, as one string, for presence checks.
 
     Deliberately includes the condition tree, the effect action and the
@@ -94,13 +99,34 @@ def _rule_surface(rule: CanonicalRule, *, include_stated_condition: bool = True)
     condition, in the action, or in the object, and demanding a particular
     location would report faithful rules as defective.
 
-    `include_stated_condition` exists for the one caller that must not see it.
-    The canonical `condition` field is where the *source's* condition is
-    recorded, so a check asking "did this condition reach the rule's operative
-    parts" would otherwise compare the text against itself and never fire.
+    Two exclusions exist, both for the same caller, and both because a check
+    asking "did this survive into the rule's operative parts" must not be
+    allowed to find it in a field that merely *describes* the rule.
+
+    `include_stated_condition` drops the canonical `condition` field, which is
+    where the source's condition is recorded — comparing it against itself
+    would never fire.
+
+    `include_description` drops `description`, and this one was learned the
+    hard way. `formulation_mapping` appends a provenance note to every
+    description, and that note quotes the very condition it is reporting as
+    lost:
+
+        [Conditions: conditions_not_projected — The source states conditions,
+         but they could not be projected into executable bindings:
+         'for administrative, technical and service staff'. …]
+
+    So `check_condition_preserved` found the condition in the surface every
+    single time, concluded nothing had been lost, and returned no finding — for
+    exactly the rules it was written to catch. It reported zero findings across
+    47 rules while three housing-allowance rules had each dropped the staff
+    category that distinguished them. The note added to make the loss legible
+    is what made the loss invisible.
     """
 
-    parts = [rule.title, rule.description, rule.effect.action if rule.effect else ""]
+    parts = [rule.title, rule.effect.action if rule.effect else ""]
+    if include_description:
+        parts.append(rule.description)
     formulation = rule.formulation
     canonical = formulation.canonical if formulation else None
     policy_rule = canonical.rule if canonical else None
@@ -247,11 +273,18 @@ def check_conditions_represented(rule: CanonicalRule) -> FaithfulnessFinding | N
     if not empty_tree:
         return None
 
-    surface = _rule_surface(rule, include_stated_condition=False)
+    surface = _rule_surface(
+        rule, include_stated_condition=False, include_description=False
+    )
     if stated.lower() in surface.lower():
         # Carried as prose in the projection rather than compiled. Recorded
         # elsewhere as a mapping gap; not a faithfulness failure, because
         # nothing was lost.
+        #
+        # `description` is excluded from that surface deliberately — see
+        # `_rule_surface`. The provenance note appended there quotes the lost
+        # condition verbatim, so including it satisfied this test for every
+        # rule and the check never fired once.
         return None
 
     return FaithfulnessFinding(
@@ -318,6 +351,128 @@ def validate_rule(rule: CanonicalRule) -> list[FaithfulnessFinding]:
 
 
 def validate_rules(rules: list[CanonicalRule]) -> list[FaithfulnessFinding]:
-    """Every faithfulness check, across a run."""
+    """Every faithfulness check, across a run.
 
-    return [finding for rule in rules for finding in validate_rule(rule)]
+    Per-rule checks plus the corpus-level duplicate check, which cannot run
+    from inside a single rule: each copy of a duplicate is individually
+    faithful to the sentence it cites, so the defect is only visible from
+    outside both.
+    """
+
+    findings = [finding for rule in rules for finding in validate_rule(rule)]
+    findings.extend(find_duplicate_rules(rules))
+    return findings
+
+
+#: Function words that appear or vanish purely because of where a phrase was
+#: cut, not because the policy says something different.
+#:
+#: When a clause boundary falls mid-sentence, the same content redistributes
+#: across canonical slots and gains or loses a connective at the seam: object
+#: "one employee" + condition "of the married couple" against object "one
+#: employee of the married couple"; object "in monthly prorated installments"
+#: against constraint "prorated installments" + frequency "monthly". The
+#: content words are identical in both; only the joinery moves.
+#:
+#: Deliberately excludes the prepositions that can invert a relation -- `by`,
+#: `to`, `from`, `before`, `after`, `without`, `not`. "paid by HR" and "paid to
+#: HR" name different parties, and collapsing them would report two real rules
+#: as one copy. The words listed here cannot carry that distinction on their
+#: own: whatever they attach to survives as a content word either way.
+_SEAM_WORDS = frozenset(
+    {"a", "an", "the", "of", "in", "on", "at", "and", "or", "as", "for", "its", "their", "this"}
+)
+
+
+def _content_signature(policy_rule: object) -> str:
+    """The rule's content, independent of which canonical slot holds what.
+
+    Named fields were tried first and failed in both directions on live data.
+    Keying on `object` alone reported two housing-allowance rules capped at the
+    same amount as duplicates, because it dropped the condition -- "for
+    administrative, technical and service staff" against "for full time
+    lecturers, instructors..." -- which is the only thing separating them.
+    Adding `condition` fixed that pair and still missed a genuine duplicate,
+    because that sentence had decomposed into different slots on the two runs.
+
+    Naming more fields keeps losing the same race. The failure is not that the
+    *right* slots were left unnamed; it is that a slot assignment is a
+    judgement the formulator makes per run, so no fixed list of slots is stable
+    across runs. Reading every qualifying field as one bag of content words is
+    stable by construction, and it generalises to slot variance nobody has
+    observed yet.
+
+    Exact set equality only, never an overlap threshold. Two rules sharing most
+    of their words are not evidence of anything, and a check that guesses adds
+    a second source of error to the one it was meant to catch.
+    """
+
+    if policy_rule is None:
+        return ""
+    # Every field that can carry content. The structural anchors (subject,
+    # predicate) are excluded because they are compared separately, so that
+    # "A limits B" and "B limits A" cannot collide; the bookkeeping fields
+    # describe the extraction rather than the policy.
+    dumped = policy_rule.model_dump(exclude_none=True)
+    for field in ("rule_type", "source_origin", "subject", "predicate", "modality"):
+        dumped.pop(field, None)
+    words = _normalize(" ".join(str(v) for v in dumped.values())).lower().split()
+    return " ".join(sorted({w for w in words if w not in _SEAM_WORDS}))
+
+
+def find_duplicate_rules(rules: "list[CanonicalRule]") -> list[FaithfulnessFinding]:
+    """Rules whose content is identical to another rule's.
+
+    A corpus-level check, because a duplicate is invisible from inside either
+    copy: each is individually faithful to the sentence it cites.
+
+    Both live examples were caused by a clause boundary falling mid-sentence.
+    "The housing allowance is limited to one employee of the married couple
+    (husband and wife). In the case of a married couple are employed by FBSU..."
+    was split between "married couple" and "(husband and wife)", so the second
+    clause begins mid-sentence; the formulator then reconstructs the governing
+    sentence from inherited context and produces a rule the first clause had
+    already produced. Reported rather than silently de-duplicated, because
+    which copy to keep depends on which clause carries the better evidence, and
+    that is a reviewer's call.
+
+    Keyed on subject, predicate and a slot-independent content signature -- see
+    `_content_signature` for why naming fields could not work. Title,
+    description and the effect action are all excluded: each is *derived* from
+    the fields above, so including one double-counts them, and a difference in
+    that derivation ("is limited to one employee" against "is limited to one
+    employee of the married couple") was enough to hide the very pair this
+    check was added for.
+    """
+
+    seen: dict[tuple[str, str, str], str] = {}
+    findings: list[FaithfulnessFinding] = []
+    for rule in rules:
+        canonical = rule.formulation.canonical if rule.formulation else None
+        policy_rule = canonical.rule if canonical else None
+        key = (
+            _normalize(policy_rule.subject if policy_rule else "").lower(),
+            _normalize(policy_rule.predicate if policy_rule else "").lower(),
+            _content_signature(policy_rule),
+        )
+        if not any(key):
+            continue
+        first = seen.get(key)
+        if first is None:
+            seen[key] = rule.rule_id
+            continue
+        findings.append(
+            FaithfulnessFinding(
+                rule_id=rule.rule_id,
+                code="duplicate_rule",
+                message=(
+                    f"This rule states the same thing as {first}. Both cite the same "
+                    "sentence, usually because a clause boundary fell inside it and the "
+                    "sentence was formulated twice. A reviewer must keep the copy whose "
+                    "clause carries the better evidence."
+                ),
+                source_quote=(canonical.source_text if canonical else "")[:160],
+                severity="warning",
+            )
+        )
+    return findings

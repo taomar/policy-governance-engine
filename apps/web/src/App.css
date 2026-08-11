@@ -10561,3 +10561,13 @@
 }
 
 /* Four summary tiles reading "0" do not warrant display type. */
+
+/* A condition the source states but no fact model compiles. Shown because the
+   alternative was "Always", which inverted the rule's scope from "these staff"
+   to "everyone" — three housing rules for three staff categories all read as
+   applying to all of them, and two became identical on screen. Marked so it is
+   not mistaken for a compiled condition the engine will actually test. */
+.policy-decision-value.is-stated-only {
+  font-style: italic;
+  border-bottom: 1px dotted var(--border);
+}

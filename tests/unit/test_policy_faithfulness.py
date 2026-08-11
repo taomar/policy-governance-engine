@@ -13,7 +13,7 @@ from policy_platform.contracts.formulation import (
     CanonicalRuleType,
 )
 from policy_platform.contracts.policy import EffectType, RuleFormulation
-from policy_platform.infrastructure.policy_faithfulness import validate_rule
+from policy_platform.infrastructure.policy_faithfulness import find_duplicate_rules, validate_rule
 from tests.fixtures.factories import make_rule
 
 
@@ -186,3 +186,236 @@ class TestActionIsNotAFragment:
         )
 
         assert "action_fragment" not in _codes(rule)
+
+
+class TestTheProvenanceNoteMustNotSatisfyTheCheck:
+    """The note that reports the loss is not evidence against it.
+
+    `formulation_mapping` appends a provenance note to every description, and
+    that note quotes the very condition it is reporting as unprojected. The
+    surface used by `check_condition_preserved` included `description`, so the
+    condition was found every single time and the check returned no finding —
+    for exactly the rules it was written to catch.
+
+    It reported zero findings across 47 live rules while three housing-allowance
+    rules had each dropped the staff category that distinguished them, leaving
+    two of them identical on screen. This test fails if `description` is ever
+    let back into that surface.
+    """
+
+    _CONDITION = "for administrative, technical and service staff"
+    _NOTE = (
+        "[Conditions: conditions_not_projected — The source states conditions, but they "
+        f"could not be projected into executable bindings: '{_CONDITION}'. The rule must "
+        "not be treated as unconditional — a reviewer must supply the missing mapping.]"
+    )
+
+    def _housing_rule(self):
+        """AI-c4c43499ce, as the live extraction produced it."""
+
+        rule = _rule(
+            source="⁃ Fifteen thousand (15,000) SAR for administrative, technical and service staff.",
+            action="up to a maximum of Fifteen thousand (15,000) SAR",
+            effect=EffectType.INFORMATIONAL,
+            condition_text=self._CONDITION,
+        )
+        rule.description = f"Fifteen thousand (15,000) SAR.\n\n{self._NOTE}"
+        return rule
+
+    def test_the_lost_condition_is_reported(self):
+        assert "condition_lost" in _codes(self._housing_rule())
+
+    def test_the_note_alone_does_not_count_as_carrying_it(self):
+        """The exact regression: with `description` in the surface this passed,
+        and the check went silent across the whole corpus."""
+
+        rule = self._housing_rule()
+        assert self._CONDITION in rule.description
+        assert "condition_lost" in _codes(rule)
+
+    def test_a_condition_genuinely_carried_in_the_action_is_not_reported(self):
+        """Guard the other direction: the check must stay quiet when the
+        condition really did reach an operative field, or it becomes noise on
+        every rule."""
+
+        rule = _rule(
+            source="Paid for administrative, technical and service staff.",
+            action="pay for administrative, technical and service staff",
+            effect=EffectType.REQUIRE_ACTION,
+            condition_text="for administrative, technical and service staff",
+        )
+        rule.description = "unrelated prose"
+        assert "condition_lost" not in _codes(rule)
+
+
+class TestDuplicateDetection:
+    """Both directions, from live output.
+
+    A clause boundary fell inside "The housing allowance is limited to one
+    employee of the married couple (husband and wife). In the case of…", so the
+    second clause begins mid-sentence and the formulator reconstructs the
+    governing sentence that the first clause had already produced.
+    """
+
+    def _housing(self, *, rule_id, obj, condition, action):
+        rule = _rule(
+            source="⁃ Fifteen thousand (15,000) SAR for administrative staff.",
+            action=action,
+            effect=EffectType.INFORMATIONAL,
+            condition_text=condition,
+        )
+        rule.rule_id = rule_id
+        rule.formulation.canonical.rule.subject = "The housing allowance per calendar year (12 months)"
+        rule.formulation.canonical.rule.predicate = "up to a maximum of"
+        rule.formulation.canonical.rule.object = obj
+        return rule
+
+    def test_two_staff_categories_at_the_same_amount_are_not_duplicates(self):
+        """The false positive this check produced on its first run.
+
+        Both are capped at 15,000 SAR; one is for administrative, technical and
+        service staff and the other for lecturers and instructors. Keying
+        without the condition dropped the only field that separates them —
+        exactly the failure the module exists to catch.
+        """
+
+        rules = [
+            self._housing(
+                rule_id="AI-admin",
+                obj="Fifteen thousand (15,000) SAR",
+                condition="for administrative, technical and service staff",
+                action="up to a maximum of Fifteen thousand (15,000) SAR",
+            ),
+            self._housing(
+                rule_id="AI-lect",
+                obj="Fifteen thousand (15,000) SAR",
+                condition="for full time lecturers, instructors, assistant instructors",
+                action="up to a maximum of Fifteen thousand (15,000) SAR",
+            ),
+        ]
+        assert find_duplicate_rules(rules) == []
+
+    def test_the_same_sentence_split_across_two_clauses_is_reported(self):
+        """The genuine pair. One decomposition put "of the married couple" in
+        the condition, the other folded it into the object; joined, they read
+        identically, which is the truth."""
+
+        a = self._housing(
+            rule_id="AI-first",
+            obj="one employee",
+            condition="of the married couple",
+            action="is limited to one employee",
+        )
+        b = self._housing(
+            rule_id="AI-second",
+            obj="one employee of the married couple",
+            condition="",
+            action="is limited to one employee of the married couple",
+        )
+        for r in (a, b):
+            r.formulation.canonical.rule.subject = "The housing allowance"
+            r.formulation.canonical.rule.predicate = "is limited to"
+        findings = find_duplicate_rules([a, b])
+        assert [f.code for f in findings] == ["duplicate_rule"]
+        assert findings[0].rule_id == "AI-second"
+
+    def test_a_differing_action_does_not_hide_a_duplicate(self):
+        """The action is derived from subject/predicate/object, so including it
+        in the key double-counted them — and a difference in that derivation
+        was enough to hide the pair above."""
+
+        a = self._housing(
+            rule_id="AI-x", obj="one employee", condition="of the married couple", action="A"
+        )
+        b = self._housing(
+            rule_id="AI-y", obj="one employee of the married couple", condition="", action="B"
+        )
+        for r in (a, b):
+            r.formulation.canonical.rule.subject = "The housing allowance"
+            r.formulation.canonical.rule.predicate = "is limited to"
+        assert len(find_duplicate_rules([a, b])) == 1
+
+    def test_an_empty_decomposition_is_not_a_duplicate_of_another(self):
+        rules = [_rule(source="s", action=""), _rule(source="s", action="")]
+        for r in rules:
+            r.formulation.canonical.rule.subject = ""
+            r.formulation.canonical.rule.predicate = ""
+            r.formulation.canonical.rule.object = ""
+            r.formulation.canonical.rule.condition = ""
+            r.effect.action = ""
+        assert find_duplicate_rules(rules) == []
+
+
+class TestDuplicateDetectionIsSlotIndependent:
+    """The generalisation that named fields could not reach.
+
+    Keying on named slots lost the same race twice: `object` alone raised a
+    false positive on two staff categories, and `object` + `condition` still
+    missed a pair whose content had moved into `constraint` and `frequency`.
+    A slot assignment is a judgement the formulator makes per run, so no fixed
+    list of slots is stable across runs.
+    """
+
+    def _rule_with(self, rule_id, **fields):
+        rule = _rule(source="s", action=fields.pop("action", ""), effect=EffectType.INFORMATIONAL)
+        rule.rule_id = rule_id
+        pr = rule.formulation.canonical.rule
+        pr.subject = fields.pop("subject", "The housing allowance")
+        pr.predicate = fields.pop("predicate", "be paid")
+        pr.condition = None
+        pr.object = None
+        for name, value in fields.items():
+            setattr(pr, name, value)
+        return rule
+
+    def test_content_moving_between_slots_is_still_one_rule(self):
+        """The pair named-field keying missed: "in monthly prorated
+        installments" as one object, against the same content split across
+        `constraint` and `frequency`."""
+
+        a = self._rule_with("AI-a", object="in monthly prorated installments", frequency="monthly")
+        b = self._rule_with("AI-b", constraint="prorated installments", frequency="monthly")
+        assert [f.rule_id for f in find_duplicate_rules([a, b])] == ["AI-b"]
+
+    def test_a_seam_connective_does_not_make_two_rules(self):
+        """"one employee" + "of the married couple" against "one employee of
+        the married couple" — the seam word is the only difference."""
+
+        a = self._rule_with("AI-a", predicate="is limited to", object="one employee",
+                            condition="of the married couple")
+        b = self._rule_with("AI-b", predicate="is limited to",
+                            object="one employee of the married couple")
+        assert len(find_duplicate_rules([a, b])) == 1
+
+    def test_different_content_words_are_not_duplicates(self):
+        """The false positive the first version produced: same cap, different
+        staff categories."""
+
+        a = self._rule_with("AI-admin", predicate="up to a maximum of",
+                            object="Fifteen thousand (15,000) SAR",
+                            condition="for administrative, technical and service staff")
+        b = self._rule_with("AI-lect", predicate="up to a maximum of",
+                            object="Fifteen thousand (15,000) SAR",
+                            condition="for full time lecturers and instructors")
+        assert find_duplicate_rules([a, b]) == []
+
+    def test_a_meaning_inverting_preposition_is_not_a_seam_word(self):
+        """"paid by HR" and "paid to HR" name different parties. Stripping
+        those would report two real rules as one copy."""
+
+        a = self._rule_with("AI-by", object="by the Human Resources Department")
+        b = self._rule_with("AI-to", object="to the Human Resources Department")
+        assert find_duplicate_rules([a, b]) == []
+
+    def test_reversing_subject_and_predicate_is_not_a_duplicate(self):
+        """Anchors are compared separately so "A limits B" and "B limits A"
+        cannot collide through the content bag."""
+
+        a = self._rule_with("AI-a", subject="The allowance", predicate="limits", object="the employee")
+        b = self._rule_with("AI-b", subject="The employee", predicate="limits", object="the allowance")
+        assert find_duplicate_rules([a, b]) == []
+
+    def test_word_order_within_a_slot_does_not_matter(self):
+        a = self._rule_with("AI-a", object="basic salary monthly")
+        b = self._rule_with("AI-b", object="monthly basic salary")
+        assert len(find_duplicate_rules([a, b])) == 1
