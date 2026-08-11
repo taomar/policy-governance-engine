@@ -146,7 +146,7 @@ class TestConditionsRepresented:
             condition_text="where the employee has completed probation",
         )
 
-        assert "condition_lost" in _codes(rule)
+        assert "condition_not_compiled" in _codes(rule)
 
     def test_condition_carried_as_prose_is_not_reported(self):
         # Carried but not compiled is a mapping gap, recorded elsewhere. Nothing
@@ -157,7 +157,7 @@ class TestConditionsRepresented:
             condition_text="where the employee has completed probation",
         )
 
-        assert "condition_lost" not in _codes(rule)
+        assert "condition_not_compiled" not in _codes(rule)
 
 
 class TestActionIsNotAFragment:
@@ -223,7 +223,7 @@ class TestTheProvenanceNoteMustNotSatisfyTheCheck:
         return rule
 
     def test_the_lost_condition_is_reported(self):
-        assert "condition_lost" in _codes(self._housing_rule())
+        assert "condition_not_compiled" in _codes(self._housing_rule())
 
     def test_the_note_alone_does_not_count_as_carrying_it(self):
         """The exact regression: with `description` in the surface this passed,
@@ -231,7 +231,7 @@ class TestTheProvenanceNoteMustNotSatisfyTheCheck:
 
         rule = self._housing_rule()
         assert self._CONDITION in rule.description
-        assert "condition_lost" in _codes(rule)
+        assert "condition_not_compiled" in _codes(rule)
 
     def test_a_condition_genuinely_carried_in_the_action_is_not_reported(self):
         """Guard the other direction: the check must stay quiet when the
@@ -245,7 +245,7 @@ class TestTheProvenanceNoteMustNotSatisfyTheCheck:
             condition_text="for administrative, technical and service staff",
         )
         rule.description = "unrelated prose"
-        assert "condition_lost" not in _codes(rule)
+        assert "condition_not_compiled" not in _codes(rule)
 
 
 class TestDuplicateDetection:
@@ -419,3 +419,104 @@ class TestDuplicateDetectionIsSlotIndependent:
         a = self._rule_with("AI-a", object="basic salary monthly")
         b = self._rule_with("AI-b", object="monthly basic salary")
         assert len(find_duplicate_rules([a, b])) == 1
+
+
+class TestSourceConditionReachedCanonical:
+    """The check that can see real loss.
+
+    Its sibling `check_conditions_represented` compares against
+    `canonical.rule.condition` and so can only fire when the condition is
+    present — a check that reads its expected value from the record it is
+    auditing cannot report that record as empty. This one reads the source
+    text, which is the lossy step.
+    """
+
+    def _rule_losing(self, source):
+        rule = _rule(source=source, action="be paid", effect=EffectType.REQUIRE_ACTION)
+        pr = rule.formulation.canonical.rule
+        pr.condition = None
+        pr.prerequisite = None
+        pr.trigger = None
+        pr.temporal_constraint = None
+        pr.constraint = None
+        pr.exception = None
+        pr.location = None
+        return rule
+
+    def test_a_dropped_condition_is_blocking(self):
+        rule = self._rule_losing(
+            "The allowance is paid if the employee has completed the trial period."
+        )
+        findings = [f for f in validate_rule(rule) if f.code == "source_condition_not_captured"]
+        assert len(findings) == 1
+        assert findings[0].severity == "blocking"
+
+    def test_it_fires_on_every_conditional_construction(self):
+        for source in (
+            "Paid unless the contract states otherwise.",
+            "Paid subject to the approval of the President.",
+            "Paid depending on the financial position of the University.",
+            "In the case of a married couple, the allowance is halved.",
+            "Paid provided that the receipt is submitted.",
+            "Paid only if the employee is full time.",
+        ):
+            rule = self._rule_losing(source)
+            codes = {f.code for f in validate_rule(rule)}
+            assert "source_condition_not_captured" in codes, source
+
+    def test_a_captured_condition_in_any_bearing_field_is_enough(self):
+        """A condition legitimately lands in whichever field fits. Demanding
+        `condition` specifically would report faithful records as defective —
+        the same named-slot mistake duplicate detection made twice."""
+
+        for field in ("condition", "prerequisite", "trigger", "temporal_constraint", "constraint"):
+            rule = self._rule_losing("Paid if the trial period has ended.")
+            setattr(rule.formulation.canonical.rule, field, "the trial period has ended")
+            codes = {f.code for f in validate_rule(rule)}
+            assert "source_condition_not_captured" not in codes, field
+
+    def test_unconditional_prose_is_not_reported(self):
+        rule = self._rule_losing("The allowance is paid in monthly installments.")
+        codes = {f.code for f in validate_rule(rule)}
+        assert "source_condition_not_captured" not in codes
+
+    def test_provided_as_a_participle_is_not_a_condition(self):
+        """"housing provided by FBSU" is not conditional language. Only
+        "provided that" counts, or the check fires on every benefit sentence."""
+
+        rule = self._rule_losing("Furnished housing provided by FBSU is available.")
+        codes = {f.code for f in validate_rule(rule)}
+        assert "source_condition_not_captured" not in codes
+
+
+class TestNotCompiledIsNotLoss:
+    """The message used to read "The rule would apply unconditionally", which
+    is false: the vacuous guard stops an empty `all` matching anything, and the
+    condition ships in the canonical record and every derived view."""
+
+    def _rule(self):
+        rule = _rule(
+            source="3.1. FBSU grants employee benefits depending on the recommendation of the director.",
+            action="grants employee benefits",
+            effect=EffectType.REQUIRE_ACTION,
+            condition_text="depending on the recommendation of the director",
+        )
+        rule.description = "unrelated prose"
+        return rule
+
+    def test_it_is_reported_as_not_compiled(self):
+        findings = [f for f in validate_rule(self._rule()) if f.code == "condition_not_compiled"]
+        assert len(findings) == 1
+
+    def test_it_is_a_warning_not_blocking(self):
+        """Five blocking findings out of forty-seven, asserting a danger that
+        is already guarded, is the false-alarm rate that teaches reviewers to
+        skip the category."""
+
+        findings = [f for f in validate_rule(self._rule()) if f.code == "condition_not_compiled"]
+        assert findings[0].severity == "warning"
+
+    def test_the_message_does_not_claim_unconditional_application(self):
+        findings = [f for f in validate_rule(self._rule()) if f.code == "condition_not_compiled"]
+        assert "unconditionally" not in findings[0].message
+        assert "preserved verbatim" in findings[0].message

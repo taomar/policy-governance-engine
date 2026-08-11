@@ -251,11 +251,34 @@ def check_quantities_preserved(rule: CanonicalRule) -> list[FaithfulnessFinding]
 
 
 def check_conditions_represented(rule: CanonicalRule) -> FaithfulnessFinding | None:
-    """A source that states conditions must not yield an unconditional rule.
+    """A stated condition that reached no operative field of the rule.
 
-    Distinct from the empty-tree provenance already recorded on the rule: this
-    reads the *source*, so it fires even when the projection reported no
-    conditions to lose.
+    Reports "not compiled", which is what it can actually see — and that
+    correction matters, because the finding used to say "The rule would apply
+    unconditionally" and that is false.
+
+    The condition it compares against is read *from* `canonical.rule.condition`,
+    so this check can only fire when the condition is in the canonical record.
+    A genuinely lost condition leaves that field empty, and the check returns
+    None without a word — see `check_source_conditions_reached_canonical`,
+    which reads the source text and is the one that can see real loss.
+
+    What survives, for the five rules this fires on in the live corpus:
+
+    * `formulation.canonical.rule.condition` — persisted verbatim.
+    * `decision_readiness.required_attributes` — derived on read, so the
+      condition ships to whatever evaluates the rule.
+    * `xacml_view.source_semantics.conditions` — derived on read.
+    * the Logic view and every rule row, which now display the stated condition
+      rather than "Always".
+
+    What does not: `rule.condition`, the tree the deterministic evaluator
+    reads. That engine returns NOT_APPLICABLE for these rules — the vacuous
+    guard stops an empty `all` matching everything — so nothing applies
+    unconditionally anywhere. Severity is `warning` accordingly: a blocking
+    finding on five of forty-seven rules, asserting a danger that is already
+    guarded, is the false-alarm rate that teaches reviewers to skip the whole
+    category.
     """
 
     formulation = rule.formulation
@@ -277,24 +300,101 @@ def check_conditions_represented(rule: CanonicalRule) -> FaithfulnessFinding | N
         rule, include_stated_condition=False, include_description=False
     )
     if stated.lower() in surface.lower():
-        # Carried as prose in the projection rather than compiled. Recorded
-        # elsewhere as a mapping gap; not a faithfulness failure, because
-        # nothing was lost.
+        # Restated in an operative field, so a reader of the rule alone still
+        # sees it. Nothing to report.
         #
         # `description` is excluded from that surface deliberately — see
-        # `_rule_surface`. The provenance note appended there quotes the lost
+        # `_rule_surface`. The provenance note appended there quotes the
         # condition verbatim, so including it satisfied this test for every
         # rule and the check never fired once.
         return None
 
     return FaithfulnessFinding(
         rule_id=rule.rule_id,
-        code="condition_lost",
+        code="condition_not_compiled",
         message=(
-            f"The source conditions this rule ('{stated[:80]}') and neither the condition "
-            "tree nor the projection carries it. The rule would apply unconditionally."
+            f"The source conditions this rule ('{stated[:80]}') and no fact model compiles "
+            "it, so the deterministic evaluator cannot test it and returns NOT_APPLICABLE. "
+            "The condition is preserved verbatim in the canonical record and ships with the "
+            "rule; what is missing is an attribute mapping, which is configuration rather "
+            "than a defect in the extraction."
         ),
         source_quote=stated[:160],
+        severity="warning",
+    )
+
+
+#: Constructions that introduce a condition in policy prose. Used only to ask
+#: whether the *canonical record* captured a condition the source plainly
+#: states — never to build one, and never to guess its test.
+#:
+#: Anchored to reduce false positives: "provided" alone is a common past
+#: participle ("housing provided by FBSU"), so only "provided that" counts.
+_SOURCE_CONDITION_RE = re.compile(
+    r"\b(?:if|unless|provided\s+that|subject\s+to|depending\s+on|conditional\s+upon"
+    r"|in\s+the\s+(?:case|event)\s+of|only\s+if|only\s+when|where\s+the|upon\s+approval"
+    r"|after\s+the|before\s+the|so\s+long\s+as|as\s+long\s+as)\b",
+    re.IGNORECASE,
+)
+
+#: Canonical fields any one of which means the source's condition was captured
+#: somewhere. A condition legitimately lands in whichever of these fits, so
+#: demanding it be in `condition` specifically would report faithful records as
+#: defective — the same named-slot mistake that duplicate detection made twice.
+_CONDITION_BEARING_FIELDS = (
+    "condition",
+    "prerequisite",
+    "trigger",
+    "temporal_constraint",
+    "constraint",
+    "exception",
+    "location",
+)
+
+
+def check_source_conditions_reached_canonical(
+    rule: CanonicalRule,
+) -> FaithfulnessFinding | None:
+    """The source states a condition and the canonical record captured none.
+
+    This is the check that can see real loss, and it did not exist. Its
+    sibling above compares against `canonical.rule.condition` and so can only
+    fire when the condition is present — a check that reads its expected value
+    from the record it is auditing cannot report that record as empty.
+
+    The lossy step is source text -> canonical decomposition, so that is where
+    this reads. It asks only whether *something* conditional was captured, in
+    any condition-bearing field, and never what the test should be: deciding
+    that would manufacture policy the document did not write.
+    """
+
+    formulation = rule.formulation
+    canonical = formulation.canonical if formulation else None
+    if canonical is None:
+        return None
+    source = canonical.source_text or ""
+    match = _SOURCE_CONDITION_RE.search(source)
+    if not match:
+        return None
+
+    policy_rule = canonical.rule
+    captured = any(
+        (getattr(policy_rule, field, None) or "").strip()
+        for field in _CONDITION_BEARING_FIELDS
+    )
+    if captured:
+        return None
+
+    return FaithfulnessFinding(
+        rule_id=rule.rule_id,
+        code="source_condition_not_captured",
+        message=(
+            f"The source uses conditional language ('{match.group(0)}') and the canonical "
+            "decomposition records no condition, prerequisite, trigger or constraint at "
+            "all. Whatever the sentence made this rule depend on is absent from the "
+            "record, so nothing downstream can carry it."
+        ),
+        source_quote=source[:160],
         severity="blocking",
     )
 
@@ -342,6 +442,7 @@ def validate_rule(rule: CanonicalRule) -> list[FaithfulnessFinding]:
     for single in (
         check_negation_preserved(rule),
         check_conditions_represented(rule),
+        check_source_conditions_reached_canonical(rule),
         check_action_is_not_a_fragment(rule),
     ):
         if single is not None:
