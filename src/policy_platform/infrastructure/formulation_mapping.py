@@ -40,9 +40,12 @@ from enum import Enum
 
 from policy_platform.contracts.conditions import (
     AllCondition,
+    AnyCondition,
     ConditionNode,
     ConditionOperator,
     FactComparisonCondition,
+    FactOperand,
+    FactRelativeComparisonCondition,
 )
 from policy_platform.contracts.formulation import (
     CanonicalPolicy,
@@ -261,6 +264,39 @@ def _split_top_level_commas(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+#: A fact-relative right-hand side: a dotted fact path optionally scaled by a
+#: numeric factor, in either order (`salary * 0.10` or `0.10 * salary`).
+#:
+#: Deliberately narrow. It matches a single path and at most one multiplier —
+#: no addition, no parentheses, no second fact, no function call. Everything
+#: outside that still returns None, because the value of this parser is that
+#: what it does not fully understand it refuses, rather than half-reading.
+_FACT_PATH = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+_FACT_RELATIVE_RE = re.compile(
+    rf"""^\s*(?:
+        (?P<path1>{_FACT_PATH})\s*(?:\*\s*(?P<factor1>-?\d+(?:\.\d+)?)\s*)?
+      | (?P<factor2>-?\d+(?:\.\d+)?)\s*\*\s*(?P<path2>{_FACT_PATH})
+    )\s*$""",
+    re.VERBOSE,
+)
+
+
+def parse_fact_relative_operand(expression: str) -> FactOperand | None:
+    """Read `basic_salary * 0.05` (or `0.05 * basic_salary`) as an operand.
+
+    Returns None for anything that is not exactly one dotted fact path with at
+    most one numeric multiplier. A bare number is not an operand here — that is
+    a literal, and belongs to `_parse_feel_literal`.
+    """
+
+    match = _FACT_RELATIVE_RE.match(expression or "")
+    if not match:
+        return None
+    path = match.group("path1") or match.group("path2")
+    raw_factor = match.group("factor1") or match.group("factor2")
+    return FactOperand(fact=path, factor=float(raw_factor) if raw_factor else 1.0)
+
+
 def parse_feel_unary_test(fact: str, expression: str) -> list[ConditionNode] | None:
     """Translate one FEEL unary test into condition leaves for `fact`.
 
@@ -272,10 +308,17 @@ def parse_feel_unary_test(fact: str, expression: str) -> list[ConditionNode] | N
           subset, which the caller must treat as "not executable".
 
     Supported: ``-``, bare literals, ``= < <= > >= !=`` comparisons,
-    ``[a..b]``/``(a..b]`` style ranges with inclusive/exclusive bounds, and
-    comma-separated literal lists (rendered as ``in``).
+    ``[a..b]``/``(a..b]`` style ranges with inclusive/exclusive bounds,
+    comma-separated literal lists (rendered as ``in``), and a comparison
+    against another fact optionally scaled by a constant
+    (``<= employee.compensation.basic_salary * 0.05``).
 
-    Everything else — ``not(...)``, function calls, arithmetic, date and
+    That last form is why this parser exists in its current shape: measured
+    against live AD-103 output it was the *only* comparison the formulator
+    produced for compensation limits, and rejecting it meant a complete fact
+    model still yielded no executable rule.
+
+    Everything else — ``not(...)``, function calls, general arithmetic, date and
     duration literals, nested contexts — returns None *by design*. Guessing at
     a partially-understood expression is how an evaluator ends up confidently
     returning the wrong decision.
@@ -315,10 +358,21 @@ def parse_feel_unary_test(fact: str, expression: str) -> list[ConditionNode] | N
 
     for symbol, operator in _COMPARATORS:
         if expression.startswith(symbol):
-            value = _parse_feel_literal(expression[len(symbol):])
-            if value is None:
+            remainder = expression[len(symbol):]
+            value = _parse_feel_literal(remainder)
+            if value is not None:
+                return [FactComparisonCondition(fact=fact, operator=operator, value=value)]
+            # Not a literal — it may still be a reference to another fact.
+            # Tried second so a plain numeric bound keeps its existing,
+            # cheaper representation and nothing already working changes shape.
+            operand = parse_fact_relative_operand(remainder)
+            if operand is None:
                 return None
-            return [FactComparisonCondition(fact=fact, operator=operator, value=value)]
+            return [
+                FactRelativeComparisonCondition(
+                    fact=fact, operator=operator, reference=operand
+                )
+            ]
 
     literal = _parse_feel_literal(expression)
     if literal is None:
@@ -388,6 +442,9 @@ class ConditionDerivationReason(str, Enum):
     UNSUPPORTED_UNARY_TEST = "unsupported_unary_test"
     #: Every column was "any value", so the row imposes no test at all.
     VACUOUS = "vacuous"
+    #: A boolean-outcome table in which no row yields true, so the rule could
+    #: never be satisfied. Refused rather than asserted.
+    NO_SATISFYING_ROW = "no_satisfying_row"
 
 
 #: Reasons that mean "the agent produced grounded, executable logic that this
@@ -423,6 +480,124 @@ class ConditionDerivation:
         return self.reason in PLATFORM_LIMITED_REASONS
 
 
+#: One conjunct of a FEEL boolean expression: `fact.path <op> <right-hand side>`.
+_COMPARISON_RE = re.compile(rf"^\s*(?P<path>{_FACT_PATH})\s*(?P<op><=|>=|!=|<|>|=)\s*(?P<rhs>.+?)\s*$")
+
+#: A bare fact path used as a boolean, e.g. `approval.board_of_trustees_approved`.
+_BARE_FACT_RE = re.compile(rf"^\s*(?P<path>{_FACT_PATH})\s*$")
+
+#: FEEL constructs that put an expression outside the supported subset.
+#:
+#: Checked before parsing rather than after, so a partially-recognised
+#: expression can never contribute half its meaning to a condition. `or` is
+#: excluded not because disjunction is unrepresentable — `AnyCondition` exists —
+#: but because mixing it with `and` needs precedence handling this parser does
+#: not do, and getting that wrong inverts rules silently.
+_UNSUPPORTED_FEEL = (
+    "(", ")", "[", "]", "{", "}", " or ", "not ", " if ", "then ", "else ", "..", "@",
+)
+
+
+def parse_feel_boolean_expression(feel: str) -> list[ConditionNode] | None:
+    """Read a conjunctive FEEL boolean expression into condition leaves.
+
+    Supports a deliberately small grammar: comparisons joined by `and`, where
+    each side is a dotted fact path, a literal, or a fact path scaled by a
+    constant; plus a bare fact path used as a boolean.
+
+        employee.compensation.proposed_increase <= employee.compensation.basic_salary * 0.05
+            and approval.board_of_trustees_approved
+
+    That is the shape the formulator actually produces for compensation limits:
+    measured across ten live AD-103 runs, six of the seven decisions it
+    declared executable were literal expressions of exactly this form, and all
+    six were being discarded.
+
+    Returns None for anything outside the grammar. The parser refuses rather
+    than approximates, for the same reason `parse_feel_unary_test` does: a
+    half-understood condition produces confident wrong decisions, which is
+    worse than no condition at all.
+    """
+
+    text = (feel or "").strip()
+    if not text:
+        return None
+    padded = f" {text} "
+    if any(token in padded for token in _UNSUPPORTED_FEEL):
+        return None
+
+    leaves: list[ConditionNode] = []
+    for conjunct in re.split(r"\s+and\s+", text):
+        conjunct = conjunct.strip()
+        if not conjunct:
+            return None
+
+        comparison = _COMPARISON_RE.match(conjunct)
+        if comparison:
+            symbol = comparison.group("op")
+            # `=` is FEEL equality; the unary-test parser spells it `=` too.
+            parsed = parse_feel_unary_test(
+                comparison.group("path"), f"{symbol}{comparison.group('rhs')}"
+            )
+            if not parsed:
+                return None
+            leaves.extend(parsed)
+            continue
+
+        bare = _BARE_FACT_RE.match(conjunct)
+        if bare:
+            leaves.append(
+                FactComparisonCondition(
+                    fact=bare.group("path"), operator=ConditionOperator.EQUALS, value=True
+                )
+            )
+            continue
+
+        return None
+
+    return leaves or None
+
+
+def _inferred_data_type(leaf: ConditionNode) -> str:
+    """The declared type of the fact a leaf tests.
+
+    Read from what the agent wrote rather than assumed: a literal expression
+    carries no type column, but comparing against `0.05` or `true` states the
+    type as plainly as a column would.
+    """
+
+    if isinstance(leaf, FactRelativeComparisonCondition):
+        return "number"
+    value = getattr(leaf, "value", None)
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "string"
+
+
+def _is_boolean_outcome_table(table: DmnDecisionTable) -> bool:
+    """True when every row decides a single true/false outcome.
+
+    Inferred from the entries rather than the declared output type, because
+    the type is optional in the contract and the entries are what the reading
+    below actually depends on.
+    """
+
+    if len(table.outputs) != 1 or not table.rules:
+        return False
+    for row in table.rules:
+        if len(row.output_entries) != 1:
+            return False
+        if row.output_entries[0].strip().strip('"').lower() not in ("true", "false"):
+            return False
+    return True
+
+
+def _row_is_satisfying(row: DmnTableRule) -> bool:
+    return row.output_entries[0].strip().strip('"').lower() == "true"
+
+
 def derive_condition_outcome(decision: DmnDecision, index: int) -> ConditionDerivation:
     """Compile canonical policy `index` of `decision`, reporting *why* on failure.
 
@@ -434,55 +609,139 @@ def derive_condition_outcome(decision: DmnDecision, index: int) -> ConditionDeri
     path, type and value came from source or trusted configuration rather than
     from invention (spec Sections 42-44). Without it, any condition built here
     would rest on facts nobody vouched for.
+
+    Two table readings are supported, and which one applies is decided by the
+    table's own shape:
+
+    *Positional* — one row per listed source rule (spec Section 86). Row *n*
+    belongs to the *n*-th source index, and the rule's condition is the AND of
+    that row's input tests.
+
+    *Boolean outcome* — one source rule, many rows, each deciding true or
+    false. This is ordinary DMN: a single obligation is expressed as a table
+    enumerating the combinations that satisfy it. The rule's condition is then
+    the OR of the rows that yield true. Measured against live AD-103 output
+    this was the majority shape, and refusing it left a correctly-modelled
+    table uncompiled.
+
+    A decision with no table at all is read from its `literal_expression`
+    (prompt Section 87), which is the form the formulator uses most often.
     """
 
     if decision.dmn_mapping_status != DmnMappingStatus.EXECUTABLE:
         return ConditionDerivation(ConditionDerivationReason.NOT_DECLARED_EXECUTABLE)
 
     table = decision.decision_table
+    facts: list[RequiredFact] = []
+    seen_facts: set[str] = set()
+
+    def _require(name: str, data_type: str) -> None:
+        """Record a fact the tree depends on, once."""
+
+        if name and name not in seen_facts:
+            seen_facts.add(name)
+            facts.append(RequiredFact(name=name, data_type=data_type))
+
+    def _require_from(leaf: ConditionNode, data_type: str) -> None:
+        _require(getattr(leaf, "fact", ""), data_type)
+        # A fact-relative test depends on the fact it compares *against* just
+        # as much as the one it compares. Omitting it would leave the rule
+        # blocking at evaluation time on an input no caller was ever told to
+        # supply, which reads as a runtime fault rather than a known
+        # requirement.
+        if isinstance(leaf, FactRelativeComparisonCondition):
+            _require(leaf.reference.fact, "number")
+
     if table is None:
         literal = decision.literal_expression
-        if literal is not None:
-            return ConditionDerivation(
-                ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED,
-                unsupported_expression=(literal.feel or "").strip(),
-            )
-        return ConditionDerivation(ConditionDerivationReason.NO_EXECUTABLE_BODY)
-
-    row_index = _row_for_index(decision, index)
-    if row_index is None:
-        return ConditionDerivation(ConditionDerivationReason.NO_TABLE_ROW)
-    row = table.rules[row_index]
-    if len(row.input_entries) != len(table.inputs):
-        return ConditionDerivation(ConditionDerivationReason.TABLE_SHAPE_MISMATCH)
-
-    leaves: list[ConditionNode] = []
-    facts: list[RequiredFact] = []
-    for column, entry in zip(table.inputs, row.input_entries):
-        fact = _fact_name(column)
-        if not fact:
-            return ConditionDerivation(ConditionDerivationReason.NO_FACT_FOR_COLUMN)
-        parsed = parse_feel_unary_test(fact, entry)
+        if literal is None:
+            return ConditionDerivation(ConditionDerivationReason.NO_EXECUTABLE_BODY)
+        feel = (literal.feel or "").strip()
+        parsed = parse_feel_boolean_expression(feel)
         if parsed is None:
             return ConditionDerivation(
-                ConditionDerivationReason.UNSUPPORTED_UNARY_TEST,
-                unsupported_expression=f"{fact} {entry}".strip(),
+                ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED,
+                unsupported_expression=feel,
             )
-        if not parsed:
+        for leaf in parsed:
+            _require_from(leaf, _inferred_data_type(leaf))
+        return ConditionDerivation(
+            ConditionDerivationReason.DERIVED,
+            condition=AllCondition(all=parsed),
+            facts=tuple(facts),
+        )
+
+    def _compile_row(row: DmnTableRule) -> list[ConditionNode] | ConditionDerivation:
+        """The AND-ed tests of one row, or the reason it could not be read."""
+
+        if len(row.input_entries) != len(table.inputs):
+            return ConditionDerivation(ConditionDerivationReason.TABLE_SHAPE_MISMATCH)
+        leaves: list[ConditionNode] = []
+        for column, entry in zip(table.inputs, row.input_entries):
+            fact = _fact_name(column)
+            if not fact:
+                return ConditionDerivation(ConditionDerivationReason.NO_FACT_FOR_COLUMN)
+            parsed_entry = parse_feel_unary_test(fact, entry)
+            if parsed_entry is None:
+                return ConditionDerivation(
+                    ConditionDerivationReason.UNSUPPORTED_UNARY_TEST,
+                    unsupported_expression=f"{fact} {entry}".strip(),
+                )
+            if not parsed_entry:
+                continue
+            leaves.extend(parsed_entry)
+            _require(fact, column.type or "string")
+            for leaf in parsed_entry:
+                if isinstance(leaf, FactRelativeComparisonCondition):
+                    _require(leaf.reference.fact, "number")
+        return leaves
+
+    row_index = _row_for_index(decision, index)
+    if row_index is not None:
+        compiled = _compile_row(table.rules[row_index])
+        if isinstance(compiled, ConditionDerivation):
+            return compiled
+        if not compiled:
+            # Every column was "any value": the row imposes no test at all, so
+            # it is not a condition — treat it as non-derivable rather than
+            # emitting a vacuously-true rule that claims to be executable.
+            return ConditionDerivation(ConditionDerivationReason.VACUOUS)
+        return ConditionDerivation(
+            ConditionDerivationReason.DERIVED,
+            condition=AllCondition(all=compiled),
+            facts=tuple(facts),
+        )
+
+    if index not in decision.source_rule_indexes:
+        return ConditionDerivation(ConditionDerivationReason.NO_TABLE_ROW)
+    if len(decision.source_rule_indexes) != 1 or not _is_boolean_outcome_table(table):
+        return ConditionDerivation(ConditionDerivationReason.NO_TABLE_ROW)
+
+    branches: list[ConditionNode] = []
+    for row in table.rules:
+        if not _row_is_satisfying(row):
             continue
-        leaves.extend(parsed)
-        facts.append(RequiredFact(name=fact, data_type=(column.type or "string")))
+        compiled = _compile_row(row)
+        if isinstance(compiled, ConditionDerivation):
+            return compiled
+        if not compiled:
+            # This row is satisfied unconditionally, so the OR over rows is
+            # true for every input. Same reasoning as the vacuous single row:
+            # an always-true tree that calls itself executable is worse than
+            # no tree at all.
+            return ConditionDerivation(ConditionDerivationReason.VACUOUS)
+        branches.append(AllCondition(all=compiled))
 
-    if not leaves:
-        # Every column was "any value": the table row imposes no test at all,
-        # so it is not a condition — treat it as non-derivable rather than
-        # emitting a vacuously-true rule that claims to be executable.
-        return ConditionDerivation(ConditionDerivationReason.VACUOUS)
+    if not branches:
+        # No combination of inputs satisfies the rule. That is a far stronger
+        # claim than "we could not compile it" — it would deny every request —
+        # so it is refused rather than asserted from a table that may simply
+        # have been modelled the other way round.
+        return ConditionDerivation(ConditionDerivationReason.NO_SATISFYING_ROW)
 
+    condition: ConditionNode = branches[0] if len(branches) == 1 else AnyCondition(any=branches)
     return ConditionDerivation(
-        ConditionDerivationReason.DERIVED,
-        condition=AllCondition(all=leaves),
-        facts=tuple(facts),
+        ConditionDerivationReason.DERIVED, condition=condition, facts=tuple(facts)
     )
 
 

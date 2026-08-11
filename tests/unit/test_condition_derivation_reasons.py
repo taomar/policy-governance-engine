@@ -15,6 +15,8 @@ the gap must at least be visible and correctly attributed.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from policy_platform.contracts.formulation import (
@@ -52,9 +54,9 @@ LITERAL_EXPRESSION_DECISION = {
     },
 }
 
-#: AD-103 clause 3.2.3. A decision *table*, so the compiler reads it — but the
-#: unary test compares against a percentage of another fact, which the platform
-#: condition contract cannot represent.
+#: AD-103 clause 3.2.3. A decision *table* comparing against a percentage of
+#: another fact. This is now compiled (see `test_fact_relative_table_compiles`);
+#: it is kept here as the record of what drove the condition-contract change.
 FACT_RELATIVE_TABLE_DECISION = {
     "source_rule_indexes": [0],
     "dmn_mapping_status": "executable",
@@ -103,6 +105,90 @@ SUPPORTED_TABLE_DECISION = {
         "inputs": [{"label": "expense amount", "expression": "expense.amount", "type": "number"}],
         "outputs": [{"label": "route", "name": "approvalRoute", "type": "string"}],
         "rules": [{"input_entries": [">= 5000"], "output_entries": ['"executive"']}],
+    },
+}
+
+
+#: Genuinely outside the supported subset: a function call. Kept so
+#: `UNSUPPORTED_UNARY_TEST` still has a real example after fact-relative
+#: arithmetic became supported — without one, the reason code would be
+#: asserted by no test at all.
+UNPARSEABLE_TABLE_DECISION = {
+    "source_rule_indexes": [0],
+    "dmn_mapping_status": "executable",
+    "requirements": [],
+    "decision_table": {
+        "hit_policy": "UNIQUE",
+        "inputs": [
+            {"label": "start", "expression": "employee.start_date", "type": "date"}
+        ],
+        "outputs": [{"label": "ok", "name": "ok", "type": "boolean"}],
+        "rules": [
+            {
+                "input_entries": ["< date(employee.start_date) + duration(\"P1Y\")"],
+                "output_entries": ["true"],
+            }
+        ],
+    },
+}
+
+
+#: Verbatim from a live trial: one source rule, three rows, a boolean outcome.
+#: Ordinary DMN — a single obligation enumerated as the combinations that
+#: satisfy it. The compiler used to refuse this because it required one row
+#: per source rule, which is why 2 of 3 live trials produced nothing.
+BOOLEAN_OUTCOME_TABLE_DECISION = {
+    "source_rule_indexes": [0],
+    "dmn_mapping_status": "executable",
+    "requirements": [],
+    "decision_table": {
+        "hit_policy": "UNIQUE",
+        "inputs": [
+            {
+                "label": "increase",
+                "expression": "employee.compensation.proposed_inflation_increase",
+                "type": "number",
+            },
+            {
+                "label": "approval",
+                "expression": "approval.board_of_trustees_approved",
+                "type": "boolean",
+            },
+        ],
+        "outputs": [
+            {"label": "permitted", "name": "inflation_increase_permitted", "type": "boolean"}
+        ],
+        "rules": [
+            {
+                "input_entries": ["<= employee.compensation.basic_salary * 0.05", "true"],
+                "output_entries": ["true"],
+            },
+            {
+                "input_entries": ["> employee.compensation.basic_salary * 0.05", "-"],
+                "output_entries": ["false"],
+            },
+            {
+                "input_entries": ["<= employee.compensation.basic_salary * 0.05", "false"],
+                "output_entries": ["false"],
+            },
+        ],
+    },
+}
+
+
+#: A literal expression still outside the grammar: `or` mixed with `and` needs
+#: precedence handling the parser deliberately does not do.
+UNSUPPORTED_LITERAL_DECISION = {
+    "source_rule_indexes": [0],
+    "dmn_mapping_status": "executable",
+    "requirements": [],
+    "literal_expression": {
+        "output": {"name": "annual_increase_permitted", "type": "boolean"},
+        "feel": (
+            "employee.compensation.proposed_annual_increase <= "
+            "employee.compensation.current_basic_salary * 0.10 "
+            "or employee.performance.appraisal_rating = \"outstanding\""
+        ),
     },
 }
 
@@ -157,24 +243,261 @@ def test_wrapper_agrees_with_outcome_on_success():
 
 
 def test_literal_expression_is_reported_not_silently_dropped():
-    outcome = derive_condition_outcome(_decision(LITERAL_EXPRESSION_DECISION), 0)
+    outcome = derive_condition_outcome(_decision(UNSUPPORTED_LITERAL_DECISION), 0)
 
     assert outcome.reason is ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED
     assert outcome.derived is False
     assert outcome.platform_limited is True
     # The reviewer sees exactly what the agent produced, not a paraphrase.
-    assert outcome.unsupported_expression == (
-        "employee.compensation.proposed_annual_increase <= "
-        "employee.compensation.current_basic_salary * 0.10"
+    assert outcome.unsupported_expression.startswith(
+        "employee.compensation.proposed_annual_increase <="
     )
+    assert " or " in outcome.unsupported_expression
 
 
-def test_fact_relative_unary_test_is_reported_not_silently_dropped():
+def test_fact_relative_table_compiles():
+    """The clause that motivated extending the condition contract.
+
+    This decision used to fail with `UNSUPPORTED_UNARY_TEST`. It now compiles,
+    and the fact it compares *against* — which is not a table column — must
+    appear in `required_facts`, or the rule blocks at evaluation time on an
+    input no caller was told to supply.
+    """
+
     outcome = derive_condition_outcome(_decision(FACT_RELATIVE_TABLE_DECISION), 0)
+
+    assert outcome.reason is ConditionDerivationReason.DERIVED
+    assert [f.name for f in outcome.facts] == [
+        "employee.compensation.proposed_inflation_increase",
+        "employee.compensation.basic_salary",
+        "approval.board_of_trustees_approved",
+    ]
+
+
+def test_a_genuinely_unsupported_test_is_still_refused():
+    """Widening the parser must not turn it into a guesser."""
+
+    outcome = derive_condition_outcome(_decision(UNPARSEABLE_TABLE_DECISION), 0)
 
     assert outcome.reason is ConditionDerivationReason.UNSUPPORTED_UNARY_TEST
     assert outcome.platform_limited is True
-    assert "employee.compensation.basic_salary * 0.05" in outcome.unsupported_expression
+    assert "duration" in outcome.unsupported_expression
+
+
+# --------------------------------------------------------------------------
+# A boolean-outcome table: many rows, one rule
+# --------------------------------------------------------------------------
+
+
+def test_a_boolean_outcome_table_compiles_to_its_satisfying_rows():
+    """The rule's condition is the combination that yields true."""
+
+    outcome = derive_condition_outcome(_decision(BOOLEAN_OUTCOME_TABLE_DECISION), 0)
+
+    assert outcome.reason is ConditionDerivationReason.DERIVED
+    assert [f.name for f in outcome.facts] == [
+        "employee.compensation.proposed_inflation_increase",
+        "employee.compensation.basic_salary",
+        "approval.board_of_trustees_approved",
+    ]
+
+
+def test_the_false_rows_do_not_leak_into_the_condition():
+    """Only the satisfying row contributes.
+
+    Reading a "false" row as a condition would invert the rule — the single
+    worst output this system can produce.
+    """
+
+    outcome = derive_condition_outcome(_decision(BOOLEAN_OUTCOME_TABLE_DECISION), 0)
+    tree = outcome.condition.model_dump(mode="json")
+
+    # One satisfying row, so the tree is that row's AND, not an OR of three.
+    assert tree["type"] == "all"
+    operators = [leaf["operator"] for leaf in tree["all"]]
+    assert operators == ["lessThanOrEqual", "equals"]
+    assert "greaterThan" not in operators
+
+
+def test_two_satisfying_rows_become_an_or():
+    payload = json.loads(json.dumps(BOOLEAN_OUTCOME_TABLE_DECISION))
+    payload["decision_table"]["rules"][2]["output_entries"] = ["true"]
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.DERIVED
+    assert outcome.condition.model_dump(mode="json")["type"] == "any"
+
+
+def test_a_table_that_never_yields_true_is_refused_not_asserted():
+    """"Never satisfiable" is a stronger claim than "could not compile"."""
+
+    payload = json.loads(json.dumps(BOOLEAN_OUTCOME_TABLE_DECISION))
+    payload["decision_table"]["rules"][0]["output_entries"] = ["false"]
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.NO_SATISFYING_ROW
+    assert outcome.condition is None
+
+
+def test_an_unconditionally_satisfied_row_is_vacuous_not_executable():
+    payload = json.loads(json.dumps(BOOLEAN_OUTCOME_TABLE_DECISION))
+    payload["decision_table"]["rules"][0]["input_entries"] = ["-", "-"]
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.VACUOUS
+    assert outcome.condition is None
+
+
+def test_a_non_boolean_multi_row_table_is_still_refused():
+    """The OR reading only makes sense for a true/false outcome.
+
+    A table whose rows select among several outcomes carries no single
+    "condition under which the rule applies", so guessing one would invent a
+    meaning the table never expressed.
+    """
+
+    payload = json.loads(json.dumps(BOOLEAN_OUTCOME_TABLE_DECISION))
+    payload["decision_table"]["outputs"] = [
+        {"label": "route", "name": "approvalRoute", "type": "string"}
+    ]
+    for i, entry in enumerate(['"board"', '"none"', '"manager"']):
+        payload["decision_table"]["rules"][i]["output_entries"] = [entry]
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.NO_TABLE_ROW
+    assert outcome.condition is None
+
+
+def test_the_positional_reading_still_wins_when_it_applies():
+    """One row per source rule keeps its existing meaning.
+
+    Both readings can be legal for the same table shape, so the order matters:
+    a two-rule/two-row table must stay positional rather than being re-read as
+    an OR that merges two distinct rules into one.
+    """
+
+    payload = {
+        "source_rule_indexes": [0, 1],
+        "dmn_mapping_status": "executable",
+        "requirements": [],
+        "decision_table": {
+            "hit_policy": "UNIQUE",
+            "inputs": [
+                {"label": "amount", "expression": "expense.amount", "type": "number"}
+            ],
+            "outputs": [{"label": "ok", "name": "ok", "type": "boolean"}],
+            "rules": [
+                {"input_entries": [">= 5000"], "output_entries": ["true"]},
+                {"input_entries": ["< 100"], "output_entries": ["true"]},
+            ],
+        },
+    }
+
+    first = derive_condition_outcome(_decision(payload), 0)
+    second = derive_condition_outcome(_decision(payload), 1)
+
+    assert first.condition.model_dump(mode="json")["all"][0]["operator"] == (
+        "greaterThanOrEqual"
+    )
+    assert second.condition.model_dump(mode="json")["all"][0]["operator"] == "lessThan"
+
+
+# --------------------------------------------------------------------------
+# Literal expressions
+# --------------------------------------------------------------------------
+
+
+def test_the_real_literal_expression_compiles():
+    """The shape the formulator uses most often for compensation limits."""
+
+    outcome = derive_condition_outcome(_decision(LITERAL_EXPRESSION_DECISION), 0)
+
+    assert outcome.reason is ConditionDerivationReason.DERIVED
+    assert [(f.name, f.data_type) for f in outcome.facts] == [
+        ("employee.compensation.proposed_annual_increase", "number"),
+        ("employee.compensation.current_basic_salary", "number"),
+    ]
+
+
+def test_a_conjunction_with_a_boolean_gate_compiles():
+    """AD-103 3.2.3 as a literal: a proportional limit AND an approval."""
+
+    payload = {
+        "source_rule_indexes": [0],
+        "dmn_mapping_status": "executable",
+        "requirements": [],
+        "literal_expression": {
+            "output": {"name": "inflation_increase_permitted", "type": "boolean"},
+            "feel": (
+                "employee.compensation.proposed_inflation_increase <= "
+                "employee.compensation.basic_salary * 0.05 "
+                "and approval.board_of_trustees_approved"
+            ),
+        },
+    }
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.DERIVED
+    # The bare boolean fact is typed from what the agent wrote, not guessed.
+    assert ("approval.board_of_trustees_approved", "boolean") in [
+        (f.name, f.data_type) for f in outcome.facts
+    ]
+
+
+@pytest.mark.parametrize(
+    "feel",
+    [
+        "a.b > 1 or a.c < 2",
+        "a.b > 1 and (a.c < 2)",
+        "if a.b then 1 else 2",
+        "count(a.b) > 1",
+        "not a.b",
+        "a.b + a.c > 5",
+        "sum(x.y)",
+        "",
+        "a.b >",
+        "salary <= 100",
+    ],
+)
+def test_literal_expressions_outside_the_grammar_are_refused(feel):
+    """Widening this parser must not make it a guesser either.
+
+    `or` is refused despite `AnyCondition` existing: mixing it with `and`
+    needs precedence handling this parser does not do, and getting that wrong
+    inverts rules silently.
+    """
+
+    payload = {
+        "source_rule_indexes": [0],
+        "dmn_mapping_status": "executable",
+        "literal_expression": {"output": {"name": "o", "type": "boolean"}, "feel": feel},
+    }
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.reason is ConditionDerivationReason.LITERAL_EXPRESSION_UNSUPPORTED
+    assert outcome.condition is None
+
+
+def test_a_refused_literal_still_reports_what_it_could_not_read():
+    payload = {
+        "source_rule_indexes": [0],
+        "dmn_mapping_status": "executable",
+        "literal_expression": {
+            "output": {"name": "o", "type": "boolean"},
+            "feel": "a.b > 1 or a.c < 2",
+        },
+    }
+
+    outcome = derive_condition_outcome(_decision(payload), 0)
+
+    assert outcome.platform_limited is True
+    assert outcome.unsupported_expression == "a.b > 1 or a.c < 2"
 
 
 def test_ordinary_non_executable_is_not_mistaken_for_a_platform_limit():
@@ -197,8 +520,8 @@ def test_ordinary_non_executable_is_not_mistaken_for_a_platform_limit():
 
 @pytest.mark.parametrize(
     "payload",
-    [LITERAL_EXPRESSION_DECISION, FACT_RELATIVE_TABLE_DECISION],
-    ids=["literal_expression", "fact_relative_table"],
+    [UNSUPPORTED_LITERAL_DECISION, UNPARSEABLE_TABLE_DECISION],
+    ids=["unsupported_literal", "unparseable_table"],
 )
 def test_grounded_but_uncompilable_never_becomes_executable(payload):
     """Naming the failure must not soften the gate.
@@ -224,7 +547,7 @@ def test_platform_limit_does_not_blame_the_fact_model():
     edit a fact model that was not the problem.
     """
 
-    outcome = derive_condition_outcome(_decision(LITERAL_EXPRESSION_DECISION), 0)
+    outcome = derive_condition_outcome(_decision(UNSUPPORTED_LITERAL_DECISION), 0)
     code, message = condition_provenance(
         _policy("annual increase not exceeding 10% of current basic salary"),
         None,

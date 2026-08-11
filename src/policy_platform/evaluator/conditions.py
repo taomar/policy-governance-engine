@@ -14,6 +14,7 @@ from policy_platform.contracts.conditions import (
     ConditionNode,
     ConditionOperator,
     FactComparisonCondition,
+    FactRelativeComparisonCondition,
     NotCondition,
 )
 
@@ -133,6 +134,65 @@ def _evaluate_leaf(node: FactComparisonCondition, facts: dict[str, object | None
     return ConditionResult.true() if result else ConditionResult.false()
 
 
+def _evaluate_relative_leaf(
+    node: FactRelativeComparisonCondition, facts: dict[str, object | None]
+) -> ConditionResult:
+    """Compare a fact against a multiple of another fact.
+
+    Both operands are required. A missing reference fact is reported alongside
+    a missing subject fact rather than instead of it, so a caller asking "what
+    would I need to supply to decide this rule?" gets the complete answer in
+    one pass — the same guarantee `_evaluate_leaf` gives for the single-fact
+    case (Rule 5.5: absent input is INDETERMINATE, never FALSE).
+
+    Comparison operators only. `exists`/`isNull` ask about presence, which is a
+    question about one fact and is already answerable through
+    `FactComparisonCondition`; set membership and string operators have no
+    meaning against a scaled number. Anything outside the ordered set is
+    INDETERMINATE rather than an exception, matching how this module already
+    treats an incomparable pair.
+    """
+
+    missing: set[str] = set()
+    left_value = facts.get(node.fact, _MISSING)
+    if node.fact not in facts or left_value is None:
+        missing.add(node.fact)
+    right_value = facts.get(node.reference.fact, _MISSING)
+    if node.reference.fact not in facts or right_value is None:
+        missing.add(node.reference.fact)
+    if missing:
+        return ConditionResult.indeterminate(missing)
+
+    try:
+        left = float(left_value)  # type: ignore[arg-type]
+        right = float(right_value) * node.reference.factor  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        # A non-numeric operand is a data-quality problem, not a business
+        # "false" — the same reading `_evaluate_leaf` gives an incomparable
+        # pair. Reporting FALSE here would silently deny a claim that was
+        # never actually tested.
+        return ConditionResult.indeterminate({node.fact, node.reference.fact})
+
+    op = node.operator
+    match op:
+        case ConditionOperator.EQUALS:
+            result = left == right
+        case ConditionOperator.NOT_EQUALS:
+            result = left != right
+        case ConditionOperator.GREATER_THAN:
+            result = left > right
+        case ConditionOperator.GREATER_THAN_OR_EQUAL:
+            result = left >= right
+        case ConditionOperator.LESS_THAN:
+            result = left < right
+        case ConditionOperator.LESS_THAN_OR_EQUAL:
+            result = left <= right
+        case _:
+            return ConditionResult.indeterminate({node.fact, node.reference.fact})
+
+    return ConditionResult.true() if result else ConditionResult.false()
+
+
 def evaluate_condition(node: ConditionNode, facts: dict[str, object | None]) -> ConditionResult:
     """Recursively evaluate a condition AST node against a fact bag.
 
@@ -150,6 +210,8 @@ def evaluate_condition(node: ConditionNode, facts: dict[str, object | None]) -> 
     match node:
         case FactComparisonCondition():
             return _evaluate_leaf(node, facts)
+        case FactRelativeComparisonCondition():
+            return _evaluate_relative_leaf(node, facts)
         case AllCondition():
             missing: set[str] = set()
             saw_indeterminate = False

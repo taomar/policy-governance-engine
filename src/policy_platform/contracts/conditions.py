@@ -36,12 +36,48 @@ class ConditionOperator(str, Enum):
 
 
 class FactComparisonCondition(BaseModel):
-    """Leaf condition node: compares a single fact against a value."""
+    """Leaf condition node: compares a single fact against a literal value."""
 
     type: Literal["factComparison"] = "factComparison"
     fact: str
     operator: ConditionOperator
     value: object | None = None
+
+
+class FactOperand(BaseModel):
+    """A right-hand side that names another fact instead of a literal value.
+
+    `factor` scales the referenced fact before comparison, which is how a
+    percentage-of-a-base is encoded: 0.10 means "10% of". It is a plain
+    multiplier and nothing more — there is deliberately no offset, no nested
+    arithmetic and no expression string, because none of those appeared in the
+    measured agent output and an unused general mechanism here would be a new
+    surface to get wrong.
+    """
+
+    fact: str
+    factor: float = 1.0
+
+
+class FactRelativeComparisonCondition(BaseModel):
+    """Leaf node: compares a fact against a multiple of *another* fact.
+
+    Added because policy text routinely bounds one quantity by a proportion of
+    another — "an annual increase not exceeding 10% of the employee's current
+    basic salary" — and `FactComparisonCondition` can only compare a fact to a
+    constant. Measured against live AD-103 output, every decision the
+    formulator declared executable used this shape, so without it a complete
+    and correct fact model still produced zero executable rules.
+
+    Both facts are required at evaluation time: a missing *reference* fact is
+    just as disqualifying as a missing subject fact, and the evaluator reports
+    both so "which fact was missing" stays answerable.
+    """
+
+    type: Literal["factRelativeComparison"] = "factRelativeComparison"
+    fact: str
+    operator: ConditionOperator
+    reference: FactOperand
 
 
 class AllCondition(BaseModel):
@@ -68,7 +104,13 @@ class NotCondition(BaseModel):
 
 
 ConditionNode = Annotated[
-    Union[FactComparisonCondition, AllCondition, AnyCondition, NotCondition],
+    Union[
+        FactComparisonCondition,
+        FactRelativeComparisonCondition,
+        AllCondition,
+        AnyCondition,
+        NotCondition,
+    ],
     Field(discriminator="type"),
 ]
 
