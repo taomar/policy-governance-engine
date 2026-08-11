@@ -195,7 +195,7 @@ reviewer's decision.
 
 ---
 
-## The platform's own fingerprint is blind to this
+## The platform's own fingerprint answers a different question
 
 ```sql
 SELECT content_fingerprint, count(*)
@@ -206,14 +206,20 @@ GROUP BY 1 HAVING count(*) > 1;
 (0 rows)
 ```
 
-`content_fingerprint` is persisted and used for delta detection across runs. It
-finds **zero** duplicate groups where the content signature finds two, for the
-same reason attempts 1 and 2 failed: it hashes named fields.
+An earlier draft of this document treated that as a competing duplicate
+detector that had gone blind. **It is not one.** `content_fingerprint` is a
+cross-run delta identity: it hashes `SEMANTIC_FIELDS` to answer "is this the
+same rule the previous extraction produced?", and it includes `effect`, which
+is derived from subject/predicate/object. Two copies of one sentence that
+decomposed differently legitimately hash differently.
 
-**Unresolved.** Two detectors of the same property disagree, and the persisted
-one — the one the pipeline actually acts on — is the blind one. Reconciling
-them needs a decision about which is authoritative, and that decision affects
-how re-extraction reports change.
+The correct reading is that **no within-run duplicate check existed** before
+`find_duplicate_rules`. The two coexist:
+
+| | question | scope |
+|---|---|---|
+| `content_fingerprint` | is this the rule the last run produced? | across runs |
+| `find_duplicate_rules` | did one sentence produce two rules? | within a run |
 
 ---
 

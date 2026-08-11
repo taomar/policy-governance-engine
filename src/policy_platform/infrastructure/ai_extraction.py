@@ -46,7 +46,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from policy_platform.contracts.passage import PolicyPassage
-from policy_platform.contracts.policy import AmbiguityStatus, CanonicalRule
+from policy_platform.contracts.policy import (
+    AmbiguityStatus,
+    CandidateRelationship,
+    CanonicalRule,
+)
 from policy_platform.domain.models import (
     CandidateRule,
     Clause,
@@ -795,6 +799,7 @@ async def extract_candidate_rules(
         # into a field consumers read as established fact is how a machine's
         # guess ends up in the reviewer's record.
         confirmed_links: dict[str, list[str]] = {}
+        candidate_links: dict[str, list[CandidateRelationship]] = {}
         unresolved_stems: list[str] = []
         try:
             clause_texts_by_id = {str(c.id): c.text for c in clauses}
@@ -813,9 +818,28 @@ async def extract_candidate_rules(
                 a.rule_id for a in stems_needing_adjudication(anchors, enumeration_edges)
             ]
             for edge in edges:
-                if edge.state != "confirmed":
-                    continue
                 if not edge.source_rule_id or not edge.target_rule_id:
+                    continue
+                if edge.state != "confirmed":
+                    # Kept rather than dropped. A candidate must never enter
+                    # `related_rule_ids` — that field states a relationship —
+                    # but discarding it entirely reported a rule linked only by
+                    # candidate evidence as isolated. On AD-103 that overstated
+                    # isolation by 5 rules and lost 6 `definition_used_by`
+                    # links, the very links a non-executable rule most needs:
+                    # a definition has no facts to group by.
+                    reason = ""
+                    if edge.evidence is not None:
+                        reason = getattr(edge.evidence, "detail", "") or getattr(
+                            edge.evidence, "kind", ""
+                        )
+                    candidate_links.setdefault(edge.source_rule_id, []).append(
+                        CandidateRelationship(
+                            target_rule_id=edge.target_rule_id,
+                            relationship_type=edge.relationship_type.value,
+                            reason=str(reason),
+                        )
+                    )
                     continue
                 confirmed_links.setdefault(edge.source_rule_id, []).append(edge.target_rule_id)
                 confirmed_links.setdefault(edge.target_rule_id, []).append(edge.source_rule_id)
@@ -901,9 +925,16 @@ async def extract_candidate_rules(
                 if rid not in seen:
                     related.append(rid)
                     seen.add(rid)
-            if related == rule.related_rule_ids:
+            proposed = [
+                edge
+                for edge in candidate_links.get(rule.rule_id, [])
+                # A candidate the confirmed graph already covers is noise.
+                if edge.target_rule_id not in seen
+            ]
+            if related == rule.related_rule_ids and proposed == rule.candidate_relationships:
                 continue
             rule.related_rule_ids = related
+            rule.candidate_relationships = proposed
             candidate = persisted.get(rule.rule_id)
             if candidate is not None:
                 candidate.payload_json = rule.model_dump(mode="json")

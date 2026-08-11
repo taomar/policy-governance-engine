@@ -83,6 +83,12 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         tags=list(rule.tags_json or []),
         group_label=rule.group_label,
         related_rule_ids=list(rule.related_rule_ids_json or []),
+        # Not persisted on its own column. A candidate is a lead for a
+        # reviewer of a *draft*, and publishing is the point at which those
+        # leads have been resolved — either promoted to a confirmed link or
+        # dismissed. Carrying stale proposals into an approved version would
+        # invite acting on a suggestion nobody accepted.
+        candidate_relationships=[],
         is_explicit_override=rule.is_explicit_override,
         supersedes_rule_ids=list(rule.supersedes_rule_ids_json or []),
         advice=[Advice(**a) for a in (rule.advice_json or [])],

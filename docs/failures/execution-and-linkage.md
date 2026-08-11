@@ -258,7 +258,46 @@ LARGEST COMPONENT: 11 rules
 That is a genuine family: the class definitions and the eligibility rules that
 reference them, linked together.
 
-### 3.2 Why 18 rules stand alone
+### 3.2 "Isolated" was overstated, and candidates were being discarded
+
+An earlier version of this document reported isolation from `related_rule_ids`
+alone. An independent review flagged that as too narrow, and measurement
+confirmed it:
+
+```
+isolated by related_rule_ids     21
+isolated by all graph evidence   16
+```
+
+Discovery produces **typed** edges with a confirmed/candidate state, and
+`ai_extraction` dropped every non-confirmed one:
+
+```python
+for edge in edges:
+    if edge.state != "confirmed":
+        continue          # <- 6 typed candidate edges discarded here
+```
+
+On this corpus:
+
+```
+edges discovered      30
+  confirmed           24    same_decision 13, definition_used_by 7, precedes 4
+  candidate            6    definition_used_by 6
+```
+
+All six discarded candidates were `definition_used_by` — which is the link a
+**non-executable** rule most needs. A definition cannot be grouped by a shared
+fact comparison, because it has no facts; the structural link is the only
+grouping it will ever have.
+
+Keeping `related_rule_ids` confirmed-only is correct — that field states a
+relationship, and a candidate is a proposal. The error was discarding the
+proposal instead of surfacing it. Candidates now ship on the rule as
+`candidate_relationships`, typed and with their reason, and are not merged into
+`related_rule_ids`.
+
+### 3.3 Why `group_label` is nearly empty
 
 Only **12 of 47** rules carry a `group_label`, and only three labels exist:
 
@@ -283,18 +322,27 @@ The two labels that do exist are also visibly truncated stems, not topics:
 
 That is a sentence cut mid-clause, used as a family name.
 
-### 3.3 Zero exceptions, zero supersessions
+### 3.4 Exceptions and supersessions
 
 ```
 supersedes_rule_ids   0
-exceptions            0
+exceptions            0  ->  5   (fixed)
 ```
 
-The document contains exception language — `"Unless otherwise stipulated in
-the employment contract"` is captured on `AI-c3e9ccec25` as a canonical
-`exception` field — but no rule carries a structured `RuleException`. The
-canonical exception text exists; the projection into the platform's exception
-model does not happen.
+The document states exception language — `"Unless otherwise stipulated in the
+employment contract"` on `AI-c3e9ccec25`, `"except for a co-payment of medical
+cost…"` elsewhere — and the canonical record captured it all along. The
+canonical-to-runtime mapping then dropped it, so no rule carried a structured
+`RuleException`.
+
+Now projected. Only `description` is populated: the source says what the
+exception *is*, not what it tests or what it changes the outcome to, and
+`RuleException` permits exactly that shape — a prose carve-out with no
+machine-readable condition. The `exception_id` derives from the text rather
+than a UUID, so re-extracting an unchanged document does not report a change
+that did not happen.
+
+`supersedes_rule_ids` remains 0, which is correct: AD-103 supersedes nothing.
 
 ---
 
@@ -333,7 +381,7 @@ AI-fd9b0bdcf2  ==  AI-de9a6b2457
    "The housing allowance is to be paid in monthly prorated installments."
 ```
 
-### 4.2 The platform's own duplicate key does not see them
+### 4.2 `content_fingerprint` does not see them, and is not supposed to
 
 ```sql
 SELECT content_fingerprint, count(*)
@@ -344,12 +392,16 @@ GROUP BY 1 HAVING count(*) > 1;
 (0 rows)
 ```
 
-`content_fingerprint` reports **zero** duplicate groups. The `duplicate_rule`
-check finds **two**. Two detectors of the same thing disagree, and the
-persisted one — the one the pipeline uses for delta detection — is the blind
-one.
+An earlier version of this document called that a defect, on the reading that
+two detectors of the same property disagreed. **That was wrong**, and an
+independent review caught it.
 
-The reason is that the two copies decompose differently:
+`content_fingerprint` is a **cross-run delta identity**, not a within-run
+duplicate detector. It hashes `SEMANTIC_FIELDS` — rule type, scope, condition,
+effect, priority, exceptions, required facts — to answer "is this the same rule
+the previous extraction produced?". It includes `effect`, which is *derived*
+from subject/predicate/object, so two copies of one sentence that decomposed
+differently legitimately hash differently:
 
 ```
 AI-93357d4ac0   object: "one employee"                       condition: "of the married couple"
@@ -359,8 +411,9 @@ AI-de9a6b2457   object: "in monthly prorated installments"   frequency: "monthly
 AI-fd9b0bdcf2   constraint: "prorated installments"          frequency: "monthly"
 ```
 
-Same content, different slots. Any fingerprint over named fields misses this.
-See `duplicate-detection.md` for the three attempts it took to get this right.
+Nothing is broken. The two answer different questions, and the real gap was
+that **no within-run duplicate check existed at all** until
+`find_duplicate_rules` was added. See `duplicate-detection.md`.
 
 ---
 
@@ -392,16 +445,20 @@ first is what made the extraction look broken when it is mostly not.
 
 ## 6. Ordered blockers
 
-| # | Blocker | Owner | Unblocks |
-|---|---------|-------|----------|
-| 1 | `trusted_config = {}` — no fact model | needs the customer's data model | executable conditions, `required_facts`, DMN tables, `group_label` on the remaining 35 |
-| 2 | 28 of 30 conditions state no test | the document delegates; not solvable by engineering | nothing — correct representation is DISCRETIONARY |
-| 3 | Clause splitter cuts mid-sentence | Docling layout output + chunker | removes both duplicate pairs at source |
-| 4 | `content_fingerprint` blind to slot variance | this repo | delta detection correctness |
-| 5 | Canonical `exception` never projected to `RuleException` | this repo | 0 structured exceptions today |
+| # | Blocker | Owner | Status |
+|---|---------|-------|--------|
+| 1 | `trusted_config = {}` — no fact model | needs the customer's data model | **open** — unfixable here |
+| 2 | 28 of 30 conditions state no test | the document delegates | **open** — not solvable by engineering |
+| 3 | Clause splitter cuts mid-sentence | this repo | **fixed** — 44 clauses -> 41, mid-sentence starts 2 -> 0 |
+| 4 | Duplicates detected but invisible | this repo | **fixed** — escalated and tagged |
+| 5 | Canonical `exception` never projected | this repo | **fixed** — 5 exceptions now carried |
+| 6 | Typed candidate relationships discarded | this repo | **fixed** — surfaced as `candidate_relationships` |
 
-Items 3, 4 and 5 are fixable here. Items 1 and 2 are not, and no amount of
-work in this repository will change them.
+Blocker 1 is the one that unblocks the most. Blocker 2 is unblockable by
+anyone: a fact model supplies the attribute, and cannot supply a comparison
+the policy declined to write. The right representation for those is a manual
+review gate, which `decision_readiness.evaluability = "discretionary"` and the
+`authority` parties already provide.
 
 ---
 

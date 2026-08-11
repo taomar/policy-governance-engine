@@ -299,6 +299,22 @@ class DecisionReadiness(BaseModel):
         return any(p.role is PartyRoleName.AUTHORITY for p in self.parties)
 
 
+class CandidateRelationship(BaseModel):
+    """A typed link discovery found without enough evidence to confirm.
+
+    Carries its own reason so a reviewer can judge it rather than take it on
+    trust — which is the whole difference between a candidate and a confirmed
+    edge. Never merged into `related_rule_ids`.
+    """
+
+    target_rule_id: str
+    #: One of `contracts.relationships.PolicyRelationshipType`.
+    relationship_type: str
+    #: Why discovery proposed it, quoted or named, never a similarity score
+    #: presented as a fact.
+    reason: str = ""
+
+
 class CanonicalRule(BaseModel):
     """A single approved, versioned, machine-executable rule.
 
@@ -348,6 +364,18 @@ class CanonicalRule(BaseModel):
     # already handled by publish/versioning).
     is_explicit_override: bool = False
     supersedes_rule_ids: list[str] = Field(default_factory=list)
+    # Typed links discovery found but could not confirm. Kept separate from
+    # `related_rule_ids`, which stays confirmed-only: a candidate is a lead for
+    # a reviewer, and promoting one to a stated relationship would assert
+    # something the evidence does not support.
+    #
+    # They were previously discarded outright — `ai_extraction` dropped every
+    # edge whose state was not `confirmed` — so a rule linked only by candidate
+    # evidence was reported isolated. On AD-103 that overstated isolation by 5
+    # rules (21 against 16) and lost 6 `definition_used_by` links, which are
+    # exactly the links a non-executable rule most needs: a definition cannot
+    # be grouped by a shared fact comparison, because it has no facts.
+    candidate_relationships: list[CandidateRelationship] = Field(default_factory=list)
     # XACML Obligations/Advice gap (see `Advice` docstring): supplementary,
     # non-blocking guidance surfaced alongside this rule's decision when
     # SATISFIED. Distinct from `effect` (the Obligation-equivalent action a
