@@ -1,12 +1,11 @@
-import { Tag, Tooltip, Tree, Typography } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
-import type { CanonicalRule, DmnSemanticProjection } from "../api";
+import { Tooltip, Tree, Typography } from "antd";
+import type { CanonicalRule, DmnSemanticProjection, SourceCondition } from "../api";
+import { effectMeta } from "../ruleDisplay";
 import {
   ACTION_ATTRIBUTE,
   RESOURCE_ATTRIBUTE,
+  SUBJECT_ATTRIBUTE,
   XACML_NOTE,
-  categoryForSubject,
-  effectLabel,
   xacmlEffect,
 } from "../xacml";
 
@@ -56,17 +55,21 @@ function projectionOf(rule: CanonicalRule): DmnSemanticProjection | null {
   return null;
 }
 
-const STATUS_NOTE: Record<string, string> = {
-  not_directly_mappable:
-    "The source states this as a responsibility rather than a decision, so there is no decision table to compile.",
-  ambiguous:
-    "The source wording admits more than one reading, so it was not compiled into a decision table.",
-  enrichment_required:
-    "The conditions below are what the source states. No fact model has been configured for this policy set, so none of them has been bound to an attribute yet — that is a setup step on our side, not a gap in the document, and no request has been evaluated.",
-};
-
-/** One `attribute op "value"` leaf, matching the executable condition view. */
-function attributeLeaf(key: string, attribute: string, operator: string, value: string): TreeDatum {
+/** One `attribute op "value"` leaf, matching the executable condition view.
+ *
+ * `statedAs` carries the document's own wording when it differs from the
+ * identifier. Both matter and neither substitutes for the other: the
+ * identifier is what a request is matched against, the wording is what a
+ * reviewer checks the record against.
+ */
+function attributeLeaf(
+  key: string,
+  attribute: string,
+  operator: string,
+  value: string,
+  statedAs?: string
+): TreeDatum {
+  const quoted = value.replace(/^"|"$/g, "");
   return {
     key,
     title: (
@@ -79,6 +82,50 @@ function attributeLeaf(key: string, attribute: string, operator: string, value: 
         </Text>
         <Text keyboard className="cond-value">
           {value}
+        </Text>
+        {statedAs && statedAs !== quoted && (
+          <Text type="secondary" className="semantic-projection-stated">
+            stated as “{statedAs}”
+          </Text>
+        )}
+      </span>
+    ),
+  };
+}
+
+/** A condition the source states, shown decomposed rather than as a sentence.
+ *
+ * The concept is the attribute the condition is about. The comparison appears
+ * when the sentence states one; when it does not, that is said plainly instead
+ * of being left blank or filled in — an unstated comparison is a fact about
+ * the document, and inventing an operator here would be the fabrication this
+ * whole pipeline exists to avoid.
+ */
+function conditionLeaf(key: string, condition: SourceCondition): TreeDatum {
+  const specified = condition.operator != null && condition.value != null;
+  return {
+    key,
+    title: (
+      <span className="cond-leaf">
+        <Text code className="cond-fact">
+          {condition.concept}
+        </Text>
+        {specified ? (
+          <>
+            <Text strong className="cond-op">
+              {condition.operator}
+            </Text>
+            <Text keyboard className="cond-value">
+              {condition.value}
+            </Text>
+          </>
+        ) : (
+          <Text type="secondary" className="semantic-projection-slot">
+            stated, no comparison given
+          </Text>
+        )}
+        <Text type="secondary" className="semantic-projection-stated">
+          “{condition.source_text}”
         </Text>
       </span>
     ),
@@ -122,9 +169,6 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   const projection = projectionOf(rule);
   if (!projection) return null;
 
-  const decision = rule.formulation?.dmn_decisions?.[0];
-  const note = STATUS_NOTE[decision?.dmn_mapping_status ?? ""];
-  const canonicalType = rule.formulation?.canonical?.rule?.rule_type ?? projection.rule_type ?? "";
   const effect = xacmlEffect(rule.effect?.type);
 
   // TARGET. The categorised entity, if the evidence establishes a category.
@@ -135,48 +179,68 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   // subject is the requesting entity; a benefit requests nothing, and a
   // request matched against `subject-id = "the allowance"` matches nothing.
   // The category now comes from party evidence, not the grammatical slot.
+  // TARGET. Every entity the projection classified, with the identifier a
+  // request would be matched against.
+  //
+  // Read from `xacml_view`, which is where the classification and its evidence
+  // live. An earlier version re-derived a category from the grammatical
+  // subject, which asserted that a benefit was the requesting entity; and the
+  // conditions beside it were rendered as bare sentences from the DMN
+  // projection while a fully decomposed form sat unused on the same record.
   const whenChildren: TreeDatum[] = [];
-  const partyNames = (rule.decision_readiness?.parties ?? []).map((party) => party.name);
-  const subject = projection.subject || rule.formulation?.canonical?.rule?.subject || "";
-  if (subject) {
-    const category = categoryForSubject(subject, canonicalType, partyNames);
-    if (category) {
-      whenChildren.push(
-        attributeLeaf("proj-subj", category.attribute, "=", `"${subject}"`)
-      );
-    }
+  const semantics = rule.xacml_view?.source_semantics;
+
+  for (const [index, entity] of (semantics?.subjects ?? []).entries()) {
+    whenChildren.push(
+      attributeLeaf(
+        `proj-subj-${index}`,
+        SUBJECT_ATTRIBUTE,
+        "=",
+        `"${entity.normalized_id || entity.phrase}"`,
+        entity.phrase
+      )
+    );
+  }
+  for (const [index, entity] of (semantics?.resources ?? []).entries()) {
+    whenChildren.push(
+      attributeLeaf(
+        `proj-res-t-${index}`,
+        RESOURCE_ATTRIBUTE,
+        "=",
+        `"${entity.normalized_id || entity.phrase}"`,
+        entity.phrase
+      )
+    );
   }
 
-  // CONDITIONS. Shown as what the source states, and nothing more.
+  // CONDITIONS, decomposed.
   //
-  // These used to be badged `Indeterminate · missing-attribute`, which was
-  // three errors at once: Indeterminate is a PDP result and no PDP has run;
-  // missing-attribute is raised when a PDP cannot *obtain* an attribute during
-  // evaluation; and both blamed the document for a gap in our fact model.
-  //
-  // Replacing it with a per-condition "Fact mapping: missing" was still wrong,
-  // for two reasons. No fact model is configured for these policy sets at all,
-  // so nothing is pending — every condition would carry the same badge for one
-  // shared reason, which reads as N problems instead of one piece of context.
-  // And "depending on the recommendation of the director of the concerned
-  // Department" *is* the condition: it is completely identified, and stamping a
-  // deficiency beside it misreads a clear sentence as an unclear one.
-  //
-  // The banner above already states the fact-model position once. A condition
-  // the source stated is shown as stated.
-  const statedConditions = [
-    ...(projection.conditions ?? []),
-    ...(projection.condition_source ? [projection.condition_source] : []),
-  ];
-  for (const [index, condition] of statedConditions.entries()) {
-    whenChildren.push({
-      key: `proj-cond-${index}`,
-      title: (
-        <span className="cond-leaf">
-          <Text>{condition}</Text>
-        </span>
-      ),
-    });
+  // Each carries the concept it is about, and the comparison when the sentence
+  // states one. `predicate_status` distinguishes "the source states a test and
+  // its terms" from "the source states a test but not what satisfies it" —
+  // which is a fact about the document, not a deficiency in the extraction,
+  // and reads very differently to someone deciding whether to trust the rule.
+  const conditions = semantics?.conditions ?? [];
+  for (const [index, condition] of conditions.entries()) {
+    whenChildren.push(conditionLeaf(`proj-cond-${index}`, condition));
+  }
+  // Nothing classified: fall back to the sentences the formulator recorded, so
+  // a rule is never shown as having no conditions when it stated some.
+  if (conditions.length === 0) {
+    const stated = [
+      ...(projection.conditions ?? []),
+      ...(projection.condition_source ? [projection.condition_source] : []),
+    ];
+    for (const [index, phrase] of stated.entries()) {
+      whenChildren.push({
+        key: `proj-cond-raw-${index}`,
+        title: (
+          <span className="cond-leaf">
+            <Text>{phrase}</Text>
+          </span>
+        ),
+      });
+    }
   }
 
   // THEN. The XACML decision, and beneath it the Obligation or Advice the
@@ -195,7 +259,6 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   // them, and `xacml_view` already carries the normalised identifier that a
   // request would actually be matched against.
   const canonicalRule = rule.formulation?.canonical?.rule;
-  const semantics = rule.xacml_view?.source_semantics;
   const directiveChildren: TreeDatum[] = [];
   const action = semantics?.action?.phrase || projection.predicate || canonicalRule?.predicate || "";
   const actionId = semantics?.action?.normalized_id || "";
@@ -248,10 +311,22 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
           },
         ];
 
+  // The heading says what the *policy* does, in the same words as the badge on
+  // the rule itself. The XACML Effect follows as the technical mapping.
+  //
+  // Leading with the Effect made the two views of one rule contradict each
+  // other on screen: an obligation is badged "Requires" and maps to a XACML
+  // Permit carrying an ObligationExpression, so the row said Requires while
+  // the logic below it said PERMIT in a heading. Both are true and only one is
+  // the answer to "what does this rule do".
+  const effectHeading = effect.effect
+    ? `${effectMeta(rule.effect?.type ?? "").label} · XACML ${effect.effect}`
+    : effectMeta(rule.effect?.type ?? "").label;
+
   const thenTree: TreeDatum[] = [
     groupNode(
       "proj-then",
-      effectLabel(effect.effect),
+      effectHeading,
       thenChildren.length > 0
         ? thenChildren
         : [{ key: "proj-then-empty", title: <Text type="secondary">no action stated</Text> }]
@@ -260,19 +335,6 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
 
   return (
     <div className="semantic-projection">
-      <div className="semantic-projection-banner">
-        <Tooltip title="Read from the formulator's semantic projection — the meaning it recorded when it could not generate executable FEEL. Shown in XACML terms, but not evaluated at runtime.">
-          <Tag bordered={false} color="orange" className="semantic-projection-tag">
-            <InfoCircleOutlined /> Stated in the source · not executable
-          </Tag>
-        </Tooltip>
-        {note && (
-          <Text type="secondary" className="semantic-projection-note">
-            {note}
-          </Text>
-        )}
-      </div>
-
       <Tree
         treeData={whenTree}
         defaultExpandAll

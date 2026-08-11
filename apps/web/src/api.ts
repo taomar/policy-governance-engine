@@ -213,6 +213,26 @@ export interface ClassifiedEntity {
 }
 
 /**
+ * A condition the source states, decomposed.
+ *
+ * `concept` is a stable identifier for what the condition is *about*, derived
+ * from the source's own wording. `operator` and `value` are present only when
+ * the sentence actually states a comparison — `predicate_status` says which
+ * case it is, so an unstated comparison reads as unstated rather than as a
+ * missing value someone forgot to supply.
+ */
+export interface SourceCondition {
+  source_text: string;
+  concept: string;
+  predicate_status: string;
+  operator?: string | null;
+  value?: string | null;
+  unspecified_note?: string | null;
+  fact_model_status?: string | null;
+  mapped_to?: string | null;
+}
+
+/**
  * How a rule reads as an access-control decision, derived on the server from
  * the canonical record. Kept separate from the rule's own fields: this is a
  * projection, and the canonical record stays the source of truth.
@@ -222,7 +242,7 @@ export interface PolicyXacmlView {
     subjects: ClassifiedEntity[];
     resources: ClassifiedEntity[];
     action?: ClassifiedEntity | null;
-    conditions: ClassifiedEntity[];
+    conditions: SourceCondition[];
     normative_modality?: string | null;
     outcome?: string | null;
     unclassified: ClassifiedEntity[];
