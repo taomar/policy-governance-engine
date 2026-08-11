@@ -97,6 +97,27 @@ function groupNode(key: string, label: string, children: TreeDatum[]): TreeDatum
   };
 }
 
+/** A named slot carrying the source's own wording, not a XACML attribute.
+ *
+ * Distinct from `attributeLeaf` on purpose: an attribute is matched against a
+ * request and belongs in `name = "value"` form, while these are parts of the
+ * sentence the document wrote. Rendering the second as the first is what put a
+ * whole clause where an action identifier belongs.
+ */
+function slotLeaf(key: string, slot: string, value: string): TreeDatum {
+  return {
+    key,
+    title: (
+      <span className="cond-leaf">
+        <Text type="secondary" className="semantic-projection-slot">
+          {slot}
+        </Text>
+        <Text>{value}</Text>
+      </span>
+    ),
+  };
+}
+
 export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   const projection = projectionOf(rule);
   if (!projection) return null;
@@ -161,19 +182,36 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   // THEN. The XACML decision, and beneath it the Obligation or Advice the
   // source attaches to it.
   //
-  // Action and resource are read from their own slots only. An earlier version
-  // fell back across them — `resource` accepted `outcome` when `object` was
-  // absent — and on an `enrichment_required` projection, which carries an
-  // outcome but no object, that rendered `action.action-id = "is replaced"`
-  // and `resource.resource-id = "is replaced"`: one value claimed as two
-  // different things. An outcome is what the decision yields, not the resource
-  // it acts on, so it is shown as an outcome.
+  // Every slot is read from the field that owns it. Falling back across slots
+  // is what produced the defect this guards against: an earlier version let
+  // `resource` accept `outcome` when `object` was absent, so one phrase
+  // appeared as two different attributes.
+  //
+  // `action` is the decomposed predicate, never the effect's action string.
+  // `Effect.action` is `predicate + object` glued back together — a whole
+  // clause — so reading it here rendered
+  // `action.action-id = "exceed 10% of the …"`, which is a sentence sitting in
+  // a slot that holds an identifier. The canonical record already separates
+  // them, and `xacml_view` already carries the normalised identifier that a
+  // request would actually be matched against.
+  const canonicalRule = rule.formulation?.canonical?.rule;
+  const semantics = rule.xacml_view?.source_semantics;
   const directiveChildren: TreeDatum[] = [];
-  const action = projection.predicate || rule.effect?.action || "";
-  const resource = projection.object || "";
+  const action = semantics?.action?.phrase || projection.predicate || canonicalRule?.predicate || "";
+  const actionId = semantics?.action?.normalized_id || "";
+  const resource = projection.object || canonicalRule?.object || "";
+  const threshold = canonicalRule?.threshold || "";
   const outcome = projection.outcome || projection.outcome_source || "";
   if (action) {
-    directiveChildren.push(attributeLeaf("proj-act", ACTION_ATTRIBUTE, "=", `"${action}"`));
+    directiveChildren.push(
+      attributeLeaf("proj-act", ACTION_ATTRIBUTE, "=", `"${actionId || action}"`)
+    );
+  }
+  // The verb as the document wrote it, when the normalised identifier differs.
+  // The identifier is what a request matches; the phrase is what the sentence
+  // said, and a reader checking the record against the document needs both.
+  if (actionId && action && actionId !== action) {
+    directiveChildren.push(slotLeaf("proj-act-phrase", "stated as", action));
   }
   // Guarded even so: a projection that repeats one phrase in both slots would
   // otherwise state it twice under two different attributes, which reads as a
@@ -181,18 +219,14 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   if (resource && resource !== action) {
     directiveChildren.push(attributeLeaf("proj-res", RESOURCE_ATTRIBUTE, "=", `"${resource}"`));
   }
-  if (outcome && outcome !== action && outcome !== resource) {
-    directiveChildren.push({
-      key: "proj-outcome",
-      title: (
-        <span className="cond-leaf">
-          <Text type="secondary" className="semantic-projection-slot">
-            outcome
-          </Text>
-          <Text>{outcome}</Text>
-        </span>
-      ),
-    });
+  // The bound the sentence states, in its own slot. It is the operative part
+  // of a limiting rule — "not exceed X" means nothing without X — and showing
+  // it only inside a glued action string left it unreadable as a limit.
+  if (threshold && threshold !== resource) {
+    directiveChildren.push(slotLeaf("proj-threshold", "limit", threshold));
+  }
+  if (outcome && outcome !== action && outcome !== resource && outcome !== threshold) {
+    directiveChildren.push(slotLeaf("proj-outcome", "outcome", outcome));
   }
 
   const thenChildren: TreeDatum[] =

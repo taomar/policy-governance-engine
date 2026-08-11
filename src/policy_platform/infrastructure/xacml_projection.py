@@ -223,15 +223,31 @@ def normalize_action(predicate: str | None) -> str | None:
 
 
 def _modality_for(rule: CanonicalPolicyRule) -> NormativeModality | None:
-    """Read the source's normative force from the canonical rule type.
+    """Read the source's normative force from the canonical record.
 
     Kept separate from the XACML Effect because the two do not correspond. An
     obligation is not a Permit; it projects to a Permit whose mandatory
     behaviour lives in an ObligationExpression, and collapsing the two loses
     the requirement.
+
+    The **modal word wins over the rule type**, and that is not a refinement.
+    Reading the type alone loses the negation entirely: a sentence forbidding
+    conduct is frequently typed `conditional_outcome` or `obligation`, and
+    every one of those projected to Permit — so the record asserted the
+    opposite of what the document said, on exactly the rules where being wrong
+    matters most. Measured before this guard, every rule in a live extraction
+    projected to Permit, including three that read "shall not exceed…", "will
+    not be enrolled…" and "will not bear any responsibility".
+
+    `is_negative_modality` is the platform's existing test, already used to
+    stop the same defect reaching `Effect.type`. It is imported rather than
+    re-implemented: two definitions of what counts as a negation is how one of
+    them ends up not counting "may not".
     """
 
-    return {
+    from policy_platform.infrastructure.formulation_mapping import is_negative_modality
+
+    base = {
         CanonicalRuleType.OBLIGATION: NormativeModality.OBLIGATION,
         CanonicalRuleType.PROHIBITION: NormativeModality.PROHIBITION,
         CanonicalRuleType.PERMISSION: NormativeModality.PERMISSION,
@@ -243,6 +259,16 @@ def _modality_for(rule: CanonicalPolicyRule) -> NormativeModality | None:
         CanonicalRuleType.DEFINITION: NormativeModality.DEFINITION,
         CanonicalRuleType.CLASSIFICATION: NormativeModality.DEFINITION,
     }.get(rule.rule_type)
+
+    if base is None:
+        return None
+    # A definition states meaning and cannot be negated into a prohibition;
+    # "X does not mean Y" still defines rather than forbids.
+    if base is NormativeModality.DEFINITION:
+        return base
+    if is_negative_modality(rule.modality):
+        return NormativeModality.PROHIBITION
+    return base
 
 
 def classify_entities(

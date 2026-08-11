@@ -204,6 +204,42 @@ export interface ConditionProvenance {
   unsupported_expression: string;
 }
 
+/** One phrase the projection classified, with the evidence for its role. */
+export interface ClassifiedEntity {
+  phrase: string;
+  role: string;
+  basis: string;
+  normalized_id?: string | null;
+}
+
+/**
+ * How a rule reads as an access-control decision, derived on the server from
+ * the canonical record. Kept separate from the rule's own fields: this is a
+ * projection, and the canonical record stays the source of truth.
+ */
+export interface PolicyXacmlView {
+  source_semantics: {
+    subjects: ClassifiedEntity[];
+    resources: ClassifiedEntity[];
+    action?: ClassifiedEntity | null;
+    conditions: ClassifiedEntity[];
+    normative_modality?: string | null;
+    outcome?: string | null;
+    unclassified: ClassifiedEntity[];
+  };
+  xacml_projection: {
+    target: { subject_ids: string[]; resource_ids: string[]; action_ids: string[] };
+    condition: unknown[];
+    effect?: string | null;
+    effect_basis: string;
+    obligation_expressions: unknown[];
+    advice_expressions: unknown[];
+    compilation_status: string;
+  };
+  fact_model_readiness: { required_attributes: unknown[]; fact_model_configured: boolean };
+  runtime_evaluation?: unknown;
+}
+
 export interface FactComparisonCondition {
   type: "factComparison";
   fact: string;
@@ -594,6 +630,8 @@ export interface CanonicalRule {
   // hand-authored rules or rules drafted before this agent existed.
   formulation?: RuleFormulation;
   decision_readiness?: DecisionReadiness;
+  /** Derived on read from the canonical record; never stored. */
+  xacml_view?: PolicyXacmlView | null;
 }
 
 /**
