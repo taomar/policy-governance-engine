@@ -4,7 +4,9 @@ import type { CanonicalRule, DmnSemanticProjection } from "../api";
 import {
   ACTION_ATTRIBUTE,
   RESOURCE_ATTRIBUTE,
+  XACML_INDETERMINATE_NOTE,
   XACML_NOTE,
+  XACML_STATUS_MISSING_ATTRIBUTE,
   subjectAttribute,
   xacmlEffect,
 } from "../xacml";
@@ -61,7 +63,7 @@ const STATUS_NOTE: Record<string, string> = {
   ambiguous:
     "The source wording admits more than one reading, so it was not compiled into a decision table.",
   enrichment_required:
-    "Conditions were found in the source but could not be bound to facts, because the policy set has no fact model covering them.",
+    "The source states conditions, but no fact model covers the attributes they name. XACML calls this Indeterminate with status missing-attribute — the rule may well govern the request, and the answer could not be computed.",
 };
 
 /** One `attribute op "value"` leaf, matching the executable condition view. */
@@ -106,9 +108,16 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   const effect = xacmlEffect(rule.effect?.type);
 
   // WHEN. A stated subject is the one thing the source pins down, so it is
-  // shown as an equality against the XACML attribute it constrains. Unbound
-  // condition phrases are listed beneath it as the prose they still are —
-  // giving them an operator would imply a binding nobody has made.
+  // shown as an equality against the XACML attribute it constrains. Condition
+  // phrases no fact model covers are listed beneath it as the prose they still
+  // are — giving them an operator would imply a binding nobody has made.
+  //
+  // Each is tagged Indeterminate / missing-attribute, XACML 3.0's own names
+  // for "this rule may apply and the answer could not be computed". The tag
+  // used to read "unbound", which is in no standard the platform adopted: a
+  // reviewer could not look it up, and it said nothing about what a decision
+  // point should do, whereas Indeterminate has defined behaviour under every
+  // XACML combining algorithm.
   const whenChildren: TreeDatum[] = [];
   // The projection only carries a subject for `not_directly_mappable`. The
   // canonical decomposition has one either way, and reading it is deriving
@@ -131,9 +140,11 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
       title: (
         <span className="cond-leaf">
           <Text>{condition}</Text>
-          <Tag bordered={false} color="orange" className="semantic-projection-inline-tag">
-            unbound
-          </Tag>
+          <Tooltip title={XACML_INDETERMINATE_NOTE}>
+            <Tag bordered={false} color="orange" className="semantic-projection-inline-tag">
+              Indeterminate · {XACML_STATUS_MISSING_ATTRIBUTE}
+            </Tag>
+          </Tooltip>
         </span>
       ),
     });

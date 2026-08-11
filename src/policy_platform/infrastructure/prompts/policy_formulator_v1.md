@@ -847,7 +847,6 @@ frequency
 deadline
 
 location
-
 exception
 
 prerequisite
@@ -869,6 +868,52 @@ relationship
 source_origin
 
 Do not populate fields merely because the schema supports them.
+
+## 21.1 PARTY FIELDS versus `subject`
+
+The party fields above are populated **zero times** in practice, because the
+list alone does not say how they differ from `subject`. They are not
+interchangeable, and the difference is grammatical, not stylistic.
+
+`subject` is the **grammatical subject** of the sentence — whatever the
+predicate is predicated of. It is very often not a person:
+
+- "**Annual increase** shall not exceed 10%" — subject is an amount.
+- "**Medical benefits** begin on the first working day" — subject is a benefit.
+- "**The housing allowance** is calculated as twice the monthly basic salary" —
+  subject is an allowance.
+
+Never move a party into `subject` to make the sentence read better, and never
+put an amount into a party field. Populate a party field **in addition to**
+`subject` when the sentence names one:
+
+- `actor` — the party who performs the predicate, when it is not the subject.
+  "The receipt shall be submitted **by the employee**" -> subject "The receipt",
+  actor "the employee".
+- `beneficiary` / `recipient` — the party who receives what the rule provides.
+  "FBSU shall provide **eligible employees** with housing" -> beneficiary
+  "eligible employees".
+- `candidate` — the party being considered for something not yet granted.
+- `assigner` — **the party who decides, approves, or exercises discretion.**
+  This one matters most and is missed most. Populate it whenever the sentence
+  delegates the decision:
+  - "The exceptional increase requires the approval of **the President**" ->
+    assigner "the President".
+  - "subject to the judgment and approval of **the Board of Trustees**" ->
+    assigner "the Board of Trustees".
+  - "for cases that **the university** deems necessary" -> assigner "the
+    university".
+
+  A rule with an assigner is not incomplete for lacking a threshold. The
+  document delegated the decision, which is itself the answer, and downstream
+  consumers depend on knowing who holds it.
+
+Quote every party **verbatim**, including the article: "the Board of Trustees",
+not "Board of Trustees" and not "BoT". Do not resolve a party to a role code,
+a department identifier, or a person's name.
+
+If the sentence names no party, omit these fields. An absent party is a fact
+about the document; an invented one is a claim it never made.
 
 ---
 

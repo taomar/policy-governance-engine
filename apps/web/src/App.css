@@ -5143,10 +5143,64 @@
 
 .inspector-pane--json .json-view-code {
   flex: 1 1 auto;
-  min-height: 220px;
+  /* The JSON is the reason this tab exists, so it gets the height rather than
+     the chrome above it. At 220px a 133-line record showed four lines and the
+     reader scrolled a viewport barely taller than the caption explaining it. */
+  min-height: 460px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/* The family chip list grows with the group — nine rules wrapped to four rows
+   and pushed the JSON below the fold. Capped and scrollable so a large family
+   costs a fixed amount of height instead of an unbounded one. */
+.family-composite-flags,
+.policy-inspector-header .ant-space-wrap {
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.decision-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.decision-readiness-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.decision-readiness-gloss {
+  margin-bottom: 6px !important;
+}
+
+.decision-readiness-hint {
+  margin-bottom: 0 !important;
+  font-size: 12px;
+}
+
+.decision-readiness-reason {
+  font-size: 12px;
+  font-style: italic;
+}
+
+.decision-readiness-source {
+  font-size: 11px;
+}
+
+.decision-readiness-standard {
+  font-size: 11px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.inspector-tab-count {
+  margin-inline-start: 6px;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .policy-version-strip {

@@ -39,6 +39,7 @@ from policy_platform.api.schemas import (
 )
 from policy_platform.contracts.policy import AggregateLimit, AggregateLimitContribution, CanonicalRule
 from policy_platform.infrastructure.db import get_session
+from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
 from policy_platform.infrastructure.export import (
     ExportFormat,
     content_disposition,
@@ -102,7 +103,30 @@ def _to_response(candidate) -> CandidateRuleResponse:
             str(candidate.baseline_candidate_id) if candidate.baseline_candidate_id else None
         ),
         superseded_at=candidate.superseded_at,
-        rule=CanonicalRule.model_validate(candidate.payload_json),
+        rule=_with_decision_readiness(CanonicalRule.model_validate(candidate.payload_json)),
+    )
+
+
+def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
+    """Fill in the readiness assessment for a rule stored before it existed.
+
+    It is a pure function of `formulation.canonical`, which every extracted
+    rule already carries, so deriving it on read costs nothing and means the
+    rules already in the database gain it without being re-extracted — the
+    alternative was a re-run per document to populate a field computable from
+    what is on disk.
+
+    A stored value always wins. Once an extraction writes one, this must not
+    silently recompute it, or a rule's shipped JSON would change underneath a
+    reviewer whenever the derivation was edited.
+    """
+
+    if rule.decision_readiness is not None:
+        return rule
+    if rule.formulation is None or rule.formulation.canonical is None:
+        return rule
+    return rule.model_copy(
+        update={"decision_readiness": _decision_readiness_for(rule.formulation.canonical)}
     )
 
 

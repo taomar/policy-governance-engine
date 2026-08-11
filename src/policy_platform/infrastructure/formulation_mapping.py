@@ -56,15 +56,20 @@ from policy_platform.infrastructure.passage_extractor import _normalize
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
+    DecisionReadiness,
     Effect,
     EffectType,
+    PartyRoleName,
     PolicyAuthority,
     PolicyScope,
+    RequiredAttributeRef,
     RequiredFact,
     ReviewStatus,
     RuleLineage,
+    RulePartyRef,
     RuleType,
 )
+from policy_platform.infrastructure.evaluability import assess_policy
 
 #: Canonical rule type -> (platform rule type, effect). Every entry is a
 #: judgement call about the closest *evaluator* semantic, documented here
@@ -466,6 +471,38 @@ def is_negative_modality(modality: str | None) -> bool:
     """True when the source's modal word forbids rather than requires."""
 
     return bool(_NEGATIVE_MODALITY_RE.match(modality or ""))
+
+
+def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
+    """Whether an LLM can decide this rule, and what it needs to do so.
+
+    Built here, beside `machine_executable`, so the two travel together and a
+    reader can see they answer different questions: that flag is about the FEEL
+    evaluator and is False for every AI-extracted rule, while this is about the
+    LLM that actually evaluates the shipped JSON against a customer's case.
+
+    Everything in it is quoted from the canonical record. Nothing is inferred
+    from wording similarity, and no fact path or org-model identifier is
+    invented — `policy_parties` and `evaluability` own those guarantees.
+    """
+
+    assessment = assess_policy(policy)
+    return DecisionReadiness(
+        evaluability=assessment.evaluability.value,
+        reason=assessment.reason,
+        required_attributes=[
+            RequiredAttributeRef(phrase=attribute.phrase, role=attribute.role)
+            for attribute in assessment.attributes_referenced
+        ],
+        parties=[
+            RulePartyRef(
+                name=party.name,
+                role=PartyRoleName(party.role.value),
+                source=party.source_field,
+            )
+            for party in assessment.parties
+        ],
+    )
 
 
 def _title_for(policy: CanonicalPolicy) -> str:
@@ -892,6 +929,7 @@ def formulation_to_candidate_rules(
                 required_facts=required_facts,
                 effective_from=date.today(),
                 machine_executable=machine_executable,
+                decision_readiness=_decision_readiness_for(policy),
                 ambiguity_status=_ambiguity_for(policy, machine_executable, condition_code),
                 review_status=ReviewStatus.CANDIDATE,
                 evidence=rule_evidence,

@@ -17,8 +17,38 @@
  * for Subject, Action and Resource (§B.2, §B.5-B.8).
  */
 
-/** An XACML authorization decision. */
-export type XacmlDecision = "Permit" | "Deny" | "NotApplicable";
+/** An XACML authorization decision. XACML 3.0 §7.2.x defines four. */
+export type XacmlDecision = "Permit" | "Deny" | "NotApplicable" | "Indeterminate";
+
+/**
+ * XACML 3.0 §5.58 status codes, short form.
+ *
+ * `Indeterminate` is the decision XACML returns when a policy applies but the
+ * PDP cannot evaluate it, and `missing-attribute` is the status that says why:
+ * an attribute the rule needs could not be resolved. That is exactly the state
+ * a stated-but-unmapped condition is in.
+ *
+ * This display previously called that state "unbound", which is not a term in
+ * any standard the platform adopted. A reviewer could not look it up, and it
+ * gave no guidance on what a decision point should do — whereas Indeterminate
+ * has defined behaviour under every XACML combining algorithm.
+ */
+export const XACML_STATUS_MISSING_ATTRIBUTE = "missing-attribute";
+
+/** `urn:oasis:names:tc:xacml:1.0:status:missing-attribute`, in full. */
+export const XACML_STATUS_MISSING_ATTRIBUTE_URN =
+  "urn:oasis:names:tc:xacml:1.0:status:missing-attribute";
+
+/**
+ * What Indeterminate means here, in one sentence a reviewer can act on.
+ *
+ * Deliberately says the rule is *not* inapplicable: NotApplicable means the
+ * rule does not govern the request, whereas Indeterminate means it may well
+ * govern it and the answer could not be computed. Treating the second as the
+ * first silently drops a rule that should have been consulted.
+ */
+export const XACML_INDETERMINATE_NOTE =
+  "XACML returns Indeterminate when a rule applies but an attribute it needs cannot be resolved. It is not NotApplicable: the rule may well govern the request, and the decision point must not proceed as though it does not.";
 
 export interface XacmlEffect {
   decision: XacmlDecision;

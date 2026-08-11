@@ -25,6 +25,14 @@ from policy_platform.domain.models import ApprovedPolicyVersion, ApprovedRule
 
 
 def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
+    # Imported here rather than at module scope: `formulation_mapping` imports
+    # the contracts this module also imports, and hoisting it makes the cycle
+    # an import-time failure instead of a lazy one.
+    from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
+
+    formulation = (
+        RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
+    )
     return CanonicalRule(
         policy_set_id=str(rule.policy_version.policy_set_id),
         policy_version_id=str(rule.policy_version_id),
@@ -80,8 +88,16 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # Restores what the source actually said. The fields above are a lossy
         # executable projection of this record, so a rule reconstructed without
         # it is not the rule that was published — see migration e4c7a2b8d190.
-        formulation=(
-            RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
+        formulation=formulation,
+        # Derived on read rather than stored in its own column. It is a pure
+        # function of `formulation.canonical`, which is already persisted, so
+        # a second copy could only ever disagree with the record it came from —
+        # and a rule approved before this existed would carry an empty one
+        # forever. Deriving it means every already-approved rule gains it.
+        decision_readiness=(
+            _decision_readiness_for(formulation.canonical)
+            if formulation and formulation.canonical
+            else None
         ),
     )
 

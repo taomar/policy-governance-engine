@@ -553,6 +553,49 @@ export interface CanonicalRule {
   // The formulator agent's canonical + DMN extraction record. Absent for
   // hand-authored rules or rules drafted before this agent existed.
   formulation?: RuleFormulation;
+  decision_readiness?: DecisionReadiness;
+}
+
+/**
+ * A party the rule names, quoted from the source.
+ *
+ * Roles follow XACML 3.0 §B.2 subject categories where the standard has them.
+ * `authority` has none — XACML models a required approval as an Obligation on
+ * a Permit, not as a subject of the request — so it is named for what it is
+ * rather than forced into a category that means something else.
+ */
+export interface RuleParty {
+  name: string;
+  role: "access_subject" | "recipient_subject" | "authority";
+  /** Canonical field or delegation phrase it was read from, for verification. */
+  source: string;
+}
+
+/** One thing an evaluator must find in the customer's case, quoted. */
+export interface RequiredAttribute {
+  phrase: string;
+  role: string;
+}
+
+/**
+ * Whether an LLM can decide this rule, and what it needs to do so.
+ *
+ * Distinct from `machine_executable`, which asks whether the *FEEL* evaluator
+ * can decide it and is false for every AI-extracted rule because no fact model
+ * exists. The shipped JSON is evaluated by an LLM that binds terms from the
+ * customer's case at evaluation time, so that flag measures a capability the
+ * deployment does not use.
+ */
+export interface DecisionReadiness {
+  evaluability:
+    | "decidable"
+    | "discretionary"
+    | "underspecified"
+    | "not_a_decision"
+    | "malformed";
+  reason: string;
+  required_attributes: RequiredAttribute[];
+  parties: RuleParty[];
 }
 
 export interface DocumentVersion {

@@ -24,6 +24,7 @@ import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
+import { DecisionReadinessView } from "./DecisionReadinessView";
 import { JsonView } from "./JsonView";
 import { withRuleIdentity } from "../ruleIdentity";
 import { NotesPanel } from "./NotesPanel";
@@ -981,6 +982,24 @@ export function PolicyInspector({
         items={[
           { key: "overview", label: "Overview", children: overview },
           { key: "logic", label: "Logic", children: logic },
+          {
+            key: "readiness",
+            label: (
+              <span>
+                Parties &amp; readiness
+                {(rule.decision_readiness?.parties.length ?? 0) > 0 && (
+                  <Tag className="inspector-tab-count">
+                    {rule.decision_readiness?.parties.length}
+                  </Tag>
+                )}
+              </span>
+            ),
+            children: (
+              <div className="inspector-pane">
+                <DecisionReadinessView rule={rule} />
+              </div>
+            ),
+          },
           { key: "scope", label: "Scope", children: scope },
           ...(testScenario
             ? [

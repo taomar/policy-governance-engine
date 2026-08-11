@@ -228,6 +228,77 @@ class AggregateLimit(BaseModel):
     period: str | None = None
 
 
+class PartyRoleName(str, Enum):
+    """A party's role, in XACML 3.0 §B.2 terms where the standard has them."""
+
+    #: `urn:oasis:names:tc:xacml:1.0:subject-category:access-subject`
+    ACCESS_SUBJECT = "access_subject"
+    #: `urn:oasis:names:tc:xacml:1.0:subject-category:recipient-subject`
+    RECIPIENT_SUBJECT = "recipient_subject"
+    #: No XACML subject category: XACML models a required approval as an
+    #: Obligation on a Permit rather than as a subject of the request. DMN 1.5
+    #: models it as an `authorityRequirement` on a `knowledgeSource`.
+    AUTHORITY = "authority"
+
+
+class RulePartyRef(BaseModel):
+    """One party the rule names, quoted from the source.
+
+    `name` is verbatim. Resolving "the Board of Trustees" to a directory
+    principal or an approval queue is a mapping into a customer's org model,
+    and inventing it would be the same failure as inventing a fact path.
+    """
+
+    name: str
+    role: PartyRoleName
+    #: Which canonical field or delegation construction it was read from, so a
+    #: reviewer can check the claim rather than take it on trust.
+    source: str
+
+
+class RequiredAttributeRef(BaseModel):
+    """One thing an evaluator must find in the customer's case.
+
+    This is the target list the extraction step never had. Without it the LLM
+    reading a customer's text decides for itself what is relevant, which is
+    where non-determinism enters — at extraction, before evaluation. With it,
+    an attribute the case never mentions is detectably absent rather than
+    silently estimated, which is the difference between XACML's Indeterminate
+    and a confident wrong answer.
+    """
+
+    phrase: str
+    #: The canonical field the phrase was quoted from.
+    role: str
+
+
+class DecisionReadiness(BaseModel):
+    """Whether an LLM can decide this rule, and what it needs to do so."""
+
+    #: `decidable` | `discretionary` | `underspecified` | `not_a_decision` |
+    #: `malformed`. Five values rather than a boolean because a fully-stated
+    #: prohibition, a decision the document delegated, and a mis-split sentence
+    #: are all un-projectable to FEEL and only the last is a defect.
+    evaluability: str
+    #: Why, naming the canonical field that decided it.
+    reason: str
+    required_attributes: list[RequiredAttributeRef] = Field(default_factory=list)
+    parties: list[RulePartyRef] = Field(default_factory=list)
+
+    @property
+    def judgement_bounded(self) -> bool:
+        """True when a named party must exercise judgement.
+
+        Keyed on an authority party rather than on `evaluability`, because a
+        rule can state a testable limit *and* require a human to approve it —
+        "not exceeding 5% ... and subject to the judgment and approval of the
+        Board of Trustees" is both, and grouping only the rules with nothing
+        else stated would leave out the one that most needs a human.
+        """
+
+        return any(p.role is PartyRoleName.AUTHORITY for p in self.parties)
+
+
 class CanonicalRule(BaseModel):
     """A single approved, versioned, machine-executable rule.
 
@@ -293,6 +364,18 @@ class CanonicalRule(BaseModel):
     # DMN compiler can work from the projection rather than re-extracting.
     # None for hand-authored rules and for rules drafted before this agent.
     formulation: RuleFormulation | None = None
+    # What an LLM evaluating this rule against a customer's case needs, and
+    # whether it can. Deliberately separate from `machine_executable`, which
+    # answers whether the *FEEL* evaluator can decide the rule and is False for
+    # every AI-extracted rule because no fact model exists. The shipped JSON is
+    # evaluated by an LLM that binds terms from the case at evaluation time, so
+    # that flag measures a capability the deployment does not use — reporting
+    # only it said "0 of 45 executable" about a document whose rules are mostly
+    # decidable. See infrastructure.evaluability.
+    #
+    # None for hand-authored rules, which never went through the formulator.
+    # Absent is kept distinct from failed, as everywhere else here.
+    decision_readiness: DecisionReadiness | None = None
 
 
 class ApprovedPolicyPackage(BaseModel):
