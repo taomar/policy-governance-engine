@@ -173,6 +173,41 @@ class RuleLineage(BaseModel):
     source_elements: str = ""
 
 
+def evaluation_mode_from(
+    condition: "ConditionNode", required_facts: "list[RequiredFact]"
+) -> EvaluationMode:
+    """Whether a condition is decided by the engine or by reading it.
+
+    Derived from the condition itself rather than from any flag, because the
+    condition is the thing that decides it. A rule is `deterministic` exactly
+    when it carries a test the engine can run over facts it has been told to
+    expect — a tree with at least one comparison, and the facts that tree
+    reads. Everything else is `ai_ready`.
+
+    Deliberately not a stored field. A second copy could disagree with the tree
+    it describes, and a correction would then reach rules extracted afterwards
+    and not the ones already on disk.
+    """
+
+    from policy_platform.contracts.conditions import AllCondition, AnyCondition
+
+    if isinstance(condition, AllCondition) and not condition.all:
+        return EvaluationMode.AI_READY
+    if isinstance(condition, AnyCondition) and not condition.any:
+        return EvaluationMode.AI_READY
+    if not required_facts:
+        # A tree with no named facts has nothing to read a case against, so the
+        # engine would decide it on nothing.
+        return EvaluationMode.AI_READY
+    return EvaluationMode.DETERMINISTIC
+
+
+def evaluation_mode_for(rule: "CanonicalRule") -> EvaluationMode:
+    """`evaluation_mode_from` for a whole rule. One implementation, two shapes."""
+
+    return evaluation_mode_from(rule.condition, rule.required_facts)
+
+
 class Advice(BaseModel):
     """Non-blocking supplementary guidance attached to a rule's decision.
 
@@ -324,6 +359,28 @@ class CandidateRelationship(BaseModel):
     reason: str = ""
 
 
+class EvaluationMode(str, Enum):
+    """How this policy can be decided.
+
+    One field, two values, so a reader asks the question once. It replaces a
+    scattering of signals that each answered part of it — a boolean, a
+    projection status, a condition provenance code, a readiness verdict — and
+    left the reader to reconcile them.
+
+    Neither value is a defect and neither is a grade. Most policy text is not a
+    decision table and never will be: an obligation to notify, a delegation of
+    authority, a definition, or a rule whose outcome the document reserves to a
+    named authority are all complete, correct policy records.
+    """
+
+    #: Every condition compiled to a test over named facts, so the
+    #: deterministic engine can decide it without a model in the loop.
+    DETERMINISTIC = "deterministic"
+    #: Grounded and structured, but not reducible to a fact comparison — so it
+    #: is decided by reading it against the evidence for a case.
+    AI_READY = "ai_ready"
+
+
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
@@ -377,6 +434,10 @@ class CanonicalRule(BaseModel):
     authority: PolicyAuthority
     scope: PolicyScope
     condition: ConditionNode
+    #: How this policy can be decided: `deterministic` or `ai_ready`.
+    #: Derived on read from the condition and its required facts, so it can
+    #: never disagree with the tree it describes.
+    evaluation_mode: EvaluationMode = EvaluationMode.AI_READY
     #: Why `condition` is what it is. Absent on hand-authored rules, which have
     #: no formulation to derive it from.
     condition_provenance: ConditionProvenance | None = None

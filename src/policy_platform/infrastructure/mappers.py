@@ -6,6 +6,9 @@ a SQLAlchemy object.
 """
 from __future__ import annotations
 
+from pydantic import TypeAdapter
+
+from policy_platform.contracts.conditions import ConditionNode
 from policy_platform.contracts.formulation import RuleFormulation
 from policy_platform.contracts.policy import (
     AggregateLimit,
@@ -20,6 +23,7 @@ from policy_platform.contracts.policy import (
     RequiredFact,
     RuleException as ContractRuleException,
     RuleLineage,
+    evaluation_mode_from,
 )
 from policy_platform.domain.models import ApprovedPolicyVersion, ApprovedRule
 
@@ -37,6 +41,10 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
     formulation = (
         RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
     )
+    # Validated up front so `evaluation_mode` is derived from the same node the
+    # rule carries, rather than from a second reading of the stored JSON.
+    condition = TypeAdapter(ConditionNode).validate_python(rule.condition_json)
+    required_facts = [RequiredFact(**f) for f in rule.required_facts_json]
     return CanonicalRule(
         policy_set_id=str(rule.policy_version.policy_set_id),
         policy_version_id=str(rule.policy_version_id),
@@ -49,9 +57,9 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
             level=rule.authority.level, owner=rule.authority.owner, rank=rule.authority.rank
         ),
         scope=PolicyScope(**rule.scope_json),
-        condition=rule.condition_json,
+        condition=condition,
         effect=Effect(**rule.effect_json),
-        required_facts=[RequiredFact(**f) for f in rule.required_facts_json],
+        required_facts=required_facts,
         exceptions=[
             ContractRuleException(
                 exception_id=exc.exception_key,
@@ -123,6 +131,10 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # reading a published rule needs the current answer rather than the one
         # that happened to be current on the day it was approved.
         condition_provenance=condition_provenance_for(formulation),
+        # Derived alongside the two above and for the same reason. It is a pure
+        # function of the condition and its required facts, both persisted, so
+        # a stored copy could only ever disagree with the tree it describes.
+        evaluation_mode=evaluation_mode_from(condition, required_facts),
     )
 
 

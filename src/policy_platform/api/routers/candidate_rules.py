@@ -43,6 +43,7 @@ from policy_platform.infrastructure.formulation_mapping import (
     _decision_readiness_for,
     condition_provenance_for,
 )
+from policy_platform.contracts.policy import evaluation_mode_for
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 from policy_platform.infrastructure.export import (
     ExportFormat,
@@ -140,6 +141,7 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
             # derive it) and not candidates, and the two views of the same rule
             # would disagree about why its condition is empty.
             "condition_provenance": condition_provenance_for(rule.formulation),
+            "evaluation_mode": evaluation_mode_for(rule),
         }
     )
 

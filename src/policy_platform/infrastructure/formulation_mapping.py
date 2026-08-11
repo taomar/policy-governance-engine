@@ -63,8 +63,7 @@ from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
     ConditionProvenance,
-    DecisionReadiness,
-    Effect,
+    DecisionReadiness,    Effect,
     EffectType,
     PartyRoleName,
     PolicyAuthority,
@@ -76,6 +75,7 @@ from policy_platform.contracts.policy import (
     RuleLineage,
     RulePartyRef,
     RuleType,
+    evaluation_mode_from,
 )
 from policy_platform.infrastructure.evaluability import assess_policy
 
@@ -1417,6 +1417,7 @@ def formulation_to_candidate_rules(
                 authority=PolicyAuthority(level="ai_drafted", owner="policy-formulator", rank=0),
                 scope=PolicyScope(),
                 condition=condition,
+                evaluation_mode=evaluation_mode_from(condition, required_facts),
                 condition_provenance=provenance,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,
