@@ -63,10 +63,12 @@ from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
     ConditionProvenance,
-    DecisionReadiness,    Effect,
+    DecisionReadiness,
+    Effect,
     EffectType,
     PartyRoleName,
     PolicyAuthority,
+    PolicyFact,
     PolicyScope,
     RequiredAttributeRef,
     RequiredFact,
@@ -78,7 +80,11 @@ from policy_platform.contracts.policy import (
     evaluation_mode_from,
 )
 from policy_platform.infrastructure.evaluability import assess_policy
-from policy_platform.infrastructure.policy_facts import facts_for
+from policy_platform.infrastructure.policy_facts import (
+    _slugify,
+    facts_for,
+    parse_proportion,
+)
 
 #: Canonical rule type -> (platform rule type, effect). Every entry is a
 #: judgement call about the closest *evaluator* semantic, documented here
@@ -796,10 +802,126 @@ _PLATFORM_LIMIT_NOTE = (
 )
 
 
+#: Comparative predicates that state which side of a bound the rule is about,
+#: with the operator each implies when asserted and when negated.
+#:
+#: Keyed on the predicate because the predicate names the comparison. The
+#: modality then decides direction: "shall not exceed X" forbids exceeding, so
+#: the rule's own test is that the value stays within the bound.
+_BOUND_PREDICATES: tuple[tuple[re.Pattern[str], ConditionOperator, ConditionOperator], ...] = (
+    (
+        re.compile(r"\bexceed", re.IGNORECASE),
+        ConditionOperator.GREATER_THAN,
+        ConditionOperator.LESS_THAN_OR_EQUAL,
+    ),
+    (
+        re.compile(
+            r"\blimited\s+to\b|\bup\s+to\s+a\s+maximum\s+of\b|\bat\s+most\b|\bno\s+more\s+than\b",
+            re.IGNORECASE,
+        ),
+        ConditionOperator.LESS_THAN_OR_EQUAL,
+        ConditionOperator.GREATER_THAN,
+    ),
+    (
+        re.compile(r"\bat\s+least\b|\bno\s+less\s+than\b|\bminimum\s+of\b", re.IGNORECASE),
+        ConditionOperator.GREATER_THAN_OR_EQUAL,
+        ConditionOperator.LESS_THAN,
+    ),
+)
+
+#: Negation written into the predicate rather than the modal word. Source text
+#: puts it in either place — "shall not exceed" and "not exceeding" state the
+#: same bound — and reading only the modality inverted the second one.
+_NEGATED_PREDICATE_RE = re.compile(r"^\s*(?:not|never)\b", re.IGNORECASE)
+
+
+def condition_from_stated_bound(
+    rule: CanonicalPolicyRule | None,
+) -> tuple[ConditionNode, list[RequiredFact]] | None:
+    """Compile a proportional bound that the sentence states in full.
+
+    "The annual increase shall not exceed 10% of the current basic salary"
+    names both quantities and the comparison between them. Nothing outside the
+    document is needed to express that, so it compiles without a trusted fact
+    model: the fact *names* come from the sentence, and a consumer supplies
+    values for them as they would for any other named input.
+
+    That is a different claim from inventing a fact path. A path asserts some
+    system holds a field at an address, which the document never said. These
+    names assert only that the policy talks about these two things, which it
+    demonstrably does.
+
+    Returns None unless every part is stated — a subject to measure, a
+    comparative predicate, and a threshold expressed as a proportion — because
+    the alternative is guessing which comparison the document meant.
+    """
+
+    if rule is None:
+        return None
+    subject = (rule.subject or "").strip()
+    predicate = (rule.predicate or "").strip()
+    threshold = (rule.threshold or "").strip() or (rule.object or "").strip()
+    if not subject or not predicate or not threshold:
+        return None
+
+    proportion = parse_proportion(threshold)
+    if proportion is None:
+        return None
+    factor, base_phrase = proportion
+
+    negated = is_negative_modality(rule.modality) or bool(_NEGATED_PREDICATE_RE.match(predicate))
+    for pattern, asserted, when_negated in _BOUND_PREDICATES:
+        if not pattern.search(predicate):
+            continue
+        subject_fact = _slugify(subject)
+        base_fact = _slugify(base_phrase)
+        if not subject_fact or not base_fact or subject_fact == base_fact:
+            return None
+        condition = FactRelativeComparisonCondition(
+            fact=subject_fact,
+            operator=when_negated if negated else asserted,
+            reference=FactOperand(fact=base_fact, factor=factor),
+        )
+        return condition, [
+            RequiredFact(name=subject_fact, data_type="number"),
+            RequiredFact(name=base_fact, data_type="number"),
+        ]
+    return None
+
+
+def _reconciled_facts(
+    facts: list[PolicyFact], required: list[RequiredFact]
+) -> list[PolicyFact]:
+    """Fill a fact's type from the comparison the rule makes about it.
+
+    `facts_for` reads a type only where the phrase writes one, which is right:
+    "Annual increase" contains no digits and asserting a type from the words
+    alone would be a guess. But once the rule compiles a numeric comparison
+    over that fact, the sentence *has* said it is a quantity, and leaving the
+    published type blank made `fact_model` and `required_facts` disagree about
+    the same name — a consumer reading either one alone got a different answer.
+
+    Only fills a gap. A type the phrase states is never overwritten, because
+    the phrase is the stronger evidence: it says money or duration where a
+    compiled comparison can only say "a number".
+    """
+
+    if not required:
+        return facts
+    declared = {item.name: item.data_type for item in required if item.data_type}
+    return [
+        fact.model_copy(update={"data_type": declared[fact.name]})
+        if fact.data_type is None and fact.name in declared
+        else fact
+        for fact in facts
+    ]
+
+
 def condition_provenance(
     policy: CanonicalPolicy,
     derived: object | None,
     outcome: "ConditionDerivation | None" = None,
+    from_stated_bound: bool = False,
 ) -> ConditionProvenance:
     """Explain *why* a rule's condition tree looks the way it does.
 
@@ -820,6 +942,12 @@ def condition_provenance(
     A synthesised always-false node would be a constraint the document never
     stated — the same fabrication the pointer-only design exists to prevent.
     The honest move is to say which case it is and route it to a human.
+
+    `from_stated_bound` marks a fifth case, and is kept distinct from `derived`
+    on purpose. A derived tree comes from a decision the formulator declared; a
+    stated bound comes from reading the sentence's own comparison. Both are
+    executable, but a reviewer checks them differently — the second is checked
+    against one sentence — so collapsing them would hide which check applies.
     """
 
     stated = (getattr(policy.rule, "condition", None) or "").strip() if policy.rule else ""
@@ -827,6 +955,16 @@ def condition_provenance(
     if derived is not None:
         return ConditionProvenance(
             code="derived", message="Conditions were projected into an executable tree."
+        )
+
+    if from_stated_bound:
+        return ConditionProvenance(
+            code="derived_from_stated_bound",
+            message=(
+                "The sentence states the comparison in full — both quantities and "
+                "the bound between them — so it was compiled directly from the "
+                "source text rather than from a declared decision."
+            ),
         )
 
     if outcome is not None and outcome.platform_limited:
@@ -1362,6 +1500,7 @@ def formulation_to_candidate_rules(
             (o for o in outcomes if o.platform_limited),
             outcomes[0] if outcomes else None,
         )
+        stated_bound: tuple[ConditionNode, list[RequiredFact]] | None = None
         if derived is None:
             condition: ConditionNode = _VACUOUS_CONDITION
             required_facts: list[RequiredFact] = []
@@ -1371,10 +1510,25 @@ def formulation_to_candidate_rules(
             required_facts = list(derived.facts)
             machine_executable = True
 
+        # A bound the sentence states in full needs no table behind it. The DMN
+        # path derives from a decision the formulator declared; where it
+        # declared none, the sentence may still have said everything required —
+        # "shall not exceed 10% of the base" names both quantities and the
+        # comparison between them. Read only as a fallback, so a declared
+        # decision always wins where one exists.
+
+        if derived is None:
+            stated_bound = condition_from_stated_bound(canonical_rule)
+            if stated_bound is not None:
+                condition, required_facts = stated_bound
+                machine_executable = True
+
         # Why the tree is empty, when it is. Recorded rather than inferred later
         # from the tree's shape, because the shape cannot distinguish "no
         # conditions exist" from "conditions exist but were not projected".
-        provenance = condition_provenance(policy, derived, blocking)
+        provenance = condition_provenance(
+            policy, derived, blocking, from_stated_bound=stated_bound is not None
+        )
 
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the
@@ -1419,7 +1573,7 @@ def formulation_to_candidate_rules(
                 scope=PolicyScope(),
                 condition=condition,
                 evaluation_mode=evaluation_mode_from(condition, required_facts),
-                fact_model=facts_for(canonical_rule),
+                fact_model=_reconciled_facts(facts_for(canonical_rule), required_facts),
                 condition_provenance=provenance,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,
