@@ -17,41 +17,33 @@
  * for Subject, Action and Resource (§B.2, §B.5-B.8).
  */
 
-/** An XACML authorization decision. XACML 3.0 §7.2.x defines four. */
-export type XacmlDecision = "Permit" | "Deny" | "NotApplicable" | "Indeterminate";
+/** An XACML Rule Effect. XACML 3.0 §5.28 defines exactly two. */
+export type XacmlRuleEffect = "Permit" | "Deny";
 
 /**
- * XACML 3.0 §5.58 status codes, short form.
+ * A PDP decision result. XACML 3.0 §7.2.x.
  *
- * `Indeterminate` is the decision XACML returns when a policy applies but the
- * PDP cannot evaluate it, and `missing-attribute` is the status that says why:
- * an attribute the rule needs could not be resolved. That is exactly the state
- * a stated-but-unmapped condition is in.
+ * Deliberately a *different* type from `XacmlRuleEffect`. A Rule declares
+ * Permit or Deny; a PDP returns one of these four after evaluating a request.
+ * The two were the same union here, which is what allowed `Effect =
+ * NotApplicable` to be displayed as a rule's declared effect — a decision
+ * XACML has no way to express.
  *
- * This display previously called that state "unbound", which is not a term in
- * any standard the platform adopted. A reviewer could not look it up, and it
- * gave no guidance on what a decision point should do — whereas Indeterminate
- * has defined behaviour under every XACML combining algorithm.
+ * Nothing in the extraction UI may produce a value of this type. It exists so
+ * that a future evaluation view has the right vocabulary, and so the
+ * distinction is written down rather than remembered.
  */
-export const XACML_STATUS_MISSING_ATTRIBUTE = "missing-attribute";
-
-/** `urn:oasis:names:tc:xacml:1.0:status:missing-attribute`, in full. */
-export const XACML_STATUS_MISSING_ATTRIBUTE_URN =
-  "urn:oasis:names:tc:xacml:1.0:status:missing-attribute";
-
-/**
- * What Indeterminate means here, in one sentence a reviewer can act on.
- *
- * Deliberately says the rule is *not* inapplicable: NotApplicable means the
- * rule does not govern the request, whereas Indeterminate means it may well
- * govern it and the answer could not be computed. Treating the second as the
- * first silently drops a rule that should have been consulted.
- */
-export const XACML_INDETERMINATE_NOTE =
-  "XACML returns Indeterminate when a rule applies but an attribute it needs cannot be resolved. It is not NotApplicable: the rule may well govern the request, and the decision point must not proceed as though it does not.";
+export type XacmlDecisionResult = "Permit" | "Deny" | "NotApplicable" | "Indeterminate";
 
 export interface XacmlEffect {
-  decision: XacmlDecision;
+  /**
+   * The declared Rule Effect, or null when the statement is not a XACML Rule
+   * at all. A definition grants and refuses nothing.
+   *
+   * null is not NotApplicable: NotApplicable asserts that a Rule existed and
+   * did not apply to a request, which only a PDP can determine.
+   */
+  effect: XacmlRuleEffect | null;
   /**
    * XACML §7.18 distinguishes an Obligation — which a PEP MUST discharge —
    * from Advice, which it MAY ignore. The platform's REQUIRE_ACTION is the
@@ -59,72 +51,90 @@ export interface XacmlEffect {
    * guidance into a duty.
    */
   directive: "Obligation" | "Advice" | null;
-  /** One-line gloss shown beside the decision. */
+  /** One-line gloss shown beside the effect. */
   gloss: string;
 }
 
 /**
- * Platform effect type to XACML decision.
+ * Platform effect type to XACML Rule Effect.
  *
- * INFORMATIONAL maps to NotApplicable rather than Permit: a definition or a
- * classification authorizes nothing, and XACML reserves Permit for an actual
- * grant. This mirrors `_RULE_TYPE_MAP` on the server, which refuses to project
- * a definition as ALLOW for the same reason.
+ * `informational` maps to `effect: null`, not to NotApplicable. A definition
+ * or classification is not a Rule, so it declares no Effect — whereas
+ * NotApplicable would claim it is a Rule that did not apply, which is a
+ * runtime determination no extraction can make.
  */
 export const XACML_EFFECTS: Record<string, XacmlEffect> = {
-  allow: { decision: "Permit", directive: null, gloss: "the request is granted" },
-  deny: { decision: "Deny", directive: null, gloss: "the request is refused" },
+  allow: { effect: "Permit", directive: null, gloss: "the request is granted" },
+  deny: { effect: "Deny", directive: null, gloss: "the request is refused" },
   require_action: {
-    decision: "Permit",
+    effect: "Permit",
     directive: "Obligation",
     gloss: "granted, and the obligation below must be discharged",
   },
   informational: {
-    decision: "NotApplicable",
+    effect: null,
     directive: "Advice",
-    gloss: "nothing is granted or refused; this states meaning only",
+    gloss: "states meaning only — not a XACML Rule, so it declares no Effect",
   },
 };
 
 export function xacmlEffect(effectType: string | null | undefined): XacmlEffect {
   return (
     XACML_EFFECTS[(effectType ?? "").toLowerCase()] ?? {
-      decision: "NotApplicable",
+      effect: null,
       directive: null,
       gloss: "no decision is stated",
     }
   );
 }
 
+/** How a rule's declared Effect should read. Never a decision result. */
+export function effectLabel(effect: XacmlRuleEffect | null): string {
+  return effect ?? "No Effect declared";
+}
+
 /**
  * Canonical rule types that state meaning rather than conduct.
  *
- * XACML has no notion of a rule that only classifies, so these are shown as
- * NotApplicable with Advice: they carry information a PEP may act on, but they
- * grant and refuse nothing. Naming them here keeps the distinction in one
- * place rather than re-derived per view.
+ * These declare no Rule Effect at all — they grant and refuse nothing. Naming
+ * them here keeps the distinction in one place rather than re-derived per view.
  */
 const MEANING_ONLY_TYPES = new Set(["classification", "definition"]);
 
 /**
- * The XACML attribute a stated subject is asserted against.
+ * The XACML category a canonical subject belongs to — or none.
  *
- * XACML describes a request by Subject, Action and Resource. A rule that only
- * classifies names the thing classified, which is a Resource: calling
- * "Security incidents" a subject would claim the document assigned conduct to
- * a category, which it did not.
+ * This used to answer `subject.subject-id` for everything except definitions,
+ * which asserted that "the allowance", "Annual increase" and "A work nature
+ * allowance at the rate of (200) two hundred SR per month" were all XACML
+ * subjects. XACML's subject is the *requesting entity*; a benefit requests
+ * nothing, and matching a request against `subject-id = "the allowance"`
+ * matches nothing, silently.
  *
- * Everything else uses `subject.subject-id`, the generic XACML 1.0 subject
- * identifier, rather than `subject.role`. `role` is a narrower standard
- * attribute and asserting it requires knowing the subject names a role — which
- * the extraction does not establish. "The ED/CEO" is a role; "A device" is not,
- * and both arrive as the grammatical subject of a sentence. The generic
- * identifier is the standard attribute that carries no such claim.
+ * The canonical `subject` slot is a grammatical position, not evidence of
+ * role: "The employee shall submit" and "The allowance will be calculated"
+ * have the same shape and different roles. So the phrase is treated as a
+ * resource unless a party-typed field independently establishes it is a party
+ * — which is what `decision_readiness.parties` records, and what the caller
+ * passes in.
+ *
+ * Returns null when nothing establishes the category, so the caller can show
+ * the phrase without asserting a category for it.
  */
-export function subjectAttribute(canonicalRuleType: string | null | undefined): string {
-  return MEANING_ONLY_TYPES.has((canonicalRuleType ?? "").toLowerCase())
-    ? RESOURCE_ATTRIBUTE
-    : SUBJECT_ATTRIBUTE;
+export function categoryForSubject(
+  phrase: string,
+  canonicalRuleType: string | null | undefined,
+  partyNames: readonly string[]
+): { attribute: string; label: string } | null {
+  const normalized = phrase.trim().toLowerCase();
+  if (!normalized) return null;
+  if (partyNames.some((name) => name.trim().toLowerCase() === normalized)) {
+    return { attribute: SUBJECT_ATTRIBUTE, label: "Subject" };
+  }
+  if (MEANING_ONLY_TYPES.has((canonicalRuleType ?? "").toLowerCase())) {
+    return { attribute: RESOURCE_ATTRIBUTE, label: "Defined term" };
+  }
+  return { attribute: RESOURCE_ATTRIBUTE, label: "Resource" };
 }
 
 /** `urn:oasis:names:tc:xacml:1.0:subject:subject-id`, short form. */

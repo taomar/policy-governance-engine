@@ -4,10 +4,9 @@ import type { CanonicalRule, DmnSemanticProjection } from "../api";
 import {
   ACTION_ATTRIBUTE,
   RESOURCE_ATTRIBUTE,
-  XACML_INDETERMINATE_NOTE,
   XACML_NOTE,
-  XACML_STATUS_MISSING_ATTRIBUTE,
-  subjectAttribute,
+  categoryForSubject,
+  effectLabel,
   xacmlEffect,
 } from "../xacml";
 
@@ -63,7 +62,7 @@ const STATUS_NOTE: Record<string, string> = {
   ambiguous:
     "The source wording admits more than one reading, so it was not compiled into a decision table.",
   enrichment_required:
-    "The source states conditions, but no fact model covers the attributes they name. XACML calls this Indeterminate with status missing-attribute — the rule may well govern the request, and the answer could not be computed.",
+    "The source states its conditions; no attribute in this policy set's fact model covers them yet, so no executable expression could be compiled. That is a gap in this deployment's configuration, not in the document, and it is not a decision — no request has been evaluated.",
 };
 
 /** One `attribute op "value"` leaf, matching the executable condition view. */
@@ -107,29 +106,38 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   const canonicalType = rule.formulation?.canonical?.rule?.rule_type ?? projection.rule_type ?? "";
   const effect = xacmlEffect(rule.effect?.type);
 
-  // WHEN. A stated subject is the one thing the source pins down, so it is
-  // shown as an equality against the XACML attribute it constrains. Condition
-  // phrases no fact model covers are listed beneath it as the prose they still
-  // are — giving them an operator would imply a binding nobody has made.
+  // TARGET. The categorised entity, if the evidence establishes a category.
   //
-  // Each is tagged Indeterminate / missing-attribute, XACML 3.0's own names
-  // for "this rule may apply and the answer could not be computed". The tag
-  // used to read "unbound", which is in no standard the platform adopted: a
-  // reviewer could not look it up, and it said nothing about what a decision
-  // point should do, whereas Indeterminate has defined behaviour under every
-  // XACML combining algorithm.
+  // This used to emit `subject.subject-id = <canonical subject>` for every
+  // rule, which asserted that "the allowance" and "A work nature allowance at
+  // the rate of (200) two hundred SR per month" were XACML subjects. XACML's
+  // subject is the requesting entity; a benefit requests nothing, and a
+  // request matched against `subject-id = "the allowance"` matches nothing.
+  // The category now comes from party evidence, not the grammatical slot.
   const whenChildren: TreeDatum[] = [];
-  // The projection only carries a subject for `not_directly_mappable`. The
-  // canonical decomposition has one either way, and reading it is deriving
-  // from canonical rather than guessing — without this, an
-  // `enrichment_required` rule showed its conditions with nothing saying who
-  // or what they are about.
+  const partyNames = (rule.decision_readiness?.parties ?? []).map((party) => party.name);
   const subject = projection.subject || rule.formulation?.canonical?.rule?.subject || "";
   if (subject) {
-    whenChildren.push(
-      attributeLeaf("proj-subj", subjectAttribute(canonicalType), "=", `"${subject}"`)
-    );
+    const category = categoryForSubject(subject, canonicalType, partyNames);
+    if (category) {
+      whenChildren.push(
+        attributeLeaf("proj-subj", category.attribute, "=", `"${subject}"`)
+      );
+    }
   }
+
+  // CONDITIONS. Each shown as what the source states, with fact-model coverage
+  // reported on its own line.
+  //
+  // These used to be badged `Indeterminate · missing-attribute`, which was
+  // three errors at once: Indeterminate is a PDP result and no PDP has run;
+  // missing-attribute is raised when a PDP cannot *obtain* an attribute during
+  // evaluation; and both blamed the document for a gap in our fact model. A
+  // condition the source states perfectly well ("after the trial period has
+  // expired") was being reported as though the policy were unclear.
+  //
+  // Coverage is still shown — removing the wrong badge must not mean going
+  // quiet about the gap — but as readiness, which is what it is.
   const statedConditions = [
     ...(projection.conditions ?? []),
     ...(projection.condition_source ? [projection.condition_source] : []),
@@ -138,11 +146,11 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
     whenChildren.push({
       key: `proj-cond-${index}`,
       title: (
-        <span className="cond-leaf">
+        <span className="cond-leaf cond-leaf--stacked">
           <Text>{condition}</Text>
-          <Tooltip title={XACML_INDETERMINATE_NOTE}>
-            <Tag bordered={false} color="orange" className="semantic-projection-inline-tag">
-              Indeterminate · {XACML_STATUS_MISSING_ATTRIBUTE}
+          <Tooltip title="The source states this condition. No attribute in this policy set's fact model covers it yet, so it cannot be compiled into an executable expression — a gap in our configuration, not in the document.">
+            <Tag bordered={false} className="semantic-projection-inline-tag">
+              Fact mapping: missing
             </Tag>
           </Tooltip>
         </span>
@@ -209,7 +217,7 @@ export function SemanticProjectionView({ rule }: { rule: CanonicalRule }) {
   const thenTree: TreeDatum[] = [
     groupNode(
       "proj-then",
-      effect.decision,
+      effectLabel(effect.effect),
       thenChildren.length > 0
         ? thenChildren
         : [{ key: "proj-then-empty", title: <Text type="secondary">no action stated</Text> }]

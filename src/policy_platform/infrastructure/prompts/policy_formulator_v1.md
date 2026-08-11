@@ -2699,6 +2699,108 @@ When source semantics are clear but execution cannot yet be generated:
 
 It must not contain invented executable facts.
 
+## 88.1 THREE LAYERS THAT MUST NEVER BE COLLAPSED
+
+`enrichment_required` means **this deployment has no fact model yet**. It says
+nothing about whether the source was clear, and nothing about what a decision
+point would return.
+
+Keep these three apart. They are independent, and every combination occurs.
+
+**Layer 1 — what the source states.** Read only from the document.
+
+**Layer 2 — whether we can supply the attribute.** A property of our
+configuration. `FACT_MODEL_REQUIRED` belongs here. A missing attribute is
+never evidence that the document was vague.
+
+**Layer 3 — what a PDP returns.** `Permit`, `Deny`, `NotApplicable`,
+`Indeterminate`. **You must never emit any of these four words**, nor
+`missing-attribute`. No request has been evaluated at extraction time. A PDP
+may legitimately return `Indeterminate` with a `missing-attribute` status
+later, when it evaluates a real request and cannot obtain an attribute — that
+is a different event from the one you are describing.
+
+## 88.2 RESOLVED VERSUS UNRESOLVED CONDITIONS
+
+Within layer 1, a condition is one of two things, and they are not
+interchangeable.
+
+**Resolved — the source states a complete test.**
+
+    "after the trial period has expired"
+
+means `trial-period-expired = true`. Nothing has to be invented to know what
+would satisfy it. The fact model may not carry the attribute; that is layer 2
+and changes nothing here.
+
+**Unresolved — the source names a dependency and never states its test.**
+
+    "depending on the financial position of the University"
+
+establishes that financial position matters. It does **not** say
+`financial-position = good`, or `financial-position >= X`, or
+`budget-available = true`. Write none of those. Record that the dependency is
+stated and its predicate is not.
+
+Both must be preserved. Discarding an unresolved dependency loses something
+the document said; inventing a test for it manufactures policy that does not
+exist. Neither is acceptable.
+
+Conditional language — `depending on`, `based on`, `subject to`, `provided
+that`, `conditional upon`, `after`, `before`, `only if`, `in the case of`, `in
+one of the following cases`, `upon approval of` — marks a condition. It does
+**not** license inventing an operator.
+
+`subject to the approval of the President` usually does state a complete test:
+approval is required, so `president-approval = true` is supported. `depending
+on the recommendation of the Director` may mean a recommendation must exist,
+or must be favourable — if the full source does not settle it, leave the
+predicate unresolved rather than choosing.
+
+## 88.3 ENTITY ROLES ARE NOT GRAMMATICAL POSITIONS
+
+Do not classify a phrase by where it sits in the sentence.
+
+`subject` in your canonical output is the grammatical subject, and for policy
+prose it is usually **not** a person:
+
+- "**Annual increase** shall not exceed 10%" — an amount.
+- "**The allowance** will be calculated..." — a benefit.
+- "**Medical benefits** begin on the first working day" — an entitlement.
+
+None of those is an actor. A downstream consumer that treats the grammatical
+subject as the acting party will assert that an allowance requested something.
+Populate the party fields (Section 21.1) whenever the sentence names a real
+party, so the two can be told apart.
+
+## 88.4 DO NOT PUT A WHOLE CLAUSE WHERE AN IDENTIFIER BELONGS
+
+`predicate` should be the verb phrase, not the entire normative outcome.
+
+Wrong:
+
+    "predicate": "will be calculated based on the higher basic salary of the couple"
+
+Right:
+
+    "predicate": "will be calculated"
+    "calculation": "based on the higher basic salary of the couple"
+
+The calculation basis is a requirement, and it belongs in `calculation`. A
+consumer normalises the predicate to an action identifier — `grant`, `pay`,
+`calculate`, `increase`, `transfer`, `approve` — and a whole clause cannot be
+normalised, so it is silently dropped instead.
+
+Likewise `"grants employee benefits"` decomposes to predicate `"grants"` and
+object `"employee benefits"`.
+
+## 88.5 NORMATIVE FORCE IS NOT AN AUTHORIZATION DECISION
+
+`shall`, `must`, `is paid` and `will be calculated` are not all permissions.
+Record the source's normative force in `rule_type` and `modality` and let the
+consumer decide how to project it. An obligation is carried as a duty attached
+to a decision, not as the decision itself.
+
 ---
 
 # 89. NOT-DIRECTLY-MAPPABLE STRUCTURE
