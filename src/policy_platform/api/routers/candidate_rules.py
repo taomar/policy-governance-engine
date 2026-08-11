@@ -40,6 +40,7 @@ from policy_platform.api.schemas import (
 from policy_platform.contracts.policy import AggregateLimit, AggregateLimitContribution, CanonicalRule
 from policy_platform.infrastructure.db import get_session
 from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
+from policy_platform.infrastructure.xacml_projection import build_xacml_view
 from policy_platform.infrastructure.export import (
     ExportFormat,
     content_disposition,
@@ -108,10 +109,10 @@ def _to_response(candidate) -> CandidateRuleResponse:
 
 
 def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
-    """Derive the readiness assessment from the rule's canonical record.
+    """Derive the readiness assessment and XACML view from the canonical record.
 
-    Always recomputed, never read from the stored payload. It is a pure
-    function of `formulation.canonical`, which is persisted, so deriving it
+    Always recomputed, never read from the stored payload. Both are pure
+    functions of `formulation.canonical`, which is persisted, so deriving them
     costs nothing and keeps one source of truth.
 
     An earlier version preferred a stored copy when present, on the reasoning
@@ -125,8 +126,12 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
 
     if rule.formulation is None or rule.formulation.canonical is None:
         return rule
+    canonical = rule.formulation.canonical
     return rule.model_copy(
-        update={"decision_readiness": _decision_readiness_for(rule.formulation.canonical)}
+        update={
+            "decision_readiness": _decision_readiness_for(canonical),
+            "xacml_view": build_xacml_view(canonical),
+        }
     )
 
 

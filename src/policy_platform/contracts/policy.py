@@ -376,6 +376,15 @@ class CanonicalRule(BaseModel):
     # None for hand-authored rules, which never went through the formulator.
     # Absent is kept distinct from failed, as everywhere else here.
     decision_readiness: DecisionReadiness | None = None
+    # The three-layer XACML view: what the source states, whether this
+    # deployment can supply the attributes, and — always None — what a PDP
+    # returned. Derived on read from `formulation.canonical` for the same
+    # reason `decision_readiness` is, and kept beside it so a consumer reading
+    # one cannot miss the other.
+    #
+    # Typed loosely here to keep `contracts.policy` free of a dependency on the
+    # projection module; the shape is `contracts.xacml_projection.PolicyXacmlView`.
+    xacml_view: object | None = None
 
 
 class ApprovedPolicyPackage(BaseModel):

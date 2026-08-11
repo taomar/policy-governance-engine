@@ -29,6 +29,7 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
     # the contracts this module also imports, and hoisting it makes the cycle
     # an import-time failure instead of a lazy one.
     from policy_platform.infrastructure.formulation_mapping import _decision_readiness_for
+    from policy_platform.infrastructure.xacml_projection import build_xacml_view
 
     formulation = (
         RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
@@ -97,6 +98,14 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # applies everywhere at once.
         decision_readiness=(
             _decision_readiness_for(formulation.canonical)
+            if formulation and formulation.canonical
+            else None
+        ),
+        # Derived alongside `decision_readiness` and for the same reason: both
+        # are pure functions of `formulation.canonical`, which is persisted, so
+        # a stored copy could only ever disagree with the record it came from.
+        xacml_view=(
+            build_xacml_view(formulation.canonical)
             if formulation and formulation.canonical
             else None
         ),
