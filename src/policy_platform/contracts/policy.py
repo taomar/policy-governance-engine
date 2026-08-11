@@ -391,6 +391,12 @@ class PolicyFact(BaseModel):
     thing, which is what a consumer needs in order to point at where it lives
     in their own data.
 
+    `roles` is a list because one phrase routinely plays several parts in one
+    sentence. "The University Council decides on the discount" names the
+    Council as both the grammatical subject and the deciding authority, and an
+    earlier single-valued `role` kept the first and dropped the second — so a
+    consumer asking who decides the rule found nothing, on a rule that says.
+
     `data_type` is present only when the phrase shows it. Silence means the
     document named the thing without saying what kind of value it holds, which
     is more useful to a consumer than a guess.
@@ -400,9 +406,9 @@ class PolicyFact(BaseModel):
     name: str
     #: The document's wording, verbatim.
     source_phrase: str
-    #: Which part the phrase plays in the rule — `threshold`, `authority`,
-    #: `condition`, and so on.
-    role: str
+    #: Every part the phrase plays — `threshold`, `authority`, `subject`, and
+    #: so on. Ordered, so the same rule always produces the same list.
+    roles: list[str] = Field(default_factory=list)
     #: `money` | `duration` | `number` | `boolean`, or absent.
     data_type: str | None = None
 
