@@ -92,13 +92,6 @@ export function FamilyCompositeHeader({
             </Tag>
           </Tooltip>
         )}
-        {composite.needsMappingCount > 0 && (
-          <Tooltip title="These members have no executable condition, so they cannot be evaluated automatically.">
-            <Tag bordered={false} color="orange">
-              {composite.needsMappingCount} need mapping
-            </Tag>
-          </Tooltip>
-        )}
         {hidden > 0 && (
           <Tooltip title="The current filter hides part of this policy. What you see is not all of it.">
             <Tag bordered={false} color="warning">

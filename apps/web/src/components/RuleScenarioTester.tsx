@@ -146,7 +146,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
           loading={loading}
           disabled={!scenario.trim() || !rule.machine_executable}
         >
-          {rule.machine_executable ? (loading ? "Running…" : "Test with real engine") : "Needs a fact mapping"}
+          {rule.machine_executable ? (loading ? "Running…" : "Test with real engine") : "Not testable by the deterministic engine"}
         </Button>
       </Space>
 

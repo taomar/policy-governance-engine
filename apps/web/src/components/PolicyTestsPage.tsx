@@ -13,7 +13,6 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
-  api,
   policyTestApi,
   PolicyPlatformApiError,
   type CreatePolicyTestRequest,
@@ -227,43 +226,6 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
   const [form] = Form.useForm();
 
   const evaluationTarget = useEvaluationTarget(policySetKey);
-  const [executableCount, setExecutableCount] = useState<{ executable: number; total: number } | null>(null);
-
-  /**
-   * How many rules in the target version the engine will actually execute.
-   *
-   * `_evaluate_rule` returns NOT_APPLICABLE immediately for any rule with
-   * machine_executable=false, before scope or condition are considered. A
-   * policy set where that is true of every rule cannot return SATISFIED for
-   * anything, so every test predicting SATISFIED is guaranteed to fail. That is
-   * a property of the policy set rather than of any individual test, so it is
-   * reported once at the top of the page instead of being rediscovered by the
-   * reviewer one failed proposal at a time.
-   */
-  useEffect(() => {
-    const version = evaluationTarget.version;
-    if (!version) {
-      setExecutableCount(null);
-      return;
-    }
-    let cancelled = false;
-    api
-      .getVersionRules(policySetKey, version.id)
-      .then((rules) => {
-        if (cancelled) return;
-        setExecutableCount({
-          executable: rules.filter((r) => r.machine_executable).length,
-          total: rules.length,
-        });
-      })
-      .catch(() => {
-        // Advisory context only — a failure here must never block test review.
-        if (!cancelled) setExecutableCount(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [policySetKey, evaluationTarget.version]);
 
   const load = async () => {
     setLoading(true);
@@ -766,33 +728,6 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
       </Card>
 
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
-
-      {executableCount && executableCount.total > 0 && executableCount.executable === 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          message="No published rule can be decided by the deterministic engine yet"
-          description={
-            <span>
-              None of the {executableCount.total} published rules has a fact mapping, so the engine returns{" "}
-              <Tag>NOT_APPLICABLE</Tag> for each of them before reading scope or condition — which means this policy set
-              cannot return <Tag>SATISFIED</Tag> for anything, and a test expecting it will fail every time. That is a
-              configuration gap on our side, not a judgement about the policies: a rule can state its terms perfectly
-              and still have no attribute mapped onto them. Treat <Tag>NOT_APPLICABLE</Tag> as the correct expectation
-              here until a fact model is configured.
-            </span>
-          }
-        />
-      )}
-
-      {executableCount && executableCount.total > 0 && executableCount.executable > 0 && executableCount.executable < executableCount.total && (
-        <Alert
-          type="info"
-          showIcon
-          message={`${executableCount.executable} of ${executableCount.total} published rules have a fact mapping`}
-          description="The rest always evaluate to NOT_APPLICABLE in the deterministic engine, whatever their scope or condition says, because nothing maps their terms onto readable attributes. Tests aimed at those rules can only assert NOT_APPLICABLE — that is a limit of this engine, not a statement that the rules are unclear."
-        />
-      )}
 
       <dl className="tests-summary-strip">
         <div>

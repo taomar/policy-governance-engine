@@ -47,7 +47,6 @@ function projectStatus(
   if (insight.active_rule_count === 0) return { color: "default", label: "Not published" };
   if ((insight.latest_quality_high ?? 0) > 0) return { color: "error", label: "Quality action needed" };
   if (insight.review_pending > 0) return { color: "gold", label: "Review in progress" };
-  if (insight.machine_executable_count === 0) return { color: "gold", label: "Awaiting fact mapping" };
   return { color: "green", label: "Operational" };
 }
 

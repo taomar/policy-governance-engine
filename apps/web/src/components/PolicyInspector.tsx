@@ -44,8 +44,6 @@ import {
   ruleDecisionSummary,
   scopeEntries,
 } from "../ruleDisplay";
-import { ExecutabilityBadge } from "./ExecutabilityBadge";
-import { ConditionProvenanceNotice } from "./ConditionProvenanceNotice";
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -255,8 +253,6 @@ export function PolicyInspector({
       {rule.description && (
         <Paragraph type="secondary">{readableDescription(rule.description)}</Paragraph>
       )}
-      <ExecutabilityBadge rule={rule} />
-      <ConditionProvenanceNotice rule={rule} />
       {overviewSupplement}
       <Descriptions column={1} size="small" bordered className="inspector-descriptions">
         <Descriptions.Item label="Rule ID">
@@ -349,13 +345,6 @@ export function PolicyInspector({
                   </button>
                   <Space size={4} wrap>
                     <Tag bordered={false}>{sibling.review_status}</Tag>
-                    {!sibling.machine_executable && (
-                      <Tooltip title="No executable condition was projected for this rule, so it cannot be evaluated automatically">
-                        <Tag bordered={false} color="orange">
-                          needs mapping
-                        </Tag>
-                      </Tooltip>
-                    )}
                   </Space>
                 </div>
               );
@@ -748,6 +737,45 @@ export function PolicyInspector({
 
   const activeJsonVariant = rule.formulation ? jsonVariant : "evaluator";
   const jsonVariants = {
+    complete: {
+      title: "Complete record",
+      description: (
+        <>
+          Everything extracted from this clause in one place — the source text, the canonical
+          decomposition with every attribute the document supported, the derived logic, and the DMN
+          projection.
+        </>
+      ),
+      value: {
+        rule_id: rule.rule_id,
+        title: rule.title,
+        // The document's own words, first, because everything below is a
+        // reading of them.
+        source_text: rule.formulation?.canonical?.source_text ?? rule.description,
+        rule_type: rule.rule_type,
+        effect: rule.effect,
+        // The full attribute set: subject, parties, trigger, condition,
+        // thresholds, deadlines, exceptions and the rest, exactly as extracted.
+        canonical: rule.formulation?.canonical ?? null,
+        // How those attributes were read as logic.
+        logic: {
+          condition: rule.condition,
+          required_facts: rule.required_facts,
+          exceptions: rule.exceptions,
+        },
+        // The decision projection, as the formulator produced it.
+        dmn: rule.formulation?.dmn_decisions ?? [],
+        parties_and_readiness: rule.decision_readiness ?? null,
+        scope: rule.scope,
+        evidence: rule.evidence,
+        relationships: {
+          related_rule_ids: rule.related_rule_ids,
+          group_label: rule.group_label,
+        },
+        lineage: rule.lineage,
+      },
+      downloadName: `${rule.rule_id}-complete.json`,
+    },
     evaluator: {
       title: "Evaluator record",
       description: (
@@ -763,7 +791,8 @@ export function PolicyInspector({
       title: "Canonical formulation",
       description: (
         <>
-          The source-grounded subject, predicate, and object decomposition produced before executable mapping.
+          The source-grounded decomposition: subject, predicate, object and every qualifying
+          attribute the document supplied.
         </>
       ),
       value: rule.formulation?.canonical ? withRuleIdentity(rule.formulation.canonical, rule) : null,
@@ -822,7 +851,7 @@ export function PolicyInspector({
             </Space>
           ) : (
             <Tooltip title="This rule has no linked evidence, so any self-referential wording below (e.g. 'this Law', 'this policy') cannot be resolved to a specific source document.">
-              <Text type="warning">source document unknown — see Evidence tab</Text>
+              <Text type="secondary">source document unknown — see Evidence tab</Text>
             </Tooltip>
           )}
         </div>

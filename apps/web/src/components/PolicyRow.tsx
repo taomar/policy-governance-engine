@@ -23,7 +23,6 @@ import {
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
-import { ExecutabilityFlag } from "./ExecutabilityBadge";
 
 export type PolicyDensity = "comfortable" | "compact";
 
@@ -233,7 +232,6 @@ export function PolicyRow({
                 />
               </Tooltip>
             )}
-            <ExecutabilityFlag rule={rule} />
           </span>
           <span className="policy-row-statuses">
             <PolicyEffectBadge effect={rule.effect} size="small" />

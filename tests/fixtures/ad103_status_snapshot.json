@@ -1,720 +1,27 @@
 {
  "totals": {
-  "rules": 44,
+  "rules": 46,
   "machine_executable": 0,
-  "vacuous_conditions": 44,
-  "naming_an_authority": 10,
-  "rules_with_requirements": 19,
-  "requirement_phrases": 21,
-  "requirement_phrases_bundling_several": 10,
-  "inherited_from_parent_clause": 11,
+  "vacuous_conditions": 46,
+  "naming_an_authority": 8,
+  "rules_with_requirements": 13,
+  "requirement_phrases": 14,
+  "requirement_phrases_bundling_several": 5,
+  "inherited_from_parent_clause": 6,
   "stored_ambiguity_differs_from_derived": 0,
-  "three_flags_disagree": 21
+  "three_flags_disagree": 4
  },
  "rules": [
   {
-   "rule_id": "AI-04e4c421f1",
-   "title": "FBSU provides its employees and their eligible dependents in the medical insurance program",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "its employees and their eligible dependents",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-0af18f50ad",
-   "title": "Directors of administrative units may be eligible “A” Class",
-   "rule_type": "eligibility",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "Directors of administrative units",
-     "role": "recipient_subject",
-     "source": "candidate"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "as set per the university salary scale"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-0be76d87ff",
-   "title": "the coverage will be in accordance with the health insurance policy",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-110738ea19",
-   "title": "The housing allowance per calendar year (12 months) is calculated",
-   "rule_type": "calculation",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "for full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-1190f4996a",
-   "title": "A work nature allowance is paid at the rate of (200) two hundred SR per month",
-   "rule_type": "permission",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "each of the security employees and cleaning workers",
-     "role": "recipient_subject",
-     "source": "recipient"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "after the trial period has expired"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-14bdffb88e",
-   "title": "The staff members are entitled to join the health insurance plan at FBSU",
-   "rule_type": "permission",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "The staff members",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-1830797d83",
-   "title": "FBSU medical insurance coverage is based on their grades and job offer",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-22c0b8781c",
-   "title": "“BT” Class is defined as Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-2bccd7e83e",
-   "title": "FBSU shall provide adequate furnished housing for nominal amount or a housing allowance",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "eligible employees",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-2e8958afb2",
-   "title": "the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-377611a68e",
-   "title": "the allowance will be calculated",
-   "rule_type": "calculation",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "In the case of a married couple are employed by FBSU or Astra Internal School"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-3906e24f6e",
-   "title": "The housing allowance is limited to one employee of the married couple (husband and wife)",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "one employee of the married couple (husband and wife)",
-     "role": "recipient_subject",
-     "source": "recipient"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-3b45e66767",
-   "title": "Increase due to inflation shall be increased",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the President",
-     "role": "authority",
-     "source": "assigner"
-    },
-    {
-     "name": "the Board of Trustees",
-     "role": "authority",
-     "source": "subject to the judgment and approval of"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "depending on the financial position of the University and subject to the approval of the President"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-41a22a826b",
-   "title": "The housing allowance per calendar year (12 months) is calculated",
-   "rule_type": "calculation",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "for full-time faculty members holding the rank of Assistant, Associate or Full Professor"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-47a3f0a087",
-   "title": "The exceptional increase requires the approval of the President",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the President",
-     "role": "authority",
-     "source": "assigner"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-4bfc2273be",
-   "title": "Increase due to inflation subject to the judgment and approval of the Board of Trustees",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the Board of Trustees",
-     "role": "authority",
-     "source": "assigner"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-4fccb8b43e",
-   "title": "Full time employees as well as their spouses and children enrolled in FBSU programs are eligible for tuition fees discount",
-   "rule_type": "eligibility",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "Full time employees as well as their spouses and children enrolled in FBSU programs",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-5c49e56977",
-   "title": "Non Saudi staff employee and his/her eligible dependence are eligible for the medical insurance program",
-   "rule_type": "eligibility",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "Non Saudi staff employee and his/her eligible dependence",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "who are not covered by any other medical insurance"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-5d12b2629b",
-   "title": "Exceptional Increase may be granted",
-   "rule_type": "permission",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the university",
-     "role": "authority",
-     "source": "assigner"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "for specific cases that the university deems necessary"
-    },
-    {
-     "role": "prerequisite",
-     "phrase": "depending on the financial position of the University and subject to the approval of the President"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-5d7af9974b",
-   "title": "The housing allowance per calendar year (12 months) is calculated",
-   "rule_type": "calculation",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "for administrative, technical and service staff"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-6695c74866",
-   "title": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-6e023f9fbe",
-   "title": "The housing allowance per calendar year (12 months) is calculated",
-   "rule_type": "calculation",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-78dad1f9bf",
-   "title": "FBSU outsources and signs an agreement",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-80e98be40b",
-   "title": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger) are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance",
-   "rule_type": "permission",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-836e1dc555",
-   "title": "Medical benefits begin",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-847370241e",
-   "title": "The housing allowance is to be paid in monthly prorated installments",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-87cda1515d",
-   "title": "Saudi staff employee and his/her spouse and children included in the Family Card are eligible for the medical insurance program",
-   "rule_type": "eligibility",
-   "effect_type": "allow",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": "inherited_context",
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "Saudi staff employee and his/her spouse and children included in the Family Card",
-     "role": "recipient_subject",
-     "source": "beneficiary"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "who are not covered by any other medical insurance"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-97526dc4b7",
-   "title": "Employee basic salary shall be increased",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the President",
-     "role": "authority",
-     "source": "assigner"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "depending on the financial position of the University and subject to the approval of the President, in one of the following cases only"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-9f077eb824",
-   "title": "FBSU grants employee benefits",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "decidable",
-   "judgement_bounded": true,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [
-    {
-     "name": "the director of the concerned Department",
-     "role": "authority",
-     "source": "assigner"
-    }
-   ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "based on their functions and depending on the recommendation of the director of the concerned Department"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-ab0515cb25",
-   "title": "the original medical invoices and reports must be submitted",
+   "rule_id": "AI-03278b2877",
+   "title": "the original medical invoices and reports must be submitted the original medical invoices and reports",
    "rule_type": "obligation",
    "effect_type": "require_action",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": false,
    "source_origin": null,
@@ -734,57 +41,67 @@
    ]
   },
   {
-   "rule_id": "AI-adf7d23711",
-   "title": "Annual increase shall not exceed 10% of the employee’s current basic salary",
-   "rule_type": "prohibition",
-   "effect_type": "deny",
+   "rule_id": "AI-0b2492ae8e",
+   "title": "The housing allowance per calendar year (12 months) is calculated as twice the monthly basic salary",
+   "rule_type": "calculation",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-0c058747b8",
+   "title": "FBSU medical insurance plan covers Non Saudi staff employee and his/her eligible dependence",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
-   "judgement_bounded": true,
+   "judgement_bounded": false,
    "source_origin": "inherited_context",
    "required_facts": [],
    "parties": [
     {
-     "name": "the President",
-     "role": "authority",
-     "source": "assigner"
+     "name": "Non Saudi staff employee and his/her eligible dependence",
+     "role": "recipient_subject",
+     "source": "beneficiary"
     }
    ],
    "requirements": [
     {
      "role": "condition",
-     "phrase": "depending on the financial position of the University and subject to the approval of the President"
+     "phrase": "who are not covered by any other medical insurance"
     }
    ]
   },
   {
-   "rule_id": "AI-afa66cfe2f",
-   "title": "The University Council decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
+   "rule_id": "AI-1d50709eb1",
+   "title": "A work nature allowance is paid (200) two hundred SR per month",
+   "rule_type": "permission",
+   "effect_type": "allow",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
-   "judgement_bounded": true,
+   "judgement_bounded": false,
    "source_origin": null,
    "required_facts": [],
    "parties": [
     {
-     "name": "The University Council",
-     "role": "authority",
-     "source": "assigner"
-    },
-    {
-     "name": "FBSU staff members and their dependents",
+     "name": "each of the security employees and cleaning workers",
      "role": "recipient_subject",
      "source": "beneficiary"
     }
@@ -792,76 +109,94 @@
    "requirements": []
   },
   {
-   "rule_id": "AI-b2c540eba0",
-   "title": "The recommendations of the director on allowances and benefits are subject to the approval of the President",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
+   "rule_id": "AI-1e7191234e",
+   "title": "FBSU medical insurance plan covers Saudi staff employee and his/her spouse and children included in the Family Card",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "inherited_context",
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "Saudi staff employee and his/her spouse and children included in the Family Card",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "who are not covered by any other medical insurance"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-269e8ea849",
+   "title": "Full time employees as well as their spouses and children enrolled in FBSU programs are eligible for are eligible for tuition fees discount",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "Full time employees as well as their spouses and children enrolled in FBSU programs",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-2b9c584952",
+   "title": "FBSU grants employee benefits",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": true,
    "source_origin": null,
    "required_facts": [],
    "parties": [
     {
-     "name": "the President",
+     "name": "the director of the concerned Department",
      "role": "authority",
      "source": "assigner"
     }
    ],
-   "requirements": []
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "based on their functions and depending on the recommendation of the director of the concerned Department"
+    }
+   ]
   },
   {
-   "rule_id": "AI-bf564041ab",
-   "title": "“VIP” Class is defined as This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President.",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-c227da3307",
-   "title": "The University insures all employees with social insurance",
-   "rule_type": "obligation",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-cbbc789e71",
+   "rule_id": "AI-2ba3887778",
    "title": "The housing allowance is to be paid monthly prorated installments",
    "rule_type": "obligation",
    "effect_type": "require_action",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": false,
    "source_origin": null,
@@ -870,76 +205,39 @@
    "requirements": []
   },
   {
-   "rule_id": "AI-cd989fc237",
-   "title": "the benefits and allowances of FBSU faculty and staff members are governed by the individual contracts of appointment",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "In all cases"
-    }
-   ]
-  },
-  {
-   "rule_id": "AI-cf09c86e6a",
-   "title": "“A” Class is defined as This class is reserved for academic Deans and faculty members holding Ph.D. degree.",
-   "rule_type": "definition",
-   "effect_type": "informational",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "not_a_decision",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-d7a05428d3",
-   "title": "Lateral transfer of an employee, within the same department, or to another department won’t lead to salary increase",
-   "rule_type": "routing",
-   "effect_type": "require_action",
-   "machine_executable": false,
-   "condition_is_vacuous": true,
-   "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
-   "evaluability": "decidable",
-   "judgement_bounded": false,
-   "source_origin": null,
-   "required_facts": [],
-   "parties": [],
-   "requirements": []
-  },
-  {
-   "rule_id": "AI-dd34b7a193",
-   "title": "the employee must carefully read the insurance contract",
+   "rule_id": "AI-363b26b72a",
+   "title": "The University insures all employees with social insurance",
    "rule_type": "obligation",
    "effect_type": "require_action",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "all employees",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-39f67f01c8",
+   "title": "“BT” Class is defined as Faculty members holding Master degree and laboratory supervisors. Department heads and supervisors.",
+   "rule_type": "definition",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "not_a_decision",
    "judgement_bounded": false,
    "source_origin": null,
    "required_facts": [],
@@ -947,16 +245,15 @@
    "requirements": []
   },
   {
-   "rule_id": "AI-e8999fd2fd",
+   "rule_id": "AI-3e9dc36b6b",
    "title": "The employees will not be enrolled in FBSU medical insurance program",
    "rule_type": "eligibility",
    "effect_type": "deny",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": false,
    "source_origin": null,
@@ -976,16 +273,342 @@
    ]
   },
   {
-   "rule_id": "AI-fa5b209734",
+   "rule_id": "AI-4fae727deb",
+   "title": "Annual increase shall not exceed 10% of the employee’s current basic salary",
+   "rule_type": "prohibition",
+   "effect_type": "deny",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-531f99fb91",
+   "title": "The housing allowance is limited to one employee of the married couple (husband and wife)",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "one employee of the married couple (husband and wife)",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-543b504854",
+   "title": "The recommendations of the director on allowances and benefits are subject to the approval of the President",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the President",
+     "role": "authority",
+     "source": "assigner"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-588d86ba34",
+   "title": "Medical benefits begin",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-5af840e4d3",
+   "title": "the coverage will be in accordance with the health insurance policy",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "human_judgment_required",
+   "ambiguity_status_derived": "human_judgment_required",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "In the case of medical treatment in clinics and hospitals that are not approved by the insurance company"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-627a07421b",
+   "title": "FBSU employees are eligible to receive a monthly transportation stipend to travel between their local residence and the University and/or to fulfill their job requirements",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "human_judgment_required",
+   "ambiguity_status_derived": "human_judgment_required",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "FBSU employees",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-6614f28a6f",
+   "title": "This class is reserved for academic Deans and faculty members holding Ph.D. degree",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "academic Deans and faculty members holding Ph.D. degree",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-79baf1d894",
+   "title": "FBSU outsources only with reputable medical insurance companies",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-8437374762",
+   "title": "Employee basic salary shall be increased",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the President",
+     "role": "authority",
+     "source": "assigner"
+    }
+   ],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "depending on the financial position of the University"
+    },
+    {
+     "role": "prerequisite",
+     "phrase": "the approval of the President"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-8cf8865c91",
+   "title": "the benefits and allowances of FBSU faculty and staff members are governed by the individual contracts of appointment",
+   "rule_type": "definition",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "not_a_decision",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "In all cases"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-90eb464b34",
+   "title": "Exceptional Increase may be granted",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the university",
+     "role": "authority",
+     "source": "assigner"
+    }
+   ],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "for specific cases that the university deems necessary"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-94848ecf08",
+   "title": "Increase due to inflation subject to the judgment and approval of the Board of Trustees",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the Board of Trustees",
+     "role": "authority",
+     "source": "assigner"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-96bb986d2a",
+   "title": "the annual salary increase of an employee at FBSU is associated with his/her Performance Appraisal",
+   "rule_type": "definition",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "not_a_decision",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-a09b413285",
+   "title": "FBSU shall provide adequate furnished housing for nominal amount or a housing allowance",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "eligible employees",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-ad40e73866",
+   "title": "the employee must carefully read the insurance contract to understand the articles of the insurance policy",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-b7531a4194",
    "title": "FBSU will not bear any responsibility",
    "rule_type": "prohibition",
    "effect_type": "deny",
    "machine_executable": false,
    "condition_is_vacuous": true,
    "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": false,
    "source_origin": null,
@@ -999,19 +622,41 @@
    ]
   },
   {
-   "rule_id": "AI-ff6ad64927",
-   "title": "Increase due to promotion shall be provided",
+   "rule_id": "AI-b9256d3122",
+   "title": "This class of Medical Insurance is provided to the top managers of the University, i.e. President and Vice President",
+   "rule_type": "eligibility",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the top managers of the University, i.e. President and Vice President",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-bc3f78dccf",
+   "title": "The exceptional increase requires the approval of the President",
    "rule_type": "routing",
    "effect_type": "require_action",
    "machine_executable": false,
    "condition_is_vacuous": true,
-   "condition_provenance_code": "conditions_not_projected",
-   "condition_provenance_field_code": "conditions_not_projected",
-   "ambiguity_status_stored": "human_judgment_required",
-   "ambiguity_status_derived": "human_judgment_required",
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
    "evaluability": "decidable",
    "judgement_bounded": true,
-   "source_origin": "inherited_context",
+   "source_origin": null,
    "required_facts": [],
    "parties": [
     {
@@ -1020,40 +665,376 @@
      "source": "assigner"
     }
    ],
-   "requirements": [
-    {
-     "role": "condition",
-     "phrase": "upon the promotion of an employee to a new position"
-    },
-    {
-     "role": "prerequisite",
-     "phrase": "depending on the financial position of the University and subject to the approval of the President"
-    }
-   ]
+   "requirements": []
   },
   {
-   "rule_id": "AI-ffb2f7a68f",
-   "title": "FBSU employees are eligible to receive a monthly transportation stipend",
+   "rule_id": "AI-bf5e3e08ad",
+   "title": "Increase due to inflation not exceeding 5% of the employee’s basic salary",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "the Board of Trustees",
+     "role": "authority",
+     "source": "subject to the judgment and approval of"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-c4e113bc4e",
+   "title": "Directors of administrative units may also be eligible “A” Class",
    "rule_type": "eligibility",
    "effect_type": "allow",
    "machine_executable": false,
    "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "human_judgment_required",
+   "ambiguity_status_derived": "human_judgment_required",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "inherited_context",
+   "required_facts": [],
+   "parties": [],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "as set per the university salary scale"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-c79bcefb02",
+   "title": "Lateral transfer of an employee, within the same department, or to another department cannot be considered as promotion",
+   "rule_type": "definition",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
    "condition_provenance_code": "no_scope_derived",
-   "condition_provenance_field_code": "no_scope_derived",
-   "ambiguity_status_stored": "non_blocking",
-   "ambiguity_status_derived": "non_blocking",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "not_a_decision",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-ca938a47de",
+   "title": "The housing allowance per calendar year (12 months) is up to a maximum of Fifteen thousand (15,000) SAR",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "inherited_context",
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "administrative, technical and service staff",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-cb52acdc3d",
+   "title": "FBSU signs an agreement",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-d301c37448",
+   "title": "Lateral transfer of an employee, within the same department, or to another department won’t lead to salary increase",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "resolved_reference",
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-d8e10383b0",
+   "title": "FBSU provides its employees and their eligible dependents in the medical insurance program",
+   "rule_type": "permission",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "human_judgment_required",
+   "ambiguity_status_derived": "human_judgment_required",
    "evaluability": "decidable",
    "judgement_bounded": false,
    "source_origin": null,
    "required_facts": [],
    "parties": [
     {
-     "name": "FBSU employees",
+     "name": "its employees and their eligible dependents",
      "role": "recipient_subject",
      "source": "beneficiary"
     }
    ],
    "requirements": []
+  },
+  {
+   "rule_id": "AI-df7eabc3cd",
+   "title": "The staff members are entitled to join the health insurance plan at FBSU",
+   "rule_type": "permission",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "The staff members",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-df8c13628d",
+   "title": "Increase due to promotion shall be provided",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "an employee",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-e43deb0474",
+   "title": "FBSU shall provide adequate furnished housing for nominal amount or a housing allowance",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "eligible employees",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-e922c68754",
+   "title": "The University Council decides on the amount, percentage and the type of tuition fees discount granted to FBSU staff members and their dependents",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": true,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "The University Council",
+     "role": "authority",
+     "source": "assigner"
+    },
+    {
+     "name": "FBSU staff members and their dependents",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-f0c62be070",
+   "title": "The housing allowance per calendar year (12 months) is up to a maximum of Fifteen thousand (15,000) SAR",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "inherited_context",
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "full time lecturers, instructors, assistant instructors, research and teaching assistants, and postdoctoral researchers",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-f0f87d5574",
+   "title": "The housing allowance is to be paid monthly prorated installments",
+   "rule_type": "obligation",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-f1e61892f4",
+   "title": "the allowance will be calculated the higher basic salary of the couple",
+   "rule_type": "calculation",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "In the case of a married couple are employed by FBSU or Astra Internal School"
+    }
+   ]
+  },
+  {
+   "rule_id": "AI-f772ded85d",
+   "title": "FBSU medical insurance coverage is based on their grades and job offer",
+   "rule_type": "definition",
+   "effect_type": "informational",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "not_a_decision",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-f850927c58",
+   "title": "The housing allowance per calendar year (12 months) is up to a maximum of Twenty-five thousand (25,000) SAR",
+   "rule_type": "routing",
+   "effect_type": "require_action",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "no_scope_derived",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": "inherited_context",
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "full-time faculty members holding the rank of Assistant, Associate or Full Professor",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": []
+  },
+  {
+   "rule_id": "AI-fabc11e54e",
+   "title": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger) are entitled to obtain annual travel tickets and Exit/Entry visas or travel allowance",
+   "rule_type": "permission",
+   "effect_type": "allow",
+   "machine_executable": false,
+   "condition_is_vacuous": true,
+   "condition_provenance_code": "conditions_not_projected",
+   "ambiguity_status_stored": "none",
+   "ambiguity_status_derived": "none",
+   "evaluability": "decidable",
+   "judgement_bounded": false,
+   "source_origin": null,
+   "required_facts": [],
+   "parties": [
+    {
+     "name": "Expatriate employees and their eligible family members (spouse and 2 children 18 years or younger)",
+     "role": "recipient_subject",
+     "source": "beneficiary"
+    }
+   ],
+   "requirements": [
+    {
+     "role": "condition",
+     "phrase": "spouse and 2 children 18 years or younger"
+    }
+   ]
   }
  ]
 }

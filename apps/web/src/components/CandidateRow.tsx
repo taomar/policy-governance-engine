@@ -10,9 +10,7 @@ import {
 } from "@ant-design/icons";
 import type { CandidateRule } from "../api";
 import {
-  ambiguityMeta,
   clusterLabel,
-  hasAmbiguityFlag,
   hexToRgba,
   ruleDecisionSummary,
   type RuleVariationGroup,
@@ -22,7 +20,6 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
-import { ExecutabilityFlag } from "./ExecutabilityBadge";
 import { DELTA_META } from "./ReviewFilterBar";
 
 interface CandidateRowProps {
@@ -144,14 +141,6 @@ export function CandidateRow({
                 <CrownOutlined className="policy-row-flag policy-row-flag-override" />
               </Tooltip>
             )}
-            {hasAmbiguityFlag(rule.ambiguity_status) && (
-              <Tooltip title={`Ambiguity: ${ambiguityMeta(rule.ambiguity_status).label}`}>
-                <ExclamationCircleOutlined
-                  className={`policy-row-flag policy-row-flag-ambiguity--${ambiguityMeta(rule.ambiguity_status).color}`}
-                />
-              </Tooltip>
-            )}
-            <ExecutabilityFlag rule={rule} />
           </span>
           <span className="policy-row-statuses">
             <PolicyEffectBadge effect={rule.effect} size="small" />

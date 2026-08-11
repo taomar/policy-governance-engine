@@ -1,4 +1,4 @@
-import { Alert, Modal, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Modal, Space, Table, Tag, Typography } from "antd";
 import { ApartmentOutlined, EyeOutlined } from "@ant-design/icons";
 import type { CanonicalRule } from "../api";
 import { effectivePolicy, type EffectiveCase } from "../familyComposite";
@@ -99,13 +99,6 @@ export function EffectivePolicyModal({
       render: (_: unknown, row: EffectiveCase) => (
         <Space direction="vertical" size={2}>
           <Tag bordered={false}>{row.reviewStatus}</Tag>
-          {!row.executable && (
-            <Tooltip title="No executable condition, so this case cannot be evaluated automatically">
-              <Tag bordered={false} color="orange" className="effective-policy-flag">
-                needs mapping
-              </Tag>
-            </Tooltip>
-          )}
         </Space>
       ),
     },
@@ -206,7 +199,6 @@ export function EffectivePolicyModal({
 
       <div className="effective-policy-footer">
         <Text type="secondary">
-          {policy.executableCount} of {policy.cases.length} cases carry an executable condition.
           Source document{policy.documentVersionIds.length === 1 ? "" : "s"}:{" "}
           {policy.documentVersionIds.join(", ") || "unknown"}
         </Text>

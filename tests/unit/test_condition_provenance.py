@@ -97,17 +97,18 @@ class TestNoFabrication:
 
 
 class TestReviewRouting:
-    def test_dropped_conditions_require_human_judgment(self) -> None:
-        """Not merely unconfigured: the stored tree contradicts the source."""
+    def test_the_projection_never_reaches_ambiguity(self) -> None:
+        """Whether a rule compiles says nothing about whether it is clear.
 
-        status = _ambiguity_for(_policy("only for P1"), False, "conditions_not_projected")
-        assert status is AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+        These were once folded together, so a plainly worded rule carried the
+        same flag as a genuinely vague one purely because nothing mapped its
+        terms — true of nearly every rule, which left the flag with no signal
+        while still demanding attention on every row.
+        """
 
-    def test_an_unscoped_rule_is_non_blocking_not_a_content_problem(self) -> None:
-        """Nothing about the wording is unclear; it simply is not executable."""
-
-        status = _ambiguity_for(_policy(None), False, "no_scope_derived")
-        assert status is AmbiguityStatus.NON_BLOCKING
+        for code in ("conditions_not_projected", "conditions_not_representable",
+                     "no_scope_derived", "derived"):
+            assert _ambiguity_for(_policy("only for P1"), False, code) is AmbiguityStatus.NONE
 
     def test_an_executable_rule_is_unflagged(self) -> None:
         assert _ambiguity_for(_policy("only for P1"), True, "derived") is AmbiguityStatus.NONE
@@ -120,8 +121,14 @@ class TestReviewRouting:
             _ambiguity_for(policy, True, "derived") is AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
         )
 
-    def test_the_default_preserves_prior_behaviour(self) -> None:
-        """Callers that predate condition provenance must not change verdict."""
+    def test_an_incomplete_extraction_is_still_reported(self) -> None:
+        """The extractor saying it could not finish is about the document."""
 
-        assert _ambiguity_for(_policy(None), False) is AmbiguityStatus.NON_BLOCKING
+        policy = _policy("x", extraction_status=ExtractionStatus.INCOMPLETE)
+        assert _ambiguity_for(policy, True, "derived") is AmbiguityStatus.NON_BLOCKING
+
+    def test_the_default_argument_carries_no_verdict(self) -> None:
+        """Callers that pass no provenance get the same answer as any other."""
+
+        assert _ambiguity_for(_policy(None), False) is AmbiguityStatus.NONE
         assert _ambiguity_for(_policy("x"), True) is AmbiguityStatus.NONE

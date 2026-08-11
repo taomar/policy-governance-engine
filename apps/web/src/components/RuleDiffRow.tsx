@@ -5,7 +5,6 @@ import { ambiguityMeta, hasAmbiguityFlag, ruleConditionLine } from "../ruleDispl
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
-import { ExecutabilityFlag } from "./ExecutabilityBadge";
 
 interface RuleDiffRowProps {
   rule: CanonicalRule;
@@ -66,7 +65,6 @@ export function RuleDiffRow({ rule, diffKind, expanded, onToggleExpand }: RuleDi
                 />
               </Tooltip>
             )}
-            <ExecutabilityFlag rule={rule} />
           </span>
           <PolicyEffectBadge effect={rule.effect} size="small" />
         </div>

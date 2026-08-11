@@ -24,11 +24,6 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 CORPUS = FIXTURES / "ad103_rules.json"
 SNAPSHOT = FIXTURES / "ad103_status_snapshot.json"
 
-#: `formulation_mapping` appends the provenance note to every description as
-#: `[Conditions: <code> — <message>]`. Read back rather than recomputed so the
-#: snapshot records what a reviewer actually sees.
-_PROVENANCE_RE = re.compile(r"\[Conditions:\s*([a-z_]+)\s*—")
-
 #: Roles whose phrase states a requirement the rule depends on.
 #:
 #: `condition` and `prerequisite` are both requirement-bearing and were both
@@ -78,7 +73,6 @@ def status_for(rule: CanonicalRule) -> dict[str, Any]:
 
     resolved = _with_decision_readiness(rule)
     readiness = resolved.decision_readiness
-    note = _PROVENANCE_RE.search(resolved.description or "")
     requirements: list[dict[str, str]] = []
     parties: list[dict[str, str]] = []
     if readiness is not None:
@@ -94,7 +88,8 @@ def status_for(rule: CanonicalRule) -> dict[str, Any]:
 
     canonical = resolved.formulation.canonical if resolved.formulation else None
     canonical_rule = canonical.rule if canonical else None
-    condition_code = note.group(1) if note else None
+    provenance = resolved.condition_provenance
+    condition_code = provenance.code if provenance else None
 
     # Re-derived, not read back. `ambiguity_status` is *stored* in the payload,
     # unlike `decision_readiness`, so reading the stored value would make this
@@ -122,14 +117,6 @@ def status_for(rule: CanonicalRule) -> dict[str, Any]:
         "machine_executable": resolved.machine_executable,
         "condition_is_vacuous": _is_vacuous(resolved),
         "condition_provenance_code": condition_code,
-        # The same fact as the line above, but taken from the structured field
-        # the interface reads rather than parsed out of the description. Both
-        # are recorded so a drift between them is visible; they are written at
-        # different times (extraction vs read) and only real stored data
-        # exercises both paths.
-        "condition_provenance_field_code": (
-            resolved.condition_provenance.code if resolved.condition_provenance else None
-        ),
         "ambiguity_status_stored": resolved.ambiguity_status.value,
         "ambiguity_status_derived": derived_ambiguity,
         "evaluability": readiness.evaluability if readiness else None,

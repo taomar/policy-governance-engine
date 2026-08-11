@@ -175,20 +175,33 @@ export function humanizeAction(action: string): string {
   return humanizeIdentifier(action);
 }
 
-/** Semantic label + color for a rule's effect — text is always present
- * (never color-only), per the platform's ABAC allow/deny/require_action
- * effect model. */
+/** What the policy *does*, as a calm descriptive label.
+ *
+ * These describe the rule's own nature — whether the document permits,
+ * forbids, requires or defines something. They are not statuses, and nothing
+ * here is addressed to the reader.
+ *
+ * The labels used to be the internal effect identifiers in capitals, and
+ * `require_action` rendered as "REQUIRE ACTION" in amber. That reads as an
+ * instruction to the person looking at it, so an ordinary obligation — the
+ * single most common kind of policy statement there is — appeared on every
+ * other row as though it were demanding attention. It was describing the
+ * sentence, not asking for anything.
+ *
+ * Colour is descriptive too, and deliberately quiet. Red and amber are the
+ * palette of things going wrong; a rule that forbids something is not a
+ * problem, it is a policy doing its job.
+ */
 export const EFFECT_META: Record<string, { label: string; color: string }> = {
-  allow: { label: "ALLOW", color: "green" },
-  deny: { label: "DENY", color: "red" },
-  require_action: { label: "REQUIRE ACTION", color: "gold" },
-  // Definitions/classifications state vocabulary; they authorize nothing, so
-  // they get a neutral badge distinct from the allow/deny/require axis.
-  informational: { label: "INFORMATIONAL", color: "default" },
+  allow: { label: "Permits", color: "green" },
+  deny: { label: "Prohibits", color: "geekblue" },
+  require_action: { label: "Requires", color: "blue" },
+  // Definitions and classifications state vocabulary; they authorise nothing.
+  informational: { label: "Defines", color: "default" },
 };
 
 export function effectMeta(effectType: string): { label: string; color: string } {
-  return EFFECT_META[effectType] ?? { label: effectType.replace(/_/g, " ").toUpperCase(), color: "purple" };
+  return EFFECT_META[effectType] ?? { label: humanizeIdentifier(effectType), color: "default" };
 }
 
 export interface RuleDecisionSummary {

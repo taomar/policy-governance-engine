@@ -22,8 +22,6 @@ export interface FamilyComposite {
   /** The axis members differ on, in member order. Empty when they agree. */
   variants: string[];
   memberCount: number;
-  /** Members that carry no executable condition. */
-  needsMappingCount: number;
   /** Distinct review statuses present, so a split family is visible. */
   statuses: string[];
 }
@@ -222,7 +220,6 @@ export function familyComposite(
     predicate,
     variants,
     memberCount: members.length,
-    needsMappingCount: members.filter((m) => !m.machine_executable).length,
     statuses,
   };
 }

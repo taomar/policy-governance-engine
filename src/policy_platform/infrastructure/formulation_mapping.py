@@ -1036,43 +1036,28 @@ _TREE_UNDERSTATES_SOURCE = frozenset({"conditions_not_projected", "conditions_no
 def _ambiguity_for(
     policy: CanonicalPolicy, executable: bool, condition_code: str = "derived"
 ) -> AmbiguityStatus:
-    """Map extraction/ambiguity signals onto the platform's ambiguity ladder.
+    """Whether the *document's own wording* is unclear. Nothing else.
 
-    `ambiguity_status` answers one question only: is the rule's *meaning*
-    (the source text itself) unclear enough that a policy/business reviewer
-    must interpret it before the rule can be trusted? It must stay
-    independent of `executable` (whether a `trusted_config` — Section 83 —
-    was supplied so the rule can become an executable DMN decision), which
-    is a *technical configuration* question, not a content question, and is
-    already fully captured by `machine_executable` / `dmn_mapping_status`.
+    This answers one question: did the extractor find the source text itself
+    ambiguous? It is a property of the policy, reported by the agent that read
+    it, and a reader deciding whether to trust a record needs it.
 
-    Until 2025-Q_ these two were conflated here: any non-executable rule
-    (which, absent a `trusted_config`, is every rule) was unconditionally
-    forced to HUMAN_JUDGMENT_REQUIRED. That made the flag carry zero
-    discriminative signal — a plainly unambiguous definition like "Minor: any
-    person of 15 and below 18 years of age" was flagged identically to a
-    genuinely vague clause, because both merely lacked machine-executability.
-    A rule that is textually clear but not yet executable now maps to
-    NON_BLOCKING ("needs configuration, not clarification") instead of
-    HUMAN_JUDGMENT_REQUIRED ("needs a human to interpret unclear wording").
+    It deliberately no longer reflects anything about the DMN projection.
+    Whether a rule compiles is a question about this platform's configuration
+    and its condition format; it says nothing about whether the document is
+    clear. Folding the two together made the flag fire on most of the corpus —
+    a plainly worded definition carrying the same alarm as a genuinely vague
+    clause — which left it carrying no signal at all while still demanding
+    attention on every row.
+
+    `executable` and `condition_code` are retained in the signature because
+    callers pass them and because keeping the parameters makes the omission
+    explicit rather than something a later reader has to infer.
     """
 
     if policy.ambiguity or policy.extraction_status == ExtractionStatus.AMBIGUOUS:
         return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
-    # A rule whose source states conditions that were not projected is *not*
-    # merely unconfigured. Its stored tree says "always applies" while the
-    # document says otherwise, so a human must reconcile the two before it can
-    # be relied on — treating this as NON_BLOCKING would let a narrow
-    # permission read as an open one.
-    #
-    # This holds whether projection failed because nothing was mapped or
-    # because the agent's grounded logic outran what the condition contract can
-    # represent: the stored tree is equally wrong in both cases.
-    if condition_code in _TREE_UNDERSTATES_SOURCE:
-        return AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
     if policy.extraction_status == ExtractionStatus.INCOMPLETE or policy.missing_components:
-        return AmbiguityStatus.NON_BLOCKING
-    if not executable:
         return AmbiguityStatus.NON_BLOCKING
     return AmbiguityStatus.NONE
 

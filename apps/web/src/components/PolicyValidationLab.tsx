@@ -722,7 +722,7 @@ export function PolicyValidationLab({
               <Text strong>Policies under test</Text>
               <Text type="secondary">
                 {selectedRuleIds.size} selected · {executableRules.length} testable · {excludedDefinitionCount} definitions excluded ·{" "}
-                {excludedDocumentationCount} awaiting a fact mapping
+                {excludedDocumentationCount} not testable by the deterministic engine
               </Text>
             </div>
             <Button

@@ -20,6 +20,7 @@ import json
 import pytest
 
 from policy_platform.contracts.formulation import (
+    AmbiguityCode,
     CanonicalPolicy,
     CanonicalPolicyRule,
     CanonicalRuleType,
@@ -597,25 +598,26 @@ def test_provenance_without_an_outcome_is_unchanged():
 
 @pytest.mark.parametrize(
     "code",
-    ["conditions_not_projected", "conditions_not_representable"],
+    ["conditions_not_projected", "conditions_not_representable", "no_scope_derived", "derived"],
 )
-def test_an_understated_tree_always_requires_human_judgment(code):
-    """Naming a new cause must not create a hole in the safety gate.
+def test_ambiguity_ignores_the_projection_entirely(code):
+    """Whether a rule compiles says nothing about whether the document is clear.
 
-    Both codes leave an empty tree that reads as "always applies" while the
-    source states conditions. Adding `conditions_not_representable` without
-    adding it here would have silently downgraded exactly the rules that are
-    closest to executable — the stored tree is equally wrong in both cases.
+    These two were once folded together, so a plainly worded rule carried the
+    same alarm as a genuinely vague one purely because no fact model covered
+    its terms — which was true of nearly every rule, leaving the flag with no
+    signal while still demanding attention on every row.
     """
 
-    assert _ambiguity_for(_policy("only for P1 incidents"), False, code) is (
-        AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+    assert _ambiguity_for(_policy("only for the stated cases"), False, code) is (
+        AmbiguityStatus.NONE
     )
 
 
-def test_a_textually_clear_unconfigured_rule_is_still_not_escalated():
-    """The control: the gate must stay discriminating, not fire on everything."""
+def test_ambiguity_still_reports_ambiguity_the_extractor_found():
+    """The one thing the flag is for: the source's own wording was unclear."""
 
-    assert _ambiguity_for(_policy(None), False, "no_scope_derived") is (
-        AmbiguityStatus.NON_BLOCKING
-    )
+    policy = _policy("only for the stated cases")
+    policy.ambiguity = [AmbiguityCode.AMBIGUOUS_THRESHOLD]
+
+    assert _ambiguity_for(policy, False, "derived") is AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED

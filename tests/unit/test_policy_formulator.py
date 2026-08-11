@@ -382,7 +382,7 @@ def test_non_decision_obligation_stays_non_executable_but_is_kept():
     assert skipped == []
     (rule,) = rules
     assert rule.machine_executable is False
-    assert rule.ambiguity_status.value == "non_blocking"
+    assert rule.ambiguity_status.value == "none"
     assert rule.condition.type == "all" and rule.condition.all == []
     assert rule.rule_type.value == "obligation"
     assert rule.effect.type.value == "require_action"

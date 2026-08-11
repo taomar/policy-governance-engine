@@ -943,54 +943,38 @@ async def extract_candidate_rules(
         # it cites. Independent of the classification that produced it — the
         # chain from passage to effect is lossy at every step, and the result
         # always looks well-formed whether or not it survived intact.
+        #
+        # This is a check that the run produced something solid, and it is
+        # reported as such. It deliberately does *not* mark rules for review.
+        #
+        # It used to: a blocking finding set `ambiguity_status` to
+        # HUMAN_JUDGMENT_REQUIRED and a duplicate added a tag, so a check on the
+        # extraction became a per-rule alarm in the reviewer's queue. That made
+        # the interface argue with itself — a rule shown complete and correct
+        # also carried a flag demanding attention — and it made the flag
+        # meaningless, since it fired on most of the corpus. What the reader
+        # asked for is the record the document supports; whether the extractor
+        # is behaving is a question about the run, and belongs to the run.
         try:
             faithfulness = validate_rules(drafted)
-            if faithfulness:
-                blocking = [f for f in faithfulness if f.severity == "blocking"]
-                logger.warning(
-                    "run %s: %d faithfulness finding(s), %d blocking",
-                    run.id,
-                    len(faithfulness),
-                    len(blocking),
+            blocking = [f for f in faithfulness if f.severity == "blocking"]
+            duplicates = [f for f in faithfulness if f.code == "duplicate_rule"]
+            logger.info(
+                "run %s: solidity check over %d rules — %d finding(s), %d blocking, %d duplicate",
+                run.id,
+                len(drafted),
+                len(faithfulness),
+                len(blocking),
+                len(duplicates),
+            )
+            for finding in faithfulness:
+                logger.info(
+                    "  %s [%s] %s | source: %s",
+                    finding.rule_id,
+                    finding.code,
+                    finding.message,
+                    finding.source_quote[:80],
                 )
-                for finding in faithfulness:
-                    logger.warning(
-                        "  %s [%s] %s | source: %s",
-                        finding.rule_id,
-                        finding.code,
-                        finding.message,
-                        finding.source_quote[:80],
-                    )
-                # A rule whose logic may not match its source is not a rule a
-                # reviewer should skim past. Escalated rather than merely
-                # logged, because the finding is worthless if the only place it
-                # appears is a server log nobody reads.
-                #
-                # Duplicates escalate too, despite being `warning`. Severity
-                # measures how wrong the rule is on its own terms — a duplicate
-                # is individually faithful to the sentence it cites, so it is
-                # not blocking — but resolving one still needs a person, and the
-                # decision is not obvious: which copy to keep depends on which
-                # clause carries the better evidence. A finding that only a
-                # reviewer can act on has to reach the reviewer.
-                needs_person = {
-                    f.rule_id
-                    for f in faithfulness
-                    if f.severity == "blocking" or f.code == "duplicate_rule"
-                }
-                duplicates = {f.rule_id for f in faithfulness if f.code == "duplicate_rule"}
-                for rule in drafted:
-                    if rule.rule_id not in needs_person:
-                        continue
-                    rule.ambiguity_status = AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
-                    # Tagged as well as escalated: `ambiguity_status` says a
-                    # person is needed and not why, and "pick one of these two"
-                    # is a different job from "check this against the source".
-                    if rule.rule_id in duplicates and "duplicate-of-another-rule" not in rule.tags:
-                        rule.tags = [*rule.tags, "duplicate-of-another-rule"]
-                    candidate = persisted.get(rule.rule_id)
-                    if candidate is not None:
-                        candidate.payload_json = rule.model_dump(mode="json")
         except Exception:
             # Validation is a check on the run, not part of producing it. A
             # failure here must not cost the rules that were extracted.

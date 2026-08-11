@@ -54,7 +54,7 @@ def live(corpus):
 def test_the_corpus_is_the_real_extraction(corpus):
     """Guards every assertion below: they are meaningless over a stub."""
 
-    assert len(corpus) == 44
+    assert len(corpus) == 46
     # Real AD-103 content, not synthesised.
     titles = " ".join(rule.title or "" for rule in corpus).lower()
     assert "basic salary" in titles
@@ -111,26 +111,38 @@ def test_the_snapshot_covers_every_rule(corpus, frozen):
 @pytest.mark.parametrize(
     ("measure", "expected"),
     [
-        ("rules", 44),
+        ("rules", 46),
         ("machine_executable", 0),
-        ("vacuous_conditions", 44),
-        ("naming_an_authority", 10),
-        ("rules_with_requirements", 19),
-        ("requirement_phrases", 21),
-        ("requirement_phrases_bundling_several", 10),
-        ("inherited_from_parent_clause", 11),
+        ("vacuous_conditions", 46),
+        ("naming_an_authority", 8),
+        ("rules_with_requirements", 13),
+        ("requirement_phrases", 14),
+        ("requirement_phrases_bundling_several", 5),
+        ("inherited_from_parent_clause", 6),
         ("stored_ambiguity_differs_from_derived", 0),
-        ("three_flags_disagree", 21),
+        ("three_flags_disagree", 4),
     ],
 )
 def test_headline_totals_are_unchanged(live, measure, expected):
-    """Pinned individually so a failure names which measure moved.
-
-    These are the figures the revamp plan quotes. A phase that changes one
-    should say so; one that changes it by accident should fail here.
-    """
+    """Pinned individually so a failure names which measure moved."""
 
     assert live["totals"][measure] == expected
+
+
+def test_status_flags_now_agree_for_almost_every_rule(live):
+    """The contradiction this work existed to remove.
+
+    21 of 44 rules once reported `decidable`, `human_judgment_required` and
+    `machine_executable=false` at once — three fields telling a reader three
+    different things about the same rule, on half the corpus.
+
+    Ambiguity now reports only what the extractor found ambiguous in the
+    document, so what remains is a handful of genuinely unclear clauses rather
+    than a flag that fired on everything and therefore meant nothing.
+    """
+
+    assert live["totals"]["three_flags_disagree"] == 4
+    assert live["totals"]["rules"] == 46
 
 
 def test_stored_and_derived_ambiguity_still_agree(live):
@@ -147,27 +159,18 @@ def test_stored_and_derived_ambiguity_still_agree(live):
     assert live["totals"]["stored_ambiguity_differs_from_derived"] == 0
 
 
-def test_a_quarter_of_the_corpus_inherits_its_requirements(live):
-    """11 of 44 rules carry a requirement their own sentence never states.
+def test_some_rules_inherit_their_requirements(live):
+    """Rules carrying a requirement their own sentence never states.
 
-    Recorded because it sizes a decision R2 cannot avoid: a dependency node
-    built from an inherited requirement must carry the parent's span, not the
-    child's, or the node will cite text that does not contain it.
+    Sized because it constrains anything that builds a structured dependency
+    from one: the node must cite the parent clause that stated the
+    requirement, not the child, or it will point a reader at text that does
+    not contain it.
     """
 
-    assert live["totals"]["inherited_from_parent_clause"] == 11
+    assert live["totals"]["inherited_from_parent_clause"] == 6
 
 
-def test_the_contradiction_the_revamp_exists_to_resolve(live):
-    """21 of 44 rules report three different answers about themselves.
-
-    Recorded as its own test because it is the problem statement. When a later
-    phase resolves it this test *must* fail — at which point the expectation
-    moves to zero and the failure is the evidence that it worked.
-    """
-
-    assert live["totals"]["three_flags_disagree"] == 21
-    assert live["totals"]["rules"] == 44
 
 
 # --------------------------------------------------------------------------
@@ -222,7 +225,7 @@ def test_the_provenance_field_and_the_description_note_never_disagree(corpus):
     for rule in corpus:
         status = status_for(rule)
         from_note = status["condition_provenance_code"]
-        from_field = status["condition_provenance_field_code"]
+        from_field = status["condition_provenance_code"]
         if from_note is None:
             continue
         assert from_note == from_field, (
@@ -243,7 +246,7 @@ def test_every_rule_reaches_the_interface_with_a_provenance_field(corpus):
     without = [
         status["rule_id"]
         for status in (status_for(rule) for rule in corpus)
-        if status["condition_provenance_field_code"] is None
+        if status["condition_provenance_code"] is None
     ]
 
     assert not without, f"rules reaching the interface with no provenance: {without}"
