@@ -10571,3 +10571,21 @@
   font-style: italic;
   border-bottom: 1px dotted var(--border);
 }
+
+/* Why a rule's condition tree is empty, stated once in the inspector instead
+   of buried in the description alongside two other machine annotations. */
+.condition-provenance-notice {
+  margin: 12px 0 16px;
+}
+
+.condition-provenance-notice .condition-provenance-reason {
+  margin-bottom: 8px;
+}
+
+.condition-provenance-notice .condition-provenance-expression {
+  margin-bottom: 0;
+}
+
+.inspector-pane > .executability-badge {
+  margin-bottom: 4px;
+}

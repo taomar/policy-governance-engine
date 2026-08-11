@@ -48,8 +48,31 @@ export function isEmptyCondition(node: ConditionNode): boolean {
   return false;
 }
 
-export function formatConditionValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
+/**
+ * The machine annotations `formulation_mapping` appends to every description.
+ *
+ * They are the audit trail — which agent, which source element, which DMN
+ * status, why the condition tree is empty — and they belong on the record. They
+ * do not belong in the middle of a sentence a reviewer is reading, where three
+ * of them run together into a block like:
+ *
+ *   "…are subject to the approval of the President. [Formulated by policy agent
+ *    — source: p1-E000008] [DMN mapping: not_directly_mappable] [Conditions:
+ *    no_scope_derived — No conditions were found in the source. …]"
+ *
+ * Stripped for display only; nothing is removed from the record. The
+ * `[Conditions: …]` note is also carried structurally on
+ * `condition_provenance`, which the inspector renders as its own panel — so
+ * hiding it here loses nothing and stops the same fact being read twice in two
+ * different registers.
+ */
+const MACHINE_ANNOTATION = /\s*\[(?:Formulated by|DMN mapping:|Conditions:)[^\]]*\]/g;
+
+export function readableDescription(description: string | undefined | null): string {
+  return (description ?? "").replace(MACHINE_ANNOTATION, "").trim();
+}
+
+export function formatConditionValue(value: unknown): string {  if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return `[${value.map(formatConditionValue).join(", ")}]`;
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);

@@ -40,9 +40,12 @@ import {
   formatConditionValue,
   hasAmbiguityFlag,
   isEmptyCondition,
+  readableDescription,
   ruleDecisionSummary,
   scopeEntries,
 } from "../ruleDisplay";
+import { ExecutabilityBadge } from "./ExecutabilityBadge";
+import { ConditionProvenanceNotice } from "./ConditionProvenanceNotice";
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -249,7 +252,11 @@ export function PolicyInspector({
 
   const overview = (
     <div className="inspector-pane">
-      {rule.description && <Paragraph type="secondary">{rule.description}</Paragraph>}
+      {rule.description && (
+        <Paragraph type="secondary">{readableDescription(rule.description)}</Paragraph>
+      )}
+      <ExecutabilityBadge rule={rule} />
+      <ConditionProvenanceNotice rule={rule} />
       {overviewSupplement}
       <Descriptions column={1} size="small" bordered className="inspector-descriptions">
         <Descriptions.Item label="Rule ID">
