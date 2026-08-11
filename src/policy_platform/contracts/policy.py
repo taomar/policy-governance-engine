@@ -381,6 +381,32 @@ class EvaluationMode(str, Enum):
     AI_READY = "ai_ready"
 
 
+class PolicyFact(BaseModel):
+    """Something a policy is measured against, named by the policy itself.
+
+    `name` is derived from `source_phrase`, and the phrase is carried beside it
+    so the derivation is always checkable. Neither is a fact *path*: a path
+    asserts that some system holds a field at that address, and nothing in a
+    document establishes that. This says only that the policy talks about this
+    thing, which is what a consumer needs in order to point at where it lives
+    in their own data.
+
+    `data_type` is present only when the phrase shows it. Silence means the
+    document named the thing without saying what kind of value it holds, which
+    is more useful to a consumer than a guess.
+    """
+
+    #: Stable identifier derived from the phrase's own words.
+    name: str
+    #: The document's wording, verbatim.
+    source_phrase: str
+    #: Which part the phrase plays in the rule — `threshold`, `authority`,
+    #: `condition`, and so on.
+    role: str
+    #: `money` | `duration` | `number` | `boolean`, or absent.
+    data_type: str | None = None
+
+
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
@@ -438,6 +464,9 @@ class CanonicalRule(BaseModel):
     #: Derived on read from the condition and its required facts, so it can
     #: never disagree with the tree it describes.
     evaluation_mode: EvaluationMode = EvaluationMode.AI_READY
+    #: The things this policy is measured against, named by the policy itself.
+    #: Empty when the sentence names none — a definition, for instance.
+    fact_model: list[PolicyFact] = Field(default_factory=list)
     #: Why `condition` is what it is. Absent on hand-authored rules, which have
     #: no formulation to derive it from.
     condition_provenance: ConditionProvenance | None = None

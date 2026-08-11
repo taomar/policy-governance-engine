@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 
 from policy_platform.contracts.conditions import ConditionNode
 from policy_platform.contracts.formulation import RuleFormulation
+from policy_platform.infrastructure.policy_facts import facts_for
 from policy_platform.contracts.policy import (
     AggregateLimit,
     AggregateLimitContribution,
@@ -135,6 +136,12 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # function of the condition and its required facts, both persisted, so
         # a stored copy could only ever disagree with the tree it describes.
         evaluation_mode=evaluation_mode_from(condition, required_facts),
+        # The facts the policy's own sentence names, re-derived from the
+        # canonical record for the same reason: it is the record, and a second
+        # copy could only drift from it.
+        fact_model=facts_for(formulation.canonical.rule)
+        if formulation and formulation.canonical
+        else [],
     )
 
 

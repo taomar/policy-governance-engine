@@ -78,6 +78,7 @@ from policy_platform.contracts.policy import (
     evaluation_mode_from,
 )
 from policy_platform.infrastructure.evaluability import assess_policy
+from policy_platform.infrastructure.policy_facts import facts_for
 
 #: Canonical rule type -> (platform rule type, effect). Every entry is a
 #: judgement call about the closest *evaluator* semantic, documented here
@@ -1418,6 +1419,7 @@ def formulation_to_candidate_rules(
                 scope=PolicyScope(),
                 condition=condition,
                 evaluation_mode=evaluation_mode_from(condition, required_facts),
+                fact_model=facts_for(canonical_rule),
                 condition_provenance=provenance,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,

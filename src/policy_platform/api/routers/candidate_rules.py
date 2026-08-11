@@ -44,6 +44,7 @@ from policy_platform.infrastructure.formulation_mapping import (
     condition_provenance_for,
 )
 from policy_platform.contracts.policy import evaluation_mode_for
+from policy_platform.infrastructure.policy_facts import facts_for
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 from policy_platform.infrastructure.export import (
     ExportFormat,
@@ -142,6 +143,7 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
             # would disagree about why its condition is empty.
             "condition_provenance": condition_provenance_for(rule.formulation),
             "evaluation_mode": evaluation_mode_for(rule),
+            "fact_model": facts_for(canonical.rule),
         }
     )
 
