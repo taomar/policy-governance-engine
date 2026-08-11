@@ -31,6 +31,7 @@ human formalizing the condition.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from datetime import date
@@ -65,6 +66,7 @@ from policy_platform.contracts.policy import (
     RequiredAttributeRef,
     RequiredFact,
     ReviewStatus,
+    RuleException,
     RuleLineage,
     RulePartyRef,
     RuleType,
@@ -471,6 +473,35 @@ def is_negative_modality(modality: str | None) -> bool:
     """True when the source's modal word forbids rather than requires."""
 
     return bool(_NEGATIVE_MODALITY_RE.match(modality or ""))
+
+
+def _exceptions_for(canonical_rule: CanonicalPolicyRule | None) -> list[RuleException]:
+    """Carry the source's stated exception into the rule's exception list.
+
+    The formulator captures carve-out language in the canonical `exception`
+    field — "Unless otherwise stipulated in the employment contract" on
+    AI-c3e9ccec25, for one — and that text was then dropped here. Across the
+    whole AD-103 corpus no rule carried a single `RuleException`, while the
+    canonical records held the exception text all along.
+
+    Only the description is populated. `condition` and `effect_override` stay
+    None because the source states what the exception *is*, not what it tests
+    or what it changes the outcome to; deriving either would manufacture policy.
+    `RuleException` allows exactly that shape — a prose carve-out with no
+    machine-readable condition — so nothing has to be invented to record it.
+
+    A stable `exception_id` derives from the text rather than a UUID, so
+    re-extracting an unchanged document produces an identical rule and the
+    delta comparison does not report a change that did not happen.
+    """
+
+    if canonical_rule is None:
+        return []
+    text = (canonical_rule.exception or "").strip()
+    if not text:
+        return []
+    digest = hashlib.sha256(" ".join(text.split()).casefold().encode("utf-8")).hexdigest()[:10]
+    return [RuleException(exception_id=f"EXC-{digest}", description=text)]
 
 
 def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
@@ -933,6 +964,7 @@ def formulation_to_candidate_rules(
                 condition=condition,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,
+                exceptions=_exceptions_for(canonical_rule),
                 effective_from=date.today(),
                 machine_executable=machine_executable,
                 ambiguity_status=_ambiguity_for(policy, machine_executable, condition_code),

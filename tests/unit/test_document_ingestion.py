@@ -313,3 +313,67 @@ class TestRealDocx:
         assert rows, "expected at least one table with headers"
         for row in rows:
             assert "; " not in row.text or " | " in row.text
+
+
+class TestWithinPageContinuation:
+    """Merging used to be gated on `index == 0`, so only a page-leading block
+    could ever be joined and a sentence cut mid-page stayed cut.
+
+    Two clauses in AD-103 begin mid-sentence for that reason, and each produced
+    a duplicate rule: the formulator reconstructs the governing sentence from
+    inherited context for the orphaned half, remaking a rule the preceding
+    clause already produced. Two cuts, two duplicate pairs, exact
+    correspondence.
+    """
+
+    def _block(self, kind, text, page=1):
+        return _Block(element_type=kind, lines=[_line(text, page=page)])
+
+    def test_a_bracket_continues_within_a_page(self):
+        """The real cut: "...one employee of the married couple" | "(husband
+        and wife). In the case of...". Both on page 2."""
+
+        previous = self._block(
+            "paragraph", "The housing allowance is limited to one employee of the married couple", page=2
+        )
+        nxt = self._block(
+            "paragraph", "(husband and wife). In the case of a married couple are employed by FBSU", page=2
+        )
+        assert _continues_previous(previous, nxt, same_page=True) is True
+
+    def test_a_lowercase_start_continues_within_a_page(self):
+        """The other real cut: "...is calculated as twice" | "the monthly basic
+        salary up to a maximum of:"."""
+
+        previous = self._block(
+            "paragraph", "The housing allowance per calendar year (12 months) is calculated as twice", page=2
+        )
+        nxt = self._block("paragraph", "the monthly basic salary up to a maximum of:", page=2)
+        assert _continues_previous(previous, nxt, same_page=True) is True
+
+    def test_a_capitalised_block_does_not_continue_within_a_page(self):
+        """Within a page a block break carries layout meaning — spacing, a font
+        change, a new column — so a capitalised block after an unpunctuated one
+        is commonly a genuine new paragraph. Across a page break the same pair
+        does continue, because a sentence does not normally end at a page
+        boundary without punctuation."""
+
+        previous = self._block("paragraph", "The employer shall keep records of", page=2)
+        nxt = self._block("paragraph", "Employees are entitled to annual leave.", page=2)
+        assert _continues_previous(previous, nxt, same_page=True) is False
+        assert _continues_previous(previous, nxt, same_page=False) is True
+
+    def test_a_completed_sentence_never_continues(self):
+        previous = self._block("paragraph", "The housing allowance is paid monthly.", page=2)
+        nxt = self._block("paragraph", "(husband and wife) are both eligible.", page=2)
+        assert _continues_previous(previous, nxt, same_page=True) is False
+
+    def test_a_provision_number_is_still_a_hard_boundary(self):
+        previous = self._block("paragraph", "The housing allowance is limited to one employee of", page=2)
+        nxt = self._block("paragraph", "3.4.2. Transportation allowance is paid separately.", page=2)
+        assert _continues_previous(previous, nxt, same_page=True) is False
+
+    def test_a_list_marker_is_still_a_hard_boundary(self):
+        previous = self._block("paragraph", "The allowance is limited to one employee of", page=2)
+        nxt = self._block("paragraph", "1. the married couple", page=2)
+        assert _continues_previous(previous, nxt, same_page=True) is False

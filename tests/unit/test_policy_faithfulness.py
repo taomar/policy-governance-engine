@@ -480,6 +480,48 @@ class TestSourceConditionReachedCanonical:
         codes = {f.code for f in validate_rule(rule)}
         assert "source_condition_not_captured" not in codes
 
+    def test_a_marker_absorbed_into_the_predicate_is_capture(self):
+        """"The recommendations of the director are subject to the approval of
+        the President" — the dependency IS the rule, with predicate "are
+        subject to". Nothing was dropped.
+
+        Every blocking finding this check produced on the live corpus was this
+        false positive: 3 of 46 rules, all wrong. A blocking finding that is
+        always wrong is worse than no check, because it teaches reviewers that
+        blocking findings are noise.
+        """
+
+        rule = self._rule_losing(
+            "The recommendations of the director are subject to the approval of the President."
+        )
+        pr = rule.formulation.canonical.rule
+        pr.subject = "The recommendations of the director"
+        pr.predicate = "are subject to"
+        pr.object = "the approval of the President"
+        codes = {f.code for f in validate_rule(rule)}
+        assert "source_condition_not_captured" not in codes
+
+    def test_a_marker_absorbed_into_the_object_is_capture(self):
+        rule = self._rule_losing("Paid depending on the recommendation of the director.")
+        pr = rule.formulation.canonical.rule
+        pr.subject = "Payment"
+        pr.predicate = "depends"
+        pr.object = "depending on the recommendation of the director"
+        codes = {f.code for f in validate_rule(rule)}
+        assert "source_condition_not_captured" not in codes
+
+    def test_a_marker_nowhere_in_the_record_still_fires(self):
+        """Guard the exemption: it must be the absorbed marker doing the work,
+        not the check having gone quiet."""
+
+        rule = self._rule_losing("The allowance is paid if the trial period has ended.")
+        pr = rule.formulation.canonical.rule
+        pr.subject = "The allowance"
+        pr.predicate = "is paid"
+        pr.object = "monthly"
+        codes = {f.code for f in validate_rule(rule)}
+        assert "source_condition_not_captured" in codes
+
     def test_provided_as_a_participle_is_not_a_condition(self):
         """"housing provided by FBSU" is not conditional language. Only
         "provided that" counts, or the check fires on every benefit sentence."""

@@ -934,11 +934,29 @@ async def extract_candidate_rules(
                 # reviewer should skim past. Escalated rather than merely
                 # logged, because the finding is worthless if the only place it
                 # appears is a server log nobody reads.
-                flagged = {f.rule_id for f in blocking}
+                #
+                # Duplicates escalate too, despite being `warning`. Severity
+                # measures how wrong the rule is on its own terms — a duplicate
+                # is individually faithful to the sentence it cites, so it is
+                # not blocking — but resolving one still needs a person, and the
+                # decision is not obvious: which copy to keep depends on which
+                # clause carries the better evidence. A finding that only a
+                # reviewer can act on has to reach the reviewer.
+                needs_person = {
+                    f.rule_id
+                    for f in faithfulness
+                    if f.severity == "blocking" or f.code == "duplicate_rule"
+                }
+                duplicates = {f.rule_id for f in faithfulness if f.code == "duplicate_rule"}
                 for rule in drafted:
-                    if rule.rule_id not in flagged:
+                    if rule.rule_id not in needs_person:
                         continue
                     rule.ambiguity_status = AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+                    # Tagged as well as escalated: `ambiguity_status` says a
+                    # person is needed and not why, and "pick one of these two"
+                    # is a different job from "check this against the source".
+                    if rule.rule_id in duplicates and "duplicate-of-another-rule" not in rule.tags:
+                        rule.tags = [*rule.tags, "duplicate-of-another-rule"]
                     candidate = persisted.get(rule.rule_id)
                     if candidate is not None:
                         candidate.payload_json = rule.model_dump(mode="json")

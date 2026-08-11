@@ -108,7 +108,7 @@ _PROVISION_START_RE = re.compile(
     r"|\u0627\u0644\u0645\u0627\u062F\u0629\b"   # Arabic "the Article"
     r"|\u0627\u0644\u0641\u0635\u0644\b"          # Arabic "the Chapter"
     r"|\u0627\u0644\u0628\u0627\u0628\b"          # Arabic "the Part"
-    r"|\d{1,3}(?:\.\d{1,3}){1,4}\s"               # 7.2.1
+    r"|\d{1,3}(?:\.\d{1,3}){1,4}\.?\s"            # 7.2.1   and   3.4.2.
     r")"
 )
 
@@ -773,6 +773,59 @@ def _classify_line(line: _Line, body_size: float) -> ElementType:
     return "paragraph"
 
 
+def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
+    """Classify a page's lines, then demote headings the next line contradicts.
+
+    `_classify_line` sees one line at a time, and the font-size rule inside it
+    is trusted on its own. That is right for a genuine label and wrong for a
+    sentence that merely happens to be set in a larger face — and AD-103 has
+    both. These two lines were classified `heading`:
+
+        "The housing allowance per calendar year (12 months) is calculated as twice"
+        "The housing allowance is limited to one employee of the married couple"
+
+    Neither is a label. Each is the first half of a sentence whose second half
+    is the following line ("the monthly basic salary up to a maximum of:",
+    "(husband and wife). In the case of..."). Classified as headings they could
+    never be merged — `_continues_previous` requires a paragraph or list item
+    as the predecessor — so the sentence stayed cut, and the formulator
+    reconstructed the governing sentence for the orphaned half and produced a
+    duplicate rule.
+
+    A following line that begins lowercase, or with an opening bracket, is
+    direct evidence that the line before it did not finish. A heading does not
+    have a continuation. So the pair overrules the font.
+
+    This mirrors the guard the text-pattern branch of `_classify_line` already
+    carries, and for the reason stated there: a heading demoted to a paragraph
+    is a redundant element, whereas a rule promoted to a heading disappears
+    from extraction entirely.
+    """
+
+    kinds = [_classify_line(line, body_size) for line in lines]
+    for index, kind in enumerate(kinds):
+        if kind != "heading":
+            continue
+        nxt = next(
+            (
+                line.text.strip()
+                for line in lines[index + 1 :]
+                if line.text.strip() and not line.is_boilerplate
+            ),
+            "",
+        )
+        if not nxt:
+            continue
+        # A hard boundary in the next line means the heading stands: a new
+        # provision or list item is its own start, not a continuation.
+        if _PROVISION_START_RE.match(nxt) or _LIST_MARKER_RE.match(nxt):
+            continue
+        first = nxt[:1]
+        if first.islower() or first in "([":
+            kinds[index] = "paragraph"
+    return kinds
+
+
 def _build_blocks(lines: list[_Line], table_blocks: list[_Block], body_size: float) -> list[_Block]:
     """Group a page's lines into logical blocks, then interleave table rows.
 
@@ -787,8 +840,11 @@ def _build_blocks(lines: list[_Line], table_blocks: list[_Block], body_size: flo
     current: _Block | None = None
     previous: _Line | None = None
     leading = _typical_leading(lines)
+    # Classified for the whole page up front, so a heading can be demoted by the
+    # line that follows it — see `_classify_lines`.
+    kinds = _classify_lines(lines, body_size)
 
-    for line in lines:
+    for index, line in enumerate(lines):
         if line.is_boilerplate or not line.text.strip():
             previous = line
             continue
@@ -799,7 +855,7 @@ def _build_blocks(lines: list[_Line], table_blocks: list[_Block], body_size: flo
             previous = line
             continue
 
-        kind = _classify_line(line, body_size)
+        kind = kinds[index]
         gap = (line.top - previous.bottom) if previous is not None else 0.0
         paragraph_break = previous is not None and leading > 0 and gap > leading * 1.6
 
@@ -897,13 +953,37 @@ def _ends_open(text: str) -> bool:
     return not stripped.endswith(_TERMINAL_PUNCTUATION)
 
 
-def _continues_previous(previous: _Block, nxt: _Block) -> bool:
-    """Decide whether a page-leading block continues the previous page's block.
+def _continues_previous(previous: _Block, nxt: _Block, *, same_page: bool = False) -> bool:
+    """Decide whether a block continues the previous one.
 
     Uses several structural signals together rather than one heuristic (spec
     section 9), because any single signal misfires: plenty of legitimate
     paragraphs start lowercase, and plenty of continuations start with a capital
     proper noun.
+
+    `same_page` tightens the last rule. Across a page break, an open-ended
+    previous block followed by anything that is not a heading or a provision is
+    treated as a continuation, because a sentence does not normally end at a
+    page boundary without punctuation. Within a page that reasoning does not
+    hold: blocks are also split for layout reasons — spacing, font change, a new
+    column — and a capitalised block after an unpunctuated one is commonly a
+    genuine new paragraph. So within a page the next block must *itself* look
+    like a continuation: lowercase, or opening with punctuation such as a
+    bracket.
+
+    This was originally reachable only for page-leading blocks, which left
+    mid-page breaks unmerged. Two clauses in AD-103 begin mid-sentence for that
+    reason:
+
+        "the monthly basic salary up to a maximum of:"
+        "(husband and wife). In the case of a married couple are employed by FBSU"
+
+    the second being the tail of "The housing allowance is limited to one
+    employee of the married couple (husband and wife). In the case of…". The
+    formulator then reconstructs the governing sentence from inherited context
+    for the orphaned half and produces a rule the preceding clause already
+    produced — two mid-sentence cuts, two duplicate rule pairs, exact
+    correspondence.
     """
 
     if previous.element_type not in ("paragraph", "list_item"):
@@ -930,8 +1010,9 @@ def _continues_previous(previous: _Block, nxt: _Block) -> bool:
         return True
     # An open-ended previous paragraph plus a non-heading, non-provision
     # continuation is still a continuation even when capitalized, since the
-    # break mid-sentence is itself strong evidence.
-    return True
+    # break mid-sentence is itself strong evidence — but only across a page
+    # boundary, where a break carries no layout meaning.
+    return not same_page
 
 
 def _assemble_elements(page_blocks: list[list[_Block]]) -> list[CanonicalElement]:
@@ -940,7 +1021,11 @@ def _assemble_elements(page_blocks: list[list[_Block]]) -> list[CanonicalElement
     merged: list[_Block] = []
     for blocks in page_blocks:
         for index, block in enumerate(blocks):
-            if index == 0 and merged and _continues_previous(merged[-1], block):
+            # `index == 0` used to gate this entirely, so only a page-leading
+            # block could ever be merged and a sentence cut mid-page stayed cut.
+            # Both signals now run, with the within-page case held to the
+            # stricter test — see `_continues_previous`.
+            if merged and _continues_previous(merged[-1], block, same_page=index > 0):
                 merged[-1].lines.extend(block.lines)
                 continue
             merged.append(block)

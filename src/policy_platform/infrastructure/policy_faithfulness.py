@@ -354,8 +354,9 @@ _CONDITION_BEARING_FIELDS = (
 
 def check_source_conditions_reached_canonical(
     rule: CanonicalRule,
+    siblings: "list[CanonicalRule] | None" = None,
 ) -> FaithfulnessFinding | None:
-    """The source states a condition and the canonical record captured none.
+    """The source states a condition and nothing captured it.
 
     This is the check that can see real loss, and it did not exist. Its
     sibling above compares against `canonical.rule.condition` and so can only
@@ -363,9 +364,18 @@ def check_source_conditions_reached_canonical(
     from the record it is auditing cannot report that record as empty.
 
     The lossy step is source text -> canonical decomposition, so that is where
-    this reads. It asks only whether *something* conditional was captured, in
-    any condition-bearing field, and never what the test should be: deciding
-    that would manufacture policy the document did not write.
+    this reads. It asks only whether *something* conditional was captured, and
+    never what the test should be: deciding that would manufacture policy the
+    document did not write.
+
+    `siblings` are the other rules formulated from the same sentence, and they
+    matter because one sentence legitimately becomes several rules. "3.2.3.
+    Increase due to inflation with a percentage not exceeding 5% of the
+    employee's basic salary, and subject to the judgment and approval of the
+    Board of Trustees" became two: one carrying the 5% limit, one carrying the
+    Board's approval. Judged alone the first appears to have dropped "subject
+    to"; judged with its sibling the sentence is fully captured, and it was
+    reported blocking for a decomposition that had lost nothing.
     """
 
     formulation = rule.formulation
@@ -377,12 +387,34 @@ def check_source_conditions_reached_canonical(
     if not match:
         return None
 
-    policy_rule = canonical.rule
-    captured = any(
-        (getattr(policy_rule, field, None) or "").strip()
-        for field in _CONDITION_BEARING_FIELDS
-    )
-    if captured:
+    marker = " ".join(match.group(0).split()).casefold()
+
+    def captures(candidate: CanonicalRule) -> bool:
+        can = candidate.formulation.canonical if candidate.formulation else None
+        if can is None or (can.source_text or "") != source:
+            return False
+        policy_rule = can.rule
+        if any(
+            (getattr(policy_rule, field, None) or "").strip()
+            for field in _CONDITION_BEARING_FIELDS
+        ):
+            return True
+        # The marker may be absorbed into the rule's own predicate or object
+        # rather than placed in a condition-bearing field, and that is capture
+        # too: in "The recommendations of the director are subject to the
+        # approval of the President" the dependency *is* the rule. Without
+        # this, every blocking finding the check produced on the live corpus
+        # was a false positive — 3 of 46 rules — which is worse than no check,
+        # because it teaches reviewers that blocking findings are noise.
+        absorbed = " ".join(
+            (getattr(policy_rule, field, None) or "")
+            for field in ("subject", "predicate", "object")
+        )
+        return marker in " ".join(absorbed.split()).casefold()
+
+    if captures(rule):
+        return None
+    if siblings and any(captures(other) for other in siblings if other is not rule):
         return None
 
     return FaithfulnessFinding(
@@ -435,14 +467,20 @@ def check_action_is_not_a_fragment(rule: CanonicalRule) -> FaithfulnessFinding |
     return None
 
 
-def validate_rule(rule: CanonicalRule) -> list[FaithfulnessFinding]:
-    """Every faithfulness check, for one rule."""
+def validate_rule(
+    rule: CanonicalRule, siblings: "list[CanonicalRule] | None" = None
+) -> list[FaithfulnessFinding]:
+    """Every faithfulness check, for one rule.
+
+    `siblings` lets the checks that need corpus context see it. Passed rather
+    than looked up, so a single rule can still be validated on its own.
+    """
 
     findings: list[FaithfulnessFinding] = []
     for single in (
         check_negation_preserved(rule),
         check_conditions_represented(rule),
-        check_source_conditions_reached_canonical(rule),
+        check_source_conditions_reached_canonical(rule, siblings),
         check_action_is_not_a_fragment(rule),
     ):
         if single is not None:
@@ -460,7 +498,7 @@ def validate_rules(rules: list[CanonicalRule]) -> list[FaithfulnessFinding]:
     outside both.
     """
 
-    findings = [finding for rule in rules for finding in validate_rule(rule)]
+    findings = [finding for rule in rules for finding in validate_rule(rule, rules)]
     findings.extend(find_duplicate_rules(rules))
     return findings
 
