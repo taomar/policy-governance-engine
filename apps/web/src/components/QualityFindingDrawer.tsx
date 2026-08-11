@@ -232,6 +232,10 @@ function standardFor(finding: QualityFinding): FindingStandard {
 
 function conditionFacts(node: ConditionNode): string[] {
   if (node.type === "factComparison") return [node.fact];
+  // Both operands, matching the evaluator: a relative comparison depends on
+  // the fact it compares against just as much as the one it compares, so
+  // omitting it would understate what two rules actually share.
+  if (node.type === "factRelativeComparison") return [node.fact, node.reference.fact];
   if (node.type === "not") return conditionFacts(node.not);
   return (node.type === "all" ? node.all : node.any).flatMap(conditionFacts);
 }

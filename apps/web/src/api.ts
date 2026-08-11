@@ -200,6 +200,28 @@ export interface FactComparisonCondition {
   value: unknown;
 }
 
+/**
+ * A right-hand side that names another fact instead of a literal value.
+ * `factor` scales it before comparison, so 0.10 encodes "10% of".
+ */
+export interface FactOperand {
+  fact: string;
+  factor: number;
+}
+
+/**
+ * Compares a fact against a multiple of *another* fact — "an annual increase
+ * not exceeding 10% of the employee's current basic salary". Distinct from
+ * `factComparison` because both sides are fact paths, so both must be shown
+ * and both are required at evaluation time.
+ */
+export interface FactRelativeComparisonCondition {
+  type: "factRelativeComparison";
+  fact: string;
+  operator: ConditionOperator;
+  reference: FactOperand;
+}
+
 export interface AllCondition {
   type: "all";
   all: ConditionNode[];
@@ -215,7 +237,12 @@ export interface NotCondition {
   not: ConditionNode;
 }
 
-export type ConditionNode = FactComparisonCondition | AllCondition | AnyCondition | NotCondition;
+export type ConditionNode =
+  | FactComparisonCondition
+  | FactRelativeComparisonCondition
+  | AllCondition
+  | AnyCondition
+  | NotCondition;
 
 export interface Effect {
   // "informational": the rule states vocabulary/classification (definition,

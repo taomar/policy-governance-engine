@@ -6,7 +6,7 @@
  * `ConditionView`, so "what does this rule say" is rendered identically
  * everywhere instead of drifting between a summary and the full view.
  */
-import type { CanonicalRule, ConditionNode, Effect, PolicyScope } from "./api";
+import type { CanonicalRule, ConditionNode, Effect, FactOperand, PolicyScope } from "./api";
 
 /** Symbol shown for each condition operator — kept as the single source of
  * truth for both the full condition tree (`ConditionView`) and the short
@@ -61,8 +61,41 @@ function leafText(node: Extract<ConditionNode, { type: "factComparison" }>): str
   return showValue ? `${node.fact} ${symbol} ${formatConditionValue(node.value)}` : `${node.fact} ${symbol}`;
 }
 
+/**
+ * The proportion a `FactOperand` applies, as the percentage the policy stated
+ * ("10%"), or null when the operand is the plain fact.
+ */
+export function formatFactor(factor: number): string | null {
+  if (factor === 1) return null;
+  const percent = factor * 100;
+  // Guard against binary-float artefacts (0.07 * 100 = 7.000000000000001).
+  return `${Number.isInteger(percent) ? percent : Number(percent.toFixed(6))}%`;
+}
+
+/**
+ * Renders "10% of employee.compensation.basic_salary" rather than the raw
+ * `0.1` factor. A reviewer checking a rule against the policy text is looking
+ * for the percentage the document states, so showing the multiplier instead
+ * would make them do the arithmetic to confirm the rule says what the
+ * document says.
+ *
+ * A factor of exactly 1 is the plain fact, with no proportion to state.
+ */
+export function formatFactOperand(operand: FactOperand): string {
+  const factor = formatFactor(operand.factor);
+  return factor ? `${factor} of ${operand.fact}` : operand.fact;
+}
+
+function relativeLeafText(
+  node: Extract<ConditionNode, { type: "factRelativeComparison" }>,
+): string {
+  const symbol = OPERATOR_SYMBOLS[node.operator] ?? node.operator;
+  return `${node.fact} ${symbol} ${formatFactOperand(node.reference)}`;
+}
+
 function collectLeafTexts(node: ConditionNode): string[] {
   if (node.type === "factComparison") return [leafText(node)];
+  if (node.type === "factRelativeComparison") return [relativeLeafText(node)];
   if (node.type === "all") return node.all.flatMap(collectLeafTexts);
   if (node.type === "any") return node.any.flatMap(collectLeafTexts);
   return [`NOT (${collectLeafTexts(node.not).join(" · ")})`];
@@ -86,6 +119,9 @@ export interface ConditionSummary {
 export function summarizeCondition(node: ConditionNode, maxTerms = 3): ConditionSummary {
   if (node.type === "factComparison") {
     return { text: leafText(node), termCount: 1, truncated: false };
+  }
+  if (node.type === "factRelativeComparison") {
+    return { text: relativeLeafText(node), termCount: 1, truncated: false };
   }
   if (node.type === "not") {
     const inner = summarizeCondition(node.not, maxTerms);

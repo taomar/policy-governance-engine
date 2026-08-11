@@ -1,6 +1,6 @@
 import { Tree, Typography } from "antd";
 import type { ConditionNode } from "../api";
-import { OPERATOR_SYMBOLS, formatConditionValue as formatValue } from "../ruleDisplay";
+import { OPERATOR_SYMBOLS, formatConditionValue as formatValue, formatFactor } from "../ruleDisplay";
 
 const { Text } = Typography;
 
@@ -33,6 +33,34 @@ function buildTreeData(node: ConditionNode): TreeDatum {
               {formatValue(node.value)}
             </Text>
           )}
+        </span>
+      ),
+    };
+  }
+
+  if (node.type === "factRelativeComparison") {
+    const symbol = OPERATOR_SYMBOLS[node.operator] ?? node.operator;
+    // The referenced fact is rendered with the same `cond-fact` treatment as
+    // the subject, because it is a fact path the fact model must supply too —
+    // styling it as a literal value would hide that it is a second input.
+    return {
+      key,
+      title: (
+        <span className="cond-leaf">
+          <Text code className="cond-fact">
+            {node.fact}
+          </Text>
+          <Text strong className="cond-op">
+            {symbol}
+          </Text>
+          {node.reference.factor !== 1 && (
+            <Text keyboard className="cond-value">
+              {formatFactor(node.reference.factor)} of
+            </Text>
+          )}
+          <Text code className="cond-fact">
+            {node.reference.fact}
+          </Text>
         </span>
       ),
     };
