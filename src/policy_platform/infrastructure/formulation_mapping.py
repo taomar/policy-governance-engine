@@ -476,10 +476,16 @@ def is_negative_modality(modality: str | None) -> bool:
 def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
     """Whether an LLM can decide this rule, and what it needs to do so.
 
-    Built here, beside `machine_executable`, so the two travel together and a
-    reader can see they answer different questions: that flag is about the FEEL
-    evaluator and is False for every AI-extracted rule, while this is about the
-    LLM that actually evaluates the shipped JSON against a customer's case.
+    Deliberately *not* written into the stored payload. It is a pure function
+    of `formulation.canonical`, which is persisted, so the read paths derive it
+    and the two can never disagree.
+
+    That is not a style preference — it was learned. An earlier version stored
+    it at extraction time, and when the assessment was corrected (a
+    `classification` carrying a 5% threshold was being reported as stating no
+    decision) every already-extracted rule kept the stale verdict, because the
+    stored copy shadowed the fix. Re-extracting a document to pick up a change
+    in a derivation over data already on disk is the wrong price to pay.
 
     Everything in it is quoted from the canonical record. Nothing is inferred
     from wording similarity, and no fact path or org-model identifier is
@@ -929,7 +935,6 @@ def formulation_to_candidate_rules(
                 required_facts=required_facts,
                 effective_from=date.today(),
                 machine_executable=machine_executable,
-                decision_readiness=_decision_readiness_for(policy),
                 ambiguity_status=_ambiguity_for(policy, machine_executable, condition_code),
                 review_status=ReviewStatus.CANDIDATE,
                 evidence=rule_evidence,

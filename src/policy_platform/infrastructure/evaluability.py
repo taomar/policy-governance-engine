@@ -180,6 +180,22 @@ _NON_DECISION_TYPES = frozenset(
     }
 )
 
+#: Fields whose presence overrides a non-decision rule type.
+#:
+#: The type alone is not enough. "Increase due to inflation not exceeding 5% of
+#: the employee's basic salary" arrived typed `classification` and carrying
+#: `threshold: "5% of the employee's basic salary"` — reporting that as "states
+#: meaning only" told a reviewer there was nothing to evaluate while the cap sat
+#: in the record. A reviewer asking "what is the limit?" gets an answer from
+#: that rule, so it is a decision whatever it was labelled.
+#:
+#: `object` and `condition` are deliberately excluded: a genuine definition has
+#: both. "Basic salary means the monthly salary before allowances" carries an
+#: object, and "for the purposes of this section, X means Y" carries a
+#: condition. Neither states a limit. Only value-bearing fields override, and a
+#: definition does not carry a limit.
+_VALUE_BEARING_FIELDS: tuple[str, ...] = ("threshold", "constraint", "calculation")
+
 #: Deontic permission operators. A permissive modal *is* a discretion signal:
 #: "may" grants latitude rather than stating a test, which is why a rule
 #: carrying one and no threshold is delegated rather than incomplete.
@@ -277,10 +293,14 @@ def assess(rule: CanonicalPolicyRule | None, source_text: str = "") -> Evaluabil
         )
 
     if rule.rule_type in _NON_DECISION_TYPES:
-        return verdict(
-            Evaluability.NOT_A_DECISION,
-            f"canonical rule_type is '{rule.rule_type.value}', which states no decision",
-        )
+        stated_value = [
+            f for f in _VALUE_BEARING_FIELDS if (getattr(rule, f, None) or "").strip()
+        ]
+        if not stated_value:
+            return verdict(
+                Evaluability.NOT_A_DECISION,
+                f"canonical rule_type is '{rule.rule_type.value}', which states no decision",
+            )
 
     if not (rule.subject or "").strip():
         return verdict(

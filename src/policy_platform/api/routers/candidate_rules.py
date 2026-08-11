@@ -108,21 +108,21 @@ def _to_response(candidate) -> CandidateRuleResponse:
 
 
 def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
-    """Fill in the readiness assessment for a rule stored before it existed.
+    """Derive the readiness assessment from the rule's canonical record.
 
-    It is a pure function of `formulation.canonical`, which every extracted
-    rule already carries, so deriving it on read costs nothing and means the
-    rules already in the database gain it without being re-extracted — the
-    alternative was a re-run per document to populate a field computable from
-    what is on disk.
+    Always recomputed, never read from the stored payload. It is a pure
+    function of `formulation.canonical`, which is persisted, so deriving it
+    costs nothing and keeps one source of truth.
 
-    A stored value always wins. Once an extraction writes one, this must not
-    silently recompute it, or a rule's shipped JSON would change underneath a
-    reviewer whenever the derivation was edited.
+    An earlier version preferred a stored copy when present, on the reasoning
+    that a shipped value should not change underneath a reviewer. That was
+    wrong in the direction that matters: when the assessment was corrected — a
+    `classification` carrying a 5% threshold had been reported as stating no
+    decision — every rule extracted before the fix kept the stale verdict,
+    because the stored copy shadowed it. A derivation that cannot be improved
+    without re-running extraction over the whole corpus is not a derivation.
     """
 
-    if rule.decision_readiness is not None:
-        return rule
     if rule.formulation is None or rule.formulation.canonical is None:
         return rule
     return rule.model_copy(

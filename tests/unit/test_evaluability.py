@@ -341,6 +341,44 @@ class TestNotADecision:
         )
         assert result.evaluability is Evaluability.NOT_A_DECISION
 
+    def test_a_definition_with_an_object_is_still_not_a_decision(self) -> None:
+        """A genuine definition has an object. If `object` overrode the type,
+        every definition in the document would be reported as decidable."""
+
+        result = assess(
+            CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.DEFINITION,
+                subject="Basic salary",
+                predicate="means",
+                object="the monthly salary before allowances",
+                condition="for the purposes of this section",
+            )
+        )
+        assert result.evaluability is Evaluability.NOT_A_DECISION
+
+    def test_a_classification_carrying_a_threshold_is_a_decision(self) -> None:
+        """Found on live data after re-extraction.
+
+        "Increase due to inflation not exceeding 5% of the employee's basic
+        salary" arrived typed `classification` with a populated threshold.
+        Reporting it as "states meaning only" told a reviewer there was nothing
+        to evaluate while the 5% cap sat in the record — a reviewer asking
+        "what is the limit?" gets an answer from that rule, so it is a decision
+        whatever it was labelled. The fields are evidence; the type is a label.
+        """
+
+        result = assess(
+            CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.CLASSIFICATION,
+                subject="Increase due to inflation",
+                predicate="not exceeding",
+                object="5% of the employee’s basic salary",
+                constraint="with a percentage not exceeding 5% of the employee’s basic salary",
+                threshold="5% of the employee’s basic salary",
+            )
+        )
+        assert result.evaluability is Evaluability.DECIDABLE
+
     def test_definition_still_reports_its_attributes(self) -> None:
         """A definition is not evaluated, but the terms it defines are exactly
         what an evaluator must recognise elsewhere, so the list is still

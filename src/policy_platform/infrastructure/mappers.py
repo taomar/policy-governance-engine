@@ -90,10 +90,11 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # it is not the rule that was published — see migration e4c7a2b8d190.
         formulation=formulation,
         # Derived on read rather than stored in its own column. It is a pure
-        # function of `formulation.canonical`, which is already persisted, so
-        # a second copy could only ever disagree with the record it came from —
-        # and a rule approved before this existed would carry an empty one
-        # forever. Deriving it means every already-approved rule gains it.
+        # function of `formulation.canonical`, which is already persisted, so a
+        # second copy could only ever disagree with the record it came from —
+        # and correcting the assessment would leave every rule approved before
+        # the fix carrying the stale verdict. Deriving it means a correction
+        # applies everywhere at once.
         decision_readiness=(
             _decision_readiness_for(formulation.canonical)
             if formulation and formulation.canonical
