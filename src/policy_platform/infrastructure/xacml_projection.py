@@ -281,13 +281,14 @@ def _modality_for(rule: CanonicalPolicyRule) -> NormativeModality | None:
     projected to Permit, including three that read "shall not exceed…", "will
     not be enrolled…" and "will not bear any responsibility".
 
-    `is_negative_modality` is the platform's existing test, already used to
-    stop the same defect reaching `Effect.type`. It is imported rather than
+    `states_a_negation` is the platform's existing test, already used to stop
+    the same defect reaching `Effect.type`. It is imported rather than
     re-implemented: two definitions of what counts as a negation is how one of
-    them ends up not counting "may not".
+    them ends up not counting "may not" — or, as happened here, not counting a
+    negation the sentence wrote into its predicate rather than its modal word.
     """
 
-    from policy_platform.infrastructure.formulation_mapping import is_negative_modality
+    from policy_platform.infrastructure.formulation_mapping import states_a_negation
 
     base = {
         CanonicalRuleType.OBLIGATION: NormativeModality.OBLIGATION,
@@ -308,7 +309,7 @@ def _modality_for(rule: CanonicalPolicyRule) -> NormativeModality | None:
     # "X does not mean Y" still defines rather than forbids.
     if base is NormativeModality.DEFINITION:
         return base
-    if is_negative_modality(rule.modality):
+    if states_a_negation(rule):
         return NormativeModality.PROHIBITION
     return base
 

@@ -32,6 +32,10 @@ from policy_platform.contracts.xacml_projection import NormativeModality, RuleEf
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 
 
+def _rule(rule_type: CanonicalRuleType, modality: str | None, **fields) -> CanonicalPolicyRule:
+    return CanonicalPolicyRule(rule_type=rule_type, modality=modality, **fields)
+
+
 def _view(rule_type: CanonicalRuleType, modality: str | None, **fields):
     policy = CanonicalPolicy(
         source_text=fields.pop("source_text", "A stated rule."),
@@ -125,10 +129,48 @@ def test_the_negation_test_is_shared_with_the_rest_of_the_platform():
     how one of them ends up not counting "may not".
     """
 
-    from policy_platform.infrastructure.formulation_mapping import is_negative_modality
+    from policy_platform.infrastructure.formulation_mapping import states_a_negation
 
     for modality in _NEGATIONS:
-        assert is_negative_modality(modality) is True
+        assert states_a_negation(_rule(CanonicalRuleType.OBLIGATION, modality)) is True
         view = _view(CanonicalRuleType.OBLIGATION, modality, subject="a", predicate="do")
         assert view is not None
         assert view.xacml_projection.effect is RuleEffect.DENY
+
+
+@pytest.mark.parametrize("predicate", ["not exceeding", "never granted", "not to be paid"])
+def test_a_negation_written_into_the_predicate_still_forbids(predicate):
+    """The sentence chooses the slot; the meaning is the same either way.
+
+    "shall not exceed 10% of the base" and "not exceeding 5% of the base" state
+    bounds of identical force. Reading only the modal word classified the first
+    as a prohibition and the second as an obligation, so two such rules were
+    badged "Prohibits" and "Requires" in one list — and the second told a
+    decision point to carry out the very thing the document limits.
+    """
+
+    view = _view(
+        CanonicalRuleType.CONDITIONAL_OUTCOME, None, subject="the increase", predicate=predicate
+    )
+
+    assert view is not None
+    assert view.xacml_projection.effect is RuleEffect.DENY
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["no less than three months", "no later than the first working day", "no more than"],
+)
+def test_a_comparative_no_is_not_read_as_a_prohibition(predicate):
+    """A floor obliges; it does not forbid.
+
+    "no less than three months" requires at least three months. Reading its
+    "no" as a negation would turn a requirement into a ban — the same inversion
+    this module exists to prevent, arrived at from the opposite direction.
+    """
+
+    from policy_platform.infrastructure.formulation_mapping import states_a_negation
+
+    assert states_a_negation(_rule(CanonicalRuleType.OBLIGATION, None, predicate=predicate)) is (
+        False
+    )

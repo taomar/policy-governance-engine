@@ -1019,11 +1019,44 @@ _NEGATIVE_MODALITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "no less than", "no more than", "no later than" — a bound, not a ban. The
+#: bare `no` in `_NEGATIVE_MODALITY_RE` would otherwise read a floor as a
+#: prohibition and invert the rule it describes.
+_COMPARATIVE_NO_RE = re.compile(
+    r"^\s*no\s+(?:less|more|fewer|greater|later|earlier|sooner)\b", re.IGNORECASE
+)
+
 
 def is_negative_modality(modality: str | None) -> bool:
     """True when the source's modal word forbids rather than requires."""
 
     return bool(_NEGATIVE_MODALITY_RE.match(modality or ""))
+
+
+def states_a_negation(rule: CanonicalPolicyRule | None) -> bool:
+    """True when the sentence forbids, wherever it wrote the negation.
+
+    Source text puts it in either slot and means the same thing: "shall not
+    exceed 10% of the base" and "not exceeding 5% of the base" are both bounds.
+    Reading only `modality` classified the first as a prohibition and the
+    second as an obligation, so two sentences of identical force were badged
+    "Prohibits" and "Requires" in the same list — and the second told a
+    decision point to carry out the thing the document limits.
+
+    A comparative "no" is excluded. "no less than three months" sets a floor
+    and obliges; it does not forbid, and reading its "no" as a prohibition
+    would invert a requirement into a ban. Measured over the corpus, the rule
+    change flips exactly one record and it is the one written "not exceeding".
+    """
+
+    if rule is None:
+        return False
+    if is_negative_modality(rule.modality):
+        return True
+    predicate = (rule.predicate or "").strip()
+    if _COMPARATIVE_NO_RE.match(predicate):
+        return False
+    return is_negative_modality(predicate)
 
 
 def _exceptions_for(canonical_rule: CanonicalPolicyRule | None) -> list[RuleException]:
@@ -1452,16 +1485,22 @@ def formulation_to_candidate_rules(
         if guidance:
             rule_type, effect_type = RuleType.DEFINITION, EffectType.INFORMATIONAL
 
-        # A negated modality forbids; it never obliges or permits.
+        # A negated sentence forbids; it never obliges or permits.
         #
         # The rule type alone does not carry the negation — "shall not exceed
         # 10%" and "shall exceed 10%" are both `conditional_outcome` — so an
         # effect derived from the type inverted the policy and told a decision
-        # point to do the forbidden thing. The modal word is in the canonical
+        # point to do the forbidden thing. The negation is in the canonical
         # record, read from the source, so honouring it asserts nothing new.
-        elif effect_type in (EffectType.REQUIRE_ACTION, EffectType.ALLOW) and is_negative_modality(
-            canonical_rule.modality
-        ):
+        #
+        # Read from the modal word *and* the predicate, because source text
+        # uses both: "shall not exceed" and "not exceeding" state the same
+        # bound, and reading only the first badged them "Prohibits" and
+        # "Requires" in the same list.
+        elif effect_type in (
+            EffectType.REQUIRE_ACTION,
+            EffectType.ALLOW,
+        ) and states_a_negation(canonical_rule):
             rule_type, effect_type = RuleType.PROHIBITION, EffectType.DENY
 
         decisions = formulation.decisions_for(index)
