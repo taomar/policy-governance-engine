@@ -830,21 +830,21 @@ export function PolicyInspector({
           ]}
         />
       </div>
-      <div className="json-view-caption">
-        <div className="json-view-title">
-          <CodeOutlined /> {selectedJson.title}
-        </div>
-        <Text type="secondary" className="json-view-caption-text">
-          {selectedJson.description}
-        </Text>
-      </div>
+      {/* One compact line of chrome. The heading repeated the label already on
+          the selected segment, and the sentence beneath it explained a record
+          the reader is looking straight at — together they cost more height
+          than the JSON was given. Provenance stays, because it is the one
+          thing here that is not visible in the record itself, but on the same
+          row and behind a tooltip rather than a paragraph. */}
       {activeJsonVariant !== "evaluator" && rule.formulation && (
-        <div className="extraction-source-banner">
-          <Text type="secondary" className="extraction-source-banner-label">
-            <FileTextOutlined /> Extracted from:
-          </Text>
+        <div className="json-view-provenance">
+          <Tooltip title={selectedJson.description}>
+            <Text type="secondary" className="json-view-provenance-label">
+              <FileTextOutlined /> Extracted from
+            </Text>
+          </Tooltip>
           {sourceLabels.length > 0 ? (
-            <Space size={4} wrap>
+            <Space size={4} wrap className="json-view-provenance-list">
               {sourceLabels.map((label) => (
                 <Tag key={label}>{label}</Tag>
               ))}
@@ -953,7 +953,7 @@ export function PolicyInspector({
                 </>
               )}
             </Text>
-            <Space size={4} wrap>
+            <Space size={4} wrap className="policy-inspector-variations-list">
               {variations.members.map((m) => {
                 const isCurrent = m.rule_id === rule.rule_id;
                 const label =

@@ -543,9 +543,10 @@ def test_grounded_but_uncompilable_never_becomes_executable(payload):
 def test_platform_limit_does_not_blame_the_fact_model():
     """The defect this whole module exists to prevent.
 
-    The old message said "a reviewer must supply the missing mapping" for a
-    rule whose mapping was already supplied and correct — sending a human to
-    edit a fact model that was not the problem.
+    A platform limitation and a missing mapping used to be reported the same
+    way, sending a human to edit a fact model that was already correct. The
+    distinction now lives in the code and in the flag derived from it, rather
+    than in wording that had to be read to tell them apart.
     """
 
     outcome = derive_condition_outcome(_decision(UNSUPPORTED_LITERAL_DECISION), 0)
@@ -557,18 +558,17 @@ def test_platform_limit_does_not_blame_the_fact_model():
 
     assert provenance.code == "conditions_not_representable"
     assert provenance.is_platform_limitation is True
-    # It must not *instruct* a reviewer to go and supply a mapping; saying
-    # "not a missing mapping" is exactly the correction being asserted.
-    assert "supply the missing mapping" not in provenance.message
-    assert "not a missing mapping" in provenance.message
-    assert "platform limitation" in provenance.message
-    # The agent's actual expression is quoted, so the gap is auditable.
-    assert "proposed_annual_increase" in provenance.message
+    # The agent's actual expression is quoted, so the gap stays auditable.
     assert "proposed_annual_increase" in provenance.unsupported_expression
 
 
-def test_missing_mapping_message_survives_for_the_case_it_describes():
-    """The old message is still right when the agent never grounded anything."""
+def test_a_missing_mapping_is_still_told_apart_from_a_platform_limit():
+    """The other side of the same distinction.
+
+    Here the agent grounded nothing, so the gap really is upstream. It must not
+    borrow the code that means "the configuration was fine and the compiler was
+    not", because the two send a reader in opposite directions.
+    """
 
     outcome = derive_condition_outcome(
         _decision({"source_rule_indexes": [0], "dmn_mapping_status": "enrichment_required"}),
@@ -578,7 +578,7 @@ def test_missing_mapping_message_survives_for_the_case_it_describes():
 
     assert provenance.code == "conditions_not_projected"
     assert provenance.is_platform_limitation is False
-    assert "supply the missing mapping" in provenance.message
+    assert provenance.unsupported_expression == ""
 
 
 def test_provenance_without_an_outcome_is_unchanged():

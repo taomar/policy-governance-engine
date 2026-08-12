@@ -948,54 +948,31 @@ def condition_provenance(
     stated bound comes from reading the sentence's own comparison. Both are
     executable, but a reviewer checks them differently — the second is checked
     against one sentence — so collapsing them would hide which check applies.
+
+    Returns a code and nothing else. Each case used to carry a sentence saying
+    what a reviewer should do next; that is workflow guidance rather than a
+    property of the policy, and it does not belong in a record whose consumer
+    is a search API and a judge. The interface that shows a code to a human is
+    where the wording for a human lives.
     """
 
     stated = (getattr(policy.rule, "condition", None) or "").strip() if policy.rule else ""
 
     if derived is not None:
-        return ConditionProvenance(
-            code="derived", message="Conditions were projected into an executable tree."
-        )
+        return ConditionProvenance(code="derived")
 
     if from_stated_bound:
-        return ConditionProvenance(
-            code="derived_from_stated_bound",
-            message=(
-                "The sentence states the comparison in full — both quantities and "
-                "the bound between them — so it was compiled directly from the "
-                "source text rather than from a declared decision."
-            ),
-        )
+        return ConditionProvenance(code="derived_from_stated_bound")
 
     if outcome is not None and outcome.platform_limited:
-        produced = outcome.unsupported_expression
         return ConditionProvenance(
             code="conditions_not_representable",
-            message=(
-                "The agent produced executable logic grounded in the trusted "
-                f"configuration, but it could not be compiled: {produced!r}. "
-                + _PLATFORM_LIMIT_NOTE
-            ),
-            unsupported_expression=produced,
+            unsupported_expression=outcome.unsupported_expression,
         )
 
     if stated:
-        return ConditionProvenance(
-            code="conditions_not_projected",
-            message=(
-                "The source states conditions, but they could not be projected into "
-                f"executable bindings: {stated!r}. The rule must not be treated as "
-                "unconditional — a reviewer must supply the missing mapping."
-            ),
-        )
-    return ConditionProvenance(
-        code="no_scope_derived",
-        message=(
-            "No conditions were found in the source. The rule may genuinely be "
-            "unconditional, or its scope may have been missed during extraction; a "
-            "reviewer must decide which before it can be relied on."
-        ),
-    )
+        return ConditionProvenance(code="conditions_not_projected")
+    return ConditionProvenance(code="no_scope_derived")
 
 
 def condition_provenance_for(formulation: "RuleFormulation | None") -> ConditionProvenance | None:
@@ -1100,7 +1077,6 @@ def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
     assessment = assess_policy(policy)
     return DecisionReadiness(
         evaluability=assessment.evaluability.value,
-        reason=assessment.reason,
         required_attributes=[
             RequiredAttributeRef(phrase=attribute.phrase, role=attribute.role)
             for attribute in assessment.attributes_referenced

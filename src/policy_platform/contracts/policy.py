@@ -324,8 +324,6 @@ class DecisionReadiness(BaseModel):
     #: prohibition, a decision the document delegated, and a mis-split sentence
     #: are all un-projectable to FEEL and only the last is a defect.
     evaluability: str
-    #: Why, naming the canonical field that decided it.
-    reason: str
     required_attributes: list[RequiredAttributeRef] = Field(default_factory=list)
     parties: list[RulePartyRef] = Field(default_factory=list)
 
@@ -416,25 +414,29 @@ class PolicyFact(BaseModel):
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
-    Promoted to a field because it was previously only appended to
-    `description` as `[Conditions: <code> — <message>]`. Prose in a description
-    cannot be rendered as a status, cannot be filtered on, and cannot be
-    counted — so the interface showed every non-executable rule the same
-    sentence regardless of which of four quite different things had happened.
+    A code, not a sentence. An empty `all: []` tree means either "this rule
+    genuinely applies always" or "this rule has conditions we did not encode",
+    and reading the second as the first turns a narrow permission into an open
+    one — so the distinction has to be carried somewhere a consumer can branch
+    on, count and filter.
 
-    It had already caused a concrete defect: `policy_faithfulness` had to stop
-    reading `description` entirely, because the note quotes the very condition
-    it reports as lost, which made a check for lost conditions unable to fail.
+    It carried a `message` until the served records were read end to end. Every
+    one restated the condition already present in the record and then told the
+    reader what to do about it — "a reviewer must supply the missing mapping" —
+    which is a workflow instruction, not a property of the policy. Nine
+    kilobytes of it across forty-six records, addressed to a reviewer, in a
+    document whose consumer is a search API and a judge. The code says which of
+    the four cases this is; anything a human should read about it belongs in
+    the interface that shows it to them.
 
-    `unsupported_expression` carries the exact text that could not be compiled,
-    when there was one, so a reviewer sees what the agent actually produced
-    rather than a paraphrase of it.
+    `unsupported_expression` stays, because it is the agent's own output rather
+    than a description of it: a reviewer sees the exact text that would not
+    compile.
     """
 
-    #: `derived` | `conditions_not_projected` | `conditions_not_representable`
-    #: | `no_scope_derived`.
+    #: `derived` | `derived_from_stated_bound` | `conditions_not_projected`
+    #: | `conditions_not_representable` | `no_scope_derived`.
     code: str
-    message: str
     unsupported_expression: str = ""
 
     @property

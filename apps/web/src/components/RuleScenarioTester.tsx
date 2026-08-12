@@ -23,7 +23,7 @@ import {
   type EvaluationStatus,
   type RuleScenarioTestResult,
 } from "../api";
-import { DETERMINISTIC_LABEL, DETERMINISTIC_REASON } from "../ruleExecutability";
+import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -49,12 +49,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
   const [result, setResult] = useState<RuleScenarioTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const mappingStatuses = Array.from(
-    new Set(rule.formulation?.dmn_decisions.map((decision) => decision.dmn_mapping_status) ?? []),
-  );
-  const formulationRequirements = Array.from(
-    new Set(rule.formulation?.dmn_decisions.flatMap((decision) => decision.requirements) ?? []),
-  );
+  const decidedByReading = rule.evaluation_mode !== "deterministic";
 
   // Switching rules while this tab is open should not show a stale result
   // from a different rule under the new title/condition.
@@ -83,35 +78,23 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
   return (
     <div className="inspector-pane">
       <Alert
-        type={rule.machine_executable ? "success" : "warning"}
+        type={decidedByReading ? "info" : "success"}
         showIcon
         message={
-          rule.machine_executable
-            ? "Runs the real deterministic engine"
-            : DETERMINISTIC_REASON
+          decidedByReading
+            ? "This policy is decided by reading it"
+            : "Runs the real deterministic engine"
         }
         description={
-          rule.machine_executable ? (
-            "AI only translates your scenario into facts (never inventing anything you didn't state) and explains the outcome in plain language. The verdict itself comes from the same evaluation engine production evaluations use — this is not AI guesswork."
-          ) : (
+          decidedByReading ? (
             <span>
-              The evaluator intentionally returns <Tag>NOT_APPLICABLE</Tag> before reading any scenario facts because{" "}
-              <Text code>machine_executable=false</Text>. The DMN projection is{" "}
-              <Text code>{mappingStatuses.join(", ") || "not mapped"}</Text>
-              {formulationRequirements.length > 0 && (
-                <>
-                  {" "}
-                  and requires{" "}
-                  {formulationRequirements.map((requirement) => (
-                    <Tag key={requirement} color="gold">
-                      {requirement}
-                    </Tag>
-                  ))}
-                </>
-              )}
-              . Use <Text strong>Revise</Text> above to publish a version with formal facts and a condition before
-              testing scenarios.
+              The policy states what it requires in words rather than as a comparison the engine can
+              compute, so it is served as <Text code>ai_ready</Text> and decided by a judge reading
+              the record — the source sentence, the facts it names, and the outcome it states. What
+              follows is that judge, run on your scenario.
             </span>
+          ) : (
+            "AI only translates your scenario into facts (never inventing anything you didn't state) and explains the outcome in plain language. The verdict itself comes from the same evaluation engine production evaluations use — this is not AI guesswork."
           )
         }
         style={{ marginBottom: 16 }}

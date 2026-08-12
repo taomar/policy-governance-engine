@@ -194,13 +194,35 @@ export type ConditionOperator =
   | "countGreaterThan";
 
 /**
+ * One thing the policy names that a case must supply a value for.
+ *
+ * Names and phrases are the document's own words. The policy's own numbers are
+ * deliberately absent: a stated amount is what the document tells you, not
+ * something a case establishes.
+ */
+export interface PolicyFact {
+  /** Stable identifier derived from the phrase's own words. */
+  name: string;
+  /** The document's wording, verbatim. */
+  source_phrase: string;
+  /** Every part the phrase plays: `subject`, `threshold`, `authority`, … */
+  roles: string[];
+  /** `money` | `duration` | `number` | `boolean`, or null when unstated. */
+  data_type: string | null;
+}
+
+/**
  * Why a rule's condition tree is what it is, as the server derived it.
  * Mirrors `contracts/policy.ConditionProvenance`.
+ *
+ * A code, not a sentence. The server used to send a paragraph per rule saying
+ * what a reviewer should do about it; wording for a human belongs here, in the
+ * interface that shows it to them.
  */
 export interface ConditionProvenance {
-  /** `derived` | `conditions_not_projected` | `conditions_not_representable` | `no_scope_derived` */
+  /** `derived` | `derived_from_stated_bound` | `conditions_not_projected`
+   *  | `conditions_not_representable` | `no_scope_derived` */
   code: string;
-  message: string;
   unsupported_expression: string;
 }
 
@@ -563,7 +585,6 @@ export interface CanonicalPolicy {
   source_text: string;
   extraction_status: string;
   rule?: CanonicalPolicyRule;
-  evidence?: CanonicalEvidence;
   relationships: unknown[];
   ambiguity: string[];
   missing_components: unknown[];
@@ -597,7 +618,6 @@ export interface DmnSemanticProjection {
 export interface DmnDecision {
   source_rule_indexes: number[];
   dmn_mapping_status: string;
-  requirements: string[];
   semantic_projection?: DmnSemanticProjection | null;
   decision_table?: Record<string, unknown> | null;
   literal_expression?: Record<string, unknown>;
@@ -622,6 +642,14 @@ export interface CanonicalRule {
   authority: PolicyAuthority;
   scope: PolicyScope;
   condition: ConditionNode;
+  /**
+   * How this policy should be decided: `deterministic` when the record carries
+   * a condition and the facts it needs, `ai_ready` otherwise. The field a
+   * consumer routes on before reading anything else.
+   */
+  evaluation_mode?: "deterministic" | "ai_ready";
+  /** The facts the policy's own sentence names. Derived on read. */
+  fact_model?: PolicyFact[];
   /** Why `condition` is what it is. Absent on hand-authored rules. */
   condition_provenance?: ConditionProvenance | null;
   effect: Effect;
@@ -691,7 +719,6 @@ export interface DecisionReadiness {
     | "underspecified"
     | "not_a_decision"
     | "malformed";
-  reason: string;
   required_attributes: RequiredAttribute[];
   parties: RuleParty[];
 }

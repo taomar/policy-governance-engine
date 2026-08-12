@@ -106,14 +106,9 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
           </Space>
         }
         description={
-          <>
-            <Paragraph type="secondary" className="decision-readiness-gloss">
-              {verdict.gloss}
-            </Paragraph>
-            <Text type="secondary" className="decision-readiness-reason">
-              {readiness.reason}
-            </Text>
-          </>
+          <Paragraph type="secondary" className="decision-readiness-gloss">
+            {verdict.gloss}
+          </Paragraph>
         }
       />
 

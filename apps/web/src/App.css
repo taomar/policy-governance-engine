@@ -3507,7 +3507,11 @@
 }
 
 .review-workspace--desktop {
-  height: clamp(520px, 68vh, 760px);
+  /* The record being reviewed is the work, so the workspace takes the height
+     the page can give it rather than a fraction of the viewport. At 68vh with
+     a 332px header, the JSON tab was left about 150px — a four-line window
+     onto a 4,800px record, which is why it read as unusable. */
+  height: clamp(560px, calc(100vh - 150px), 1400px);
 }
 
 .review-workspace-list {
@@ -5134,22 +5138,62 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* Tighter than the other panes: every pixel of chrome here is a pixel the
+     record does not get. */
+  gap: 8px;
+  padding-bottom: 12px;
 }
 
 .inspector-pane--json .json-view {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
 }
 
+/* Provenance on one row rather than a labelled block with a paragraph. */
+.json-view-provenance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 0;
+}
+
+.json-view-provenance-label {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.json-view-provenance-list {
+  max-height: 44px;
+  overflow-y: auto;
+}
+
 .inspector-pane--json .json-view-code {
-  flex: 1 1 auto;
-  /* The JSON is the reason this tab exists, so it gets the height rather than
-     the chrome above it. At 220px a 133-line record showed four lines and the
-     reader scrolled a viewport barely taller than the caption explaining it. */
-  min-height: 460px;
+  /* The JSON is the reason this tab exists, so it takes every pixel the pane
+     has left and scrolls inside itself.
+
+     Two earlier attempts failed in opposite directions. A `min-height: 460px`
+     floor was taller than the space the pane had, so the block overflowed a
+     parent that clips and the reader saw the top of the record with no way to
+     scroll. Removing the floor entirely collapsed it to nothing, because the
+     chrome above it was still free to take the height first. Pinning the
+     chrome to its content size and giving the code block the remainder is
+     what actually holds. */
+  flex: 1 1 0;
+  min-height: 120px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/* Everything above the code block is chrome: a variant switcher, a caption and
+   a provenance banner. Each is sized by its content so none of them competes
+   with the record for height. Scoped to direct children so a wrapper that
+   needs to grow is never pinned by accident. */
+.inspector-pane--json > .json-variant-switcher,
+.inspector-pane--json > .json-view-provenance,
+.inspector-pane--json .json-view > .json-view-toolbar {
+  flex: 0 0 auto;
 }
 
 /* The family chip list grows with the group — nine rules wrapped to four rows
@@ -5331,7 +5375,7 @@
   top: -14px;
   z-index: 2;
   margin: -14px -18px 0;
-  padding: 10px 18px;
+  padding: 6px 18px;
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.96);
 }
@@ -5552,6 +5596,19 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* The jump-to-sibling strip is navigation, not content, and it grows with the
+   group: ten rules wrapped to five rows and took 167px — half the inspector
+   header — pushing the record the reader opened below the fold. An earlier cap
+   targeted `.ant-space-wrap`, which is not the element that grows here.
+   Capped to two whole rows so a large group costs a fixed amount of height,
+   and to whole rows so the strip never ends mid-chip. */
+.policy-inspector-variations-list {
+  max-height: 60px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .policy-inspector-variations-label {

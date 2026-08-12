@@ -227,23 +227,48 @@ export interface RuleDecisionSummary {
  * 15,000 SAR became indistinguishable on screen because the staff category was
  * the only thing separating them and it was exactly what went missing.
  *
- * The wording is read from the canonical decomposition and the semantic
- * projection, both of which already carry it verbatim. Nothing is inferred:
- * if the source states no condition, this returns null and "Always" is then
- * the truth.
+ * Read only from the canonical decomposition, and only from the fields that
+ * narrow *when or to whom* the rule applies. A sentence puts that wherever it
+ * likes — in a condition, a prerequisite, a trigger, a temporal constraint, or
+ * in the class of people it names — so all of those are read. A subject is not
+ * one of them: it is the thing being regulated, not a test on the case.
+ *
+ * The DMN semantic projection used to be consulted as a fallback and was the
+ * source of a visible defect: it lists the subject among its `conditions`, so
+ * a prohibition on an annual increase rendered as "WHEN Annual increase THEN
+ * exceed 10% of the basic salary" — a rule with no condition at all, shown as
+ * conditional on its own subject, with the thing it forbids in the outcome.
+ * Seventeen of forty-six records took their displayed condition from there.
+ *
+ * `beneficiary` and its siblings are included on evidence rather than by
+ * category: three housing-allowance rules differ *only* by the staff class
+ * they name and by their limit, so dropping the class made two of them
+ * identical on screen — the same collapse this function was written to stop,
+ * reintroduced from the other side. A scope phrase that simply repeats the
+ * subject is dropped, because it narrows nothing: "FBSU employees are eligible
+ * …" does not become clearer as "WHEN FBSU employees".
+ *
+ * Nothing is inferred: where the source narrows nothing, this returns null and
+ * "Always" is then the truth.
  */
 function statedCondition(rule: CanonicalRule): string | null {
-  const canonical = rule.formulation?.canonical?.rule?.condition;
-  if (canonical && canonical.trim()) return canonical.trim();
-  for (const decision of rule.formulation?.dmn_decisions ?? []) {
-    const projection = decision.semantic_projection;
-    if (!projection) continue;
-    const phrases = [...(projection.conditions ?? []), projection.condition_source ?? ""].filter(
-      (p) => p && p.trim()
-    );
-    if (phrases.length > 0) return phrases.join(" · ");
-  }
-  return null;
+  const core = rule.formulation?.canonical?.rule;
+  if (!core) return null;
+  const subject = (core.subject ?? "").trim().toLowerCase();
+  const tests = [
+    core.condition,
+    core.prerequisite,
+    core.trigger,
+    core.temporal_constraint,
+    core.constraint,
+    core.beneficiary,
+    core.recipient,
+    core.candidate,
+    core.location,
+  ]
+    .map((value) => (value ?? "").trim())
+    .filter((value) => value && value.toLowerCase() !== subject);
+  return tests.length > 0 ? [...new Set(tests)].join(" · ") : null;
 }
 
 export function ruleDecisionSummary(rule: CanonicalRule, maxTerms = 3): RuleDecisionSummary {

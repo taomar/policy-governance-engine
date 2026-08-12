@@ -27,6 +27,7 @@ from policy_platform.contracts.formulation import (
     DmnDecisionTable,
     DmnMappingStatus,
     DmnProjection,
+    DmnRequirementCode,
     DmnTableInput,
     DmnTableOutput,
     DmnTableRule,
@@ -104,8 +105,26 @@ def test_dmn_decision_keeps_explicit_null_decision_table():
     dumped = decision.model_dump(mode="json")
 
     assert dumped["decision_table"] is None
-    assert dumped["requirements"] == []
     assert "dependencies" not in dumped
+
+
+def test_enrichment_demands_are_kept_in_memory_but_never_served():
+    """They say what someone would have to supply, not what the policy says.
+
+    Across a whole document not one decision produced a table, and every record
+    carried two or three of these codes — a standing demand attached to
+    policies that are decided by reading rather than by arithmetic. Tooling
+    that acts on them still reads the parsed object.
+    """
+
+    decision = DmnDecision(
+        source_rule_indexes=[0],
+        dmn_mapping_status=DmnMappingStatus.ENRICHMENT_REQUIRED,
+        requirements=[DmnRequirementCode.FACT_MODEL_REQUIRED],
+    )
+
+    assert decision.requirements == [DmnRequirementCode.FACT_MODEL_REQUIRED]
+    assert "requirements" not in decision.model_dump(mode="json")
 
 
 def test_projection_constants_state_the_representation_honestly():

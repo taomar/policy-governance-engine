@@ -178,10 +178,17 @@ DmnHitPolicy = Literal[
 class CanonicalEvidence(_OmitEmptyModel):
     """Spec Section 37 — verbatim source spans backing each canonical value.
 
-    This is what makes a formulation auditable: every decomposed element can be
-    pointed back at the exact words it came from, so a reviewer can check the
-    decomposition without re-reading the whole document. The spec is explicit
-    that these must be source text, never explanatory prose.
+    Accepted from the agent, but **not** served. It was meant to let a reviewer
+    check the decomposition against the exact words, which is real — except
+    that `CanonicalPolicyRule` already holds the exact words. The platform is
+    pointer-only end to end: every canonical field *is* a verbatim span, so a
+    second set of verbatim spans beside them repeats the same strings under
+    different keys.
+
+    Measured across a whole document rather than assumed: 43 of 46 records were
+    byte-identical to `rule`, and the three that differed did so by a leading
+    "is" on the predicate. Nothing was carried that `rule` did not already
+    carry, and a reader had to compare two blocks to discover that.
     """
 
     subject: str | None = None
@@ -241,7 +248,9 @@ class CanonicalPolicy(_OmitEmptyModel):
     source_text: str = ""
     extraction_status: ExtractionStatus = ExtractionStatus.COMPLETE
     rule: CanonicalPolicyRule | None = None
-    evidence: CanonicalEvidence | None = None
+    #: Parsed from the agent's reply and excluded from every serialization: it
+    #: repeats `rule` verbatim under different keys. See `CanonicalEvidence`.
+    evidence: CanonicalEvidence | None = Field(default=None, exclude=True)
     # `relationships` and `missing_components` are named in the spec's field
     # order (Section 93) but their element shape is never defined anywhere in
     # the specification. They are therefore typed permissively and preserved
@@ -447,15 +456,23 @@ class DmnDecision(_OmitEmptyModel):
     `decision_table` stays an explicit `None` rather than being omitted when a
     status contract requires it (Section 94's stated exception to the
     omit-absent rule), so `always_emit` includes it.
+
+    `requirements` is parsed and kept in memory but never serialized. It lists
+    what someone would have to supply to turn this into a decision table —
+    `FACT_MODEL_REQUIRED`, `OUTPUT_MODEL_REQUIRED` and so on. Across a whole
+    document not one decision produced a table, and every record carried two or
+    three of these codes: a standing demand, addressed to nobody, attached to
+    policies that are decided by reading rather than by arithmetic. The
+    scenario tooling that acts on them still reads the parsed object.
     """
 
     always_emit: ClassVar[frozenset[str]] = frozenset(
-        {"source_rule_indexes", "dmn_mapping_status", "requirements", "decision_table"}
+        {"source_rule_indexes", "dmn_mapping_status", "decision_table"}
     )
 
     source_rule_indexes: list[int] = Field(default_factory=list)
     dmn_mapping_status: DmnMappingStatus = DmnMappingStatus.NOT_APPLICABLE
-    requirements: list[DmnRequirementCode] = Field(default_factory=list)
+    requirements: list[DmnRequirementCode] = Field(default_factory=list, exclude=True)
     semantic_projection: DmnSemanticProjection | None = None
     decision_table: DmnDecisionTable | None = None
     literal_expression: DmnLiteralExpression | None = None

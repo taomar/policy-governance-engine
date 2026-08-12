@@ -41,7 +41,6 @@ class TestProvenanceClassification:
     def test_a_projected_condition_reports_derived(self) -> None:
         provenance = condition_provenance(_policy("when access is granted"), object())
         assert provenance.code == "derived"
-        assert "projected" in provenance.message
 
     def test_stated_conditions_that_were_not_projected_are_distinguished(self) -> None:
         """The dangerous case: the tree says 'always', the document does not."""
@@ -49,14 +48,11 @@ class TestProvenanceClassification:
         provenance = condition_provenance(_policy("for every emergency grant"), None)
 
         assert provenance.code == "conditions_not_projected"
-        assert "for every emergency grant" in provenance.message
-        assert "must not be treated as unconditional" in provenance.message
 
     def test_a_genuinely_unconditional_rule_is_distinguished(self) -> None:
         provenance = condition_provenance(_policy(None), None)
 
         assert provenance.code == "no_scope_derived"
-        assert "may genuinely be" in provenance.message
 
     @pytest.mark.parametrize("blank", ["", "   ", "\n"])
     def test_whitespace_only_conditions_count_as_absent(self, blank: str) -> None:
@@ -87,13 +83,18 @@ class TestProvenanceClassification:
 class TestNoFabrication:
     def test_no_placeholder_condition_is_invented(self) -> None:
         """A synthesised always-false node would be a constraint the document
-        never stated — the same fabrication the pointer-only design prevents."""
+        never stated — the same fabrication the pointer-only design prevents.
 
-        message = condition_provenance(_policy("only for P1 incidents"), None).message
+        Checked on the record rather than on wording: the provenance reports a
+        code, and the rule it describes keeps whatever tree it actually had.
+        Nothing here may manufacture one.
+        """
 
-        assert "reviewer" in message
-        # The message explains; it must not smuggle in an encoded condition.
-        assert "false" not in message.lower()
+        provenance = condition_provenance(_policy("only for P1 incidents"), None)
+
+        assert provenance.code == "conditions_not_projected"
+        assert provenance.unsupported_expression == ""
+        assert not hasattr(provenance, "message")
 
 
 class TestReviewRouting:
