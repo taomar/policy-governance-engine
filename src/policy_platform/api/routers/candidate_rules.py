@@ -43,7 +43,7 @@ from policy_platform.infrastructure.formulation_mapping import (
     _decision_readiness_for,
     condition_provenance_for,
 )
-from policy_platform.contracts.policy import evaluation_mode_for
+from policy_platform.contracts.policy import attributes_for, evaluation_mode_for
 from policy_platform.infrastructure.policy_facts import facts_for
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 from policy_platform.infrastructure.export import (
@@ -132,6 +132,7 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
     if rule.formulation is None or rule.formulation.canonical is None:
         return rule
     canonical = rule.formulation.canonical
+    facts = facts_for(canonical.rule)
     return rule.model_copy(
         update={
             "decision_readiness": _decision_readiness_for(canonical),
@@ -143,7 +144,10 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
             # would disagree about why its condition is empty.
             "condition_provenance": condition_provenance_for(rule.formulation),
             "evaluation_mode": evaluation_mode_for(rule),
-            "fact_model": facts_for(canonical.rule),
+            "fact_model": facts,
+            # Derived alongside the facts it references, from the same list, so
+            # a row can never name an identifier the fact model does not carry.
+            "attributes": attributes_for(canonical.rule, facts),
         }
     )
 

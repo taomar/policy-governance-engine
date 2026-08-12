@@ -77,6 +77,7 @@ from policy_platform.contracts.policy import (
     RuleLineage,
     RulePartyRef,
     RuleType,
+    attributes_for,
     evaluation_mode_from,
 )
 from policy_platform.infrastructure.evaluability import assess_policy
@@ -1545,6 +1546,12 @@ def formulation_to_candidate_rules(
             policy, derived, blocking, from_stated_bound=stated_bound is not None
         )
 
+        # The facts this policy names, and the attribute table that pairs each
+        # extracted attribute with the document's words and the fact a case
+        # supplies for it. Computed once and used for both, so the two cannot
+        # describe the same record differently.
+        rule_facts = _reconciled_facts(facts_for(canonical_rule), required_facts)
+
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the
         # function docstring — this is what stops one rule from a multi-topic
@@ -1588,7 +1595,8 @@ def formulation_to_candidate_rules(
                 scope=PolicyScope(),
                 condition=condition,
                 evaluation_mode=evaluation_mode_from(condition, required_facts),
-                fact_model=_reconciled_facts(facts_for(canonical_rule), required_facts),
+                fact_model=rule_facts,
+                attributes=attributes_for(canonical_rule, rule_facts),
                 condition_provenance=provenance,
                 effect=Effect(type=effect_type, action=_effect_action(policy)),
                 required_facts=required_facts,

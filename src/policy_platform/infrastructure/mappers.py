@@ -24,6 +24,7 @@ from policy_platform.contracts.policy import (
     RequiredFact,
     RuleException as ContractRuleException,
     RuleLineage,
+    attributes_for,
     evaluation_mode_from,
 )
 from policy_platform.domain.models import ApprovedPolicyVersion, ApprovedRule
@@ -142,6 +143,16 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         fact_model=facts_for(formulation.canonical.rule)
         if formulation and formulation.canonical
         else [],
+        # The attribute table: every attribute the formulator assigned, the
+        # document's words for it, and the fact a case supplies. Derived here
+        # rather than rendered by each consumer, so the served JSON and any
+        # view of it are the same table rather than two readings of one.
+        attributes=attributes_for(
+            formulation.canonical.rule if formulation and formulation.canonical else None,
+            facts_for(formulation.canonical.rule)
+            if formulation and formulation.canonical
+            else [],
+        ),
     )
 
 

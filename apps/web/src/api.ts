@@ -194,6 +194,31 @@ export type ConditionOperator =
   | "countGreaterThan";
 
 /**
+ * One attribute the formulator assigned, with the words it assigned.
+ *
+ * Three parts and nothing else: the attribute's own name, the document's text,
+ * and the identifier a case supplies a value for. Derived once on the server
+ * and served in the JSON, so a view of a record and the record itself are the
+ * same table.
+ */
+export interface PolicyAttribute {
+  /** The canonical field name, exactly as the record declares it. */
+  attribute: string;
+  /** The document's words for that attribute, verbatim. */
+  text: string;
+  /** The fact a case supplies a value for, or null when the document states it. */
+  fact: string | null;
+  /** `money` | `duration` | `number` | `boolean`, when the fact states one. */
+  data_type: string | null;
+}
+
+/** A rule's attributes, split into what scopes it and what follows. */
+export interface PolicyAttributes {
+  applies: PolicyAttribute[];
+  outcome: PolicyAttribute[];
+}
+
+/**
  * One thing the policy names that a case must supply a value for.
  *
  * Names and phrases are the document's own words. The policy's own numbers are
@@ -650,6 +675,8 @@ export interface CanonicalRule {
   evaluation_mode?: "deterministic" | "ai_ready";
   /** The facts the policy's own sentence names. Derived on read. */
   fact_model?: PolicyFact[];
+  /** Every attribute, with the document's words and the fact for it. Derived on read. */
+  attributes?: PolicyAttributes;
   /** Why `condition` is what it is. Absent on hand-authored rules. */
   condition_provenance?: ConditionProvenance | null;
   effect: Effect;

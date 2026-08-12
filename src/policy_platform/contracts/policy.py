@@ -411,6 +411,142 @@ class PolicyFact(BaseModel):
     data_type: str | None = None
 
 
+class PolicyAttribute(BaseModel):
+    """One attribute the formulator assigned, with the words it assigned.
+
+    Three parts and nothing else: the attribute's own name, the document's
+    text, and the identifier a case supplies a value for. Every consumer of a
+    policy record — a reviewer checking the extraction, a search API indexing
+    it, a judge deciding a case from it — is answering some version of the same
+    two questions, and this shape answers both without anything in between.
+
+    `attribute` is the canonical field name, unchanged. Renaming it to
+    something friendlier changes what the row asserts: an attempt at plainer
+    labels turned `frequency` into "how often" and `assigner` into "decided
+    by", and picked prepositions that collided with the prepositions already in
+    the source, so a trigger reading "after the trial period has expired" was
+    presented as "on after the trial period has expired".
+
+    `text` is verbatim. Not trimmed to fit, not merged with a neighbouring
+    attribute, not paraphrased. An earlier presentation glued `modality` and
+    `predicate` into "shall not exceed", which reads well and is a string no
+    attribute contains.
+
+    `fact` is absent where the document supplies the value itself. That is a
+    statement rather than a gap: "(200) two hundred SR per month" is what the
+    policy pays, so a case is asked for nothing.
+    """
+
+    #: The canonical field name, exactly as the record declares it.
+    attribute: str
+    #: The document's words for that attribute, verbatim.
+    text: str
+    #: The fact identifier a case supplies a value for, when there is one.
+    fact: str | None = None
+    #: `money` | `duration` | `number` | `boolean`, when the fact states one.
+    data_type: str | None = None
+
+
+class PolicyAttributes(BaseModel):
+    """A rule's attributes, split into what scopes it and what follows.
+
+    The split is the only structure imposed, and it is the one a reader already
+    applies: everything in `applies` narrows when or to whom the rule holds,
+    everything in `outcome` says what then happens. Order within each list is
+    fixed so two records of the same shape read the same way.
+    """
+
+    applies: list[PolicyAttribute] = Field(default_factory=list)
+    outcome: list[PolicyAttribute] = Field(default_factory=list)
+
+
+#: Attributes saying what a rule covers and when it applies, in display order.
+APPLIES_ATTRIBUTES: tuple[str, ...] = (
+    "subject",
+    "beneficiary",
+    "recipient",
+    "candidate",
+    "actor",
+    "location",
+    "condition",
+    "prerequisite",
+    "trigger",
+    "temporal_constraint",
+    "constraint",
+)
+
+#: Attributes saying what follows, and who decides or is carved out.
+OUTCOME_ATTRIBUTES: tuple[str, ...] = (
+    "modality",
+    "predicate",
+    "object",
+    "threshold",
+    "calculation",
+    "unit",
+    "currency",
+    "frequency",
+    "deadline",
+    "sequence",
+    "consequence",
+    "remedy",
+    "assigner",
+    "exception",
+)
+
+#: A fact's role is named after the field it was read from, with one exception:
+#: `assigner` publishes as `authority`, which is the part the party plays
+#: rather than the slot it filled.
+_ROLE_FOR_ATTRIBUTE: dict[str, str] = {"assigner": "authority"}
+
+
+def _fact_for_attribute(facts: list[PolicyFact], attribute: str) -> PolicyFact | None:
+    """The fact extracted from this attribute, if any.
+
+    Matched on role, never on text. Matching by containment was tried and
+    produced false attributions: `per-month`, read from `frequency`, also
+    matched "(200) two hundred SR per month" and "at the rate of (200) two
+    hundred SR per month", so three attributes appeared to require a value that
+    only one of them names.
+    """
+
+    role = _ROLE_FOR_ATTRIBUTE.get(attribute, attribute)
+    return next((fact for fact in facts if role in fact.roles), None)
+
+
+def attributes_for(rule: object | None, facts: list[PolicyFact]) -> PolicyAttributes:
+    """Pair every populated attribute with its text and its fact.
+
+    Every attribute the record carries appears, including one whose text
+    repeats another's. A phrase filling three slots is what the formulator
+    wrote — `object`, `threshold` and `calculation` routinely hold the same
+    bound — and collapsing them would report the extraction as tidier than it
+    is, on exactly the records where a reader most needs to see it.
+    """
+
+    if rule is None:
+        return PolicyAttributes()
+
+    def rows(names: tuple[str, ...]) -> list[PolicyAttribute]:
+        out: list[PolicyAttribute] = []
+        for name in names:
+            value = getattr(rule, name, None)
+            text = value.strip() if isinstance(value, str) else ""
+            if not text:
+                continue
+            fact = _fact_for_attribute(facts, name)
+            out.append(
+                PolicyAttribute(
+                    attribute=name,
+                    text=text,
+                    fact=fact.name if fact else None,
+                    data_type=fact.data_type if fact else None,
+                )
+            )
+        return out
+
+    return PolicyAttributes(applies=rows(APPLIES_ATTRIBUTES), outcome=rows(OUTCOME_ATTRIBUTES))
+
+
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
@@ -475,6 +611,11 @@ class CanonicalRule(BaseModel):
     #: The things this policy is measured against, named by the policy itself.
     #: Empty when the sentence names none — a definition, for instance.
     fact_model: list[PolicyFact] = Field(default_factory=list)
+    #: Every attribute the formulator assigned, paired with the document's own
+    #: words and the fact a case supplies for it. Derived on read from the
+    #: canonical record, so the served JSON and anything rendering it are the
+    #: same table rather than two readings of one.
+    attributes: PolicyAttributes = Field(default_factory=PolicyAttributes)
     #: Why `condition` is what it is. Absent on hand-authored rules, which have
     #: no formulation to derive it from.
     condition_provenance: ConditionProvenance | None = None

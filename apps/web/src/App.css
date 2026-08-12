@@ -4559,23 +4559,85 @@
   gap: 2px;
 }
 
-/* The facts a case has to supply, listed once beneath the decomposition rather
-   than repeated against every phrase that mentions them. */
-.semantic-projection-facts {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* One row of the attribute table: name, the document's text, the identifier a
+   case supplies a value for.
+
+   Fixed columns rather than inline flow, so a reader scans one of the three
+   rather than re-parsing each line. The third column is always present: an
+   identifier appearing on some rows and not others read as arbitrary, when its
+   absence in fact says something definite — the document states that value
+   itself, so nothing is required for it.
+
+   Sized against the container, not the viewport. The first attempt used a
+   viewport media query, which says nothing about the panel this table is in:
+   inside the edit dialog's live preview the two fixed columns consumed the
+   whole width and the text column collapsed to a single character, so a
+   subject rendered as one letter per line. */
+.semantic-projection {
+  container-type: inline-size;
 }
 
-.semantic-projection-fact-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.policy-attr {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) minmax(0, 220px);
+  gap: 12px;
+  align-items: baseline;
+  width: 100%;
+  padding: 1px 0;
 }
 
-.semantic-projection-fact {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+.policy-attr-name {
   font-size: 11.5px;
+  color: #6b7280 !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The document's words. Wrapping is allowed and truncation is not: a clipped
+   phrase is a changed phrase to anyone checking it against the source. Breaks
+   at word boundaries unless a single token is genuinely wider than the column,
+   so a long phrase never renders one character per line. */
+.policy-attr-value {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.policy-attr-fact {
+  min-width: 0;
+}
+
+.policy-attr-fact-name {
+  font-size: 11px;
+  overflow-wrap: break-word;
+}
+
+/* Narrow panel: the identifier drops beneath the text it belongs to rather
+   than competing with it for width. */
+@container (max-width: 640px) {
+  .policy-attr {
+    grid-template-columns: 112px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+
+  .policy-attr-fact {
+    grid-column: 2;
+  }
+}
+
+/* Narrower still: one column, each part on its own line. */
+@container (max-width: 380px) {
+  .policy-attr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .policy-attr-name,
+  .policy-attr-fact {
+    grid-column: 1;
+  }
 }
 
 .semantic-projection-inline-tag {

@@ -795,7 +795,16 @@ export function PolicyInspector({
           attribute the document supplied.
         </>
       ),
-      value: rule.formulation?.canonical ? withRuleIdentity(rule.formulation.canonical, rule) : null,
+      // The attribute table travels with the decomposition it describes.
+      // Reading `canonical.rule` alone means pairing each attribute with its
+      // fact by hand, which is the work `attributes` already did — and doing it
+      // twice is how two readings of one record start to disagree.
+      value: rule.formulation?.canonical
+        ? withRuleIdentity(
+            { ...rule.formulation.canonical, attributes: rule.attributes ?? null },
+            rule
+          )
+        : null,
       downloadName: `${rule.rule_id}-canonical.json`,
     },
     dmn: {
@@ -806,7 +815,10 @@ export function PolicyInspector({
         </>
       ),
       value: rule.formulation
-        ? withRuleIdentity({ dmn_decisions: rule.formulation.dmn_decisions }, rule)
+        ? withRuleIdentity(
+            { attributes: rule.attributes ?? null, dmn_decisions: rule.formulation.dmn_decisions },
+            rule
+          )
         : null,
       downloadName: `${rule.rule_id}-dmn.json`,
     },
