@@ -121,12 +121,61 @@ The persisted rule payload follows `policy_platform.contracts.policy`:
 - `required_facts`, `exceptions` (each with optional numeric limits), `advice`,
   `scope`, `priority`, `authority`, effective dates.
 - Relationship fields: `group_label`, `related_rule_ids`, `supersedes_rule_ids`,
-  `is_explicit_override`.
+  `is_explicit_override`, `candidate_relationships`.
 - `ambiguity_status` — `none`, `blocking`, `non_blocking`, or
   `human_judgment_required`.
 
 Evaluation results use `SATISFIED`, `NOT_SATISFIED`, `NOT_APPLICABLE`,
 `INDETERMINATE`, or `ERROR`.
+
+### Routing: how a policy is meant to be decided
+
+`evaluation_mode` states which of two routes a record takes. It is a property of
+how the source sentence is written, **not** a quality grade — a policy is not
+worse for being `ai_ready`.
+
+| Value | The source states its test as | Decided by |
+|---|---|---|
+| `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine, from `condition` |
+| `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
+
+Both routes are products of this platform; neither is a defect, and the
+vocabulary used about them is enforced by
+`tests/unit/test_no_readiness_framing.py`. Running either route is the job of a
+separate system.
+
+### Derived views
+
+Six fields are **derived on read** rather than stored, so a change to the
+derivation reaches every record without a migration:
+
+| Field | States |
+|---|---|
+| `evaluation_mode` | Which route above the record takes |
+| `decision_readiness` | What a judge would still need to decide it |
+| `fact_model` | Every fact the record names, and the type the sentence gives it |
+| `attributes` | The reviewer-facing table: what the policy applies to, and what follows |
+| `condition_provenance` | Where the stored condition came from |
+| `xacml_view` | The access-control projection of the record's own effect |
+
+A derived view must describe **the record it is attached to**, never re-answer
+the question from the formulation — those are different questions and come apart
+the moment either side changes. Two read paths exist (published and candidate);
+`tests/unit/test_derived_views_agree.py` inspects both so a derivation added to
+one and forgotten in the other fails the build.
+
+### Candidate envelope
+
+The fields around the rule carry review and version state:
+`review_status`, `revision`, `delta_status`, `baseline_candidate_id`,
+`extraction_run_id`, `superseded_at`, and `superseded_by_candidate_id`.
+
+`superseded_by_candidate_id` is **derived over the returned set**, not stored.
+Publishing deliberately leaves `superseded_at` unset so the audit trail keeps
+every approved reading; the queue therefore computes which record is the latest
+at read time, shows only that one, and offers its predecessor read-only. Without
+this, a second extraction run leaves the reviewer holding two records for the
+same sentence with no statement of which one is current.
 
 ## Migrations
 

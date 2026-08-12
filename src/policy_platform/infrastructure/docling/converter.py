@@ -342,11 +342,6 @@ def _build_pages(
     return pages, offsets
 
 
-def _ends_mid_sentence(text: str) -> bool:
-    stripped = text.rstrip()
-    return bool(stripped) and stripped[-1] not in ".!?:;"
-
-
 #: A lowercase letter immediately followed by an uppercase one, where neither is
 #: part of a longer run of capitals. Deliberately narrow: it must not fire on
 #: legitimate compounds the document actually prints ("PolicyID", "eCommerce").

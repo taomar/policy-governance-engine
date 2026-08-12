@@ -99,7 +99,7 @@ When an operator eventually runs `azd up`:
 2. `infra/scripts/Initialize-AzdEnvironment.ps1` applies safe baseline defaults.
 3. It prompts only for missing values: resource group, PostgreSQL credentials,
    Entra app details, and region-supported model names/versions.
-4. `Test-AzurePrerequisites.ps1` performs read-only provider, quota, region,
+4. `infra/scripts/Test-AzurePrerequisites.ps1` performs read-only provider, quota, region,
    model and CIDR checks.
 5. Bicep provisions resources with public placeholder images.
 6. azd builds and deploys the API and web images.

@@ -12,41 +12,31 @@ Discovery here runs on *source structure and text*, before and regardless of any
 executable projection, and produces typed edges from
 ``contracts.relationships``.
 
-Signal hierarchy
-----------------
-Signals are ranked by how much they prove, not by how well they score:
+Signals
+-------
+Every detector here reports what the document itself establishes:
 
 1. **Structural** — same table, section hierarchy, list membership, adjacency in
    an ordered procedure. The document's own layout.
-2. **Reference** — the source text explicitly names the other provision. The
-   author stated the link.
-3. **Lexical / shared vocabulary** — shared defined terms, shared actors and
-   actions, shared fact paths, shared magnitudes.
-4. **Embedding similarity** — semantic neighbourhood from
-   ``text-embedding-3-large``.
+2. **Enumeration** — a governing stem and the clauses that complete it.
+3. **Semantic role** — the neutral normative role the formulator already
+   assigned (``exception``, ``approval``, ``definition``).
 
-The fourth is the weakest and is treated accordingly: **embeddings propose
-candidates and never exclude anything.** A relationship missed by the embedding
-pass costs a candidate a reviewer might have seen; a source region excluded by an
-embedding pass would be silently missing policy. Nothing in this module filters
-the element set — it only adds edges.
+Nothing here filters the element set; it only adds edges. A detector that could
+*remove* material would be able to lose policy silently, which is the failure
+this module exists to prevent.
 
-Provider abstraction
---------------------
-:class:`EmbeddingProvider` is a two-method protocol so the whole pipeline is
-testable with a deterministic stub and no credentials. The Azure adapter is a
-thin wrapper over the platform's existing ``AzureOpenAIClient.embed`` — the
-credential handling stays in one place rather than being duplicated here.
+Similarity-based discovery was removed once it was found to be unreachable:
+nothing ever constructed an embedding provider, so the branch had never run in
+production. Restoring it is a deliberate decision, not a wiring fix — it changes
+the edges attached to already-reviewed rules.
 """
 from __future__ import annotations
 
 import logging
-import math
 import re
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence
 
-from policy_platform.contracts.policy_context import SourceElement
 from policy_platform.contracts.relationships import (
     PolicyRelationship,
     PolicyRelationshipGraph,
@@ -60,79 +50,6 @@ logger = logging.getLogger(__name__)
 #: Bumped when discovery changes in a way that alters the edges produced for an
 #: unchanged document. Persisted with the run as `clustering_version`.
 DISCOVERY_VERSION = "relationship-discovery-v1"
-
-#: Cosine similarity above which two units are proposed as related. Deliberately
-#: high: an embedding edge is the weakest evidence the platform reports, so a
-#: low threshold would bury genuine structural links under noise. Missing a
-#: neighbour is recoverable — the reconciliation pass and the reviewer both get
-#: another chance — while a flood of spurious "related" rules is not.
-DEFAULT_SIMILARITY_THRESHOLD = 0.82
-
-#: Maximum embedding-proposed neighbours per unit. A cap, not a filter: the
-#: units themselves are all embedded and all extracted regardless.
-DEFAULT_TOP_K = 5
-
-#: Lexical overlap above which two texts are proposed as sharing a topic.
-_LEXICAL_THRESHOLD = 0.28
-
-
-class EmbeddingProvider(Protocol):
-    """Anything that can turn texts into vectors.
-
-    Kept to two members so a test stub is three lines. ``deployment_name`` is
-    part of the protocol because it is provenance: which embedding model
-    proposed a relationship changes the result and is recorded on the run.
-    """
-
-    @property
-    def deployment_name(self) -> str: ...
-
-    async def embed(self, texts: list[str]) -> list[list[float]]: ...
-
-
-class NullEmbeddingProvider:
-    """A provider that embeds nothing.
-
-    Used when embeddings are not configured. It exists so the pipeline has one
-    code path rather than two: discovery still runs, still produces every
-    structural, reference and lexical edge, and simply reports no embedding
-    signal. Degrading to "fewer candidates" is correct; degrading to "no
-    relationships" would re-create the defect this module fixes.
-    """
-
-    @property
-    def deployment_name(self) -> str:
-        return ""
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        return []
-
-
-class AzureEmbeddingProvider:
-    """Adapter over the platform's existing Azure OpenAI client.
-
-    Deliberately thin. Endpoint construction, credential handling and error
-    shaping stay in ``infrastructure.ai.openai_client``; duplicating them here
-    would mean two places to get credential redaction wrong.
-    """
-
-    def __init__(self, client, deployment: str | None = None, *, batch_size: int = 64) -> None:
-        self._client = client
-        self._deployment = deployment or ""
-        self._batch_size = max(1, batch_size)
-
-    @property
-    def deployment_name(self) -> str:
-        return self._deployment
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        vectors: list[list[float]] = []
-        for start in range(0, len(texts), self._batch_size):
-            batch = texts[start : start + self._batch_size]
-            vectors.extend(await self._client.embed(batch, deployment=self._deployment or None))
-        return vectors
 
 
 @dataclass
@@ -326,20 +243,6 @@ def unsatisfied_promises(
     return [a for a in anchors if a.promises_enumeration and a.rule_id not in satisfied]
 
 
-
-def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
-    """Cosine similarity, returning 0.0 for degenerate vectors."""
-
-    if not left or not right or len(left) != len(right):
-        return 0.0
-    dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
-    if left_norm == 0.0 or right_norm == 0.0:
-        return 0.0
-    return dot / (left_norm * right_norm)
-
-
 def _edge(
     relationship_type: PolicyRelationshipType,
     source: RuleAnchor,
@@ -519,53 +422,6 @@ def discover_structural_relationships(anchors: list[RuleAnchor]) -> list[PolicyR
     return edges
 
 
-def discover_reference_relationships(
-    anchors: list[RuleAnchor], elements_by_id: dict[str, SourceElement]
-) -> list[PolicyRelationship]:
-    """Edges the source text states explicitly.
-
-    The strongest evidence available: the author wrote "see section 11". Every
-    such edge carries the exact reference string as ``source_quote``, so a
-    reviewer can check the claim against the document rather than trusting it.
-    """
-
-    edges: list[PolicyRelationship] = []
-    label_owners: dict[str, list[RuleAnchor]] = {}
-    for anchor in anchors:
-        for element_id in anchor.element_ids:
-            element = elements_by_id.get(element_id)
-            if element is None:
-                continue
-            for part in element.section_path:
-                number = source_structure.heading_number(part)
-                if not number:
-                    continue
-                for noun in ("section", "clause", "article", "paragraph", "part", "chapter", "step"):
-                    label_owners.setdefault(f"{noun} {number}", []).append(anchor)
-            if element.table_id:
-                label_owners.setdefault(f"table:{element.table_id}", []).append(anchor)
-
-    for anchor in anchors:
-        for reference in anchor.references:
-            for target in label_owners.get(reference, []):
-                if target.rule_id == anchor.rule_id:
-                    continue
-                edges.append(
-                    _edge(
-                        PolicyRelationshipType.CROSS_REFERENCES,
-                        anchor,
-                        target,
-                        signals=["explicit_reference"],
-                        score=0.95,
-                        origin="reference",
-                        state="confirmed",
-                        detail=reference,
-                        quote=reference,
-                    )
-                )
-    return edges
-
-
 def discover_semantic_role_relationships(anchors: list[RuleAnchor]) -> list[PolicyRelationship]:
     """Edges implied by neutral normative roles the formulator already assigned.
 
@@ -673,137 +529,3 @@ def discover_semantic_role_relationships(anchors: list[RuleAnchor]) -> list[Poli
                 )
             )
     return edges
-
-
-def discover_lexical_relationships(anchors: list[RuleAnchor]) -> list[PolicyRelationship]:
-    """Candidate edges from shared vocabulary, facts, actors and actions.
-
-    Runs whether or not embeddings are configured, so the platform never depends
-    on a model deployment to notice that two rules talk about the same thing.
-    """
-
-    edges: list[PolicyRelationship] = []
-    ordered = sorted(anchors, key=lambda item: item.order)
-    for index, left in enumerate(ordered):
-        for right in ordered[index + 1 :]:
-            signals: list[str] = []
-            score = 0.0
-
-            shared_facts = sorted(set(left.fact_paths) & set(right.fact_paths))
-            if shared_facts:
-                signals.append("shared_fact")
-                score = max(score, 0.8)
-
-            if left.actor and left.actor.casefold() == right.actor.casefold():
-                signals.append("shared_actor")
-                score = max(score, 0.5)
-            if left.action and left.action.casefold() == right.action.casefold():
-                signals.append("shared_action")
-                score = max(score, 0.55)
-
-            overlap = source_structure.lexical_overlap(left.text, right.text)
-            if overlap >= _LEXICAL_THRESHOLD:
-                signals.append("lexical_overlap")
-                score = max(score, overlap)
-
-            if not signals:
-                continue
-            edges.append(
-                _edge(
-                    PolicyRelationshipType.SAME_DECISION,
-                    left,
-                    right,
-                    signals=signals,
-                    score=score,
-                    origin="candidate",
-                    detail=", ".join(shared_facts) if shared_facts else "",
-                )
-            )
-    return edges
-
-
-async def discover_embedding_relationships(
-    anchors: list[RuleAnchor],
-    provider: EmbeddingProvider,
-    *,
-    threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
-    top_k: int = DEFAULT_TOP_K,
-) -> list[PolicyRelationship]:
-    """Candidate edges from vector similarity.
-
-    Additive only. This function cannot remove an anchor, cannot narrow the set
-    of elements extracted, and cannot veto an edge another signal produced. An
-    embedding failure is logged and yields zero edges rather than propagating,
-    because a degraded relationship graph is a much smaller problem than a
-    failed extraction run.
-    """
-
-    if not anchors or isinstance(provider, NullEmbeddingProvider):
-        return []
-    texts = [anchor.text for anchor in anchors]
-    try:
-        vectors = await provider.embed(texts)
-    except Exception as exc:  # noqa: BLE001 - see docstring
-        logger.warning("embedding relationship discovery unavailable: %s", type(exc).__name__)
-        return []
-    if len(vectors) != len(anchors):
-        logger.warning(
-            "embedding provider returned %d vectors for %d anchors; skipping embedding signal",
-            len(vectors),
-            len(anchors),
-        )
-        return []
-
-    edges: list[PolicyRelationship] = []
-    for index, anchor in enumerate(anchors):
-        scored = [
-            (cosine_similarity(vectors[index], vectors[other]), anchors[other])
-            for other in range(len(anchors))
-            if other != index
-        ]
-        scored.sort(key=lambda item: item[0], reverse=True)
-        for score, other in scored[:top_k]:
-            if score < threshold:
-                break
-            edges.append(
-                _edge(
-                    PolicyRelationshipType.SAME_DECISION,
-                    anchor,
-                    other,
-                    signals=["embedding_similarity"],
-                    score=score,
-                    origin="candidate",
-                    detail=f"cosine>={threshold}",
-                )
-            )
-    return edges
-
-
-async def discover_relationships(
-    anchors: list[RuleAnchor],
-    elements_by_id: dict[str, SourceElement],
-    *,
-    provider: EmbeddingProvider | None = None,
-    threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
-    top_k: int = DEFAULT_TOP_K,
-) -> PolicyRelationshipGraph:
-    """Run every discovery pass, strongest evidence first.
-
-    Order matters: :meth:`PolicyRelationshipGraph.add` keeps the first edge for a
-    given (type, endpoints) key, so a link supported by an explicit
-    cross-reference is never overwritten by the same link discovered later
-    through similarity — and the persisted evidence names the stronger signal.
-    """
-
-    graph = PolicyRelationshipGraph()
-    graph.extend(discover_structural_relationships(anchors))
-    graph.extend(discover_reference_relationships(anchors, elements_by_id))
-    graph.extend(discover_semantic_role_relationships(anchors))
-    graph.extend(discover_lexical_relationships(anchors))
-    if provider is not None:
-        graph.extend(
-            await discover_embedding_relationships(
-                anchors, provider, threshold=threshold, top_k=top_k
-            )
-        )
-    return graph

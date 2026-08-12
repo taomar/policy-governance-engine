@@ -791,13 +791,14 @@ async def extract_candidate_rules(
                 groups.setdefault(rule.group_label, []).append(rule.rule_id)
 
         # Relationships the source establishes: rows of one table, section
-        # hierarchy, explicit cross-references, ordered steps, shared defined
-        # terms. Independent of whether either endpoint compiled.
+        # hierarchy, ordered steps, normative role, and the clauses that
+        # complete a governing stem. Independent of whether either endpoint
+        # compiled.
         #
-        # Only `confirmed` edges reach `related_rule_ids`. Candidates — layout
-        # adjacency, shared vocabulary — are a proposal, and writing a proposal
-        # into a field consumers read as established fact is how a machine's
-        # guess ends up in the reviewer's record.
+        # Only `confirmed` edges reach `related_rule_ids`. Candidates — a role
+        # edge whose target is positional rather than stated — are a proposal,
+        # and writing a proposal into a field consumers read as established
+        # fact is how a machine's guess ends up in the reviewer's record.
         confirmed_links: dict[str, list[str]] = {}
         candidate_links: dict[str, list[CandidateRelationship]] = {}
         unresolved_stems: list[str] = []

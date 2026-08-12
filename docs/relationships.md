@@ -64,27 +64,32 @@ The distinction is the whole point of having the model.
 
 | State | Meaning | Consequence |
 |---|---|---|
-| `confirmed` | The document establishes it — rows of one table, an explicit cross-reference, a heading hierarchy | May enter `related_rule_ids`; consumers act on it |
-| `candidate` | Something *suggested* it — layout adjacency, shared vocabulary, embedding similarity | Surfaced for review; **excluded** from `related_rule_ids` |
+| `confirmed` | The document establishes it — rows of one table, a heading hierarchy, numbered steps, a defined term used by name | May enter `related_rule_ids`; consumers act on it |
+| `candidate` | Position *suggested* it — "the exception printed nearest above this rule" | Surfaced for review; **excluded** from `related_rule_ids` |
 
 Two paragraphs sitting next to each other is a fact about page layout, not about
 policy: a retention rule and an audit rule printed consecutively are not one
 decision, and recording that as `same_decision` would put a guess into the
 record a reviewer trusts.
 
+Three members of the vocabulary — `cross_references`, `overrides` and
+`supersedes` — have no detector. They are relations a reviewer may assert, not
+relations extraction claims to find. A detector for explicit cross-references
+was written and later removed because extraction never called it; see
+[Detectors that were removed](#detectors-that-were-removed).
+
 ## How discovery works
 
 ```mermaid
 flowchart LR
     Rules[("Drafted rules")] --> Anchors["RuleAnchor<br/>neutral source features"]
-    Anchors --> Structural["Structural detectors<br/>table, hierarchy, sequence"]
-    Anchors --> Reference["Reference detector<br/>explicit cross-references"]
+    Anchors --> Structural["Structural detector<br/>table, hierarchy, sequence"]
     Anchors --> Role["Semantic-role detector<br/>exception, approval, definition"]
-    Anchors --> Lexical["Lexical detector<br/>shared terms, facts, actors"]
+    Anchors --> Enum["Enumeration detector<br/>governing stem to its cases"]
     Structural --> Confirmed{{"confirmed"}}
-    Reference --> Confirmed
     Role --> Confirmed
-    Lexical --> Candidate{{"candidate"}}
+    Role --> Candidate{{"candidate"}}
+    Enum --> Confirmed
     Confirmed --> Related[("related_rule_ids")]
     Candidate --> Review["Surfaced for review only"]
 ```
@@ -96,8 +101,8 @@ Rules that failed to compile are included deliberately: dropping them is how
 orphaned table rows appear.
 
 Structural detectors run first and unconditionally. They depend on no model
-call, no successful DMN projection and no embedding deployment, which is what
-guarantees a non-executable rule still carries its table, its hierarchy and its
+call and no successful DMN projection, which is what guarantees a
+non-executable rule still carries its table, its hierarchy and its
 ordering.
 
 Discovery is additive and failure is contained: a broken detector must not lose
@@ -161,6 +166,25 @@ They are deliberately **not** paired to cases by position. The i-th condition
 does look like the i-th case, but that alignment is an artefact of emission
 order, and binding them on that basis would state a mapping the source never
 gave. The view says so and routes it to a reviewer.
+
+## Detectors that were removed
+
+Three detectors existed in `relationship_discovery.py` and were deleted once it
+was established that extraction never called them:
+
+| Detector | Produced | Why it went |
+|---|---|---|
+| Reference | `cross_references`, from "see section 11" | Written and tested, never wired into extraction |
+| Lexical | `same_decision` candidates, from shared vocabulary | Same; and wording overlap is not a relationship |
+| Embedding | `same_decision` candidates, from vector similarity | Nothing ever constructed a provider, so it had never run |
+
+They were not removed because the idea is wrong. They were removed because
+code that no run reaches cannot be trusted to work, and leaving it in place
+made this document — and the extraction module's own comments — claim edges
+that no policy record has ever carried.
+
+Restoring any of them is a deliberate decision, not a wiring fix: it changes
+the edges attached to rules a reviewer has already approved.
 
 ## Where this lives
 

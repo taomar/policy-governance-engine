@@ -891,34 +891,6 @@ def condition_from_stated_bound(
     return None
 
 
-def _reconciled_facts(
-    facts: list[PolicyFact], required: list[RequiredFact]
-) -> list[PolicyFact]:
-    """Fill a fact's type from the comparison the rule makes about it.
-
-    `facts_for` reads a type only where the phrase writes one, which is right:
-    "Annual increase" contains no digits and asserting a type from the words
-    alone would be a guess. But once the rule compiles a numeric comparison
-    over that fact, the sentence *has* said it is a quantity, and leaving the
-    published type blank made `fact_model` and `required_facts` disagree about
-    the same name — a consumer reading either one alone got a different answer.
-
-    Only fills a gap. A type the phrase states is never overwritten, because
-    the phrase is the stronger evidence: it says money or duration where a
-    compiled comparison can only say "a number".
-    """
-
-    if not required:
-        return facts
-    declared = {item.name: item.data_type for item in required if item.data_type}
-    return [
-        fact.model_copy(update={"data_type": declared[fact.name]})
-        if fact.data_type is None and fact.name in declared
-        else fact
-        for fact in facts
-    ]
-
-
 def condition_provenance(
     policy: CanonicalPolicy,
     derived: object | None,
@@ -1383,8 +1355,8 @@ def _topic_key(subject: str, predicate: str) -> str:
     that two statements are related. That is an inference about wording, and
     `PolicyRelationshipType` deliberately admits only relations a reader of the
     source could point at. An earlier attempt to link statements on this key
-    alone is recorded in `relationship_discovery` as the lexical detector, which
-    emits `candidate` edges for review — never `related_rule_ids`.
+    alone was withdrawn: it produced `candidate` edges only, and even those were
+    never wired into extraction. Wording similarity is not a relationship.
     """
 
     return " ".join(f"{subject} {predicate}".split())[:120]

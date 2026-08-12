@@ -71,7 +71,7 @@ stopped at any point.
 - `apps/web/src/components/ExtractionInsightDrawer.tsx` + `extractionApi` in `api.ts`
 
 ### Database
-- `alembic/versions/a1b2c3d4e5f6_extraction_stages_table.py` — creates `extraction_stages`; additive and reversible
+- `alembic/versions/e7f4a9c2b615_extraction_stages_table.py` — creates `extraction_stages`; additive and reversible
 
 ### Scripts, docs, tests
 - `scripts/docling_shadow_report.py`, `scripts/docling_corpus_report.py` — both exit non-zero on failure, usable as CI gates

@@ -81,18 +81,6 @@ _HEADING_NOUN_RE = re.compile(
 _QUOTED_TERM_RE = re.compile(r"[\"“”']([A-Za-z][A-Za-z \-/]{2,60}?)[\"“”']")
 _TITLE_TERM_RE = re.compile(r"\b([A-Z][a-z]+(?:[ \-][A-Z][a-z]+){1,4})\b")
 
-#: Phrases that mark the sentence they appear in as introducing a definition.
-#: Structural, not domain-specific: every formal document defines terms this way.
-_DEFINITION_MARKERS = (
-    "means",
-    "shall mean",
-    "is defined as",
-    "are defined as",
-    "refers to",
-    "for the purposes of",
-    "definition of",
-)
-
 
 def normalize_reference(label: str) -> str:
     """Canonical form of a reference label, for comparison across phrasings.
@@ -144,16 +132,6 @@ def heading_number(text: str) -> str | None:
         return noun_match.group("number").replace("-", ".")
     return None
 
-
-def heading_noun(text: str) -> str | None:
-    """The structural noun a heading names itself with, singular and lower-cased.
-
-    ``"Article 74. Annual leave"`` -> ``"article"``. Used so a reference to
-    ``"article 74"`` resolves to the article and not to a same-numbered table.
-    """
-
-    match = _HEADING_NOUN_RE.match((text or "").strip())
-    return match.group("noun").casefold().rstrip("s") if match else None
 
 
 def heading_depth(text: str) -> int:
@@ -264,12 +242,6 @@ def promises_enumeration(text: str) -> bool:
     return bool(_CATAPHORIC_RE.search(tail))
 
 
-def is_definition_text(text: str) -> bool:
-    """True when this text reads as introducing defined vocabulary."""
-
-    lowered = (text or "").casefold()
-    return any(marker in lowered for marker in _DEFINITION_MARKERS)
-
 
 def salient_terms(text: str, *, limit: int = 12) -> list[str]:
     """Quoted and Title-Cased phrases that behave like defined vocabulary.
@@ -290,40 +262,3 @@ def salient_terms(text: str, *, limit: int = 12) -> list[str]:
             if len(terms) >= limit:
                 return terms
     return terms
-
-
-_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
-
-#: Function words carry no topical signal in any domain, so they are removed
-#: before lexical overlap is measured. This is a stop list, not a vocabulary.
-_STOPWORDS = frozenset(
-    """
-    the and for that with this from shall must may are was were will not any all
-    such other than into upon their there which when where who whom whose have
-    has had been being does did done its it's per each both same then them they
-    these those under over about after before during within without unless
-    provided however therefore accordingly furthermore including include
-    """.split()
-)
-
-
-def content_tokens(text: str) -> set[str]:
-    """Lower-cased content words, for lexical-overlap signals."""
-
-    return {
-        token.casefold()
-        for token in _TOKEN_RE.findall(text or "")
-        if token.casefold() not in _STOPWORDS
-    }
-
-
-def lexical_overlap(left: str, right: str) -> float:
-    """Jaccard overlap of two texts' content words, in 0..1."""
-
-    left_tokens = content_tokens(left)
-    right_tokens = content_tokens(right)
-    if not left_tokens or not right_tokens:
-        return 0.0
-    intersection = len(left_tokens & right_tokens)
-    union = len(left_tokens | right_tokens)
-    return intersection / union if union else 0.0

@@ -133,6 +133,46 @@ flowchart LR
     Browser["Browser / React UI"] -. not exercised .-> Result
 ```
 
+## Checking that the tests can fail
+
+A passing suite proves nothing on its own — it may be passing because the tests
+cannot detect the defect they name. `scripts/mutation_check.py` answers that
+directly: it breaks a guarantee on purpose and requires a test to notice.
+
+```powershell
+.\.venv-graph\Scripts\python.exe scripts\mutation_check.py tests\mutations\core_guarantees.json
+```
+
+Each spec is a JSON list of mutations naming a file, an exact snippet to replace,
+its replacement, and the test that must then fail.
+
+| Spec | Guards |
+|---|---|
+| `core_guarantees.json` | Negation handling, effect derivation, span fidelity |
+| `derived_view_consistency.json` | No derived view may contradict its own record |
+| `ai_tool_wording.json` | `ai_ready` is described as a route, never a fault |
+| `extraction_quality.json` | Duplicate, contradictory and unstable extraction checks |
+| `latest_reading.json` | Which reading is current, and which it replaced |
+
+Three exit codes, deliberately distinct:
+
+| Code | Meaning |
+|---|---|
+| 0 | Every mutation was caught |
+| 1 | A mutation survived — that guarantee is not actually tested |
+| 2 | A target snippet was not found — the spec is stale and checked nothing |
+
+Collapsing 2 into either of the others is how a broken check comes to look like
+a clean one, which is the failure this tool exists to prevent. It also writes
+atomically (temp sibling, then replace) so a failed write cannot leave a source
+file truncated with nothing to restore.
+
+Mutation testing has already found three classes of worthless test here: tests
+iterating over a corpus that contained none of the relevant records, tests
+reading derived fields from a captured file rather than running the derivation,
+and tests whose witness record happened to exist in one corpus and not the next.
+A guard that depends on the corpus containing the right accident is not a guard.
+
 ## Fixtures, isolation and mocking
 
 Reusable policy/rule builders live in
@@ -173,10 +213,16 @@ its arguments and transaction behavior. The main groups are:
 
 | Group | Examples | Expected effect |
 |---|---|---|
-| Backfill/repair | `backfill_*`, `fix_legacy_clause_sequence.py` | Updates existing database records |
 | Re-extraction | `reextract_document.py` | Reprocesses a selected stored document and may change clauses/search records |
-| Cleanup | `cleanup_document_meta_junk.py` | Removes identified extraction artifacts |
 | Sample generation | `generate_hardware_policy_samples.py` | Writes sample JSON/files rather than asserting behavior |
+| Corpus capture | `capture_corpus.py`, `freeze_status_inventory.py` | Regenerates the test corpus and its frozen status inventory from a running API |
+| Shadow reporting | `docling_corpus_report.py`, `docling_shadow_report.py` | Reads a corpus and writes a report; changes no records |
+| Mutation checking | `mutation_check.py` | Edits a source file, runs a test, restores it. Exits 2 if a target is missing |
+
+The one-off backfill and repair scripts were deleted: each existed to migrate
+rows written before a specific migration, and the database has since been
+dropped and rebuilt. A script that repairs a state which can no longer occur is
+worse than absent — it invites someone to run it.
 
 A fresh Azure deployment does not run any of these scripts. It initializes an
 empty schema with Alembic and starts with no policy data.

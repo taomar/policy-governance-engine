@@ -4,14 +4,14 @@ The defect being closed: relationships used to be derived from a shared DMN
 decision table, so a rule that stayed `ambiguous` or `enrichment_required` — the
 case where a reviewer most needs to see what a rule depends on — was reported as
 related to nothing. These tests assert the opposite property directly: every
-rule below is non-executable, and every one still carries its table, its section
-and the provisions it cites.
+rule below is non-executable, and every one still carries its table and its
+section.
 
-The embedding provider is a deterministic stub. That is not a convenience: the
-architectural claim is that embeddings *propose* and never *exclude*, and the
-only way to test "never excludes" is to run the pipeline with an embedding
-provider that returns nothing, returns garbage, and raises — and observe that
-the structural graph is unchanged in all three cases.
+Similarity-based detectors (embedding and lexical) and the cross-reference
+detector were removed after they were found to be unreachable: extraction
+composes the live detectors directly and never called them. The tests that
+exercised them went with them rather than being left to assert behaviour no
+run can produce.
 """
 from __future__ import annotations
 
@@ -32,49 +32,15 @@ from tests.fixtures.policy_domains import (
 )
 
 
-class _StubEmbeddings:
-    """Deterministic embeddings from character histograms.
+def _live_graph(fixture) -> PolicyRelationshipGraph:
+    """Compose exactly the detectors extraction runs, in the order it runs them."""
 
-    Similar texts get similar vectors without any model, so the embedding signal
-    is exercised end to end and the test still runs offline.
-    """
-
-    def __init__(self, *, deployment: str = "text-embedding-3-large-stub") -> None:
-        self._deployment = deployment
-        self.calls: list[list[str]] = []
-
-    @property
-    def deployment_name(self) -> str:
-        return self._deployment
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        self.calls.append(list(texts))
-        vectors = []
-        for text in texts:
-            vector = [0.0] * 26
-            for char in text.casefold():
-                if "a" <= char <= "z":
-                    vector[ord(char) - 97] += 1.0
-            vectors.append(vector)
-        return vectors
-
-
-class _FailingEmbeddings:
-    @property
-    def deployment_name(self) -> str:
-        return "broken"
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        raise RuntimeError("embedding endpoint unavailable")
-
-
-class _WrongLengthEmbeddings:
-    @property
-    def deployment_name(self) -> str:
-        return "truncating"
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        return [[1.0, 0.0]]
+    anchors = _anchors_from(fixture)
+    graph = PolicyRelationshipGraph()
+    graph.extend(rd.discover_structural_relationships(anchors))
+    graph.extend(rd.discover_semantic_role_relationships(anchors))
+    graph.extend(rd.discover_enumeration_relationships(anchors))
+    return graph
 
 
 def _anchors_from(fixture, *, rule_kinds: dict[str, str] | None = None) -> list[rd.RuleAnchor]:
@@ -161,28 +127,6 @@ def test_precedence_is_not_claimed_across_sections() -> None:
 
 
 # ---------------------------------------------------------------------------
-# References stated by the document
-# ---------------------------------------------------------------------------
-
-
-def test_explicit_cross_reference_becomes_a_typed_edge_with_a_quote() -> None:
-    fixture = labor_law_fixture()
-    anchors = _anchors_from(fixture)
-
-    edges = rd.discover_reference_relationships(anchors, fixture.by_id)
-    references = [
-        edge for edge in edges if edge.relationship_type is PolicyRelationshipType.CROSS_REFERENCES
-    ]
-
-    assert references, "the exclusion cites Article 91 explicitly"
-    edge = references[0]
-    assert edge.source_rule_id == "R-LL-P4"
-    assert edge.target_rule_id == "R-LL-P5"
-    assert edge.evidence.source_quote == "article 91"
-    assert edge.origin == "reference"
-
-
-# ---------------------------------------------------------------------------
 # Normative roles: exception, approval, definition
 # ---------------------------------------------------------------------------
 
@@ -241,80 +185,6 @@ def test_definition_links_to_every_rule_that_uses_the_term() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Embeddings propose; they never exclude
-# ---------------------------------------------------------------------------
-
-
-async def test_embedding_failure_does_not_reduce_the_graph() -> None:
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-
-    without = await rd.discover_relationships(anchors, fixture.by_id, provider=None)
-    failing = await rd.discover_relationships(
-        anchors, fixture.by_id, provider=_FailingEmbeddings()
-    )
-
-    assert len(failing.relationships) >= len(without.relationships)
-    structural_without = {e.key() for e in without.relationships if e.origin == "structural"}
-    structural_failing = {e.key() for e in failing.relationships if e.origin == "structural"}
-    assert structural_without == structural_failing
-
-
-async def test_wrong_length_embedding_response_is_ignored_not_propagated() -> None:
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-
-    graph = await rd.discover_relationships(
-        anchors, fixture.by_id, provider=_WrongLengthEmbeddings()
-    )
-
-    assert not any("embedding_similarity" in e.evidence.signals for e in graph.relationships)
-    assert graph.relationships, "structural discovery must still have produced edges"
-
-
-async def test_null_provider_still_produces_structural_relationships() -> None:
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-
-    graph = await rd.discover_relationships(
-        anchors, fixture.by_id, provider=rd.NullEmbeddingProvider()
-    )
-
-    assert graph.by_type(PolicyRelationshipType.TABLE_ROW_OF)
-
-
-async def test_embeddings_are_asked_about_every_anchor() -> None:
-    """No top-k, threshold or ranking may narrow the set that is *considered*.
-
-    This is the boundary the architecture draws: search and similarity are
-    allowed to rank, never to decide which source participates.
-    """
-
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-    provider = _StubEmbeddings()
-
-    await rd.discover_relationships(anchors, fixture.by_id, provider=provider)
-
-    assert provider.calls, "the embedding provider was never called"
-    assert len(provider.calls[0]) == len(anchors)
-
-
-async def test_embedding_edges_are_labelled_as_the_weakest_evidence() -> None:
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-
-    edges = await rd.discover_embedding_relationships(
-        anchors, _StubEmbeddings(), threshold=0.0, top_k=2
-    )
-
-    assert edges
-    for edge in edges:
-        assert edge.origin == "candidate"
-        assert edge.evidence.signals == ["embedding_similarity"]
-
-
-# ---------------------------------------------------------------------------
 # Graph semantics
 # ---------------------------------------------------------------------------
 
@@ -352,9 +222,10 @@ def test_stronger_evidence_wins_when_the_same_edge_is_discovered_twice() -> None
     fixture = labor_law_fixture()
     anchors = _anchors_from(fixture)
     graph = PolicyRelationshipGraph()
-    graph.extend(rd.discover_reference_relationships(anchors, fixture.by_id))
+    graph.extend(rd.discover_structural_relationships(anchors))
     before = len(graph.relationships)
-    graph.extend(rd.discover_reference_relationships(anchors, fixture.by_id))
+    assert before, "the fixture must produce at least one structural edge"
+    graph.extend(rd.discover_structural_relationships(anchors))
     assert len(graph.relationships) == before
 
 
@@ -466,32 +337,14 @@ def test_numbered_steps_are_a_confirmed_ordering_claim() -> None:
     assert all("ordinal_marker" in edge.evidence.signals for edge in precedes)
 
 
-def test_structural_and_reference_edges_are_confirmed() -> None:
-    fixture = labor_law_fixture()
-    anchors = _anchors_from(fixture)
-
+def test_structural_edges_are_confirmed() -> None:
     table_edges = [
         edge
         for edge in rd.discover_structural_relationships(_anchors_from(it_hardware_fixture()))
         if edge.relationship_type is PolicyRelationshipType.TABLE_ROW_OF
     ]
-    reference_edges = rd.discover_reference_relationships(anchors, fixture.by_id)
 
     assert table_edges and all(edge.state == "confirmed" for edge in table_edges)
-    assert reference_edges and all(edge.state == "confirmed" for edge in reference_edges)
-
-
-async def test_embedding_and_lexical_edges_are_always_candidates() -> None:
-    fixture = it_hardware_fixture()
-    anchors = _anchors_from(fixture)
-
-    lexical = rd.discover_lexical_relationships(anchors)
-    embedding = await rd.discover_embedding_relationships(
-        anchors, _StubEmbeddings(), threshold=0.0, top_k=2
-    )
-
-    assert all(edge.state == "candidate" for edge in lexical)
-    assert all(edge.state == "candidate" for edge in embedding)
 
 
 @pytest.mark.parametrize(
@@ -499,12 +352,11 @@ async def test_embedding_and_lexical_edges_are_always_candidates() -> None:
     [it_hardware_fixture, labor_law_fixture, finance_procurement_fixture, compliance_fixture],
     ids=lambda f: f().name,
 )
-async def test_every_domain_produces_a_non_empty_graph_without_executable_rules(factory) -> None:
+def test_every_domain_produces_a_non_empty_graph_without_executable_rules(factory) -> None:
     fixture = factory()
-    anchors = _anchors_from(fixture)
-    assert all(not anchor.fact_paths for anchor in anchors)
+    assert all(not anchor.fact_paths for anchor in _anchors_from(fixture))
 
-    graph = await rd.discover_relationships(anchors, fixture.by_id, provider=_StubEmbeddings())
+    graph = _live_graph(fixture)
 
     assert graph.relationships, "a non-executable rule set must still have relationships"
 

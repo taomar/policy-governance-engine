@@ -62,21 +62,16 @@ CoverageDisposition = Literal[
     "unresolved",
 ]
 
-#: Ordering used when an element is reached more than once. A single element can
-#: be a target in one window and context in another; the manifest keeps the
-#: strongest claim so "was this ever extracted?" has one answer.
-_DISPOSITION_RANK: dict[str, int] = {
-    "unresolved": 0,
-    "non_policy": 1,
-    "interpretation_context": 2,
-    "policy_target": 3,
-}
-
-
-def stronger_disposition(left: CoverageDisposition, right: CoverageDisposition) -> CoverageDisposition:
-    """Return whichever disposition makes the stronger claim about an element."""
-
-    return left if _DISPOSITION_RANK[left] >= _DISPOSITION_RANK[right] else right
+#: The dispositions `CoverageManifest.counts` always reports, in strength order.
+#: Kept as an explicit tuple so a manifest with no elements of a given kind still
+#: reports it as zero: a missing key and a zero are different answers to "was
+#: anything left unresolved?", and only one of them is safe to read as "no".
+_DISPOSITION_RANK: tuple[str, ...] = (
+    "unresolved",
+    "non_policy",
+    "interpretation_context",
+    "policy_target",
+)
 
 
 class SourceElement(BaseModel):
@@ -290,33 +285,3 @@ class CoverageManifest(BaseModel):
 
         covered = {entry.element_id for entry in self.elements}
         return all(element_id in covered for element_id in element_ids)
-
-
-class ExtractionContextManifest(BaseModel):
-    """The full window plan for one extraction run, persisted with the run.
-
-    Kept as a run artefact rather than recomputed on read: the assembler is
-    deterministic, but its *inputs* (the clause rows) can be re-extracted, and a
-    reviewer asking "what did the model actually see for this rule?" months
-    later needs the answer the run used, not the answer today's document would
-    produce.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    document_id: str = ""
-    assembler_version: str = ""
-    max_window_chars: int = 0
-    #: The clause generation these element ids belong to. Element ids restart at
-    #: `E000001` in every generation, so a manifest without this becomes
-    #: ambiguous the moment its document is re-ingested: `E000012` would name
-    #: different text than it did when the run executed.
-    clause_generation: int | None = None
-    units: list[PolicyContextUnit] = Field(default_factory=list)
-    coverage: CoverageManifest = Field(default_factory=CoverageManifest)
-
-    def unit_by_id(self, unit_id: str) -> PolicyContextUnit | None:
-        for unit in self.units:
-            if unit.unit_id == unit_id:
-                return unit
-        return None

@@ -286,14 +286,6 @@ def extract_parties(
     return parties
 
 
-def parties_for_policy(policy: CanonicalPolicy | None) -> list[PolicyParty]:
-    """`extract_parties` for a whole canonical policy, using its source text."""
-
-    if policy is None:
-        return []
-    return extract_parties(policy.rule, policy.source_text or "")
-
-
 def authorities(parties: list[PolicyParty]) -> list[PolicyParty]:
     """Just the parties the decision was delegated to."""
 

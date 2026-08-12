@@ -26,10 +26,28 @@ document release, the clause, and the characters within it — years later,
 without trusting that nothing was edited in between.
 
 Three layers, three jobs: AI reads the document, evidence proves what it read,
-and a pure Python engine decides — with no model anywhere in the decision path.
+and the record states how it must be decided — with no model anywhere in the
+deterministic decision path.
 
 > The name is the guarantee: *verbatim*, with the AI where it belongs — reading,
 > not deciding.
+
+## Two routes, decided by the sentence
+
+Not every policy states a computable test, and pretending otherwise is how a
+threshold gets invented for a rule that never had one. Each record therefore
+carries an `evaluation_mode` that says how it must be decided:
+
+| Route | The source states its test as | Decided by |
+|---|---|---|
+| `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine, from the record's `condition` |
+| `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
+
+`ai_ready` is a **route, not a fault**. A policy is not lower quality for being
+written in words; the document is what it is, and a platform that scored it as
+a defect would be pressuring itself to fabricate a number. Neither route is
+executed here — running or judging a record is a separate system's job. This
+platform's product is the record.
 
 ## Built on published standards
 
@@ -162,10 +180,17 @@ See the illustrated [User guide](docs/user-guide.md).
 ## Checks
 
 ```powershell
-.\.venv-graph\Scripts\python.exe -m pytest tests/unit -q   # 1026 tests
+.\.venv-graph\Scripts\python.exe -m pytest tests -q   # 1566 pass, 12 skipped
 cd apps\web
 npx tsc --noEmit
 npm run build
+```
+
+Guarantees are also mutation-checked — each one is broken on purpose to confirm
+a test notices:
+
+```powershell
+.\.venv-graph\Scripts\python.exe scripts\mutation_check.py tests\mutations\core_guarantees.json
 ```
 
 The suite needs the `graph` extra: 13 modules import Docling directly, and in a
