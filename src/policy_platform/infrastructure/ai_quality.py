@@ -16,7 +16,12 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from policy_platform.contracts.policy import CanonicalRule
+from policy_platform.contracts.policy import (
+    CanonicalRule,
+    EvaluationMode,
+    unanswered_for_judge,
+    unrunnable_reasons,
+)
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.formulation_mapping import _is_separator_predicate
 from policy_platform.infrastructure.mappers import approved_policy_version_to_package
@@ -245,7 +250,263 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     findings.extend(_definition_effect_findings(rules))
     findings.extend(_degenerate_predicate_findings(rules))
     findings.extend(_eligibility_polarity_findings(rules))
+    # Checks on the extraction itself: one sentence read twice, read two ways,
+    # or read differently by two runs. A finding here points upstream — nothing
+    # downstream can repair a policy that was extracted wrong.
+    findings.extend(_duplicate_extraction_findings(rules))
+    findings.extend(_contradictory_reading_findings(rules))
+    findings.extend(_unstable_extraction_findings(rules))
+    # And whether each record can be decided the way it says it can.
+    findings.extend(_runner_fitness_findings(rules))
 
+    return findings
+
+
+def _source_sentence(rule: CanonicalRule) -> str:
+    """The document sentence a rule was extracted from, verbatim."""
+
+    canonical = rule.formulation.canonical if rule.formulation else None
+    return (canonical.source_text or "").strip() if canonical else ""
+
+
+def _decomposition(rule: CanonicalRule) -> tuple:
+    """What the extractor made of a sentence's *words*, as a comparable value.
+
+    The linguistic fields only. `rule_type` and the effect are the extractor's
+    classification *of* that reading, and holding them here would mean two
+    records that split one sentence into identical parts, then labelled it
+    `definition` on one run and `routing` on the next, never compared as the
+    same reading — which is exactly the disagreement worth reporting. The first
+    version did that, and the contradiction check could not fire at all.
+
+    Volatile fields are absent for the opposite reason: `rule_id`, dates and
+    lineage differ on every record, and including them means nothing ever
+    matches.
+    """
+
+    canonical = rule.formulation.canonical if rule.formulation else None
+    core = canonical.rule if canonical else None
+    if core is None:
+        return ()
+    fields = (
+        "subject",
+        "modality",
+        "predicate",
+        "object",
+        "threshold",
+        "condition",
+        "prerequisite",
+        "trigger",
+        "beneficiary",
+        "assigner",
+    )
+    values = []
+    for name in fields:
+        value = getattr(core, name, None)
+        values.append(value.strip().lower() if isinstance(value, str) else "")
+    return tuple(values)
+
+
+def _extraction_run(rule: CanonicalRule) -> str:
+    return (rule.lineage.extraction_run_id or "") if rule.lineage else ""
+
+
+def _by_sentence(rules: list[CanonicalRule]) -> dict[str, list[CanonicalRule]]:
+    grouped: dict[str, list[CanonicalRule]] = {}
+    for rule in rules:
+        sentence = _source_sentence(rule)
+        if sentence:
+            grouped.setdefault(sentence, []).append(rule)
+    return grouped
+
+
+def _duplicate_extraction_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """One sentence read the same way twice.
+
+    A sentence can legitimately carry two policies — "shall not exceed 10% …,
+    and the increase is associated with the appraisal" is two — and those
+    decompose differently. Two records with the *identical* decomposition are
+    not that: the same reading was stored twice, and a consumer asking what the
+    sentence requires gets the same answer under two identities.
+
+    Reported as an extraction defect, because that is what it is. Nothing
+    downstream can repair it, and a search API indexing both will return both.
+    """
+
+    findings: list[dict] = []
+    for sentence, group in _by_sentence(rules).items():
+        if len(group) < 2:
+            continue
+        by_shape: dict[tuple, list[CanonicalRule]] = {}
+        for rule in group:
+            by_shape.setdefault(_decomposition(rule), []).append(rule)
+        for shape, same in by_shape.items():
+            if len(same) < 2 or not shape:
+                continue
+            # Differing effects are the stronger, separate finding below.
+            if len({r.effect.type.value for r in same}) > 1:
+                continue
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "duplicate_extraction",
+                    "finding": (
+                        f"{len(same)} records carry the same reading of one sentence: "
+                        f"{sentence[:110]!r}"
+                    ),
+                    "affected_rule_ids": [r.rule_id for r in same],
+                    "recommendation": (
+                        "Keep one and supersede the rest. Two identities for one policy means a "
+                        "search returns it twice and a change has to be made twice."
+                    ),
+                    "source": "deterministic",
+                }
+            )
+    return findings
+
+
+def _contradictory_reading_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """One sentence, one reading, opposing outcomes.
+
+    Stronger than a duplicate and stronger than the effect conflict beside it,
+    which only fires when `allow` and `deny` both appear. The damaging case is
+    subtler: the same sentence, decomposed identically, stored once as
+    informational and once as an obligation. A consumer cannot choose between
+    them, and neither can a judge.
+    """
+
+    findings: list[dict] = []
+    for sentence, group in _by_sentence(rules).items():
+        if len(group) < 2:
+            continue
+        by_shape: dict[tuple, list[CanonicalRule]] = {}
+        for rule in group:
+            by_shape.setdefault(_decomposition(rule), []).append(rule)
+        for shape, same in by_shape.items():
+            effects = {r.effect.type.value for r in same}
+            if len(same) < 2 or not shape or len(effects) < 2:
+                continue
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "contradictory_reading",
+                    "finding": (
+                        f"{len(same)} records read one sentence the same way but disagree about "
+                        f"what follows ({', '.join(sorted(effects))}): {sentence[:100]!r}"
+                    ),
+                    "affected_rule_ids": [r.rule_id for r in same],
+                    "recommendation": (
+                        "Decide which reading the sentence supports and supersede the others. "
+                        "Nothing downstream can choose between them."
+                    ),
+                    "source": "deterministic",
+                }
+            )
+    return findings
+
+
+def _unstable_extraction_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """The same sentence classified differently by two extraction runs.
+
+    Re-running extraction over an unchanged document should produce the same
+    reading of each sentence. Where it does not, the difference is in the
+    extractor rather than in the policy — and it is invisible from any single
+    record, because each looks complete on its own.
+
+    Measured across a real pair of runs, one sentence was typed `routing` on
+    one run and `obligation` on the next, and one action was stored once as
+    "be considered as promotion" and once as "cannot be considered as
+    promotion" — an inverted reading of the same words.
+    """
+
+    findings: list[dict] = []
+    for sentence, group in _by_sentence(rules).items():
+        runs = {_extraction_run(r) for r in group if _extraction_run(r)}
+        if len(group) < 2 or len(runs) < 2:
+            continue
+        types = {r.rule_type.value for r in group}
+        actions = {(r.effect.action or "").strip().lower() for r in group}
+        differing: list[str] = []
+        if len(types) > 1:
+            differing.append(f"rule type ({', '.join(sorted(types))})")
+        if len(actions) > 1:
+            differing.append("the action it records")
+        if not differing:
+            continue
+        findings.append(
+            {
+                "severity": "medium",
+                "category": "unstable_extraction",
+                "finding": (
+                    f"Two extraction runs read one sentence differently — {' and '.join(differing)} "
+                    f"— for: {sentence[:100]!r}"
+                ),
+                "affected_rule_ids": [r.rule_id for r in group],
+                "recommendation": (
+                    "Compare the readings against the sentence and keep the one it supports. A "
+                    "difference here is in the extraction, not in the document."
+                ),
+                "source": "deterministic",
+            }
+        )
+    return findings
+
+
+def _runner_fitness_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Whether each record can actually be decided the way it says it can.
+
+    Two populations, two questions, and each has to be asked its own. A
+    `deterministic` record claims the engine can evaluate it, so a condition
+    naming a fact the record never declares is a defect that only appears at
+    run time. An `ai_ready` record claims a judge can decide it by reading, so
+    it has to answer — from itself — what the document said, what the rule
+    requires, what a case must establish, what follows, and where it came from.
+
+    Asking one question of both populations is what produced the finding this
+    replaced: it reported 53 of 55 records as defective for failing a check
+    that could not apply to them.
+    """
+
+    findings: list[dict] = []
+    for rule in rules:
+        if rule.evaluation_mode is EvaluationMode.DETERMINISTIC:
+            reasons = unrunnable_reasons(rule)
+            if reasons:
+                findings.append(
+                    {
+                        "severity": "high",
+                        "category": "not_runnable_as_stored",
+                        "finding": (
+                            f"'{rule.title}' ({rule.rule_id}) is routed to the engine but "
+                            f"{'; '.join(reasons)}."
+                        ),
+                        "affected_rule_ids": [rule.rule_id],
+                        "recommendation": (
+                            "Every fact a condition names must be declared, or evaluation reports "
+                            "a missing input for a policy that looks complete."
+                        ),
+                        "source": "deterministic",
+                    }
+                )
+            continue
+        missing = unanswered_for_judge(rule)
+        if missing:
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "not_decidable_as_written",
+                    "finding": (
+                        f"'{rule.title}' ({rule.rule_id}) is decided by reading, but the record "
+                        f"does not say {', or '.join(missing)}."
+                    ),
+                    "affected_rule_ids": [rule.rule_id],
+                    "recommendation": (
+                        "A judge sees this record and nothing else. What it omits cannot be "
+                        "recovered downstream."
+                    ),
+                    "source": "deterministic",
+                }
+            )
     return findings
 
 

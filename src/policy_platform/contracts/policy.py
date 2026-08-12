@@ -547,6 +547,102 @@ def attributes_for(rule: object | None, facts: list[PolicyFact]) -> PolicyAttrib
     return PolicyAttributes(applies=rows(APPLIES_ATTRIBUTES), outcome=rows(OUTCOME_ATTRIBUTES))
 
 
+def _states_its_test(core: object | None) -> bool:
+    """Whether the record carries the rule's operative content, anywhere.
+
+    Deliberately generous about *where*, and strict about *whether*. A sentence
+    decides which slot carries its test — "shall not exceed 10% of the base"
+    puts it in a predicate and a threshold, "begins on the first working day" in
+    a temporal constraint, "provided upon promotion" in a trigger — and a check
+    that reads only a field named `condition` reports the other two as gaps. It
+    did: 29 of 46 records were called incomplete by a check looking in one
+    place.
+    """
+
+    def text(name: str) -> str:
+        value = getattr(core, name, None)
+        return value.strip() if isinstance(value, str) else ""
+
+    if core is None:
+        return False
+    if text("condition") or text("prerequisite") or text("constraint"):
+        return True
+    if text("trigger") or text("temporal_constraint") or text("deadline"):
+        return True
+    return bool(text("predicate") and (text("object") or text("threshold")))
+
+
+def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
+    """What a judge would not find in this record, in its own words.
+
+    An `ai_ready` policy is decided by a judge reading the record, so the record
+    has to be sufficient on its own. This names the questions it fails to
+    answer; an empty list means it is decidable as written.
+
+    The questions are the ones any consumer is really asking: what does the
+    document say, what does the rule require, what must be established about a
+    case, what follows, and where did this come from.
+    """
+
+    canonical = rule.formulation.canonical if rule.formulation else None
+    core = canonical.rule if canonical else None
+    missing: list[str] = []
+    if not (canonical and (canonical.source_text or "").strip()):
+        missing.append("the sentence it came from")
+    if not _states_its_test(core):
+        missing.append("what it requires")
+    if not rule.fact_model:
+        missing.append("what a case must establish")
+    if not (rule.effect and rule.effect.action):
+        missing.append("what follows")
+    if not rule.evidence:
+        missing.append("a link back to the document")
+    return missing
+
+
+def unrunnable_reasons(rule: "CanonicalRule") -> list[str]:
+    """Why a `deterministic` record could not actually be evaluated.
+
+    A record routed to the engine has to be runnable by it. The failure that
+    matters is a condition naming a fact the record never declares: the engine
+    reaches evaluation, finds the fact absent, and reports a missing input for
+    a policy that looked complete.
+    """
+
+    reasons: list[str] = []
+    condition = rule.condition
+    vacuous = getattr(condition, "type", None) == "all" and not getattr(condition, "all", None)
+    if vacuous:
+        reasons.append("its condition tree is empty")
+    if not rule.required_facts:
+        reasons.append("it declares no facts to evaluate against")
+
+    declared = {fact.name for fact in rule.required_facts}
+    for name in _facts_named_by(condition):
+        if name not in declared:
+            reasons.append(f"its condition names {name!r}, which it does not declare")
+    return reasons
+
+
+def _facts_named_by(condition: object) -> list[str]:
+    """Every fact identifier a condition tree references, at any depth."""
+
+    names: list[str] = []
+    fact = getattr(condition, "fact", None)
+    if isinstance(fact, str):
+        names.append(fact)
+    reference = getattr(condition, "reference", None)
+    if reference is not None and isinstance(getattr(reference, "fact", None), str):
+        names.append(reference.fact)
+    for attribute in ("all", "any"):
+        for child in getattr(condition, attribute, None) or []:
+            names.extend(_facts_named_by(child))
+    child = getattr(condition, "not_", None)
+    if child is not None:
+        names.extend(_facts_named_by(child))
+    return names
+
+
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
