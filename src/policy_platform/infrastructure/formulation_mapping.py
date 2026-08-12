@@ -85,6 +85,7 @@ from policy_platform.infrastructure.policy_facts import (
     _slugify,
     facts_for,
     parse_proportion,
+    published_facts,
 )
 
 #: Canonical rule type -> (platform rule type, effect). Every entry is a
@@ -1584,7 +1585,7 @@ def formulation_to_candidate_rules(
         # extracted attribute with the document's words and the fact a case
         # supplies for it. Computed once and used for both, so the two cannot
         # describe the same record differently.
-        rule_facts = _reconciled_facts(facts_for(canonical_rule), required_facts)
+        rule_facts = published_facts(canonical_rule, required_facts)
 
         # Scope evidence to the clause(s) this specific policy was actually
         # formulated from, when the caller supplied enough to do that. See the

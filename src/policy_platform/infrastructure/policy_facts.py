@@ -238,6 +238,36 @@ def _slugify(phrase: str) -> str:
     return _slug(phrase)
 
 
+def published_facts(rule, required=None) -> list[PolicyFact]:
+    """The fact model a record publishes: named by the sentence, typed by it.
+
+    One function because three places need it — extraction and two read paths —
+    and while there were three copies they drifted. Extraction reconciled a
+    fact's type against the rule's own `required_facts` and the read paths did
+    not, so one record told a consumer a value's type was unknown in
+    `fact_model` while `required_facts` beside it said `number`.
+
+    Reconciliation only ever fills a gap. `facts_for` reads a type where the
+    phrase writes one, which is right: "Annual increase" contains no digits and
+    asserting a type from the words alone would be a guess. But once the rule
+    compiles a numeric comparison over that fact, the sentence *has* said it is
+    a quantity. A type the phrase states is never overwritten, because the
+    phrase is the stronger evidence — it says money or duration where a
+    compiled comparison can only say "a number".
+    """
+
+    facts = facts_for(rule)
+    if not required:
+        return facts
+    declared = {item.name: item.data_type for item in required if item.data_type}
+    return [
+        fact.model_copy(update={"data_type": declared[fact.name]})
+        if fact.data_type is None and fact.name in declared
+        else fact
+        for fact in facts
+    ]
+
+
 def facts_for(rule: CanonicalPolicyRule | None) -> list[PolicyFact]:
     """Every fact the rule's own sentence names, in a stable order.
 

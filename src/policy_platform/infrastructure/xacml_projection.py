@@ -571,6 +571,30 @@ def _condition_from(
     )
 
 
+#: Distinguishes "no record effect supplied" from "the record has no effect".
+#: A definition legitimately projects to no XACML Rule at all, so `None` is a
+#: real value here and cannot double as the default.
+_UNSET = object()
+
+
+def xacml_effect_for(effect_type: object) -> RuleEffect | None:
+    """The record's stored effect, in XACML terms.
+
+    One mapping, used by every read path, so a rule's effect and its projection
+    cannot answer "does this forbid?" differently. `informational` maps to no
+    Rule at all rather than to Permit: a statement that grants and refuses
+    nothing is not a XACML Rule, and calling it a permission asserts something
+    the document did not.
+    """
+
+    value = getattr(effect_type, "value", effect_type)
+    if value == "deny":
+        return RuleEffect.DENY
+    if value in {"allow", "require_action"}:
+        return RuleEffect.PERMIT
+    return None
+
+
 def _effect_for(
     rule: CanonicalPolicyRule, modality: NormativeModality | None
 ) -> tuple[RuleEffect | None, str]:
@@ -614,7 +638,9 @@ def _effect_for(
 
 
 def build_xacml_view(
-    policy: CanonicalPolicy | None, fact_model: Mapping[str, object] | None = None
+    policy: CanonicalPolicy | None,
+    fact_model: Mapping[str, object] | None = None,
+    record_effect: "RuleEffect | None | object" = _UNSET,
 ) -> PolicyXacmlView:
     """Project one canonical policy into the four separated layers.
 
@@ -622,6 +648,23 @@ def build_xacml_view(
     source term. Omitting it means no fact model is configured, and every
     condition reports `not_configured` rather than `missing`: those are
     different jobs, and only one of them is per-attribute.
+
+    `record_effect` is the rule's own stored effect, expressed here in XACML
+    terms. Supplied by every read path, because this projection is a
+    *restatement* of that decision rather than a second opinion about it: a
+    consumer that gets Deny from one field and a permission from another has
+    been told opposite things about whether the policy forbids something, which
+    is the worst output this system can produce.
+
+    Re-deriving instead looks equivalent, and is — right up until the
+    derivation is corrected. Records written before the fix keep their stored
+    effect while the projection reports the new reading, so one record answers
+    the same question two ways. Measured on a live corpus, exactly one did:
+    "not exceeding 5% of the base" stored as an obligation from before
+    negation-in-the-predicate was read, projected as Deny after.
+
+    Omitting it keeps the derived reading, for callers projecting a sentence
+    that has no record yet.
     """
 
     if policy is None or policy.rule is None:
@@ -669,6 +712,11 @@ def build_xacml_view(
         )
 
     effect, effect_basis = _effect_for(rule, modality)
+    if record_effect is not _UNSET:
+        # The record's own decision wins. See the docstring: this projection
+        # restates that decision, and a second opinion about it lets one record
+        # answer "does this forbid?" two ways.
+        effect = record_effect  # type: ignore[assignment]
 
     obligations: list[ObligationExpression] = []
     if modality is NormativeModality.CALCULATION_REQUIREMENT and (rule.calculation or "").strip():

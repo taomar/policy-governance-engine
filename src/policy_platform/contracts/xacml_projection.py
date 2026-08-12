@@ -280,10 +280,26 @@ class XacmlProjection(BaseModel):
     #: (a definition grants and refuses nothing). Never NotApplicable.
     effect: RuleEffect | None = None
     #: Why the effect is what it is, or why there is none.
-    effect_basis: str = ""
+    #:
+    #: Computed but not served. It is a sentence explaining a value that sits
+    #: next to it, addressed to a reviewer, in a record whose consumers are a
+    #: search API and a judge — the same reason `condition_provenance` carries
+    #: a code and no message. Nothing reads it.
+    effect_basis: str = Field(default="", exclude=True)
     obligation_expressions: list[ObligationExpression] = Field(default_factory=list)
     advice_expressions: list[AdviceExpression] = Field(default_factory=list)
-    compilation_status: CompilationStatus = CompilationStatus.NOT_EXECUTABLE
+    #: Whether the projection forms a complete XACML rule.
+    #:
+    #: Computed but not served, because "executable" here means something
+    #: different from `machine_executable` on the rule beside it: this asks
+    #: whether the *projection* is well-formed, and a rule with no conditions
+    #: projects to a valid unconditional XACML rule whether or not the platform
+    #: can evaluate it. Measured over a live corpus, nineteen records carried
+    #: `compilation_status: executable` next to `machine_executable: false`,
+    #: which no reader can reconcile. Nothing reads it either.
+    compilation_status: CompilationStatus = Field(
+        default=CompilationStatus.NOT_EXECUTABLE, exclude=True
+    )
 
 
 class RequiredAttribute(BaseModel):

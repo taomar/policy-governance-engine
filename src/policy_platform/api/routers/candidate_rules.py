@@ -44,8 +44,8 @@ from policy_platform.infrastructure.formulation_mapping import (
     condition_provenance_for,
 )
 from policy_platform.contracts.policy import attributes_for, evaluation_mode_for
-from policy_platform.infrastructure.policy_facts import facts_for
-from policy_platform.infrastructure.xacml_projection import build_xacml_view
+from policy_platform.infrastructure.policy_facts import published_facts
+from policy_platform.infrastructure.xacml_projection import build_xacml_view, xacml_effect_for
 from policy_platform.infrastructure.export import (
     ExportFormat,
     content_disposition,
@@ -132,11 +132,16 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
     if rule.formulation is None or rule.formulation.canonical is None:
         return rule
     canonical = rule.formulation.canonical
-    facts = facts_for(canonical.rule)
+    # Reconciled against the rule's own `required_facts`, exactly as extraction
+    # does. Without it the two paths disagreed about the same name: a fact
+    # whose type the compiled comparison establishes came back blank here.
+    facts = published_facts(canonical.rule, rule.required_facts)
     return rule.model_copy(
         update={
             "decision_readiness": _decision_readiness_for(canonical),
-            "xacml_view": build_xacml_view(canonical),
+            "xacml_view": build_xacml_view(
+                canonical, record_effect=xacml_effect_for(rule.effect.type)
+            ),
             # Re-derived for the same reason as the two above. A candidate
             # stores it at extraction time, so reading it back would work — but
             # then a corrected message would reach published rules (which

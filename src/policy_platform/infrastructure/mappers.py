@@ -10,7 +10,7 @@ from pydantic import TypeAdapter
 
 from policy_platform.contracts.conditions import ConditionNode
 from policy_platform.contracts.formulation import RuleFormulation
-from policy_platform.infrastructure.policy_facts import facts_for
+from policy_platform.infrastructure.policy_facts import published_facts
 from policy_platform.contracts.policy import (
     AggregateLimit,
     AggregateLimitContribution,
@@ -38,7 +38,10 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         _decision_readiness_for,
         condition_provenance_for,
     )
-    from policy_platform.infrastructure.xacml_projection import build_xacml_view
+    from policy_platform.infrastructure.xacml_projection import (
+        build_xacml_view,
+        xacml_effect_for,
+    )
 
     formulation = (
         RuleFormulation.model_validate(rule.formulation_json) if rule.formulation_json else None
@@ -47,6 +50,11 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
     # rule carries, rather than from a second reading of the stored JSON.
     condition = TypeAdapter(ConditionNode).validate_python(rule.condition_json)
     required_facts = [RequiredFact(**f) for f in rule.required_facts_json]
+    rule_facts = (
+        published_facts(formulation.canonical.rule, required_facts)
+        if formulation and formulation.canonical
+        else []
+    )
     return CanonicalRule(
         policy_set_id=str(rule.policy_version.policy_set_id),
         policy_version_id=str(rule.policy_version_id),
@@ -124,7 +132,9 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # are pure functions of `formulation.canonical`, which is persisted, so
         # a stored copy could only ever disagree with the record it came from.
         xacml_view=(
-            build_xacml_view(formulation.canonical)
+            build_xacml_view(
+                formulation.canonical, record_effect=xacml_effect_for(rule.effect_json.get("type"))
+            )
             if formulation and formulation.canonical
             else None
         ),
@@ -139,19 +149,17 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         evaluation_mode=evaluation_mode_from(condition, required_facts),
         # The facts the policy's own sentence names, re-derived from the
         # canonical record for the same reason: it is the record, and a second
-        # copy could only drift from it.
-        fact_model=facts_for(formulation.canonical.rule)
-        if formulation and formulation.canonical
-        else [],
+        # copy could only drift from it. `published_facts` is the one function
+        # all three derivation sites use, which is what stops the read paths
+        # and extraction disagreeing about a fact's type.
+        fact_model=rule_facts,
         # The attribute table: every attribute the formulator assigned, the
         # document's words for it, and the fact a case supplies. Derived here
         # rather than rendered by each consumer, so the served JSON and any
         # view of it are the same table rather than two readings of one.
         attributes=attributes_for(
             formulation.canonical.rule if formulation and formulation.canonical else None,
-            facts_for(formulation.canonical.rule)
-            if formulation and formulation.canonical
-            else [],
+            rule_facts,
         ),
     )
 
