@@ -198,10 +198,6 @@ export function Dashboard({
   const pending = summary?.pendingCandidateCount;
   const published = summary?.publishedRuleCount;
   const executable = summary?.executableRuleCount;
-  const executablePercent =
-    published && executable !== null && executable !== undefined
-      ? Math.round((executable / published) * 100)
-      : null;
   const pressure = [
     {
       label: "Awaiting review",
@@ -218,14 +214,21 @@ export function Dashboard({
       tone: summary?.highFindingCount ? "risk" : "neutral",
     },
     {
-      label: "Machine-ready",
+      label: "Deterministic",
       value:
         published === null || published === undefined || executable === null || executable === undefined
           ? null
           : `${executable}/${published}`,
-      detail: executablePercent === null ? "coverage unavailable" : `${executablePercent}% of published rules`,
+      // The remainder is not a shortfall. Most policy text states its test in
+      // words rather than as a comparison, so it is decided by reading — which
+      // is a route, not a gap, and reporting it as "coverage" invited work on
+      // rules that can never become arithmetic.
+      detail:
+        published === null || published === undefined || executable === null || executable === undefined
+          ? "no published rules"
+          : `${published - executable} decided by reading`,
       icon: <CheckCircleOutlined />,
-      tone: executablePercent !== null && executablePercent < 50 ? "attention" : "neutral",
+      tone: "neutral",
     },
     {
       label: "Regression guards",
@@ -317,7 +320,7 @@ export function Dashboard({
                   <strong>{project.name}</strong>
                   <small>
                     {insight.active_version_number ? `v${insight.active_version_number}` : "not published"} ·{" "}
-                    {insight.active_rule_count} rules · {coverage}% machine-ready
+                    {insight.active_rule_count} rules · {coverage}% deterministic
                   </small>
                 </span>
                 <span className="dashboard-readiness-signals">

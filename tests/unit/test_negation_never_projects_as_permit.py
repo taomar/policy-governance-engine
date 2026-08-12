@@ -18,6 +18,12 @@ exceed…", "will not be enrolled…" and "will not bear any responsibility".
 
 These tests are written against the projection's own contract rather than any
 document, so they hold for whatever a customer uploads.
+
+Two places read the negation, and until a mutation run said otherwise only one
+of them was covered here. `build_xacml_view` produces the projection; the rule
+mapper produces `Effect.type`, which is what the evaluator and every badge in
+the interface actually read. Breaking the second changed nothing in this file,
+so the more consequential of the two was the untested one.
 """
 from __future__ import annotations
 
@@ -27,8 +33,11 @@ from policy_platform.contracts.formulation import (
     CanonicalPolicy,
     CanonicalPolicyRule,
     CanonicalRuleType,
+    PolicyFormulation,
 )
+from policy_platform.contracts.policy import EffectType, RuleType
 from policy_platform.contracts.xacml_projection import NormativeModality, RuleEffect
+from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.xacml_projection import build_xacml_view
 
 
@@ -42,6 +51,28 @@ def _view(rule_type: CanonicalRuleType, modality: str | None, **fields):
         rule=CanonicalPolicyRule(rule_type=rule_type, modality=modality, **fields),
     )
     return build_xacml_view(policy)
+
+
+def _effect(rule_type: CanonicalRuleType, modality: str | None, **fields):
+    """The rule mapper's `Effect.type` for one canonical policy.
+
+    The output the evaluator reads and the interface badges, as distinct from
+    the projection above.
+    """
+
+    policy = CanonicalPolicy(
+        source_text=fields.pop("source_text", "A stated rule."),
+        rule=CanonicalPolicyRule(rule_type=rule_type, modality=modality, **fields),
+    )
+    rules, _ = formulation_to_candidate_rules(
+        PolicyFormulation(canonical_policies=[policy]),
+        policy_set_id="test-set",
+        extraction_run_id="test-run",
+        deployment_name="test",
+        prompt_version="test",
+        parser_version="test",
+    )
+    return rules[0] if rules else None
 
 
 #: Every rule type that carries a positive normative force. A negation has to
@@ -174,3 +205,78 @@ def test_a_comparative_no_is_not_read_as_a_prohibition(predicate):
     assert states_a_negation(_rule(CanonicalRuleType.OBLIGATION, None, predicate=predicate)) is (
         False
     )
+
+
+# --------------------------------------------------------------------------
+# The effect the evaluator reads
+# --------------------------------------------------------------------------
+
+
+#: Rule types whose *effect* is positive, which is what the guard acts on.
+#:
+#: Narrower than `_POSITIVE_TYPES` by one: a calculation maps to
+#: `INFORMATIONAL`, and negating a statement of how something is worked out
+#: does not make it a prohibition. The guard deliberately leaves it alone, so
+#: asserting DENY there would pin behaviour the mapping does not intend.
+_POSITIVE_EFFECT_TYPES = [
+    CanonicalRuleType.OBLIGATION,
+    CanonicalRuleType.PERMISSION,
+    CanonicalRuleType.ENTITLEMENT,
+    CanonicalRuleType.ELIGIBILITY,
+    CanonicalRuleType.CONDITIONAL_OUTCOME,
+]
+
+
+@pytest.mark.parametrize("rule_type", _POSITIVE_EFFECT_TYPES)
+@pytest.mark.parametrize("modality", _NEGATIONS)
+def test_a_negated_sentence_never_becomes_a_permission_or_a_duty(rule_type, modality):
+    """The output that decides cases, not just the one that describes them.
+
+    `Effect.type` is what the evaluator acts on and what the interface badges.
+    A mutation run found this path uncovered: removing its negation guard
+    entirely broke nothing, while the projection beside it was tested from
+    every angle. The more consequential of the two was the untested one.
+    """
+
+    rule = _effect(rule_type, modality, subject="a party", predicate="disclose")
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.DENY
+    assert rule.rule_type is RuleType.PROHIBITION
+
+
+def test_a_negation_in_the_predicate_denies_in_the_effect_too():
+    """Both places the source writes it, on the path that decides."""
+
+    rule = _effect(
+        CanonicalRuleType.CONDITIONAL_OUTCOME,
+        None,
+        subject="the increase",
+        predicate="not exceeding",
+        threshold="5% of the base",
+    )
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.DENY
+
+
+def test_an_unnegated_sentence_keeps_its_effect():
+    """The guard must not fire on everything; a permission stays a permission."""
+
+    rule = _effect(
+        CanonicalRuleType.PERMISSION, "may", subject="a party", predicate="request leave"
+    )
+
+    assert rule is not None
+    assert rule.effect.type is not EffectType.DENY
+
+
+def test_a_definition_is_never_turned_into_a_denial():
+    """"X does not mean Y" still defines rather than forbids."""
+
+    rule = _effect(
+        CanonicalRuleType.DEFINITION, "does not", subject="dependant", predicate="mean"
+    )
+
+    assert rule is not None
+    assert rule.effect.type is not EffectType.DENY

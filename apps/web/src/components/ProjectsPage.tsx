@@ -214,7 +214,7 @@ export function ProjectsPage({
             <dd>{totals.published}</dd>
           </div>
           <div>
-            <dt>Machine-executable</dt>
+            <dt>Deterministic</dt>
             <dd>{totals.executable}</dd>
           </div>
           <div>
@@ -299,11 +299,14 @@ export function ProjectsPage({
                     <small>{s ? `${s.version_count} version${s.version_count === 1 ? "" : "s"} retained` : "Loading package"}</small>
                   </span>
                 </span>
-                <span className="project-register-insight" title="Rules the deterministic evaluator can execute">
+                <span
+                  className="project-register-insight"
+                  title="Policies whose test the source states as a comparison, so it can be evaluated directly. The rest are decided by reading."
+                >
                   <CheckCircleOutlined />
                   <span>
                     <strong>{s ? `${s.machine_executable_count} of ${s.active_rule_count}` : "—"}</strong>
-                    <small>{s?.active_rule_count ? `${executablePercent}% machine-ready` : "No active rules"}</small>
+                    <small>{s?.active_rule_count ? `${executablePercent}% deterministic` : "No active rules"}</small>
                   </span>
                 </span>
                 <span className="project-register-insight" title="Latest published-version quality evaluation">

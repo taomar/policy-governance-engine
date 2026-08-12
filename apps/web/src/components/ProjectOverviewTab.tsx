@@ -105,9 +105,6 @@ export function ProjectOverviewTab({
   const governanceConfiguredCount = raciEntries.filter((entry) => !entry.isDefault).length;
   const missingGovernanceCount = raciEntries.length - governanceConfiguredCount;
   const liveRuleCount = stats?.activeVersion?.rule_count ?? 0;
-  const executableCoverage = liveRuleCount
-    ? Math.round(((stats?.executableRuleCount ?? 0) / liveRuleCount) * 100)
-    : 0;
   const sourceCoverage = liveRuleCount
     ? Math.round(((stats?.sourceGroundedRuleCount ?? 0) / liveRuleCount) * 100)
     : 0;
@@ -204,10 +201,10 @@ export function ProjectOverviewTab({
                     <dt>Live rules</dt>
                     <dd>{liveRuleCount}</dd>
                   </div>
-                  <div className={executableCoverage < 50 ? "is-warning" : "is-success"}>
-                    <dt>Machine-executable</dt>
+                  <div>
+                    <dt>Deterministic</dt>
                     <dd>{stats.executableRuleCount}</dd>
-                    <small>{executableCoverage}% coverage</small>
+                    <small>{liveRuleCount - stats.executableRuleCount} decided by reading</small>
                   </div>
                   <div className={sourceCoverage === 100 ? "is-success" : "is-warning"}>
                     <dt>Source-grounded</dt>
@@ -220,14 +217,23 @@ export function ProjectOverviewTab({
                   </div>
                 </dl>
                 <div className="project-readiness-signals">
-                  <div className={executableCoverage < 50 ? "is-warning" : "is-success"}>
-                    {executableCoverage < 50 ? <WarningOutlined /> : <CheckCircleOutlined />}
+                  {/* Neutral, because it is a route rather than a shortfall.
+                      This read "N policies require manual handling" under a
+                      warning icon whenever fewer than half stated a
+                      comparison — which is most documents, and which sent a
+                      reader to fix rules that can never become arithmetic. */}
+                  <div>
+                    <CheckCircleOutlined />
                     <span>
                       <strong>
                         {liveRuleCount - stats.executableRuleCount} polic
-                        {liveRuleCount - stats.executableRuleCount === 1 ? "y requires" : "ies require"} manual handling
+                        {liveRuleCount - stats.executableRuleCount === 1 ? "y is" : "ies are"} decided
+                        by reading
                       </strong>
-                      <small>Only machine-executable policies participate in deterministic evaluation.</small>
+                      <small>
+                        The source states their test in words rather than as a comparison, so a
+                        judge reads the record: the sentence, the facts it names, and the outcome.
+                      </small>
                     </span>
                   </div>
                   <div className={sourceCoverage === 100 ? "is-success" : "is-warning"}>

@@ -1,0 +1,76 @@
+[
+  {
+    "name": "negation ignored entirely in the effect derivation",
+    "file": "src/policy_platform/infrastructure/formulation_mapping.py",
+    "find": "        ) and states_a_negation(canonical_rule):",
+    "replace": "        ) and False:",
+    "tests": ["tests/unit/test_negation_never_projects_as_permit.py"]
+  },
+  {
+    "name": "negation read only from the modal word",
+    "file": "src/policy_platform/infrastructure/formulation_mapping.py",
+    "find": "    predicate = (rule.predicate or \"\").strip()\n    if _COMPARATIVE_NO_RE.match(predicate):\n        return False\n    return is_negative_modality(predicate)",
+    "replace": "    return False",
+    "tests": ["tests/unit/test_negation_never_projects_as_permit.py"]
+  },
+  {
+    "name": "a comparative no is read as a prohibition",
+    "file": "src/policy_platform/infrastructure/formulation_mapping.py",
+    "find": "    if _COMPARATIVE_NO_RE.match(predicate):\n        return False\n",
+    "replace": "",
+    "tests": ["tests/unit/test_negation_never_projects_as_permit.py"]
+  },
+  {
+    "name": "facts matched by position instead of by role",
+    "file": "src/policy_platform/contracts/policy.py",
+    "find": "    role = _ROLE_FOR_ATTRIBUTE.get(attribute, attribute)\n    return next((fact for fact in facts if role in fact.roles), None)",
+    "replace": "    return facts[0] if facts else None",
+    "tests": ["tests/unit/test_policy_attributes.py"]
+  },
+  {
+    "name": "a repeated phrase is hidden from the attribute table",
+    "file": "src/policy_platform/contracts/policy.py",
+    "find": "            if not text:\n                continue",
+    "replace": "            if not text or any(r.text == text for r in out):\n                continue",
+    "tests": ["tests/unit/test_policy_attributes.py"]
+  },
+  {
+    "name": "the proportion base is not extracted",
+    "file": "src/policy_platform/infrastructure/policy_facts.py",
+    "find": "    return proportion[1]",
+    "replace": "    return (phrase or \"\").strip()",
+    "tests": [
+      "tests/unit/test_policy_facts.py",
+      "tests/unit/test_stated_bound_compiler.py",
+      "tests/unit/test_stated_bound_end_to_end.py"
+    ]
+  },
+  {
+    "name": "a stated amount is published as a fact",
+    "file": "src/policy_platform/infrastructure/policy_facts.py",
+    "find": "    if not _NUMBER_RE.search(text):\n        return False",
+    "replace": "    return False\n    if not _NUMBER_RE.search(text):\n        return False",
+    "tests": ["tests/unit/test_policy_facts.py"]
+  },
+  {
+    "name": "an unrecognised currency lets an amount through as a fact",
+    "file": "src/policy_platform/infrastructure/policy_facts.py",
+    "find": "    if _LEADS_WITH_VALUE_RE.match(text):\n        return True",
+    "replace": "    if False:\n        return True",
+    "tests": ["tests/unit/test_policy_facts.py"]
+  },
+  {
+    "name": "the candidate read path stops deriving the attribute table",
+    "file": "src/policy_platform/api/routers/candidate_rules.py",
+    "find": "            \"attributes\": attributes_for(canonical.rule, facts),\n",
+    "replace": "",
+    "tests": ["tests/unit/test_derived_views_agree.py"]
+  },
+  {
+    "name": "the stated-bound compiler never fires",
+    "file": "src/policy_platform/infrastructure/formulation_mapping.py",
+    "find": "            stated_bound = condition_from_stated_bound(canonical_rule)",
+    "replace": "            stated_bound = None",
+    "tests": ["tests/unit/test_stated_bound_end_to_end.py"]
+  }
+]
