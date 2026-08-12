@@ -94,6 +94,43 @@ def test_a_run_with_a_missing_target_fails_loudly(tmp_path: Path, capsys):
 # --------------------------------------------------------------------------
 
 
+def test_a_failed_write_leaves_the_original_intact(sample: Path, monkeypatch):
+    """The worst thing this tool could do is destroy a source file.
+
+    The write goes to a temporary sibling and is moved into place, so a failure
+    part-way through leaves the original untouched. The naive version opened
+    the target directly, and a failure at that moment — observed on Windows,
+    with the API running from the same checkout — would have truncated a source
+    file outside any restore block.
+    """
+
+    import mutation_check
+
+    before = sample.read_text(encoding="utf-8")
+
+    def refuse(self, *args, **kwargs):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(mutation_check.Path, "open", refuse)
+
+    with pytest.raises(OSError):
+        mutation_check._write(sample, "replacement body", "\n")
+
+    monkeypatch.undo()
+    assert sample.read_text(encoding="utf-8") == before
+
+
+def test_no_temporary_file_is_left_behind(sample: Path):
+    mutation_check_tmp = sample.with_suffix(sample.suffix + ".mutation-tmp")
+
+    import mutation_check
+
+    mutation_check._write(sample, "def forbids():\n    return False\n", "\n")
+
+    assert not mutation_check_tmp.exists()
+    assert "return False" in sample.read_text(encoding="utf-8")
+
+
 def test_a_crlf_file_matches_a_spec_written_with_newlines(tmp_path: Path):
     """Specs are written with `\\n`; a Windows checkout has `\\r\\n`.
 

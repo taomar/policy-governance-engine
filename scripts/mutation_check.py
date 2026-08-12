@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -102,8 +103,28 @@ def _read(path: Path) -> tuple[str, str]:
 
 
 def _write(path: Path, text: str, newline: str) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(text.replace("\n", newline) if newline != "\n" else text)
+    """Replace the file's contents atomically.
+
+    Written to a sibling temporary file and moved into place, so a failure
+    part-way through leaves the original untouched rather than truncated. The
+    naive version opened the target for writing directly, and a failure at that
+    moment would have destroyed a source file with no restore to fall back on —
+    the mutation harness would have become the thing that broke the tree.
+
+    Observed on Windows while the API was running from the same checkout: the
+    open failed with `Invalid argument`, after the read and outside the restore
+    block. It failed harmlessly by luck.
+    """
+
+    body = text.replace("\n", newline) if newline != "\n" else text
+    temporary = path.with_suffix(path.suffix + ".mutation-tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(body)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def apply_mutation(path: Path, find: str, replace: str) -> tuple[str, str]:

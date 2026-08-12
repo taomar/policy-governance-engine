@@ -195,6 +195,16 @@ class CandidateRuleResponse(BaseModel):
     reworded: bool = False
     baseline_candidate_id: str | None = None
     superseded_at: datetime | None = None
+    #: The record that replaced this one, when a later run produced a reading of
+    #: the same sentence. Derived over the set being returned rather than
+    #: stored: `superseded_at` is deliberately not set for a candidate a human
+    #: has already published, because a re-run is a machine action and must not
+    #: bury someone's decision — but the consequence is that publishing v1, then
+    #: extracting again and publishing v2, leaves both in the queue, and a
+    #: reader has no way to tell which is current.
+    #:
+    #: Absent means this is the latest reading of its sentence.
+    superseded_by_candidate_id: str | None = None
     rule: CanonicalRule
 
 

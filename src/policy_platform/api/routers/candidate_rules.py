@@ -225,7 +225,36 @@ async def list_candidate_rules(
         delta_status=delta_status,
         include_superseded=include_superseded,
     )
-    return [_to_response(c) for c in candidates]
+    return _with_successors([_to_response(c) for c in candidates])
+
+
+def _with_successors(responses: list[CandidateRuleResponse]) -> list[CandidateRuleResponse]:
+    """Say which record replaced which, over the set being returned.
+
+    A later run records the reading it replaces as its `baseline_candidate_id`,
+    so the successor relation is already in the data — just held by the wrong
+    end of the pair. A reader looking at one record cannot tell whether
+    something newer exists; a reader looking at the queue sees both and has no
+    way to order them.
+
+    Derived here rather than stored because it depends on the set in view. A
+    record is the latest *among what was asked for*, and asking for one run's
+    output should not make its rules look superseded by a run nobody requested.
+
+    Baselines pointing outside the set are left alone: 30 of 41 do, because
+    their predecessors belong to runs already retired from the queue.
+    """
+
+    successor: dict[str, str] = {}
+    present = {response.id for response in responses}
+    for response in responses:
+        baseline = response.baseline_candidate_id
+        if baseline and baseline in present:
+            successor[baseline] = response.id
+    return [
+        response.model_copy(update={"superseded_by_candidate_id": successor.get(response.id)})
+        for response in responses
+    ]
 
 
 @router.get("/{key}/review-facets")

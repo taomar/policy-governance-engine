@@ -809,6 +809,12 @@ export interface CandidateRule {
   /** Same meaning as the previous run's rule, but the model rewrote the prose. */
   reworded: boolean;
   baseline_candidate_id: string | null;
+  /** The record that replaced this one, when a later run re-read the same
+   *  sentence. Absent means this is the latest reading. Derived by the server
+   *  over the set returned, because being latest depends on what was asked
+   *  for: opening one run's output must not make its rules look superseded by
+   *  a run nobody requested. */
+  superseded_by_candidate_id: string | null;
   superseded_at: string | null;
   rule: CanonicalRule;
 }

@@ -12,6 +12,7 @@ import {
   Grid,
   Input,
   InputNumber,
+  Modal,
   Pagination,
   Progress,
   Row,
@@ -28,6 +29,7 @@ import {
   EditOutlined,
   ExclamationCircleOutlined,
   FileSearchOutlined,
+  HistoryOutlined,
   LayoutOutlined,
   PlusOutlined,
   SafetyCertificateOutlined,
@@ -114,6 +116,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
   const [candidates, setCandidates] = useState<CandidateRule[]>([]);
+  const [previousUnderReview, setPreviousUnderReview] = useState<CandidateRule | null>(null);
+  const [previousTab, setPreviousTab] = useState("overview");
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   /** Filters that narrow the queue to what a reviewer is actually working on:
    *  one document, one extraction run, or one kind of change. Held server-side
@@ -411,6 +415,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const filteredCandidates = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     return candidates.filter((c) => {
+      // Only the latest reading of each sentence. A later run records the one
+      // it replaces, and both stay in the queue — publishing v1, extracting
+      // again and publishing v2 left two cards for one policy with nothing to
+      // order them. The predecessor is still reachable from the card that
+      // replaced it.
+      if (c.superseded_by_candidate_id) return false;
       if (isDefinitionKind(c.rule_type) !== (contentKind === "definitions")) return false;
       if (!q) return true;
       const r = c.rule;
@@ -425,6 +435,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       );
     });
   }, [candidates, searchText, contentKind]);
+
+  /** The reading this one replaced, when it is still in the payload. */
+  const previousOf = useMemo(() => {
+    const byId = new Map(candidates.map((c) => [c.id, c]));
+    return (candidate: CandidateRule) =>
+      candidate.baseline_candidate_id ? byId.get(candidate.baseline_candidate_id) ?? null : null;
+  }, [candidates]);
 
   // Reset to page 1 whenever the search or content-kind tab narrows/widens
   // the filtered set, so the reviewer never lands on a now-empty trailing page.
@@ -897,6 +914,30 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 <Text>{selectedCandidate.reviewed_by ? `By ${selectedCandidate.reviewed_by}` : "Not reviewed"}</Text>
               </div>
             </div>
+            {(() => {
+              const previous = previousOf(selectedCandidate);
+              if (!previous) return null;
+              return (
+                <div className="candidate-previous-version">
+                  <Text type="secondary">
+                    <HistoryOutlined /> Previous version
+                  </Text>
+                  <div className="candidate-previous-version-body">
+                    <Text code>{previous.rule.rule_id}</Text>
+                    <Text type="secondary">
+                      {previous.published_version_id ? "published" : previous.review_status} ·{" "}
+                      {new Date(previous.created_at).toLocaleDateString()}
+                    </Text>
+                    <Button
+                      size="small"
+                      onClick={() => setPreviousUnderReview(previous)}
+                    >
+                      View
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
             {selectedCandidate.baseline_candidate_id && (
               <RuleChangeExplainer candidateId={selectedCandidate.id} />
             )}
@@ -1576,6 +1617,25 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         />
       )}
       {askTarget && <AskAboutRuleModal candidate={askTarget} onClose={() => setAskTarget(null)} />}
+      {previousUnderReview && (
+        <Modal
+          open
+          width={960}
+          title={`Previous version — ${previousUnderReview.rule.rule_id}`}
+          footer={null}
+          onCancel={() => setPreviousUnderReview(null)}
+        >
+          {/* Read-only. This record was replaced; it is here so a reviewer can
+              see what the earlier run made of the same sentence, not so it can
+              be acted on. */}
+          <PolicyInspector
+            rule={previousUnderReview.rule}
+            recordKind="candidate"
+            activeTabKey={previousTab}
+            onTabChange={setPreviousTab}
+          />
+        </Modal>
+      )}
       <FamilyReviewConfirm
         open={familyPrompt !== null}
         gaps={familyPrompt?.gaps ?? []}

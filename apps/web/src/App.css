@@ -4553,6 +4553,26 @@
   line-height: 1.5;
 }
 
+/* The reading this record replaced, offered from the card that replaced it.
+   Present only when the predecessor is in the payload — a baseline belonging to
+   a run already retired from the queue cannot be opened. */
+.candidate-previous-version {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-lg);
+  background: #fafafa;
+}
+
+.candidate-previous-version-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .semantic-projection-effect {
   display: flex;
   flex-direction: column;
