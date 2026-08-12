@@ -1,0 +1,30 @@
+[
+  {
+    "name": "the explanation reads a field the contract no longer has",
+    "file": "src/policy_platform/infrastructure/ai_scenario_engine.py",
+    "find": "        readiness_note = f\" Read against its own source, this policy is '{readiness.evaluability}'.\"",
+    "replace": "        readiness_note = f\" {readiness.reason}\"",
+    "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
+  },
+  {
+    "name": "the explanation calls the policy defective again",
+    "file": "src/policy_platform/infrastructure/ai_scenario_engine.py",
+    "find": "            \"This is not a failed policy decision. The source states this policy's test in \"",
+    "replace": "            \"No fact model maps this policy's terms onto attributes the deterministic \"\n            \"engine can read (machine_executable=false). The source states this policy's test in \"",
+    "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
+  },
+  {
+    "name": "an AI call is made for a policy decided by reading",
+    "file": "src/policy_platform/infrastructure/ai_scenario_engine.py",
+    "find": "        \"testability_reason\": \"decided_by_reading\",",
+    "replace": "        \"testability_reason\": \"rule_not_machine_executable\",",
+    "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
+  },
+  {
+    "name": "the quality check reports being decided by reading as a defect",
+    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "find": "            f\"{len(executable)} of them are evaluated by comparison, so the evaluator can \"",
+    "replace": "            f\"{len(executable)} of them are machine-executable, so the evaluator can \"",
+    "tests": ["tests/unit/test_no_readiness_framing.py"]
+  }
+]

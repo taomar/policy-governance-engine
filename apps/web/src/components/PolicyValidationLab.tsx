@@ -332,7 +332,7 @@ export function PolicyValidationLab({
 
   const generate = async () => {
     if (selectedRuleIds.size === 0) {
-      message.warning("Select at least one machine-executable policy.");
+      message.warning("Select at least one policy the engine evaluates by comparison.");
       return;
     }
     if (!requireActor("generating a validation batch")) return;

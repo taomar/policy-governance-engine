@@ -33,7 +33,7 @@ const FIELD_LABEL: Record<string, string> = {
   required_facts: "Required facts",
   advice: "Advice",
   is_explicit_override: "Explicit override",
-  machine_executable: "Machine-executable",
+  machine_executable: "Evaluated by comparison",
   title: "Title",
   description: "Description",
 };

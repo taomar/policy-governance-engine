@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
-from policy_platform.contracts.policy import AmbiguityStatus, EffectType, RuleType
+from policy_platform.contracts.policy import AmbiguityStatus, Effect, EffectType, RuleType
 from policy_platform.infrastructure import ai_quality
 from tests.fixtures.factories import make_rule
 
@@ -200,87 +200,48 @@ class TestAiReviewOutcomeIsReported:
         assert findings == []
 
 
-class TestSystemicCausesAreReportedOnce:
-    """Findings that share one cause are reported once, with the cause named.
+class TestBeingDecidedByReadingIsNotAFinding:
+    """A policy the engine cannot evaluate by comparison is not a defect.
 
-    A quality report is read top-down. Emitting one row per affected rule for a
-    systemic cause states the symptom N times, never states the cause, and
-    pushes genuinely independent problems off the end of the list.
+    A quality report is read top-down, and a finding that always fires teaches
+    the reader to skip findings. This one fired on 53 of 55 records in the live
+    corpus, at high severity, recommending a configuration exercise that would
+    never be done and could not help: most policy text states its test in words
+    and will never become a comparison.
+
+    The finding it replaced also collapsed correctly and named the enrichment
+    codes the agent asked for — it was well-built, and reported the wrong thing.
     """
 
-    def test_non_executable_rules_collapse_to_one_finding(self) -> None:
+    def test_no_finding_is_raised_for_policies_decided_by_reading(self) -> None:
         rules = [_rule(f"R{i}") for i in range(50)]
         for r in rules:
             r.machine_executable = False
 
         findings = ai_quality._deterministic_findings(rules)
-        exec_findings = [f for f in findings if f["category"] == "not_machine_executable"]
 
-        assert len(exec_findings) == 1
-        assert "50 of 50" in exec_findings[0]["finding"]
-        assert len(exec_findings[0]["affected_rule_ids"]) == 50
+        assert not [
+            f
+            for f in findings
+            if "machine" in f["category"] or "machine" in f["finding"].lower()
+        ]
 
-    def test_the_collapsed_finding_names_the_enrichment_the_agent_asked_for(self) -> None:
-        """The requirement codes are the actionable half of the finding.
+    def test_a_real_defect_is_still_reported_when_one_exists(self) -> None:
+        """Guards the check above: silence has to mean something.
 
-        Their documented purpose is to make a non-executable projection
-        "actionable rather than a dead end"; leaving them in the payload while
-        the report says only "not executable" discards that.
+        A definition carrying an authorization effect is a genuine defect and
+        must still surface, so an empty result for the case above is a decision
+        rather than a broken generator.
         """
-        from policy_platform.contracts.formulation import (
-            CanonicalPolicy,
-            DmnDecision,
-            RuleFormulation,
-        )
 
-        rules = [_rule("R1"), _rule("R2")]
-        for r in rules:
-            r.machine_executable = False
-            r.formulation = RuleFormulation(
-                source_index=0,
-                canonical=CanonicalPolicy(source_text="x"),
-                dmn_decisions=[
-                    DmnDecision(
-                        source_rule_indexes=[0],
-                        dmn_mapping_status="enrichment_required",
-                        requirements=["FACT_MODEL_REQUIRED", "OUTPUT_MODEL_REQUIRED"],
-                    )
-                ],
-            )
+        rule = _rule("R1")
+        rule.rule_type = RuleType.DEFINITION
+        rule.effect = Effect(type=EffectType.ALLOW, action="grant")
 
-        findings = ai_quality._deterministic_findings(rules)
-        exec_finding = next(f for f in findings if f["category"] == "not_machine_executable")
+        findings = ai_quality._deterministic_findings([rule])
 
-        assert "FACT_MODEL_REQUIRED" in exec_finding["finding"]
-        assert "OUTPUT_MODEL_REQUIRED" in exec_finding["finding"]
-        assert "enrichment_required" in exec_finding["finding"]
-        assert exec_finding["severity"] == "high"
+        assert [f for f in findings if f["category"] == "definition_carries_effect"]
 
-    def test_blocking_ambiguity_stays_per_rule(self) -> None:
-        """Blocking ambiguity is not a backlog; each one halts a specific rule.
-
-        Only the non-blocking queue is collapsed, so a blocking rule keeps its
-        own row and its own rule_id.
-        """
-        blocking = _rule("R-block")
-        blocking.ambiguity_status = AmbiguityStatus.BLOCKING
-        backlog = [_rule(f"R{i}") for i in range(5)]
-        for r in backlog:
-            r.ambiguity_status = AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
-
-        findings = ai_quality._deterministic_findings([blocking, *backlog])
-        amb = [f for f in findings if f["category"] == "ambiguity"]
-
-        per_rule = [f for f in amb if f["affected_rule_ids"] == ["R-block"]]
-        assert len(per_rule) == 1
-        assert per_rule[0]["severity"] == "high"
-        collapsed = [f for f in amb if len(f["affected_rule_ids"]) == 5]
-        assert len(collapsed) == 1
-
-    def test_a_clean_set_produces_no_systemic_findings(self) -> None:
-        findings = ai_quality._deterministic_findings([_rule("R1"), _rule("R2")])
-        assert [f for f in findings if f["category"] == "not_machine_executable"] == []
-        assert [f for f in findings if f["category"] == "ambiguity"] == []
 
 class TestDefinitionsCarryingEffects:
     """A definition authorizes nothing, and a negative one inverts its source."""
@@ -325,7 +286,7 @@ class TestDefinitionsCarryingEffects:
         found = self._findings([self._rule("R1", "definition", "allow")])
 
         assert found[0]["severity"] == "medium"
-        assert "None are machine-executable" in found[0]["finding"]
+        assert "None of them are evaluated by comparison" in found[0]["finding"]
 
     def test_an_executable_definition_is_high_and_says_so(self) -> None:
         """Executability is what turns the labelling error into a wrong answer."""

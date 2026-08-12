@@ -242,7 +242,6 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
             )
 
     findings.extend(_non_blocking_ambiguity_findings(rules))
-    findings.extend(_machine_executability_findings(rules))
     findings.extend(_definition_effect_findings(rules))
     findings.extend(_degenerate_predicate_findings(rules))
     findings.extend(_eligibility_polarity_findings(rules))
@@ -296,14 +295,14 @@ def _definition_effect_findings(rules: list[CanonicalRule]) -> list[dict]:
 
     if executable:
         exposure = (
-            f"{len(executable)} of them are machine-executable, so the evaluator can "
+            f"{len(executable)} of them are evaluated by comparison, so the evaluator can "
             f"already return that effect for text that may say the opposite."
         )
     else:
         exposure = (
-            "None are machine-executable yet, so the evaluator returns not_applicable "
-            "and nothing acts on the effect today. Supplying a trusted_config that "
-            "covers their vocabulary is what would activate it."
+            "None of them are evaluated by comparison, so nothing acts on the effect "
+            "today — a judge reading the record would see the effect beside a "
+            "definition that authorizes nothing."
         )
 
     return [
@@ -488,73 +487,6 @@ def _non_blocking_ambiguity_findings(rules: list[CanonicalRule]) -> list[dict]:
         }
     ]
 
-
-def _machine_executability_findings(rules: list[CanonicalRule]) -> list[dict]:
-    """Report non-executable rules by *cause*, and name the enrichment that unblocks them.
-
-    Every rule whose DMN projection was not `executable` is non-executable, and
-    when no trusted configuration was supplied that is every rule in the set --
-    one systemic cause, not N independent defects. Reporting it per rule states
-    the symptom N times and never states the cause, so the reader is left to
-    infer that N rules were each extracted badly.
-
-    The agent already said precisely what it was missing, as
-    `DmnRequirementCode`s whose stated purpose is to make `enrichment_required`
-    "actionable rather than a dead end" (contracts.formulation). Those codes are
-    the actionable part of this finding, so they are surfaced here rather than
-    left in the payload.
-    """
-    blocked = [r for r in rules if not r.machine_executable]
-    if not blocked:
-        return []
-
-    requirements: collections.Counter[str] = collections.Counter()
-    statuses: collections.Counter[str] = collections.Counter()
-    for r in blocked:
-        formulation = getattr(r, "formulation", None)
-        for decision in getattr(formulation, "dmn_decisions", None) or []:
-            statuses[getattr(decision.dmn_mapping_status, "value", str(decision.dmn_mapping_status))] += 1
-            for code in decision.requirements or []:
-                requirements[getattr(code, "value", str(code))] += 1
-
-    share = f"{len(blocked)} of {len(rules)}"
-    if requirements:
-        top = ", ".join(f"{code} ({count})" for code, count in requirements.most_common(6))
-        finding = (
-            f"{share} rule(s) are not machine-executable. The formulation agent reported what it "
-            f"was missing: {top}."
-        )
-        recommendation = (
-            "These are not extraction defects. Supply the matching trusted configuration when "
-            "extracting and re-run. Shape it as the specification's Section 84 example: key "
-            "fact_model/output_model by the SOURCE TERM with a feel_expression mapping "
-            '(e.g. {"age of the worker": {"feel_expression": "worker.ageYears", "type": "number"}}). '
-            "Keying by the FEEL path instead is accepted silently but leaves the agent unable to "
-            "connect source wording to the path, so it still reports FACT_MODEL_REQUIRED."
-        )
-        severity = "high"
-    else:
-        # No requirement codes at all: the rules did not come through the
-        # formulation path, so there is nothing specific to ask for.
-        finding = f"{share} rule(s) are not machine-executable and carry no DMN enrichment requirements."
-        recommendation = "These rules need a precise condition before the evaluator can enforce them."
-        severity = "medium"
-
-    if statuses:
-        finding += " DMN mapping status: " + ", ".join(
-            f"{status} ({count})" for status, count in statuses.most_common()
-        )
-
-    return [
-        {
-            "severity": severity,
-            "category": "not_machine_executable",
-            "finding": finding,
-            "affected_rule_ids": [r.rule_id for r in blocked],
-            "recommendation": recommendation,
-            "source": "deterministic",
-        }
-    ]
 
 
 async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], policy_set_key: str) -> bool:

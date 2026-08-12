@@ -900,7 +900,7 @@ export function PolicyInspector({
               </Tooltip>
             )}
             {!rule.machine_executable && (
-              <Tooltip title="Manual rule — not machine-executable">
+              <Tooltip title="Hand-authored policy, decided by reading">
                 <ToolOutlined className="policy-row-flag" />
               </Tooltip>
             )}

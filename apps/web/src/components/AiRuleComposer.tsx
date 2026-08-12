@@ -93,7 +93,7 @@ function TraceItems({ step }: { step: DraftTraceStep }) {
               <Tag color={EFFECT_COLOR[str(item.effect_type)] ?? "default"}>{str(item.effect_type)}</Tag>
               <Tag>{str(item.rule_type)}</Tag>
               {item.machine_executable ? (
-                <Tag color="green">machine executable</Tag>
+                <Tag color="green">deterministic</Tag>
               ) : (
                 <Tooltip title="No trusted fact model was supplied, so the condition is a placeholder. The rule is still reviewable and publishable — it just cannot be auto-evaluated yet.">
                   <Tag color="gold">needs human judgment</Tag>

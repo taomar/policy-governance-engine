@@ -51,8 +51,8 @@ export function machineExecutableFor(condition: ConditionNode | undefined | null
  * the two are shown together rather than one standing in for the other.
  */
 export const DETERMINISTIC_LABEL = {
-  yes: "Deterministic engine ready",
-  no: "Needs a fact mapping",
+  yes: "Deterministic",
+  no: "Decided by reading",
 } as const;
 
 /**

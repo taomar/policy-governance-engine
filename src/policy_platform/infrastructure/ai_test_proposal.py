@@ -76,23 +76,23 @@ Facts you invent for input_facts must use the same dotted key convention shown i
 and required_facts (e.g. "employee.tenureYears", "subject.persona"). Only ever reference rule_id values \
 that were given to you.
 
-CRITICAL — read "machine_executable" on every rule before predicting anything about it. The engine checks \
-that flag FIRST and, when it is false, returns NOT_APPLICABLE for that rule immediately without ever \
-looking at its scope, its condition or its exceptions. It can NEVER return SATISFIED, NOT_SATISFIED or \
-INDETERMINATE no matter how obviously true its condition text looks, and an empty condition like \
-{"all": []} on such a rule is NOT a rule that always passes. For those rules the only correct \
-expected_rule_status is "NOT_APPLICABLE". If every rule you were given has machine_executable=false, then \
-every evaluation of this policy set returns overall_status=NOT_APPLICABLE, so do not propose "positive", \
-"boundary" or "exception" tests expecting SATISFIED — propose the NOT_APPLICABLE expectations that are \
-actually true.
+CRITICAL — read "evaluation_mode" on every rule before predicting anything about it. A policy is either \
+"deterministic", meaning the source states its test as a comparison the engine can compute, or "ai_ready", \
+meaning the source states it in words and a judge decides it by reading the record. The engine checks this \
+FIRST and, for an ai_ready policy, returns NOT_APPLICABLE immediately without ever looking at its scope, \
+its condition or its exceptions. It can NEVER return SATISFIED, NOT_SATISFIED or INDETERMINATE no matter \
+how obviously true its condition text looks, and an empty condition like {"all": []} on such a policy is \
+NOT a policy that always passes. For those the only correct expected_rule_status is "NOT_APPLICABLE". If \
+every policy you were given is ai_ready, then every evaluation of this policy set returns \
+overall_status=NOT_APPLICABLE, so do not propose "positive", "boundary" or "exception" tests expecting \
+SATISFIED — propose the NOT_APPLICABLE expectations that are actually true.
 
-Be precise about WHY when you describe such a test. machine_executable=false means only that no fact model \
-maps this rule's terms onto attributes this engine can read. It does NOT mean the rule is vague, \
-documentation-only, or unusable: the same rule may state its subject, its threshold and its approver \
-completely, and be decided correctly by an LLM reading it against a case. Each rule carries a \
-"decision_readiness" object saying which of those it is — read it, and describe the rule accordingly. \
-Writing "this rule is not machine-executable yet" as though it were a fault in the policy is wrong when \
-decision_readiness.evaluability is "decidable" or "discretionary"; say the fact mapping is missing instead.
+Be precise about WHY when you describe such a test. ai_ready is a route, not a fault. It does NOT mean the \
+policy is vague, incomplete, or unusable: most policy text states its test in words, and the same \
+policy may state its subject, its threshold and its approver completely and be decided correctly by a \
+judge reading it against a case. Each policy carries a "decision_readiness" object and an "attributes" \
+table — read them, and describe the policy accordingly. Writing "this policy cannot be evaluated" as \
+though it were a defect is wrong; say it is decided by reading instead.
 
 If the user message contains a "reviewer_guidance" field, treat it as a priority steer from the policy \
 reviewer: bias your coverage toward the areas, rules, or risks it names, and propose more tests there. It \
@@ -133,18 +133,19 @@ commit the exact expected outcome based on the supplied policy JSON and optional
 def _rule_summary(rule: CanonicalRule) -> dict:
     return {
         "rule_id": rule.rule_id,
-        # `machine_executable` short-circuits `_evaluate_rule` before scope,
-        # condition or exceptions are ever consulted, so a model that reasons
-        # carefully about all of those and never sees this flag will confidently
-        # predict SATISFIED for a rule the engine can only ever return
-        # NOT_APPLICABLE for. It is the single most outcome-determining field in
-        # this payload and must never be omitted from it again.
+        # The routing field, and the single most outcome-determining one in
+        # this payload. The evaluator short-circuits an `ai_ready` policy before
+        # scope, condition or exceptions are ever consulted, so a model that
+        # reasons carefully about all of those and never sees this will
+        # confidently predict SATISFIED where the engine can only ever return
+        # NOT_APPLICABLE. It must never be omitted again.
+        "evaluation_mode": rule.evaluation_mode.value,
         "machine_executable": rule.machine_executable,
-        # Answers the question `machine_executable` does not: whether the source
-        # states enough for the rule to be decided at all, and by whom. Without
-        # it a model shown only the flag has no way to tell a fully-stated rule
-        # awaiting a fact mapping from one the document left vague, and writes
-        # the same dismissive description for both.
+        # Answers the question the mode does not: whether the source states
+        # enough for the policy to be decided at all, and by whom. Without it a
+        # model shown only the mode cannot tell a fully-stated policy from one
+        # the document left vague, and writes the same dismissive description
+        # for both.
         "decision_readiness": (
             rule.decision_readiness.model_dump(mode="json") if rule.decision_readiness else None
         ),

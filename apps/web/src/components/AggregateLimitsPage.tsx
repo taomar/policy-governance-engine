@@ -80,7 +80,7 @@ const { Title, Text, Paragraph } = Typography;
 
 const BLOCKER_COPY: Record<string, { label: string; detail: string }> = {
   not_machine_executable: {
-    label: "Not machine-executable",
+    label: "Decided by reading",
     detail:
       "The evaluator returns NOT_APPLICABLE for this rule before it reads the scope or condition, so the rule can never reach SATISFIED — and only a SATISFIED rule contributes to a cap.",
   },
@@ -383,7 +383,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
               showIcon
               className="aggregate-gate-alert"
               message={`${eligibility.eligible_count} rules can contribute to a shared cap`}
-              description="Each is machine-executable and declares at least one numeric fact the evaluator can sum."
+              description="Each is evaluated by comparison and declares at least one numeric fact the evaluator can sum."
             />
           ) : (
             <Alert

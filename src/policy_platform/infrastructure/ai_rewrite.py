@@ -135,9 +135,9 @@ async def _suggest_rewrite_for_rule(current_rule: CanonicalRule, *, instruction:
             suggested = CanonicalRule.model_validate(fallback_raw)
             note = (
                 "⚠ AI could not safely encode the requested condition logic as valid structured "
-                "logic, so the condition was left unchanged from the current rule and this "
-                "suggestion is marked as requiring human judgment before it can be "
-                "machine-executable. "
+                "logic, so the condition was left unchanged from the current policy and this "
+                "suggestion is marked as requiring human judgment before it can be decided by "
+                "comparison. "
             )
             return {
                 "current": current_rule.model_dump(mode="json"),
