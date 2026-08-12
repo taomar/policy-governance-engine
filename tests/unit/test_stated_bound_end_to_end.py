@@ -98,6 +98,50 @@ def test_a_compiled_bound_says_where_it_came_from():
     assert rule.condition_provenance.code == "derived_from_stated_bound"
 
 
+def test_a_record_never_claims_a_derivation_its_tree_does_not_have():
+    """The read path answers about this record, not about the sentence.
+
+    Re-deriving from the formulation alone answers "what would this sentence
+    compile to now", which is a different question from "why does this rule's
+    tree look like this". They came apart as soon as the compiler was added:
+    candidates extracted before it existed carry an empty tree, and their
+    sentences still state a compilable bound, so they reported
+    `derived_from_stated_bound` over `all: []`.
+    """
+
+    from policy_platform.contracts.conditions import AllCondition
+    from policy_platform.infrastructure.formulation_mapping import condition_provenance_for
+
+    rule = _rules_for(_bounded_policy())[0]
+
+    assert condition_provenance_for(rule.formulation, rule.condition).code == (
+        "derived_from_stated_bound"
+    )
+    # The same formulation, read against a record that carries no tree.
+    stale = condition_provenance_for(rule.formulation, AllCondition(all=[]))
+    assert stale.code != "derived_from_stated_bound"
+
+
+def test_the_read_path_explains_the_bound_the_same_way():
+    """Extraction and read must not contradict each other about one record.
+
+    `condition_provenance` is derived on read, and the read path did not know
+    about the stated-bound fallback. So a rule carrying a fully compiled
+    comparison was served as `conditions_not_projected` — the record disagreeing
+    with itself, in the direction that sends a reviewer to supply a mapping that
+    is not missing. Found by re-extracting and reading the served JSON rather
+    than by re-reading the code that writes it.
+    """
+
+    from policy_platform.infrastructure.formulation_mapping import condition_provenance_for
+
+    rule = _rules_for(_bounded_policy())[0]
+
+    assert condition_provenance_for(rule.formulation, rule.condition).code == (
+        rule.condition_provenance.code
+    )
+
+
 def test_a_policy_stating_no_bound_is_left_for_a_judge():
     """The majority case, and it must not be forced into a comparison."""
 

@@ -976,7 +976,9 @@ def condition_provenance(
     return ConditionProvenance(code="no_scope_derived")
 
 
-def condition_provenance_for(formulation: "RuleFormulation | None") -> ConditionProvenance | None:
+def condition_provenance_for(
+    formulation: "RuleFormulation | None", condition: ConditionNode | None = None
+) -> ConditionProvenance | None:
     """Re-derive a stored rule's condition provenance from its formulation.
 
     The read-path counterpart to what `formulation_to_candidate_rules` computes
@@ -989,6 +991,15 @@ def condition_provenance_for(formulation: "RuleFormulation | None") -> Condition
     decision may span several canonical rules (spec Section 91), so the
     provenance depends on *which* row belongs to this rule, and that is the
     field retained to answer it.
+
+    `condition` is the tree this record actually carries, and it is what stops
+    a derivation being claimed for a record that does not have one. Re-deriving
+    from the formulation alone answers "what would this sentence compile to
+    now", which is a different question from "why does this rule's tree look
+    like this". They came apart the moment the stated-bound compiler was added:
+    candidates extracted before it exists carry an empty tree, and their
+    sentences still state a compilable bound, so they reported
+    `derived_from_stated_bound` over `all: []` — a record contradicting itself.
     """
 
     if formulation is None or formulation.canonical is None:
@@ -1000,7 +1011,30 @@ def condition_provenance_for(formulation: "RuleFormulation | None") -> Condition
         (o for o in outcomes if o.platform_limited),
         outcomes[0] if outcomes else None,
     )
-    return condition_provenance(formulation.canonical, derived, blocking)
+    # The stated-bound fallback is part of how a condition gets compiled, so it
+    # has to be part of how that is explained. Without this the two rules whose
+    # bound the sentence states in full were served as
+    # `conditions_not_projected` while carrying a fully compiled comparison —
+    # the record contradicting itself, and in the direction that tells a
+    # reviewer to go and supply a mapping that is not missing.
+    #
+    # Claimed only where the record's own tree bears it out. Where `condition`
+    # is not supplied the caller is asking about the formulation rather than
+    # about a stored rule, and the sentence alone decides.
+    from_stated_bound = (
+        derived is None
+        and condition_from_stated_bound(formulation.canonical.rule) is not None
+        and (condition is None or not _is_vacuous(condition))
+    )
+    return condition_provenance(
+        formulation.canonical, derived, blocking, from_stated_bound=from_stated_bound
+    )
+
+
+def _is_vacuous(condition: ConditionNode) -> bool:
+    """True for the empty `all: []` tree that stands for "no condition"."""
+
+    return getattr(condition, "type", None) == "all" and not getattr(condition, "all", None)
 
 
 #: Modalities that forbid rather than require.

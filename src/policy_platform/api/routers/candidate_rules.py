@@ -142,7 +142,7 @@ def _with_decision_readiness(rule: CanonicalRule) -> CanonicalRule:
             # then a corrected message would reach published rules (which
             # derive it) and not candidates, and the two views of the same rule
             # would disagree about why its condition is empty.
-            "condition_provenance": condition_provenance_for(rule.formulation),
+            "condition_provenance": condition_provenance_for(rule.formulation, rule.condition),
             "evaluation_mode": evaluation_mode_for(rule),
             "fact_model": facts,
             # Derived alongside the facts it references, from the same list, so

@@ -132,7 +132,7 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         # the formulation, not a separate fact about the rule, and a reviewer
         # reading a published rule needs the current answer rather than the one
         # that happened to be current on the day it was approved.
-        condition_provenance=condition_provenance_for(formulation),
+        condition_provenance=condition_provenance_for(formulation, condition),
         # Derived alongside the two above and for the same reason. It is a pure
         # function of the condition and its required facts, both persisted, so
         # a stored copy could only ever disagree with the tree it describes.
