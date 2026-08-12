@@ -73,7 +73,7 @@ def _states_what_it_requires(rule: CanonicalRule) -> bool:
 def test_the_corpus_is_the_real_extraction(policies):
     """Guards the rest: sufficiency over a stub would prove nothing."""
 
-    assert len(policies) >= 40
+    assert len(policies) >= 30
     assert all(rule.formulation and rule.formulation.canonical for rule in policies)
 
 

@@ -54,7 +54,7 @@ def live(corpus):
 def test_the_corpus_is_the_real_extraction(corpus):
     """Guards every assertion below: they are meaningless over a stub."""
 
-    assert len(corpus) == 55
+    assert len(corpus) == 37
     # Real AD-103 content, not synthesised.
     titles = " ".join(rule.title or "" for rule in corpus).lower()
     assert "basic salary" in titles
@@ -111,16 +111,16 @@ def test_the_snapshot_covers_every_rule(corpus, frozen):
 @pytest.mark.parametrize(
     ("measure", "expected"),
     [
-        ("rules", 55),
-        ("machine_executable", 2),
-        ("vacuous_conditions", 53),
-        ("naming_an_authority", 15),
-        ("rules_with_requirements", 21),
-        ("requirement_phrases", 26),
-        ("requirement_phrases_bundling_several", 12),
-        ("inherited_from_parent_clause", 10),
+        ("rules", 37),
+        ("machine_executable", 1),
+        ("vacuous_conditions", 36),
+        ("naming_an_authority", 8),
+        ("rules_with_requirements", 15),
+        ("requirement_phrases", 21),
+        ("requirement_phrases_bundling_several", 14),
+        ("inherited_from_parent_clause", 11),
         ("stored_ambiguity_differs_from_derived", 0),
-        ("three_flags_disagree", 1),
+        ("three_flags_disagree", 0),
     ],
 )
 def test_headline_totals_are_unchanged(live, measure, expected):
@@ -141,8 +141,8 @@ def test_status_flags_now_agree_for_almost_every_rule(live):
     than a flag that fired on everything and therefore meant nothing.
     """
 
-    assert live["totals"]["three_flags_disagree"] == 1
-    assert live["totals"]["rules"] == 55
+    assert live["totals"]["three_flags_disagree"] == 0
+    assert live["totals"]["rules"] == 37
 
 
 def test_stored_and_derived_ambiguity_still_agree(live):
@@ -168,7 +168,7 @@ def test_some_rules_inherit_their_requirements(live):
     not contain it.
     """
 
-    assert live["totals"]["inherited_from_parent_clause"] == 10
+    assert live["totals"]["inherited_from_parent_clause"] == 11
 
 
 

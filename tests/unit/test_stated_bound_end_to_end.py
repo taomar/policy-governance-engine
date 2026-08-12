@@ -107,6 +107,11 @@ def test_a_record_never_claims_a_derivation_its_tree_does_not_have():
     candidates extracted before it existed carry an empty tree, and their
     sentences still state a compilable bound, so they reported
     `derived_from_stated_bound` over `all: []`.
+
+    Constructed rather than drawn from the corpus. The records that exercised
+    this were pre-compiler ones, and a clean extraction has none — so a
+    corpus-driven version of this check silently stopped testing anything the
+    moment the data was rebuilt. Found by mutation: breaking the guard passed.
     """
 
     from policy_platform.contracts.conditions import AllCondition

@@ -18,7 +18,10 @@
     "file": "src/policy_platform/infrastructure/formulation_mapping.py",
     "find": "        and (condition is None or not _is_vacuous(condition))",
     "replace": "        and True",
-    "tests": ["tests/unit/test_derived_views_do_not_contradict.py"]
+    "tests": [
+      "tests/unit/test_derived_views_do_not_contradict.py",
+      "tests/unit/test_stated_bound_end_to_end.py"
+    ]
   },
   {
     "name": "the projection's compilation status is served again",
