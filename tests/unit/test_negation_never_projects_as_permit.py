@@ -38,7 +38,7 @@ from policy_platform.contracts.formulation import (
 from policy_platform.contracts.policy import EffectType, RuleType
 from policy_platform.contracts.xacml_projection import NormativeModality, RuleEffect
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
-from policy_platform.infrastructure.xacml_projection import build_xacml_view
+from policy_platform.infrastructure.projection.xacml_projection import build_xacml_view
 
 
 def _rule(rule_type: CanonicalRuleType, modality: str | None, **fields) -> CanonicalPolicyRule:

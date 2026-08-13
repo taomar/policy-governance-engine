@@ -18,7 +18,7 @@ from policy_platform.contracts.formulation import (
     DmnTableOutput,
     DmnTableRule,
 )
-from policy_platform.infrastructure.dmn_parity import (
+from policy_platform.infrastructure.projection.dmn_parity import (
     UnsupportedFeel,
     check_parity,
     compile_decision,
@@ -228,7 +228,7 @@ class TestParity:
         tautology.
         """
 
-        from policy_platform.infrastructure import dmn_parity
+        from policy_platform.infrastructure.projection import dmn_parity
 
         original = dmn_parity.match_unary_test
 

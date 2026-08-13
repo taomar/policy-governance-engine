@@ -335,7 +335,7 @@ class TestProjectionParity:
         original = module.check_parity
 
         def failing(decision, source_rule_indexes=None, name=""):
-            from policy_platform.infrastructure.dmn_parity import ParityMismatch, ParityReport
+            from policy_platform.infrastructure.projection.dmn_parity import ParityMismatch, ParityReport
 
             return ParityReport(
                 scenarios_run=1,

@@ -59,7 +59,7 @@ from policy_platform.domain.models import (
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure import extraction_progress
-from policy_platform.infrastructure import rule_delta
+from policy_platform.infrastructure.projection import rule_delta
 from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.ingestion import source_structure
 from policy_platform.infrastructure.continuation_adjudicator import (

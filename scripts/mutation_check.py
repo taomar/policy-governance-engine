@@ -24,7 +24,7 @@ The spec is a list of mutations::
     [
       {
         "name": "negation ignored",
-        "file": "src/policy_platform/infrastructure/xacml_projection.py",
+        "file": "src/policy_platform/infrastructure/projection/xacml_projection.py",
         "find": "if states_a_negation(rule):",
         "replace": "if False:",
         "tests": ["tests/unit/test_negation_never_projects_as_permit.py"]

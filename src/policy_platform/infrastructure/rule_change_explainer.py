@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.domain.models import CandidateRule, ExtractionRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.rule_delta import SEMANTIC_FIELDS
+from policy_platform.infrastructure.projection.rule_delta import SEMANTIC_FIELDS
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)

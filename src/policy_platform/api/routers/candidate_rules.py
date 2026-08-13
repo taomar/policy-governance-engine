@@ -45,8 +45,8 @@ from policy_platform.infrastructure.formulation_mapping import (
 )
 from policy_platform.contracts.policy import attributes_for, evaluation_mode_for
 from policy_platform.infrastructure.policy_facts import published_facts
-from policy_platform.infrastructure.xacml_projection import build_xacml_view, xacml_effect_for
-from policy_platform.infrastructure.export import (
+from policy_platform.infrastructure.projection.xacml_projection import build_xacml_view, xacml_effect_for
+from policy_platform.infrastructure.projection.export import (
     ExportFormat,
     content_disposition,
     extension_for,

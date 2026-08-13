@@ -218,7 +218,7 @@ def test_the_projection_restates_the_record_rather_than_re_deriving_it(corpus):
 
     from policy_platform.contracts.formulation import CanonicalPolicy, CanonicalPolicyRule
     from policy_platform.contracts.formulation import CanonicalRuleType
-    from policy_platform.infrastructure.xacml_projection import build_xacml_view
+    from policy_platform.infrastructure.projection.xacml_projection import build_xacml_view
 
     # A sentence the projection reads as forbidding, on its own.
     forbidding = CanonicalPolicy(

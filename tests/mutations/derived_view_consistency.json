@@ -1,7 +1,7 @@
 [
   {
     "name": "the projection re-derives its effect instead of restating the record's",
-    "file": "src/policy_platform/infrastructure/xacml_projection.py",
+    "file": "src/policy_platform/infrastructure/projection/xacml_projection.py",
     "find": "    if record_effect is not _UNSET:",
     "replace": "    if False:",
     "tests": ["tests/unit/test_derived_views_do_not_contradict.py"]

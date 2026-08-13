@@ -38,7 +38,7 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
         _decision_readiness_for,
         condition_provenance_for,
     )
-    from policy_platform.infrastructure.xacml_projection import (
+    from policy_platform.infrastructure.projection.xacml_projection import (
         build_xacml_view,
         xacml_effect_for,
     )

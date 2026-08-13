@@ -22,7 +22,7 @@ from policy_platform.contracts.xacml_projection import (
     PredicateStatus,
     RuleEffect,
 )
-from policy_platform.infrastructure.xacml_projection import (
+from policy_platform.infrastructure.projection.xacml_projection import (
     build_xacml_view,
     classify_entities,
     is_passive_predicate,

@@ -32,7 +32,7 @@ from policy_platform.contracts.extraction_package import (
     VerificationSummary,
     rule_identity,
 )
-from policy_platform.infrastructure.dmn_parity import check_parity, compile_decision
+from policy_platform.infrastructure.projection.dmn_parity import check_parity, compile_decision
 
 #: Rules whose evidence is entirely absent are not merely uncertain: the package
 #: is asserting a policy exists with nothing behind it.

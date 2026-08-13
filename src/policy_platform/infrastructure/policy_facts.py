@@ -233,7 +233,7 @@ def infer_data_type(phrase: str, role: str = "") -> str | None:
 def _slugify(phrase: str) -> str:
     """A stable identifier derived from the phrase's own words."""
 
-    from policy_platform.infrastructure.xacml_projection import _slug
+    from policy_platform.infrastructure.projection.xacml_projection import _slug
 
     return _slug(phrase)
 

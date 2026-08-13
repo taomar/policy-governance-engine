@@ -36,7 +36,7 @@ from policy_platform.infrastructure.aggregates.aggregate_eligibility import asse
 from policy_platform.infrastructure.aggregates.aggregate_preview import preview_aggregate_limit
 from policy_platform.infrastructure.aggregates.ai_aggregate_proposal import propose_aggregate_limits
 from policy_platform.infrastructure.persistence.db import get_session
-from policy_platform.infrastructure.export import (
+from policy_platform.infrastructure.projection.export import (
     ExportFormat,
     content_disposition,
     extension_for,

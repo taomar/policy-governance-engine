@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from policy_platform.infrastructure.xacml_projection import _ACTION_LEXICON, normalize_action
+from policy_platform.infrastructure.projection.xacml_projection import _ACTION_LEXICON, normalize_action
 
 
 #: Every action the lexicon can produce, with a phrase that must reach it.

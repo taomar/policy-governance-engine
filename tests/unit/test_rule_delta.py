@@ -8,7 +8,7 @@ every rule as changed and be worth nothing.
 
 from __future__ import annotations
 
-from policy_platform.infrastructure.rule_delta import (
+from policy_platform.infrastructure.projection.rule_delta import (
     SIMILARITY_THRESHOLD,
     diff_runs,
     identify,

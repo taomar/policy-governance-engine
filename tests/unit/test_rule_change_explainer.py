@@ -11,7 +11,7 @@ from policy_platform.infrastructure.rule_change_explainer import (
     PROSE_FIELDS,
     _diff_fields,
 )
-from policy_platform.infrastructure.rule_delta import SEMANTIC_FIELDS
+from policy_platform.infrastructure.projection.rule_delta import SEMANTIC_FIELDS
 
 
 def test_identical_payloads_produce_no_diff():
