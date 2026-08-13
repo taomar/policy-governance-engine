@@ -41,3 +41,6 @@ docs/security-rbac-azure-readiness-plan.md
 # Coverage output from test-quality audits.
 .coverage
 htmlcov/
+
+# Authoring skills: local methodology, not part of the published product.
+skills/
