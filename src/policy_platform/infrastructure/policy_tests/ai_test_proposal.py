@@ -311,11 +311,11 @@ async def propose_policy_tests(
         selected_rules = [rules_by_id[rule_id] for rule_id in requested_ids]
         definitions = [rule.rule_id for rule in selected_rules if rule.rule_type.value == "definition"]
         if definitions:
-            raise ValueError("definition/glossary records are not executable policies and cannot be tested: " + ", ".join(definitions))
+            raise ValueError("definition and glossary records state meanings rather than tests, so there is nothing to run against them: " + ", ".join(definitions))
         non_executable = [rule.rule_id for rule in selected_rules if not rule.machine_executable]
         if non_executable:
             raise ValueError(
-                "blind validation runs against the deterministic engine, which needs a fact mapping; these selected rules have none: "
+                "blind validation runs against the deterministic engine; these selected rules are decided by reading, so the engine does not run them: "
                 + ", ".join(non_executable)
             )
 
