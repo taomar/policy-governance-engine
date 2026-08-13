@@ -259,6 +259,12 @@ def _add_list_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> 
         stack.append((level, element.element_id))
 
 
+def _covered_columns(cell: TableCellRef) -> range:
+    """Every column index a cell occupies, not merely the one it starts in."""
+
+    return range(cell.column_index, cell.column_index + cell.column_span)
+
+
 def _add_table_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
     """Connect cells to their table, to their headers, and across merges."""
 
@@ -268,38 +274,50 @@ def _add_table_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) ->
             cells_by_table[element.table_id].append(element)
 
     for table_id, cells in cells_by_table.items():
-        headers_by_column: dict[int, str] = {}
+        headers_by_column: dict[int, list[CanonicalElement]] = defaultdict(list)
         for cell in cells:
             assert cell.table_cell is not None
             if cell.table_cell.is_header:
-                headers_by_column[cell.table_cell.column_index] = cell.element_id
+                # A header that spans columns heads every one of them. Filing it
+                # only under the column it starts in leaves the rest unheaded.
+                for column in _covered_columns(cell.table_cell):
+                    headers_by_column[column].append(cell)
 
         for cell in cells:
             assert cell.table_cell is not None
             graph.edges.append(StructuralEdge(cell.element_id, table_id, "table_cell_of"))
 
-            header_id = headers_by_column.get(cell.table_cell.column_index)
-            if header_id and header_id != cell.element_id:
-                graph.edges.append(StructuralEdge(header_id, cell.element_id, "header_for"))
-
-            # A merged region spans several columns; every column it covers is
-            # qualified by it, which is exactly the meaning the legacy prose
-            # flattening destroyed.
-            if cell.table_cell.column_span > 1:
-                span = range(
-                    cell.table_cell.column_index + 1,
-                    cell.table_cell.column_index + cell.table_cell.column_span,
-                )
-                for covered in span:
-                    for other in cells:
-                        assert other.table_cell is not None
-                        if (
-                            other.table_cell.column_index == covered
-                            and other.table_cell.row_index == cell.table_cell.row_index
-                        ):
-                            graph.edges.append(
-                                StructuralEdge(cell.element_id, other.element_id, "merged_with")
-                            )
+            # A cell spanning several columns is qualified by the header of every
+            # column it covers. Resolving only its starting column attributes a
+            # value that holds across the whole span to one column of it, which
+            # reads as a specific claim the source never made — and it is exactly
+            # how a deliberately uniform value becomes indistinguishable from a
+            # flattened sequence of different ones.
+            attached: set[str] = set()
+            for column in _covered_columns(cell.table_cell):
+                for header in headers_by_column.get(column, ()):
+                    assert header.table_cell is not None
+                    if header.element_id == cell.element_id:
+                        continue
+                    # A column header sits at or above what it governs; without
+                    # this a sub-header would be recorded as explaining the
+                    # merged header above it, inverting the relationship.
+                    if header.table_cell.row_index > cell.table_cell.row_index:
+                        continue
+                    if header.element_id in attached:
+                        continue
+                    attached.add(header.element_id)
+                    # A merged header is reported separately from a plain column
+                    # header because it says something different: it qualifies a
+                    # band of columns rather than identifying one.
+                    kind = (
+                        "merged_with"
+                        if header.table_cell.column_span > 1
+                        else "header_for"
+                    )
+                    graph.edges.append(
+                        StructuralEdge(header.element_id, cell.element_id, kind)
+                    )
 
 
 def _add_reference_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:
