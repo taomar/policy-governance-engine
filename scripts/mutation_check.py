@@ -44,9 +44,10 @@ Exit codes are distinct on purpose:
 2    a mutation found no target — the spec is stale and checked nothing
 3    another run holds the lock, so this one refused to start
 4    a restore did not reproduce the original file
+5    a file could not be written, so a mutation was never applied
 ===  ==========================================================================
 
-Codes 3 and 4 exist because the harness edits source in place. Two runs over
+Codes 3, 4 and 5 exist because the harness edits source in place. Two runs over
 the same checkout can interleave: the second reads its "original" while the
 first has its mutation applied, and then restores *that* — writing a deliberate
 defect into the source permanently, behind a green result. It was observed:
@@ -58,6 +59,12 @@ So a run takes an exclusive lock before touching anything, and verifies after
 restoring that the file it wrote back hashes to what it read. A silent
 corruption behind a passing run is the one failure this tool cannot be allowed
 to have, since its whole purpose is to say whether the suite can be trusted.
+
+Code 5 is the same principle applied to a failure that already happened here.
+A `PermissionError` from `os.replace` crashed the run with a traceback and
+exited 1 — the code that means *a mutation survived*, which is a finding about
+coverage. An environment that would not let a file be written is not a finding
+about coverage. Both looked identical in a summary line.
 """
 from __future__ import annotations
 
@@ -73,6 +80,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: How hard to try when a rename is refused, and how long to wait between goes.
+#:
+#: Small on purpose. The lock this works around is held by a scanner or an
+#: exiting process and clears in milliseconds; anything longer than this is not
+#: transient and should be reported rather than waited out.
+_REPLACE_ATTEMPTS = 5
+_REPLACE_BACKOFF_SECONDS = 0.2
 
 #: Held for the duration of a run. Deliberately inside the checkout it guards,
 #: because what must not overlap is two runs mutating *these* files — a lock in
@@ -99,6 +114,15 @@ class RestoreFailed(Exception):
 
     The loudest failure here, because every later result in the checkout is now
     suspect: source contains something nobody wrote deliberately.
+    """
+
+
+class FileUnavailable(Exception):
+    """A file could not be written, so a mutation was never applied.
+
+    Distinct from every other outcome because it is not a result. The suite was
+    not run against broken code, so nothing at all is known about whether it
+    would have noticed.
     """
 
 
@@ -186,7 +210,7 @@ def _read(path: Path) -> tuple[str, str]:
 
 
 def _write(path: Path, text: str, newline: str) -> None:
-    """Replace the file's contents atomically.
+    """Replace the file's contents atomically, retrying a transient lock.
 
     Written to a sibling temporary file and moved into place, so a failure
     part-way through leaves the original untouched rather than truncated. The
@@ -197,6 +221,16 @@ def _write(path: Path, text: str, newline: str) -> None:
     Observed on Windows while the API was running from the same checkout: the
     open failed with `Invalid argument`, after the read and outside the restore
     block. It failed harmlessly by luck.
+
+    Later, and with no server running from this checkout, `os.replace` failed
+    with `Access is denied` partway through a gate — twice, on different files
+    and different specs. Nothing held the file: on Windows a rename fails while
+    any handle is open, and a scanner or a just-exited test process holds one
+    briefly. It is transient by nature, so it is retried with a short backoff
+    rather than treated as fatal on the first attempt. Retrying is not the same
+    as ignoring: after the last attempt this raises, and the caller turns that
+    into its own exit status, because a run that could not apply a mutation
+    measured nothing.
     """
 
     body = text.replace("\n", newline) if newline != "\n" else text
@@ -204,7 +238,18 @@ def _write(path: Path, text: str, newline: str) -> None:
     try:
         with temporary.open("w", encoding="utf-8", newline="") as handle:
             handle.write(body)
-        os.replace(temporary, path)
+        last: OSError | None = None
+        for attempt in range(_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError as error:
+                last = error
+                time.sleep(_REPLACE_BACKOFF_SECONDS * (attempt + 1))
+        raise FileUnavailable(
+            f"{path}: could not be replaced after {_REPLACE_ATTEMPTS} attempts ({last}). "
+            "Something held the file open. Nothing was measured for this mutation."
+        )
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -283,6 +328,9 @@ def main(argv: list[str] | None = None) -> int:
                 except RestoreFailed as error:
                     print(f"ERROR  {mutation.name}: restore failed — {error}")
                     return 4
+                except FileUnavailable as error:
+                    print(f"ERROR  {mutation.name}: could not write — {error}")
+                    return 5
                 status = "SURVIVED" if lived else "caught"
                 print(f"{status:9} {mutation.name}")
                 if lived:

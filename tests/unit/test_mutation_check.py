@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from mutation_check import (  # noqa: E402
     ConcurrentRun,
+    FileUnavailable,
     Mutation,
     RestoreFailed,
     TargetNotFound,
@@ -427,3 +428,107 @@ def test_a_clean_run_leaves_no_lock_behind(sample: Path, lock_in_tmp: Path, monk
 
     assert main([str(spec)]) == 0
     assert not lock_in_tmp.exists()
+
+
+# --------------------------------------------------------------------------
+# A file that cannot be written is not a finding about coverage
+# --------------------------------------------------------------------------
+
+
+def test_a_refused_rename_is_retried_before_giving_up(sample: Path, monkeypatch):
+    """The lock behind it clears in milliseconds, so one attempt is too few.
+
+    Observed on Windows with no server running from the checkout: `os.replace`
+    returned `Access is denied` partway through a gate, on different files and
+    different specs, because a rename fails while any handle is open and a
+    scanner or an exiting test process holds one briefly.
+    """
+
+    import mutation_check
+
+    attempts = {"count": 0}
+    real_replace = mutation_check.os.replace
+
+    def refuse_twice(source, destination):
+        attempts["count"] += 1
+        if attempts["count"] <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(mutation_check.os, "replace", refuse_twice)
+    monkeypatch.setattr(mutation_check, "_REPLACE_BACKOFF_SECONDS", 0)
+
+    mutation_check._write(sample, "def forbids():\n    return False\n", "\n")
+
+    assert attempts["count"] == 3
+    assert "return False" in sample.read_text(encoding="utf-8")
+
+
+def test_a_permanently_refused_rename_raises_rather_than_reporting_a_result(
+    sample: Path, monkeypatch
+):
+    import mutation_check
+
+    def always_refuse(source, destination):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(mutation_check.os, "replace", always_refuse)
+    monkeypatch.setattr(mutation_check, "_REPLACE_BACKOFF_SECONDS", 0)
+
+    with pytest.raises(FileUnavailable, match="Nothing was measured"):
+        mutation_check._write(sample, "anything", "\n")
+
+
+def test_a_refused_rename_leaves_no_temporary_file(sample: Path, monkeypatch):
+    import mutation_check
+
+    monkeypatch.setattr(
+        mutation_check.os, "replace", lambda s, d: (_ for _ in ()).throw(PermissionError(5, "denied"))
+    )
+    monkeypatch.setattr(mutation_check, "_REPLACE_BACKOFF_SECONDS", 0)
+
+    with pytest.raises(FileUnavailable):
+        mutation_check._write(sample, "anything", "\n")
+
+    assert not sample.with_suffix(sample.suffix + ".mutation-tmp").exists()
+
+
+def test_a_write_failure_makes_a_run_exit_five(tmp_path: Path, lock_in_tmp: Path, monkeypatch, capsys):
+    """Five, not one.
+
+    Exit 1 means the code was broken and the suite still passed — a finding
+    about coverage. An environment that would not let a file be written is not
+    that, and reporting it as that is how a bad run gets read as a bad test
+    suite. This exact conflation happened: a PermissionError crashed the run
+    with a traceback and exited 1, and the summary line was indistinguishable
+    from two surviving mutations.
+    """
+
+    import mutation_check
+
+    target = tmp_path / "module.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "unwritable",
+                    "file": str(target),
+                    "find": "x = 1",
+                    "replace": "x = 2",
+                    "tests": ["tests/unit/test_mutation_check.py"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        mutation_check.os, "replace", lambda s, d: (_ for _ in ()).throw(PermissionError(5, "denied"))
+    )
+    monkeypatch.setattr(mutation_check, "_REPLACE_BACKOFF_SECONDS", 0)
+
+    assert main([str(spec)]) == 5
+    assert "could not write" in capsys.readouterr().out.lower()
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
