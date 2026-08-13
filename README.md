@@ -180,7 +180,7 @@ See the illustrated [User guide](docs/user-guide.md).
 ## Checks
 
 ```powershell
-.\.venv-graph\Scripts\python.exe -m pytest tests -q   # 1566 pass, 12 skipped
+.\.venv-graph\Scripts\python.exe -m pytest tests -q   # the full suite; no database or network
 cd apps\web
 npx tsc --noEmit
 npm run build

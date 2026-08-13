@@ -105,7 +105,7 @@ two describe the same rule.
 ## Checks before committing
 
 ```powershell
-# Backend — 1686 unit tests; no database or network required
+# Backend — the full unit suite; no database or network required
 .\.venv-graph\Scripts\python.exe -m pytest tests/unit -q
 
 # Frontend

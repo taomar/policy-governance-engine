@@ -1,0 +1,38 @@
+[
+  {
+    "name": "positional role edges are recorded as findings rather than candidates",
+    "file": "src/policy_platform/infrastructure/correlation/relationship_discovery.py",
+    "find": "                score=0.35 if ambiguous else 0.5,\n                origin=\"candidate\",\n                state=\"candidate\",",
+    "replace": "                score=0.35 if ambiguous else 0.5,\n                origin=\"candidate\",\n                state=\"confirmed\",",
+    "tests": [
+      "tests/unit/test_relationship_discovery.py::test_no_role_edge_is_ever_persisted_as_a_same_decision_claim"
+    ]
+  },
+  {
+    "name": "role inference claims two rules are one decision",
+    "file": "src/policy_platform/infrastructure/correlation/relationship_discovery.py",
+    "find": "            \"exception\": PolicyRelationshipType.EXCEPTION_TO,",
+    "replace": "            \"exception\": PolicyRelationshipType.SAME_DECISION,",
+    "tests": [
+      "tests/unit/test_relationship_discovery.py::test_no_role_edge_is_ever_persisted_as_a_same_decision_claim"
+    ]
+  },
+  {
+    "name": "an undeclared party no longer has to say it was inherited",
+    "file": "tests/unit/test_status_inventory_freeze.py",
+    "find": "    return source_origin == \"inherited_context\"",
+    "replace": "    return True",
+    "tests": [
+      "tests/unit/test_status_inventory_freeze.py::test_the_inheritance_rule_rejects_an_undeclared_party"
+    ]
+  },
+  {
+    "name": "advancing an unknown extraction run creates a record for it",
+    "file": "src/policy_platform/infrastructure/extraction/extraction_progress.py",
+    "find": "    record = _RUNS.get(document_version_id)\n    if record is None:\n        return\n    record.processed_clauses += clauses",
+    "replace": "    record = _RUNS.get(document_version_id)\n    if record is None:\n        record = _RUNS.setdefault(document_version_id, ExtractionProgress())\n    record.processed_clauses += clauses",
+    "tests": [
+      "tests/unit/test_extraction_progress.py::test_advance_ignores_unknown_run"
+    ]
+  }
+]

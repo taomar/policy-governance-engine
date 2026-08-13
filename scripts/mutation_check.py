@@ -45,6 +45,7 @@ Exit codes are distinct on purpose:
 3    another run holds the lock, so this one refused to start
 4    a restore did not reproduce the original file
 5    a file could not be written, so a mutation was never applied
+6    pytest did not run the named tests, so nothing was measured
 ===  ==========================================================================
 
 Codes 3, 4 and 5 exist because the harness edits source in place. Two runs over
@@ -123,6 +124,18 @@ class FileUnavailable(Exception):
     Distinct from every other outcome because it is not a result. The suite was
     not run against broken code, so nothing at all is known about whether it
     would have noticed.
+    """
+
+
+class TestsNotRun(Exception):
+    """pytest exited without running the named tests.
+
+    Same shape as :class:`FileUnavailable`: not a result. pytest exits 4 for a
+    path that does not resolve and 5 when a `::selector` names no test, and
+    both were previously read as "the suite noticed" because they are non-zero.
+    A mistyped test name would then have reported every mutation in its spec as
+    caught, which is the failure this tool exists to prevent, arriving through
+    the door left open by treating an error as an answer.
     """
 
 
@@ -266,7 +279,16 @@ def apply_mutation(path: Path, find: str, replace: str) -> tuple[str, str]:
 
 
 def run_tests(tests: tuple[str, ...]) -> bool:
-    """True when the suite passed — that is, when the mutation went unnoticed."""
+    """True when the suite passed — that is, when the mutation went unnoticed.
+
+    Only exit 0 and 1 are answers. pytest also exits 2 (interrupted), 3
+    (internal error), 4 (usage error, e.g. a path that does not resolve) and 5
+    (no tests collected, e.g. a `::selector` naming a test that does not
+    exist). Reading any non-zero status as "the suite noticed" would report a
+    mutation as caught when pytest never ran a single test against it — the
+    same confident-wrong-conclusion this whole tool exists to prevent, arriving
+    through the one door left open.
+    """
 
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", *tests],
@@ -274,7 +296,13 @@ def run_tests(tests: tuple[str, ...]) -> bool:
         capture_output=True,
         text=True,
     )
-    return completed.returncode == 0
+    if completed.returncode in (0, 1):
+        return completed.returncode == 0
+    raise TestsNotRun(
+        f"pytest exited {completed.returncode} for {list(tests)} — it did not run "
+        f"the tests, so nothing was measured. "
+        f"{(completed.stdout or completed.stderr or '').strip()[-300:]}"
+    )
 
 
 def check(mutation: Mutation) -> bool:
@@ -331,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
                 except FileUnavailable as error:
                     print(f"ERROR  {mutation.name}: could not write — {error}")
                     return 5
+                except TestsNotRun as error:
+                    print(f"ERROR  {mutation.name}: tests never ran — {error}")
+                    return 6
                 status = "SURVIVED" if lived else "caught"
                 print(f"{status:9} {mutation.name}")
                 if lived:

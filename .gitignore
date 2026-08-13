@@ -37,3 +37,7 @@ docs/security-rbac-azure-readiness-plan.md
 # Azure Developer CLI local environments may contain secrets.
 .azure/*
 !.azure/deployment-plan.md
+
+# Coverage output from test-quality audits.
+.coverage
+htmlcov/

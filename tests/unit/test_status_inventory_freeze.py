@@ -288,6 +288,22 @@ def test_authorities_are_named_verbatim_not_invented(corpus):
             )
 
 
+def _inheritance_is_declared(party_name: str, own_text: str, source_origin) -> bool:
+    """The invariant itself, as a function of the three things it depends on.
+
+    Extracted so it can be exercised with a constructed case. Reading it only
+    from the corpus meant it went unchecked the moment no rule happened to
+    carry a party its own sentence omits -- which is the situation today: 28 of
+    37 rules carry parties and every one of them names its party in its own
+    text, so the assertion below never ran and the test passed having checked
+    nothing.
+    """
+
+    if party_name.casefold() in own_text.casefold():
+        return True
+    return source_origin == "inherited_context"
+
+
 def test_an_inherited_authority_declares_that_it_was_inherited(corpus):
     """A party the rule's own sentence never names must say where it came from.
 
@@ -297,14 +313,42 @@ def test_an_inherited_authority_declares_that_it_was_inherited(corpus):
     hallucinated one.
     """
 
+    examined = 0
     for rule in corpus:
         status = status_for(rule)
         canonical = rule.formulation.canonical if rule.formulation else None
         own_text = (canonical.source_text if canonical else "").casefold()
         for party in status["parties"]:
-            if party["name"].casefold() in own_text:
-                continue
-            assert status["source_origin"] == "inherited_context", (
+            examined += 1
+            assert _inheritance_is_declared(
+                party["name"], own_text, status["source_origin"]
+            ), (
                 f"{status['rule_id']}: party {party['name']!r} is absent from the rule's "
                 f"own source text but source_origin is {status['source_origin']!r}"
             )
+
+    assert examined, (
+        "no parties were examined, so this proved nothing about inheritance -- "
+        "either the corpus lost its parties or status_for stopped reporting them"
+    )
+
+
+def test_the_inheritance_rule_rejects_an_undeclared_party() -> None:
+    """The check above must be able to fail on input the corpus does not contain.
+
+    No rule in the current corpus names a party its own sentence omits, so the
+    corpus scan alone cannot demonstrate that the invariant is enforced rather
+    than merely unviolated. This supplies the case directly.
+    """
+
+    # named in its own sentence: origin is irrelevant
+    assert _inheritance_is_declared("the President", "approved by the President", None)
+
+    # absent from its own sentence, and says where it came from
+    assert _inheritance_is_declared("the President", "promotions are annual", "inherited_context")
+
+    # absent, and claims nothing -- the fabrication this invariant exists to catch
+    assert not _inheritance_is_declared("the President", "promotions are annual", None)
+    assert not _inheritance_is_declared(
+        "the President", "promotions are annual", "resolved_reference"
+    )

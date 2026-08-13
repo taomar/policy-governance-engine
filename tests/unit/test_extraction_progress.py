@@ -70,7 +70,17 @@ def test_update_ignores_unknown_run_and_unknown_field():
 
 
 def test_advance_ignores_unknown_run():
+    """Advancing a run that was never started must not conjure one into being.
+
+    Previously this only called `advance` and asserted nothing, so it proved
+    the call did not raise and nothing else. If `advance` began creating a
+    record for an unknown id -- reporting progress for a run that does not
+    exist -- the test would still have passed.
+    """
+
     extraction_progress.advance("nope", clauses=5)
+
+    assert extraction_progress.get("nope") is None
 
 
 def test_finish_records_terminal_state_and_keeps_record():

@@ -153,25 +153,76 @@ its replacement, and the test that must then fail.
 | `ai_tool_wording.json` | `ai_ready` is described as a route, never a fault |
 | `extraction_quality.json` | Duplicate, contradictory and unstable extraction checks |
 | `latest_reading.json` | Which reading is current, and which it replaced |
+| `vacuity_repairs.json` | Four tests found unable to fail, and the defects they now catch |
 
-Three exit codes, deliberately distinct:
+32 mutations across six specs. `tests/unit/test_mutation_specs_resolve.py` runs
+inside the ordinary suite and fails if a spec names a file that moved, a snippet
+that no longer appears, a snippet that appears twice, or a test — including a
+`path::name` selector — that does not exist. The total is pinned there too, so
+adding or retiring a mutation is a visible decision rather than a drift.
+
+Seven exit codes, deliberately distinct:
 
 | Code | Meaning |
 |---|---|
 | 0 | Every mutation was caught |
 | 1 | A mutation survived — that guarantee is not actually tested |
 | 2 | A target snippet was not found — the spec is stale and checked nothing |
+| 3 | Another run holds the lock, so this one refused to start |
+| 4 | A restore did not reproduce the original file |
+| 5 | A file could not be written, so a mutation was never applied |
+| 6 | pytest did not run the named tests, so nothing was measured |
 
-Collapsing 2 into either of the others is how a broken check comes to look like
-a clean one, which is the failure this tool exists to prevent. It also writes
-atomically (temp sibling, then replace) so a failed write cannot leave a source
-file truncated with nothing to restore.
+Codes 2 to 6 all mean **nothing was measured**, and each is separate from 1 for
+one reason: a run that could not check must never read as a run that checked and
+found nothing wrong. Every one of them was added after the failure it describes
+actually happened here.
 
-Mutation testing has already found three classes of worthless test here: tests
-iterating over a corpus that contained none of the relevant records, tests
-reading derived fields from a captured file rather than running the derivation,
-and tests whose witness record happened to exist in one corpus and not the next.
-A guard that depends on the corpus containing the right accident is not a guard.
+- **3, 4, 5** exist because the harness edits source in place. Two runs over one
+  checkout can interleave so that the second reads its "original" while the
+  first has a mutation applied, then restores *that* — writing a deliberate
+  defect into source permanently, behind a green result. Observed: two agents
+  ran specs against one worktree and `git status` showed different files
+  modified across consecutive calls. A run now takes an exclusive lock and
+  verifies the restored file hashes to what it read.
+- **5** specifically: on Windows `os.replace` fails while any handle is open — a
+  scanner or a just-exited pytest holds one for milliseconds. It retries, then
+  reports. Twice this surfaced as "exit 1, N of M caught" and read as a coverage
+  finding when the harness had simply crashed.
+- **6** exists because pytest exits 4 for an unresolvable path and 5 when a
+  selector matches no test. Treating any non-zero status as "the suite noticed"
+  meant a mistyped test name reported every mutation in its spec as caught,
+  having run nothing at all.
+
+Mutation testing has found four classes of worthless test here: tests iterating
+over a corpus that contained none of the relevant records; tests reading derived
+fields from a captured file rather than running the derivation; tests whose
+witness record happened to exist in one corpus and not the next; and tests whose
+only assertions sat inside a loop that never ran. A guard that depends on the
+corpus containing the right accident is not a guard.
+
+## Proving the tests can fail at all
+
+The suite is also audited for tests that *cannot* fail, which a passing run by
+definition cannot reveal. Two passes:
+
+1. **Static.** Find tests with no assertion, loops whose body holds the only
+   assertions over a collection that may be empty, and `assert all(...)` over an
+   unproved sequence — vacuously true when empty. Literal collections are
+   excluded, being non-empty by inspection.
+2. **Empirical.** Run the suite under `coverage`, then check whether those
+   assert lines ever executed. Static analysis says a loop *could* be empty;
+   coverage says which ones *were*.
+
+The second pass is the one that decides. Of 47 static candidates, 44 were
+harmless and **3 were proven vacuous** — their assertions never executed in a
+suite that passed. Two more tests had no assertion at all. All are repaired, and
+`vacuity_repairs.json` breaks the code each now guards so the repairs cannot
+regress into decoration.
+
+Current result: **0 loop assertions never execute** across the whole suite. The
+12 skips are the optional real-document checks, which state their reason
+(`sample PDF not present`) rather than passing silently.
 
 ## Fixtures, isolation and mocking
 

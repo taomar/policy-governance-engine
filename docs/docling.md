@@ -37,7 +37,7 @@ installed distribution's metadata — so the divergence is silent.
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# Conversion work and the full 1026-test suite, at the cost of httpx 0.28
+# Conversion work and the full test suite, at the cost of httpx 0.28
 python -m venv .venv-graph
 .\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
 ```

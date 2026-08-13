@@ -20,6 +20,7 @@ the exact outcome of moving code and leaving a copy behind.
 """
 from __future__ import annotations
 
+import ast
 import json
 import sys
 from pathlib import Path
@@ -51,8 +52,8 @@ def test_there_are_mutation_specs_to_check():
     assert MUTATIONS.is_dir(), f"mutation spec directory is missing: {MUTATIONS}"
     specs = _specs()
     assert specs, f"no mutation specs found in {MUTATIONS}"
-    assert len(specs) == 28, (
-        f"expected the 28 recorded mutations, found {len(specs)} — if a mutation was "
+    assert len(specs) == 32, (
+        f"expected the 32 recorded mutations, found {len(specs)} — if a mutation was "
         "added or retired deliberately, update this count so the change is visible"
     )
 
@@ -89,14 +90,36 @@ def test_each_mutation_targets_existing_code(spec_file: str, index: int, spec: d
     [pytest.param(f, i, s, id=f"{f}:{i}") for f, i, s in _specs()],
 )
 def test_each_mutation_names_tests_that_exist(spec_file: str, index: int, spec: dict):
-    """A mutation is only evidence if the tests it names are real and run."""
+    """A mutation is only evidence if the tests it names are real and run.
+
+    A `path::name` selector is checked to the function, not just the file.
+    pytest exits 5 when a selector matches nothing, and the harness used to
+    read any non-zero status as "the suite noticed" — so a mistyped test name
+    reported every mutation in its spec as caught. The harness now raises on
+    exits other than 0 and 1; this keeps the spec honest before it gets there.
+    """
 
     tests = spec.get("tests") or []
     assert tests, f"{spec_file}[{index}] names no tests"
     for test in tests:
-        assert (ROOT / test).is_file(), (
+        path, _, selector = test.partition("::")
+        target = ROOT / path
+        assert target.is_file(), (
             f"{spec_file}[{index}] names {test}, which does not exist — the harness "
             "would report the mutation as caught because pytest errors on a missing path"
+        )
+        if not selector:
+            continue
+        defined = {
+            node.name
+            for node in ast.walk(ast.parse(target.read_text(encoding="utf-8")))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        wanted = selector.split("::")[0]
+        assert wanted in defined, (
+            f"{spec_file}[{index}] selects {selector!r} from {path}, which defines no "
+            f"such test — pytest would collect nothing and the mutation would be "
+            f"reported as caught having never been tested"
         )
 
 

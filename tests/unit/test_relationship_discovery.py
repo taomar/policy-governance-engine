@@ -470,7 +470,14 @@ def test_a_definition_linked_by_its_own_term_is_confirmed() -> None:
 
 
 def test_no_role_edge_is_ever_persisted_as_a_same_decision_claim() -> None:
-    """Layout must not become the strongest claim the graph can make."""
+    """Layout must not become the strongest claim the graph can make.
+
+    The earlier form of this test inspected only `confirmed` edges. Every role
+    edge this fixture produces is a `candidate` -- which is the correct outcome
+    -- so the loop body never ran and the test passed having checked nothing.
+    It now asserts the property that actually holds, so it fails if positional
+    inference is ever promoted to a finding.
+    """
 
     anchors = _role_anchors(
         ("R1", "4.1", "obligation", "Requests must be submitted in writing."),
@@ -478,9 +485,28 @@ def test_no_role_edge_is_ever_persisted_as_a_same_decision_claim() -> None:
         ("R3", "4.1", "approval_requirement", "Prior written approval is required."),
     )
 
-    for edge in rd.discover_semantic_role_relationships(anchors):
-        if edge.state != "confirmed":
-            continue
-        assert edge.relationship_type is not PolicyRelationshipType.SAME_DECISION
-        assert edge.relationship_type is not PolicyRelationshipType.PRECEDES
-        assert "nearest_preceding" not in edge.evidence.signals
+    edges = rd.discover_semantic_role_relationships(anchors)
+    assert edges, "the fixture must produce role edges, or this proves nothing"
+
+    positional = [edge for edge in edges if "nearest_preceding" in edge.evidence.signals]
+    assert positional, (
+        "no edge was derived from position, so the claim under test was never exercised"
+    )
+    for edge in positional:
+        assert edge.state == "candidate", (
+            f"{edge.relationship_type.value} was inferred from the nearest preceding "
+            f"rule and recorded as {edge.state!r}; position is a fact about the page"
+        )
+
+    # Asserted over every edge, not only the confirmed ones. Restricting it to
+    # `confirmed` was what made the earlier version vacuous: this detector
+    # produces no confirmed edges, so the check never ran. Stated this way it is
+    # both stronger and always exercised -- role inference may never claim that
+    # two rules are one decision, or that one precedes another, at any strength.
+    for edge in edges:
+        assert edge.relationship_type is not PolicyRelationshipType.SAME_DECISION, (
+            "a role edge claimed two rules are one decision"
+        )
+        assert edge.relationship_type is not PolicyRelationshipType.PRECEDES, (
+            "a role edge claimed an ordering the document did not state"
+        )

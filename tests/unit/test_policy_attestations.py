@@ -44,8 +44,15 @@ def _make_row(*, due_date: date, acknowledged_at: datetime | None = None) -> Pol
 
 class TestRequireManager:
     def test_policy_manager_is_allowed(self) -> None:
-        # Must not raise.
-        _require_manager("policy_manager")
+        """The permitted role passes the gate.
+
+        The assertion is the absence of `HTTPException`; `_require_manager`
+        returns nothing, so there is no value to check. Stated explicitly
+        because a test with no `assert` is otherwise indistinguishable from one
+        whose assertion was lost.
+        """
+
+        assert _require_manager("policy_manager") is None
 
     @pytest.mark.parametrize("role", ["system_admin", "policy_composer", "", "employee"])
     def test_non_manager_roles_are_rejected(self, role: str) -> None:
