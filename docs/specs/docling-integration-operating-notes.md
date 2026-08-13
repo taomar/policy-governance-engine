@@ -368,3 +368,46 @@ from the character data. It does not detect visual ordering on its own — a
 parser that emitted standard codepoints in visual order would pass. In the
 sources measured the two travel together, and order is not decidable without
 language knowledge the ingestion layer deliberately does not have.
+
+## 8. Which converter may be the default — settled by a paired control
+
+The witness document stores its right-to-left runs in visual order. That makes it
+useless for the question that actually gates the cutover: does a converter change
+text that is already correct? On an already-reversed document, a converter that
+reverses everything looks like a fix.
+
+Two controls were generated to answer it (`tests/fixtures/text-order/`, built by
+`make_controls.py`). Same characters, same embedded font, same `ToUnicode`, same
+geometry; the only difference is the order the glyphs are painted. Both were
+verified to carry standard codepoints and no presentation forms, so they measure
+order alone.
+
+|                | paint order = logical | paint order = visual |
+| -------------- | --------------------- | -------------------- |
+| legacy parser  | preserved             | **reversed**         |
+| docling        | **reversed**          | preserved            |
+
+The results are exactly complementary. Neither converter inspects the direction
+evidence in the file; each applies a fixed policy. The legacy parser trusts paint
+order, which is correct only for producers that do no bidi layout. Docling
+reverses right-to-left runs, which is correct only for producers that do.
+
+Two consequences.
+
+**The default does not move.** Flipping it would not fix the fidelity defect; it
+would exchange one population of damaged documents for another, and the newly
+damaged population — correctly produced documents — is the one the platform is
+most likely to receive. The table-structure gains are real and remain available
+per document through `DOCUMENT_CONVERTER`.
+
+**Cause C is now demonstrated, not merely read.** The left-to-right span sorts in
+the legacy parser were previously identified by inspection with no fixture to
+show them failing. The visual-order control is that fixture: the legacy parser
+returns it reversed. This is a defect in this codebase, independent of how any
+PDF encodes its text, and it is a text-direction defect rather than a
+language-specific one — the Hebrew and Arabic runs behave identically.
+
+Neither result licenses a repair. Both converters would need to decide from
+per-run direction evidence rather than from a fixed assumption, and that is a
+change to what the extraction layer records, not a string transformation applied
+after the fact.
