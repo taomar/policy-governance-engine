@@ -2214,8 +2214,9 @@ export interface ExtractionStagesResponse {
  *
  * Distinct from {@link CanonicalDocumentPage}, which is one window. The
  * distinction is the point: a caller holding a page has no idea whether it is
- * holding the document, and a viewer that assumed it was showed a 522-element
- * handbook as 500 elements with no sign the last two pages existed.
+ * holding the collection, so a page and a whole are not interchangeable and
+ * are not the same type. (Found the hard way — a viewer that treated one for
+ * the other showed a document's first window and counted that as the document.)
  */
 export interface CanonicalDocumentElements {
   document_version_id: string;
@@ -2223,30 +2224,31 @@ export interface CanonicalDocumentElements {
   total_elements: number;
   elements: CanonicalElement[];
   /** True when `elements` holds all `total_elements` of them. False means the
-   * ceiling below stopped the walk, and a caller displaying this list owes the
-   * reader a visible note that it is partial. */
+   * walk stopped short of the server's own declared total, and a caller
+   * displaying this list owes the reader a visible note that it is partial. */
   is_complete: boolean;
 }
 
-/** Elements per request. The server's own default, and well under its 2000 cap. */
-const CANONICAL_WINDOW = 500;
-
-/** Requests one walk may make: 40 windows, so 20,000 elements.
+/** One window of canonical elements, starting at `offset`.
  *
- * Present so a server that stops advancing cannot spin the browser forever,
- * not as a size limit — it sits far above any real policy document, and
- * reaching it is reported through `is_complete` rather than passed off as the
- * whole document.
+ * `limit` is left out unless a caller has its own reason to name one, so the
+ * server's window governs and this module holds no opinion about how big a
+ * window is. A client that names a page size is asserting something about the
+ * server that it cannot check, and the assertion rots silently the day the
+ * server's default moves.
  */
-const CANONICAL_MAX_REQUESTS = 40;
-
-const fetchCanonicalPage = (documentVersionId: string, offset: number, limit: number) =>
-  request<CanonicalDocumentPage>(
-    `/api/extraction/${encodeURIComponent(documentVersionId)}/canonical?offset=${offset}&limit=${limit}`
+const fetchCanonicalPage = (documentVersionId: string, offset: number, limit?: number) => {
+  const query = new URLSearchParams({ offset: String(offset) });
+  if (limit !== undefined) {
+    query.set("limit", String(limit));
+  }
+  return request<CanonicalDocumentPage>(
+    `/api/extraction/${encodeURIComponent(documentVersionId)}/canonical?${query.toString()}`
   );
+};
 
 export const extractionApi = {
-  getCanonicalDocument: (documentVersionId: string, offset = 0, limit = CANONICAL_WINDOW) =>
+  getCanonicalDocument: (documentVersionId: string, offset = 0, limit?: number) =>
     fetchCanonicalPage(documentVersionId, offset, limit),
 
   /** Walk the windows until the version's elements are all in hand.
@@ -2262,23 +2264,34 @@ export const extractionApi = {
     const elements: CanonicalElement[] = [];
     let totalElements = 0;
     let resolvedVersionId = documentVersionId;
+    let requests = 0;
+    let stalled = false;
 
-    for (let requests = 0; requests < CANONICAL_MAX_REQUESTS; requests += 1) {
-      const page = await fetchCanonicalPage(documentVersionId, elements.length, CANONICAL_WINDOW);
+    // Two ways to stop short, both faults in the exchange rather than limits on
+    // how large a document is allowed to be:
+    //
+    //   - a window comes back empty while the total says there is more, so
+    //     asking again would only ask the same question;
+    //   - the walk has made more requests than the server said there are
+    //     elements. Every honest window carries at least one element, so an
+    //     honest server is satisfied inside `total_elements` requests; past
+    //     that it is not honouring the total it declared.
+    //
+    // Neither is a capacity ceiling. The bound is the server's own number, so
+    // it grows with the document and cannot truncate a large one — only a
+    // broken exchange. Either way the shortfall leaves through `is_complete`,
+    // never as a short list wearing a full count.
+    do {
+      // Ask from where this walk has reached, not from a page number: the next
+      // element wanted is the one after those in hand, whatever size the server
+      // chose to answer in.
+      const page = await fetchCanonicalPage(documentVersionId, elements.length);
+      requests += 1;
       totalElements = page.total_elements;
       resolvedVersionId = page.document_version_id;
       elements.push(...page.elements);
-
-      if (elements.length >= totalElements) {
-        break;
-      }
-      // A window that came back empty while the total says otherwise means
-      // asking again would ask for the same thing. Stop and let `is_complete`
-      // say so, rather than loop.
-      if (page.elements.length === 0) {
-        break;
-      }
-    }
+      stalled = page.elements.length === 0;
+    } while (!stalled && elements.length < totalElements && requests <= totalElements);
 
     return {
       document_version_id: resolvedVersionId,

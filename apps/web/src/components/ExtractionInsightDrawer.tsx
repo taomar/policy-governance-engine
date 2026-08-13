@@ -313,8 +313,8 @@ export default function ExtractionInsightDrawer({
                 key: "document",
                 // The server's total, not the number of rows that happen to be
                 // in hand: a count taken from the rows can only ever agree with
-                // itself, which is how "Document (500)" looked right on a
-                // 522-element document.
+                // the rows, so a short list and its count corroborate each
+                // other and nothing on screen looks wrong.
                 label: `Document (${canonical?.total_elements ?? 0})`,
                 children: (
                   <Space direction="vertical" size="middle" style={{ width: "100%" }}>
