@@ -60,7 +60,7 @@ from policy_platform.infrastructure.persistence.audit import (
     CANDIDATES_PUBLISHED,
     record_audit_event,
 )
-from policy_platform.infrastructure.manual_extraction import get_or_create_manual_extraction_run
+from policy_platform.infrastructure.ingestion.manual_extraction import get_or_create_manual_extraction_run
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.policy_test_execution import run_active_tests_for_version
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version

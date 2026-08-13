@@ -180,7 +180,7 @@ Places designed to be extended, with the seam already in place:
 | **Condition operators** | Add to the allowlisted enum in `contracts/conditions.py` and implement it in `evaluator/conditions.py`. The allowlist is deliberate. |
 | **Deterministic quality checks** | Add a `_*_findings()` function in `infrastructure/ai_quality.py` and include it in the deterministic pass. |
 | **Export formats** | `infrastructure/export.py` is format-dispatched (`json`, `jsonl`, `csv`). |
-| **Document formats** | `infrastructure/document_ingestion.py` produces a canonical representation; `document_extraction.py` adapts it to the persistence shape. |
+| **Document formats** | `infrastructure/ingestion/document_ingestion.py` produces a canonical representation; `document_extraction.py` adapts it to the persistence shape. |
 | **Storage** | Document storage is a local path in the documents router; swapping in blob storage means replacing that write/read pair. |
 | **Eventing** | `outbox_messages` exists and is modelled, but no publisher consumes it. |
 | **Orchestration** | No worker process exists; extraction runs inside the API request that starts it. |

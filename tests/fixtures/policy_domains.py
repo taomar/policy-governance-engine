@@ -57,7 +57,7 @@ class _Builder:
         self._table_rows: dict[str, int] = {}
 
     def heading(self, element_id: str, text: str) -> "_Builder":
-        from policy_platform.infrastructure import source_structure
+        from policy_platform.infrastructure.ingestion import source_structure
 
         self._path = source_structure.push_heading(self._path, text)
         return self._add(element_id, "heading", text)
@@ -84,7 +84,7 @@ class _Builder:
         )
 
     def _add(self, element_id: str, element_type: str, text: str, **kwargs) -> "_Builder":
-        from policy_platform.infrastructure import source_structure
+        from policy_platform.infrastructure.ingestion import source_structure
 
         self._elements.append(
             SourceElement(

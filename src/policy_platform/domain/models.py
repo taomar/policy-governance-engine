@@ -207,7 +207,7 @@ class Clause(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # document from top to bottom" view (or anything else needing true original order) may
     # sort by.
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Canonical-document provenance (see infrastructure/document_ingestion.py).
+    # Canonical-document provenance (see infrastructure/ingestion/document_ingestion.py).
     # `element_id` is the stable identity of this clause inside its document,
     # and `source_fragments` records the exact page + character offsets it was
     # built from — one entry per page, so a clause reconstructed across a page

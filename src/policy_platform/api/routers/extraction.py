@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from policy_platform.contracts.reading_plan import build_reading_plan
 from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.domain.models import Clause, DocumentVersion
-from policy_platform.infrastructure import source_structure
+from policy_platform.infrastructure.ingestion import source_structure
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.persistence.extraction_stage_repository import (
     ExtractionStageRepository,

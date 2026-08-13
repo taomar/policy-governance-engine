@@ -5,7 +5,7 @@ and Procedures Template - Page 7") was being baked into clause bodies,
 polluting search results and Ask-AI answers with meaningless fragments.
 
 The parsing implementation was later replaced (see
-`infrastructure/document_ingestion.py`), so these tests were retargeted at the
+`infrastructure/ingestion/document_ingestion.py`), so these tests were retargeted at the
 new module. The *assertions* are deliberately unchanged in substance: a
 recurring page-edge line is boilerplate, a recurring in-body subheading is
 content, and a short document has neither. Retargeting a regression test is
@@ -14,7 +14,7 @@ property of the product, not of the module that happened to implement it.
 """
 from __future__ import annotations
 
-from policy_platform.infrastructure.document_ingestion import (
+from policy_platform.infrastructure.ingestion.document_ingestion import (
     _Line,
     _detect_boilerplate,
     _normalize_line,

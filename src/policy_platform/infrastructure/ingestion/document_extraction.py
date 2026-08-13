@@ -29,7 +29,7 @@ from policy_platform.contracts.canonical_document import (
     IngestionDiagnostic,
     SourceFragment,
 )
-from policy_platform.infrastructure.document_ingestion import (  # noqa: F401 - re-exported
+from policy_platform.infrastructure.ingestion.document_ingestion import (  # noqa: F401 - re-exported
     IngestionError,
     ingest_document,
 )

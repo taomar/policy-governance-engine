@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from sqlalchemy import select  # noqa: E402
 
 from policy_platform.domain.models import DocumentVersion, SourceDocument  # noqa: E402
-from policy_platform.infrastructure import document_extraction  # noqa: E402
+from policy_platform.infrastructure.ingestion import document_extraction  # noqa: E402
 from policy_platform.infrastructure.persistence.db import get_sessionmaker  # noqa: E402
 from policy_platform.infrastructure.persistence.repositories import ClauseRepository  # noqa: E402
 from policy_platform.infrastructure.search.indexing import index_clauses_best_effort  # noqa: E402

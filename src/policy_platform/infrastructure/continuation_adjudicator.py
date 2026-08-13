@@ -40,7 +40,7 @@ from policy_platform.contracts.relationships import (
     PolicyRelationshipType,
     RelationshipEvidence,
 )
-from policy_platform.infrastructure import source_structure
+from policy_platform.infrastructure.ingestion import source_structure
 
 logger = logging.getLogger(__name__)
 

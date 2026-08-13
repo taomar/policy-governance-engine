@@ -62,7 +62,7 @@ def main() -> int:
 
     from docling.document_converter import DocumentConverter
 
-    from policy_platform.infrastructure import document_extraction
+    from policy_platform.infrastructure.ingestion import document_extraction
 
     corpus = DOCX_CORPUS + (PDF_CORPUS if args.pdf else [])
     if args.only:

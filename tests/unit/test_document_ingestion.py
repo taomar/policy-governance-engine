@@ -17,8 +17,8 @@ from policy_platform.contracts.canonical_document import (
     CanonicalPage,
     SourceFragment,
 )
-from policy_platform.infrastructure import document_ingestion as ingestion
-from policy_platform.infrastructure.document_ingestion import (
+from policy_platform.infrastructure.ingestion import document_ingestion as ingestion
+from policy_platform.infrastructure.ingestion.document_ingestion import (
     IngestionError,
     _Block,
     _classify_line,
