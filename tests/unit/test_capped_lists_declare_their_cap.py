@@ -30,6 +30,7 @@ the test states a property rather than a remembered observation.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -133,6 +134,76 @@ CAPPED_LISTS = [
         "correlate/runs", "runs", _seed_correlation_runs, id="correlation-runs"
     ),
 ]
+
+
+#: A path under the AI router, with the policy-set placeholder stripped, so a
+#: discovered route can be compared against the suffixes in ``CAPPED_LISTS``.
+_AI_ROUTE = re.compile(r"^/api/ai/policy-sets/\{[^}]+\}/(?P<suffix>.+)$")
+
+
+def _endpoints_that_apply_a_limit() -> set[str]:
+    """Every AI-router GET that accepts a caller-supplied ``limit``.
+
+    Read off the app's own schema rather than listed by hand. ``CAPPED_LISTS``
+    is hand-written, and a hand-written enumeration is a way for this file to
+    go blind: emptied by a refactor, every test below is *skipped* rather than
+    failed, and a skip in a suite this size is invisible.
+    """
+    spec = create_app().openapi()
+    found: set[str] = set()
+    for path, operations in spec["paths"].items():
+        match = _AI_ROUTE.match(path)
+        if match is None:
+            continue
+        for method, operation in operations.items():
+            if method.lower() != "get":
+                continue
+            query_names = {
+                parameter.get("name")
+                for parameter in operation.get("parameters", [])
+                if parameter.get("in") == "query"
+            }
+            if "limit" in query_names:
+                found.add(match.group("suffix"))
+    return found
+
+
+def test_this_file_still_examines_every_capped_list_in_the_router():
+    """The detector has to still see.
+
+    Every assertion in this file is reached through ``CAPPED_LISTS``. Its
+    verdict on a healthy codebase is an empty set of failures, and an empty set
+    of failures is also what checking nothing produces. So the count of what was
+    examined is asserted here, separately from what was found, and against each
+    way the count can collapse:
+
+      * the enumeration itself going empty, which would skip every case;
+      * the derivation going empty, which would make the coverage check below
+        vacuously true while discovering no routes to cover;
+      * the enumeration shrinking but staying non-empty -- an endpoint quietly
+        dropping out of reach while the suite stays green, which a plain
+        "is it non-empty" floor would wave through.
+
+    The third is why the floor is a coverage comparison and not a number. A
+    capped list added to this router later fails here until it is examined,
+    rather than being outside this file's reach and nobody noticing.
+    """
+    examined = {parameter.values[0] for parameter in CAPPED_LISTS}
+    assert examined, "no capped lists are being examined -- every case below is skipped"
+
+    discovered = _endpoints_that_apply_a_limit()
+    assert discovered, (
+        "no limited endpoint was discovered in the AI router, so the coverage "
+        "check below is comparing against nothing -- the derivation has broken, "
+        "not the router"
+    )
+
+    unexamined = discovered - examined
+    assert not unexamined, (
+        f"these endpoints apply a limit and no test here reads them: "
+        f"{sorted(unexamined)}. A capped list outside this file is a capped "
+        f"list nothing holds to the contract."
+    )
 
 
 @pytest.fixture

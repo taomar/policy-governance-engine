@@ -85,12 +85,35 @@ function renderPage() {
  * Leaf elements only. A `textContent` match walks ancestors too, and every
  * wrapper up to `<body>` would answer to it.
  */
-const notices = () =>
+const leaves = () =>
   Array.from(document.querySelectorAll("*")).filter(
-    (element) =>
-      element.children.length === 0 &&
-      (element.textContent ?? "").startsWith(`Most recent ${RETURNED_RUNS} runs`),
+    (element) => element.children.length === 0,
   );
+
+const notices = () =>
+  leaves().filter((element) =>
+    (element.textContent ?? "").startsWith(`Most recent ${RETURNED_RUNS} runs`),
+  );
+
+/**
+ * The run picker, which the notice is rendered beside and behind the same
+ * `runs.length > 0` guard as.
+ *
+ * This is the floor under the absence check below. "No notice found" is also
+ * what an unmounted picker, a changed wrapper condition or a broken leaf scan
+ * produce, and those are indistinguishable from a correct silence. Counting
+ * what was examined separates them.
+ *
+ * The picker is matched by an explicit hook rather than by its option text or
+ * by a class. Nothing selects a run on load, so no option label is ever in the
+ * DOM to match on; and this page has two header rows and two selects, the
+ * second of which renders whether or not any run exists. Both earlier attempts
+ * at this floor passed against exactly the blindness they were added to detect
+ * — one page-wide count and one scoped to a class shared by another region. A
+ * floor that cannot go to zero is not a floor.
+ */
+const runPickers = () =>
+  document.querySelectorAll('[data-testid="correlation-run-picker"]');
 
 afterEach(() => {
   cleanup();
@@ -119,6 +142,24 @@ describe("a correlation run list the server cut short", () => {
     // masquerade as "correctly withheld".
     await waitFor(() => expect(listCorrelationRuns).toHaveBeenCalled());
     await waitFor(() => expect(getCorrelationFindings).toHaveBeenCalled());
+
+    // Floor first: prove the region that would carry the notice is on screen,
+    // and that the leaf scan the assertion below depends on is seeing any DOM
+    // at all. Placed here rather than folded into the assertion below so that a
+    // real regression still fails on the notice and names it, instead of
+    // failing on the count and reading like a broken fixture.
+    await waitFor(() =>
+      expect(
+        runPickers().length,
+        "the run picker never rendered, so the absence check below would pass " +
+          "against an empty screen and prove nothing",
+      ).toBeGreaterThan(0),
+    );
+    expect(
+      leaves().length,
+      "the leaf scan matched no elements at all, so it cannot be trusted to " +
+        "report that one particular element is missing",
+    ).toBeGreaterThan(0);
 
     expect(
       notices().length,

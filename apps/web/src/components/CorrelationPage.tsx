@@ -258,7 +258,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
             // from a dropdown does not look withheld, it looks like it never
             // existed — so a reviewer looking for an older run would conclude
             // it was never performed rather than that the list stops here.
-            <Space direction="vertical" size={0}>
+            <Space direction="vertical" size={0} data-testid="correlation-run-picker">
               <Select
                 value={selectedRunId}
                 onChange={(v) => {
