@@ -22,7 +22,7 @@ from policy_platform.contracts.formulation import (
     CanonicalRuleType,
 )
 from policy_platform.contracts.policy import EvidenceReference, RuleFormulation, RuleType
-from policy_platform.infrastructure.ai_extraction import _relationship_anchors
+from policy_platform.infrastructure.extraction.ai_extraction import _relationship_anchors
 from policy_platform.infrastructure.correlation.relationship_discovery import (
     discover_structural_relationships,
 )

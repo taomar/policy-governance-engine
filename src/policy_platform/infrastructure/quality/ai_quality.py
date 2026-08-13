@@ -23,7 +23,7 @@ from policy_platform.contracts.policy import (
     unrunnable_reasons,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.formulation_mapping import _is_separator_predicate
+from policy_platform.infrastructure.extraction.formulation_mapping import _is_separator_predicate
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,

@@ -41,7 +41,7 @@ from policy_platform.contracts.formulation import (
     DmnMappingStatus,
 )
 from policy_platform.evaluator.conditions import ConditionOutcome, evaluate_condition
-from policy_platform.infrastructure.formulation_mapping import derive_condition
+from policy_platform.infrastructure.extraction.formulation_mapping import derive_condition
 
 #: Whether a decision could be compiled at all.
 CompileStatus = Literal["compiled", "not_projectable", "requires_review"]

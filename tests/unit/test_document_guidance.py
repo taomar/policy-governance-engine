@@ -20,7 +20,7 @@ import pytest
 from policy_platform.contracts.formulation import CanonicalPolicy, CanonicalPolicyRule
 from policy_platform.contracts.formulation import CanonicalRuleType
 from policy_platform.contracts.policy import EffectType, RuleType
-from policy_platform.infrastructure.formulation_mapping import (
+from policy_platform.infrastructure.extraction.formulation_mapping import (
     DOCUMENT_GUIDANCE_TAG,
     is_document_guidance,
 )
@@ -95,7 +95,7 @@ class TestGuidanceProjection:
             DmnProjection,
             PolicyFormulation,
         )
-        from policy_platform.infrastructure.formulation_mapping import (
+        from policy_platform.infrastructure.extraction.formulation_mapping import (
             formulation_to_candidate_rules,
         )
 
@@ -163,7 +163,7 @@ class TestCalculationIsNotAnObligation:
 
     def _project(self, rule_type: CanonicalRuleType):
         from policy_platform.contracts.formulation import DmnProjection, PolicyFormulation
-        from policy_platform.infrastructure.formulation_mapping import (
+        from policy_platform.infrastructure.extraction.formulation_mapping import (
             formulation_to_candidate_rules,
         )
 

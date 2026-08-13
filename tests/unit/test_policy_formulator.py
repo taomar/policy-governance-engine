@@ -34,11 +34,11 @@ from policy_platform.contracts.formulation import (
     PolicyFormulation,
 )
 from policy_platform.contracts.passage import PassageSource, PolicyPassage
-from policy_platform.infrastructure.formulation_mapping import (
+from policy_platform.infrastructure.extraction.formulation_mapping import (
     formulation_to_candidate_rules,
     parse_feel_unary_test,
 )
-from policy_platform.infrastructure.policy_formulator import (
+from policy_platform.infrastructure.extraction.policy_formulator import (
     PolicyFormulationError,
     PolicyFormulatorAgent,
     load_formulator_prompt,

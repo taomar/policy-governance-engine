@@ -58,7 +58,7 @@ from policy_platform.contracts.formulation import (
     RuleFormulation,
 )
 from policy_platform.contracts.passage import PolicyPassage
-from policy_platform.infrastructure.passage_extractor import _normalize
+from policy_platform.infrastructure.extraction.passage_extractor import _normalize
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CanonicalRule,
@@ -80,8 +80,8 @@ from policy_platform.contracts.policy import (
     attributes_for,
     evaluation_mode_from,
 )
-from policy_platform.infrastructure.evaluability import assess_policy
-from policy_platform.infrastructure.policy_facts import (
+from policy_platform.infrastructure.extraction.evaluability import assess_policy
+from policy_platform.infrastructure.extraction.policy_facts import (
     _slugify,
     facts_for,
     parse_proportion,

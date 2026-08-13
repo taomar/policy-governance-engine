@@ -23,8 +23,8 @@ import pytest
 
 from policy_platform.contracts.conditions import ConditionOperator
 from policy_platform.contracts.formulation import CanonicalPolicyRule, CanonicalRuleType
-from policy_platform.infrastructure.formulation_mapping import condition_from_stated_bound
-from policy_platform.infrastructure.policy_facts import facts_for, parse_proportion
+from policy_platform.infrastructure.extraction.formulation_mapping import condition_from_stated_bound
+from policy_platform.infrastructure.extraction.policy_facts import facts_for, parse_proportion
 
 
 def _rule(**fields) -> CanonicalPolicyRule:

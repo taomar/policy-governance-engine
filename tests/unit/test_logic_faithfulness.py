@@ -14,13 +14,13 @@ from policy_platform.contracts.formulation import (
     CanonicalPolicyRule,
     CanonicalRuleType,
 )
-from policy_platform.infrastructure.evaluability import (
+from policy_platform.infrastructure.extraction.evaluability import (
     Evaluability,
     EvaluabilityAssessment,
     ReferencedAttribute,
     assess_policy,
 )
-from policy_platform.infrastructure.logic_faithfulness import (
+from policy_platform.infrastructure.quality.logic_faithfulness import (
     LogicFindingSeverity,
     check_attributes_are_quoted,
     check_authority_is_a_delegation,
@@ -28,7 +28,7 @@ from policy_platform.infrastructure.logic_faithfulness import (
     check_parties_are_quoted,
     judge_logic,
 )
-from policy_platform.infrastructure.policy_parties import (
+from policy_platform.infrastructure.extraction.policy_parties import (
     PartyProvenance,
     PartyRole,
     PolicyParty,

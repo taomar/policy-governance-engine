@@ -9,7 +9,7 @@ they are not equally undecidable, and the tests pin that difference.
 from __future__ import annotations
 
 from policy_platform.contracts.formulation import CanonicalPolicyRule, CanonicalRuleType
-from policy_platform.infrastructure.evaluability import (
+from policy_platform.infrastructure.extraction.evaluability import (
     Evaluability,
     assess,
     referenced_attributes,

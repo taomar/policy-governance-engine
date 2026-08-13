@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from policy_platform.contracts.formulation import CanonicalPolicyRule, CanonicalRuleType
-from policy_platform.infrastructure.formulation_mapping import _exceptions_for
+from policy_platform.infrastructure.extraction.formulation_mapping import _exceptions_for
 
 
 class TestCanonicalExceptionReachesTheRule:

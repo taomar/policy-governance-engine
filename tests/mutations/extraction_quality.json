@@ -1,28 +1,28 @@
 [
   {
     "name": "duplicate detection groups on the classification again",
-    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "    fields = (\n        \"subject\",\n        \"modality\",",
     "replace": "    fields = (\n        \"rule_type\",\n        \"subject\",\n        \"modality\",",
     "tests": ["tests/unit/test_extraction_quality_checks.py"]
   },
   {
     "name": "duplicate detection ignores the sentence and matches on shape alone",
-    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "        sentence = _source_sentence(rule)\n        if sentence:\n            grouped.setdefault(sentence, []).append(rule)",
     "replace": "        grouped.setdefault(\"\", []).append(rule)",
     "tests": ["tests/unit/test_extraction_quality_checks.py"]
   },
   {
     "name": "a contradiction is reported as a duplicate too",
-    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "            if len({r.effect.type.value for r in same}) > 1:\n                continue",
     "replace": "            if False:\n                continue",
     "tests": ["tests/unit/test_extraction_quality_checks.py"]
   },
   {
     "name": "instability is reported within a single run",
-    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "        if len(group) < 2 or len(runs) < 2:\n            continue",
     "replace": "        if len(group) < 2:\n            continue",
     "tests": ["tests/unit/test_extraction_quality_checks.py"]

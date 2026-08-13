@@ -58,15 +58,15 @@ from policy_platform.domain.models import (
     ExtractionRun,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure import extraction_progress
+from policy_platform.infrastructure.extraction import extraction_progress
 from policy_platform.infrastructure.projection import rule_delta
-from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.extraction.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.ingestion import source_structure
-from policy_platform.infrastructure.continuation_adjudicator import (
+from policy_platform.infrastructure.extraction.continuation_adjudicator import (
     ClauseWindow,
     discover_continuations,
 )
-from policy_platform.infrastructure.policy_faithfulness import validate_rules
+from policy_platform.infrastructure.quality.policy_faithfulness import validate_rules
 from policy_platform.infrastructure.correlation.relationship_discovery import (
     RuleAnchor,
     discover_enumeration_relationships,
@@ -74,14 +74,14 @@ from policy_platform.infrastructure.correlation.relationship_discovery import (
     discover_structural_relationships,
     stems_needing_adjudication,
 )
-from policy_platform.infrastructure.passage_extractor import (
+from policy_platform.infrastructure.extraction.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
     PassageExtractionError,
     PassageExtractorAgent,
     clean_clause_ref,
     span_clause_refs,
 )
-from policy_platform.infrastructure.policy_formulator import (
+from policy_platform.infrastructure.extraction.policy_formulator import (
     FORMULATOR_PROMPT_VERSION,
     PolicyFormulationError,
     PolicyFormulatorAgent,

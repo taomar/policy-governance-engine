@@ -13,7 +13,7 @@ from policy_platform.contracts.formulation import (
     CanonicalRuleType,
 )
 from policy_platform.contracts.policy import EffectType, RuleFormulation
-from policy_platform.infrastructure.policy_faithfulness import find_duplicate_rules, validate_rule
+from policy_platform.infrastructure.quality.policy_faithfulness import find_duplicate_rules, validate_rule
 from tests.fixtures.factories import make_rule
 
 

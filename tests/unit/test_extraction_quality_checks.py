@@ -31,7 +31,7 @@ from policy_platform.contracts.policy import (
     RuleLineage,
     RuleType,
 )
-from policy_platform.infrastructure import ai_quality
+from policy_platform.infrastructure.quality import ai_quality
 from tests.fixtures.factories import make_rule
 
 
@@ -322,7 +322,7 @@ def test_a_record_missing_only_its_operative_content_is_reported():
     """
 
     from policy_platform.contracts.policy import EvidenceReference
-    from policy_platform.infrastructure.policy_facts import facts_for
+    from policy_platform.infrastructure.extraction.policy_facts import facts_for
 
     rule = _record("R1", sentence=SENTENCE)
     silent = rule.formulation.model_copy(
@@ -359,7 +359,7 @@ def test_a_complete_record_decided_by_reading_is_not_reported():
     """Guards the check above: silence has to mean something."""
 
     from policy_platform.contracts.policy import EvidenceReference
-    from policy_platform.infrastructure.policy_facts import facts_for
+    from policy_platform.infrastructure.extraction.policy_facts import facts_for
 
     rule = _record("R1", sentence=SENTENCE)
     rule = rule.model_copy(

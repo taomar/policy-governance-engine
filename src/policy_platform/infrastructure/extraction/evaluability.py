@@ -39,7 +39,7 @@ from policy_platform.contracts.formulation import (
     CanonicalPolicyRule,
     CanonicalRuleType,
 )
-from policy_platform.infrastructure.policy_parties import (
+from policy_platform.infrastructure.extraction.policy_parties import (
     PartyRole,
     PolicyParty,
     extract_parties,

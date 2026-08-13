@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from policy_platform.contracts.formulation import CanonicalPolicyRule, CanonicalRuleType
-from policy_platform.infrastructure.policy_facts import facts_for, infer_data_type
+from policy_platform.infrastructure.extraction.policy_facts import facts_for, infer_data_type
 
 
 def _rule(**fields) -> CanonicalPolicyRule:

@@ -192,8 +192,8 @@ the edges attached to rules a reviewer has already approved.
 |---|---|
 | Ontology, edge, graph | `contracts/relationships.py` |
 | Detectors | `infrastructure/correlation/relationship_discovery.py` |
-| Anchor construction, merge into `related_rule_ids` | `infrastructure/ai_extraction.py` |
-| DMN-derived variation labels | `infrastructure/formulation_mapping.py::_group_labels` |
+| Anchor construction, merge into `related_rule_ids` | `infrastructure/extraction/ai_extraction.py` |
+| DMN-derived variation labels | `infrastructure/extraction/formulation_mapping.py::_group_labels` |
 | Band geometry | `apps/web/src/bandGeometry.ts` |
 | Clustering, document scoping | `apps/web/src/ruleDisplay.ts` |
 | Composite and effective policy | `apps/web/src/familyComposite.ts` |

@@ -79,7 +79,7 @@ this platform cannot see and a threshold the document never wrote.
 
 ### 2.2 Where the code stops
 
-`src/policy_platform/infrastructure/formulation_mapping.py`:
+`src/policy_platform/infrastructure/extraction/formulation_mapping.py`:
 
 ```python
 derived = next(

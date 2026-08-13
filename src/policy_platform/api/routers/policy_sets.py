@@ -45,7 +45,7 @@ from policy_platform.infrastructure.projection.export import (
 )
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
-from policy_platform.infrastructure.policy_formulator import check_trusted_config
+from policy_platform.infrastructure.extraction.policy_formulator import check_trusted_config
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     PolicyAggregateLimitRepository,

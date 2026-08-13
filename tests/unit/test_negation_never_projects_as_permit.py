@@ -37,7 +37,7 @@ from policy_platform.contracts.formulation import (
 )
 from policy_platform.contracts.policy import EffectType, RuleType
 from policy_platform.contracts.xacml_projection import NormativeModality, RuleEffect
-from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.extraction.formulation_mapping import formulation_to_candidate_rules
 from policy_platform.infrastructure.projection.xacml_projection import build_xacml_view
 
 
@@ -160,7 +160,7 @@ def test_the_negation_test_is_shared_with_the_rest_of_the_platform():
     how one of them ends up not counting "may not".
     """
 
-    from policy_platform.infrastructure.formulation_mapping import states_a_negation
+    from policy_platform.infrastructure.extraction.formulation_mapping import states_a_negation
 
     for modality in _NEGATIONS:
         assert states_a_negation(_rule(CanonicalRuleType.OBLIGATION, modality)) is True
@@ -200,7 +200,7 @@ def test_a_comparative_no_is_not_read_as_a_prohibition(predicate):
     this module exists to prevent, arrived at from the opposite direction.
     """
 
-    from policy_platform.infrastructure.formulation_mapping import states_a_negation
+    from policy_platform.infrastructure.extraction.formulation_mapping import states_a_negation
 
     assert states_a_negation(_rule(CanonicalRuleType.OBLIGATION, None, predicate=predicate)) is (
         False

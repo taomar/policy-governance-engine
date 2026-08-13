@@ -136,4 +136,4 @@ Standards live in code, not only in prose:
 | A definition never asserts ALLOW | `tests/unit/test_document_guidance.py`, `ai_quality._definition_effect_findings` |
 | An empty condition never matches everything | `evaluator/engine.py::_is_vacuous`, `tests/unit/test_engine.py` |
 | Only `executable` projections compile | `formulation_mapping.derive_condition` |
-| Only confirmed relationships enter `related_rule_ids` | `infrastructure/ai_extraction.py`, `tests/unit/test_relationship_discovery.py` |
+| Only confirmed relationships enter `related_rule_ids` | `infrastructure/extraction/ai_extraction.py`, `tests/unit/test_relationship_discovery.py` |

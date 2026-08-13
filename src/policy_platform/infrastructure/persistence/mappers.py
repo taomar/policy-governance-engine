@@ -10,7 +10,7 @@ from pydantic import TypeAdapter
 
 from policy_platform.contracts.conditions import ConditionNode
 from policy_platform.contracts.formulation import RuleFormulation
-from policy_platform.infrastructure.policy_facts import published_facts
+from policy_platform.infrastructure.extraction.policy_facts import published_facts
 from policy_platform.contracts.policy import (
     AggregateLimit,
     AggregateLimitContribution,
@@ -34,7 +34,7 @@ def _rule_to_contract(rule: ApprovedRule) -> CanonicalRule:
     # Imported here rather than at module scope: `formulation_mapping` imports
     # the contracts this module also imports, and hoisting it makes the cycle
     # an import-time failure instead of a lazy one.
-    from policy_platform.infrastructure.formulation_mapping import (
+    from policy_platform.infrastructure.extraction.formulation_mapping import (
         _decision_readiness_for,
         condition_provenance_for,
     )

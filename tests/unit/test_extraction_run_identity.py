@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 from policy_platform.domain.models import Clause, ExtractionRun
-from policy_platform.infrastructure.ai_extraction import _page_label
+from policy_platform.infrastructure.extraction.ai_extraction import _page_label
 
 
 class TestExtractionRunReference:

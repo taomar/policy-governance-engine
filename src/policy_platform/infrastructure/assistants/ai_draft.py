@@ -52,9 +52,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from policy_platform.contracts.formulation import PolicyFormulation
 from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.ai_extraction import PARSER_VERSION, PROMPT_VERSION
-from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
-from policy_platform.infrastructure.policy_formulator import (
+from policy_platform.infrastructure.extraction.ai_extraction import PARSER_VERSION, PROMPT_VERSION
+from policy_platform.infrastructure.extraction.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.extraction.policy_formulator import (
     PolicyFormulationError,
     PolicyFormulatorAgent,
 )

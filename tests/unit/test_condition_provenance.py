@@ -19,7 +19,7 @@ from policy_platform.contracts.formulation import (
     CanonicalRuleType,
     ExtractionStatus,
 )
-from policy_platform.infrastructure.formulation_mapping import (
+from policy_platform.infrastructure.extraction.formulation_mapping import (
     _ambiguity_for,
     condition_provenance,
 )

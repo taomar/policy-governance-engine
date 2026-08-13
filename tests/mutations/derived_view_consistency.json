@@ -8,14 +8,14 @@
   },
   {
     "name": "the published facts are not reconciled against required_facts",
-    "file": "src/policy_platform/infrastructure/policy_facts.py",
+    "file": "src/policy_platform/infrastructure/extraction/policy_facts.py",
     "find": "    facts = facts_for(rule)\n    if not required:\n        return facts",
     "replace": "    facts = facts_for(rule)\n    if required or not required:\n        return facts",
     "tests": ["tests/unit/test_derived_views_do_not_contradict.py"]
   },
   {
     "name": "provenance ignores the tree it is describing",
-    "file": "src/policy_platform/infrastructure/formulation_mapping.py",
+    "file": "src/policy_platform/infrastructure/extraction/formulation_mapping.py",
     "find": "        and (condition is None or not _is_vacuous(condition))",
     "replace": "        and True",
     "tests": [

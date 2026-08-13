@@ -22,7 +22,7 @@
   },
   {
     "name": "the quality check reports being decided by reading as a defect",
-    "file": "src/policy_platform/infrastructure/ai_quality.py",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "            f\"{len(executable)} of them are evaluated by comparison, so the evaluator can \"",
     "replace": "            f\"{len(executable)} of them are machine-executable, so the evaluator can \"",
     "tests": ["tests/unit/test_no_readiness_framing.py"]

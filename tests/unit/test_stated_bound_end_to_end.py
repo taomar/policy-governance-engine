@@ -27,7 +27,7 @@ from policy_platform.contracts.formulation import (
     PolicyFormulation,
 )
 from policy_platform.contracts.policy import EvaluationMode
-from policy_platform.infrastructure.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.extraction.formulation_mapping import formulation_to_candidate_rules
 
 
 def _rules_for(policy: CanonicalPolicy):
@@ -115,7 +115,7 @@ def test_a_record_never_claims_a_derivation_its_tree_does_not_have():
     """
 
     from policy_platform.contracts.conditions import AllCondition
-    from policy_platform.infrastructure.formulation_mapping import condition_provenance_for
+    from policy_platform.infrastructure.extraction.formulation_mapping import condition_provenance_for
 
     rule = _rules_for(_bounded_policy())[0]
 
@@ -138,7 +138,7 @@ def test_the_read_path_explains_the_bound_the_same_way():
     than by re-reading the code that writes it.
     """
 
-    from policy_platform.infrastructure.formulation_mapping import condition_provenance_for
+    from policy_platform.infrastructure.extraction.formulation_mapping import condition_provenance_for
 
     rule = _rules_for(_bounded_policy())[0]
 

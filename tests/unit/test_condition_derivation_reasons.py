@@ -27,7 +27,7 @@ from policy_platform.contracts.formulation import (
     DmnDecision,
 )
 from policy_platform.contracts.policy import AmbiguityStatus
-from policy_platform.infrastructure.formulation_mapping import (
+from policy_platform.infrastructure.extraction.formulation_mapping import (
     ConditionDerivationReason,
     _ambiguity_for,
     condition_provenance,

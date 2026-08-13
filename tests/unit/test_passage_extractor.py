@@ -11,7 +11,7 @@ import json
 import pytest
 
 from policy_platform.contracts.passage import PassageExtraction, PassageSource
-from policy_platform.infrastructure.passage_extractor import (
+from policy_platform.infrastructure.extraction.passage_extractor import (
     PassageExtractionError,
     clean_clause_ref,
     parse_passages,

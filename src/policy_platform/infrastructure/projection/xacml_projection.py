@@ -55,7 +55,7 @@ from policy_platform.contracts.xacml_projection import (
     XacmlProjection,
     XacmlTarget,
 )
-from policy_platform.infrastructure.policy_parties import PartyRole, extract_parties
+from policy_platform.infrastructure.extraction.policy_parties import PartyRole, extract_parties
 
 #: Canonical fields that name a party. Only these produce a XACML subject.
 #: The grammatical subject is deliberately absent: it is whatever the predicate
@@ -288,7 +288,7 @@ def _modality_for(rule: CanonicalPolicyRule) -> NormativeModality | None:
     negation the sentence wrote into its predicate rather than its modal word.
     """
 
-    from policy_platform.infrastructure.formulation_mapping import states_a_negation
+    from policy_platform.infrastructure.extraction.formulation_mapping import states_a_negation
 
     base = {
         CanonicalRuleType.OBLIGATION: NormativeModality.OBLIGATION,

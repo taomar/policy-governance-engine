@@ -27,12 +27,12 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from policy_platform.contracts.formulation import CanonicalPolicy
-from policy_platform.infrastructure.evaluability import (
+from policy_platform.infrastructure.extraction.evaluability import (
     Evaluability,
     EvaluabilityAssessment,
     assess_policy,
 )
-from policy_platform.infrastructure.policy_parties import PartyProvenance, PartyRole
+from policy_platform.infrastructure.extraction.policy_parties import PartyProvenance, PartyRole
 
 
 class LogicFindingSeverity(str, Enum):

@@ -178,7 +178,7 @@ Places designed to be extended, with the seam already in place:
 | **Prompts** | `src/policy_platform/infrastructure/prompts/*.md` are loaded from disk. Editing one is a reviewable file change. Note prompts are cached per process — restart the API to pick up an edit. |
 | **Models** | Deployments are configuration, not code. Point `AZURE_OPENAI_DEPLOYMENT` / `_FAST_DEPLOYMENT` at different models. |
 | **Condition operators** | Add to the allowlisted enum in `contracts/conditions.py` and implement it in `evaluator/conditions.py`. The allowlist is deliberate. |
-| **Deterministic quality checks** | Add a `_*_findings()` function in `infrastructure/ai_quality.py` and include it in the deterministic pass. |
+| **Deterministic quality checks** | Add a `_*_findings()` function in `infrastructure/quality/ai_quality.py` and include it in the deterministic pass. |
 | **Export formats** | `infrastructure/projection/export.py` is format-dispatched (`json`, `jsonl`, `csv`). |
 | **Document formats** | `infrastructure/ingestion/document_ingestion.py` produces a canonical representation; `document_extraction.py` adapts it to the persistence shape. |
 | **Storage** | Document storage is a local path in the documents router; swapping in blob storage means replacing that write/read pair. |

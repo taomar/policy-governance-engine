@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 from policy_platform.contracts.policy import CanonicalRule
-from policy_platform.infrastructure.policy_facts import facts_for
+from policy_platform.infrastructure.extraction.policy_facts import facts_for
 
 CORPUS = Path(__file__).resolve().parents[1] / "fixtures" / "ad103_rules.json"
 

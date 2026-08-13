@@ -18,7 +18,7 @@ from typing import Any
 
 from policy_platform.api.routers.candidate_rules import _with_decision_readiness
 from policy_platform.contracts.policy import CanonicalRule
-from policy_platform.infrastructure.formulation_mapping import _ambiguity_for
+from policy_platform.infrastructure.extraction.formulation_mapping import _ambiguity_for
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 CORPUS = FIXTURES / "ad103_rules.json"

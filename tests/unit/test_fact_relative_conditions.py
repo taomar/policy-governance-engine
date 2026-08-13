@@ -23,7 +23,7 @@ from policy_platform.contracts.conditions import (
     FactRelativeComparisonCondition,
 )
 from policy_platform.evaluator.conditions import ConditionOutcome, evaluate_condition
-from policy_platform.infrastructure.formulation_mapping import (
+from policy_platform.infrastructure.extraction.formulation_mapping import (
     parse_fact_relative_operand,
     parse_feel_unary_test,
 )

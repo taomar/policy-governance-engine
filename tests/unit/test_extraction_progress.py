@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from policy_platform.infrastructure import extraction_progress
+from policy_platform.infrastructure.extraction import extraction_progress
 
 
 @pytest.fixture(autouse=True)

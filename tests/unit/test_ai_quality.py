@@ -12,7 +12,7 @@ import pytest
 
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
 from policy_platform.contracts.policy import AmbiguityStatus, Effect, EffectType, RuleType
-from policy_platform.infrastructure import ai_quality
+from policy_platform.infrastructure.quality import ai_quality
 from tests.fixtures.factories import make_rule
 
 

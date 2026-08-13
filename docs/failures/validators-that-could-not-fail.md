@@ -14,7 +14,7 @@ auditing. It then reports agreement, which was guaranteed.
 
 ## 1. A regex that could never match
 
-**File:** `src/policy_platform/infrastructure/policy_faithfulness.py`
+**File:** `src/policy_platform/infrastructure/quality/policy_faithfulness.py`
 **Check:** `check_quantities_preserved`
 
 ```python
