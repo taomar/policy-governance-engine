@@ -58,6 +58,28 @@ does not prove the complete deployed system:
 See [Testing and scripts](testing.md#current-coverage-gaps) for the
 verified module-level inventory and commands.
 
+## Structural debt
+
+- **Routers issue SQL directly.** The repository layer exists so that query
+  construction lives in one place, and it does not hold. **17** `session.execute`
+  calls remain across **6** files under `api/`: `ai.py` (6), `documents.py` (5),
+  `extraction.py` (2), `policy_sets.py` (2), `app.py` (1), `audit.py` (1).
+
+  It was 20 across 7. The largest single instance — 133 lines of aggregation
+  behind `/review-facets` — moved into
+  `infrastructure/persistence/review_facets.py`, which took `candidate_rules.py`
+  from three direct queries to none.
+
+  This is containment, not a resolution. Each remaining call is small on its own,
+  which is exactly why the pattern spread: no individual one looks like a
+  decision. The cost is that this logic cannot be exercised without going through
+  FastAPI, which is also why [no FastAPI integration tests](#test-coverage-boundaries)
+  and this entry reinforce each other.
+
+  The repositories package used to open by calling itself "the only place that
+  issues SQL against domain entities". That was never true. It now states the
+  intent and says plainly what the layer can and cannot guarantee.
+
 ## Documentation gaps
 
 - **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is
