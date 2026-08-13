@@ -30,7 +30,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
-PROMPTS = SRC / "infrastructure" / "prompts"
 
 #: Prose that frames being decided by reading as a shortfall.
 #:

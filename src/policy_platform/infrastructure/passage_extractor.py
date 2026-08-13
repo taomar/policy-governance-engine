@@ -33,12 +33,12 @@ import logging
 import re
 import unicodedata
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import ValidationError
 
 from policy_platform.contracts.passage import PassageExtraction, PassageSource, PolicyPassage
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.prompt_assets import load_prompt
 from policy_platform.infrastructure.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ PASSAGE_PROMPT_VERSION = "verbatim-passage-extractor-v1"
 #: than left to callers because it is part of the standard, not a tuning knob.
 PASSAGE_REASONING_EFFORT = "medium"
 
-_PROMPT_PATH = Path(__file__).parent / "prompts" / "passage_extractor_v1.md"
+_PROMPT_NAME = "passage_extractor_v1.md"
 
 _TRANSPORT_ADDENDUM = """
 
@@ -137,7 +137,7 @@ No prose. No markdown fences. No commentary before or after the object.
 def load_passage_prompt() -> str:
     """Return the specification prompt plus the transport addendum."""
 
-    return _PROMPT_PATH.read_text(encoding="utf-8").rstrip() + _TRANSPORT_ADDENDUM
+    return load_prompt(_PROMPT_NAME) + _TRANSPORT_ADDENDUM
 
 
 class PassageExtractionError(RuntimeError):

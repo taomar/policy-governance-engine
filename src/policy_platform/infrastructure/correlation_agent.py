@@ -33,7 +33,6 @@ import logging
 import re
 from collections import defaultdict
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -42,6 +41,7 @@ from policy_platform.contracts.correlation import (
     CorrelationFinding,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.prompt_assets import load_prompt
 from policy_platform.infrastructure.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ CORRELATION_PROMPT_VERSION = "contradiction-detector-v1"
 #: The specification header mandates medium reasoning effort.
 CORRELATION_REASONING_EFFORT = "medium"
 
-_PROMPT_PATH = Path(__file__).parent / "prompts" / "contradiction_detector_v1.md"
+_PROMPT_NAME = "contradiction_detector_v1.md"
 
 #: Maximum rules handed to the model in one call. Every rule in a group is
 #: compared against every other, so the model's work grows quadratically while
@@ -154,7 +154,7 @@ No prose. No markdown fences. No commentary before or after the object.
 
 @lru_cache(maxsize=1)
 def load_correlation_prompt() -> str:
-    return _PROMPT_PATH.read_text(encoding="utf-8").rstrip() + _TRANSPORT_ADDENDUM
+    return load_prompt(_PROMPT_NAME) + _TRANSPORT_ADDENDUM
 
 
 class CorrelationError(RuntimeError):

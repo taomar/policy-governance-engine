@@ -38,7 +38,6 @@ import json
 import logging
 import re
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -49,6 +48,7 @@ from policy_platform.contracts.formulation import (
     PolicyFormulation,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.prompt_assets import load_prompt
 from policy_platform.infrastructure.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ FORMULATOR_PROMPT_VERSION = "dmn-formulator-v1"
 #: left to callers because it is part of the standard, not a tuning knob.
 FORMULATOR_REASONING_EFFORT = "medium"
 
-_PROMPT_PATH = Path(__file__).parent / "prompts" / "policy_formulator_v1.md"
+_PROMPT_NAME = "policy_formulator_v1.md"
 
 _TRANSPORT_ADDENDUM = """
 
@@ -98,7 +98,7 @@ def load_formulator_prompt() -> str:
     formulation call.
     """
 
-    return _PROMPT_PATH.read_text(encoding="utf-8").rstrip() + _TRANSPORT_ADDENDUM
+    return load_prompt(_PROMPT_NAME) + _TRANSPORT_ADDENDUM
 
 
 class PolicyFormulationError(RuntimeError):

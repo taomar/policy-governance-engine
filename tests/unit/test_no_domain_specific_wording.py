@@ -34,10 +34,11 @@ from pathlib import Path
 
 import pytest
 
+from policy_platform.infrastructure.prompt_assets import PROMPTS_DIR
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
-PROMPTS = SRC / "infrastructure" / "prompts"
 
 #: Terms tied to a particular domain, employer, sector or currency.
 #:
@@ -113,8 +114,18 @@ def test_no_domain_terms_in_python_string_literals():
 def test_no_domain_terms_in_prompts():
     """A prompt teaches by example, so its examples must be domain-neutral."""
 
+    # Asserted before the scan, not assumed by it. `glob` on a directory that
+    # has moved yields nothing, so the loop below would not execute and this
+    # test would pass having read no prompt at all — a guard reporting success
+    # for work it never did. The path now comes from the module that owns it,
+    # and the count is checked so an empty result is a failure rather than a
+    # silent pass.
+    assert PROMPTS_DIR.is_dir(), f"prompt directory is missing: {PROMPTS_DIR}"
+    prompts = sorted(PROMPTS_DIR.glob("*.md"))
+    assert prompts, f"no prompt assets found in {PROMPTS_DIR}"
+
     offenders: list[str] = []
-    for path in sorted(PROMPTS.glob("*.md")):
+    for path in prompts:
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             match = _DOMAIN_RE.search(line)
             if match:
