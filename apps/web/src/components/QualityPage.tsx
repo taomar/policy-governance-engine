@@ -408,8 +408,11 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                 <article>
                   <strong>Deterministic checks</strong>
                   <span>
-                    Confirm duplicate IDs, invalid decision shapes, ambiguity flags, expired rules, missing executable
-                    mappings, conflicting formal effects, and review backlog from stored policy data.
+                    Confirm duplicate IDs, invalid decision shapes, ambiguity flags, expired rules,
+                    conflicting formal effects, and review backlog from stored policy data. Each record is
+                    also read against the route it takes: one sent to the engine has to name facts the
+                    engine can resolve, and one decided by reading has to say enough for a judge to decide
+                    it.
                   </span>
                 </article>
                 <article>
