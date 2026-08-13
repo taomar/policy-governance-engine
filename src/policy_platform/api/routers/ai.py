@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,14 @@ from policy_platform.infrastructure.persistence.repositories import (
 from policy_platform.infrastructure.settings import get_settings
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+#: Ceiling on any capped list this router serves, matching `audit.py` and
+#: `evaluations.py` so the platform has one answer rather than three.
+#:
+#: The floor matters as much as the ceiling: `truncated` is derived from
+#: `count == limit`, which is only a truthful signal while `limit` is at least
+#: one. A request for zero rows would come back "truncated" holding nothing.
+_MAX_LIST_LIMIT = 500
 
 
 def _require_ai_configured() -> None:
@@ -462,14 +470,19 @@ async def run_quality_evaluation(key: str, session: AsyncSession = Depends(get_s
 async def quality_history(
     key: str,
     scope: str | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=_MAX_LIST_LIMIT),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> dict:
     """Past quality evaluations for this policy set, newest first.
 
     Returns summary rows only (counts, not the full findings blob) so the
     history list stays cheap to render; fetch one run's detail via
     `/quality/history/{run_id}`.
+
+    Capped, and says so. This list used to be a bare array, which gave a caller
+    no way to tell "these are all the evaluations" from "these are the newest
+    fifty of them" -- and the page built on it exists specifically to show a
+    trend over time, which is the reading a hidden older half distorts.
     """
     policy_set = await PolicySetRepository(session).get_by_key(key)
     if policy_set is None:
@@ -477,23 +490,30 @@ async def quality_history(
     runs = await QualityRunRepository(session).list_by_policy_set(
         policy_set.id, scope=scope, limit=limit
     )
-    return [
-        {
-            "id": str(r.id),
-            "scope": r.scope,
-            "version_number": r.version_number,
-            "rule_count": r.rule_count,
-            "high_count": r.high_count,
-            "medium_count": r.medium_count,
-            "low_count": r.low_count,
-            "finding_count": r.high_count + r.medium_count + r.low_count,
-            "ai_review_used": r.ai_review_used,
-            "methodology_version": r.methodology_version,
-            "triggered_by": r.triggered_by,
-            "run_at": r.run_at.isoformat(),
-        }
-        for r in runs
-    ]
+    return {
+        "runs": [
+            {
+                "id": str(r.id),
+                "scope": r.scope,
+                "version_number": r.version_number,
+                "rule_count": r.rule_count,
+                "high_count": r.high_count,
+                "medium_count": r.medium_count,
+                "low_count": r.low_count,
+                "finding_count": r.high_count + r.medium_count + r.low_count,
+                "ai_review_used": r.ai_review_used,
+                "methodology_version": r.methodology_version,
+                "triggered_by": r.triggered_by,
+                "run_at": r.run_at.isoformat(),
+            }
+            for r in runs
+        ],
+        "count": len(runs),
+        # Same "is there more" heuristic as audit.py and evaluations.py: a full
+        # page is the signal, rather than a second COUNT(*) over a table that
+        # only ever grows.
+        "truncated": len(runs) == limit,
+    }
 
 
 @router.get("/policy-sets/{key}/quality/history/{run_id}")
@@ -643,9 +663,16 @@ async def run_correlation(
 
 @router.get("/policy-sets/{key}/correlate/runs")
 async def correlation_runs(
-    key: str, limit: int = 20, session: AsyncSession = Depends(get_session)
-) -> list[dict]:
-    """Past correlation runs, newest first."""
+    key: str,
+    limit: int = Query(default=20, ge=1, le=_MAX_LIST_LIMIT),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Past correlation runs, newest first.
+
+    Capped, and says so -- see `quality_history`. This list feeds a run picker,
+    where silence about the cap is worse than usual: an option that is absent
+    from a dropdown does not look withheld, it looks non-existent.
+    """
     policy_set = await PolicySetRepository(session).get_by_key(key)
     if policy_set is None:
         raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
@@ -655,22 +682,27 @@ async def correlation_runs(
         .order_by(desc(CorrelationRun.created_at))
         .limit(limit)
     )
-    return [
-        {
-            "id": str(r.id),
-            "status": r.status,
-            "rules_analyzed": r.rules_analyzed,
-            "groups_analyzed": r.groups_analyzed,
-            "groups_available": r.groups_available,
-            "rules_uncompared": r.rules_uncompared,
-            "rules_budget_skipped": r.rules_budget_skipped,
-            "prompt_version": r.prompt_version,
-            "error_message": r.error_message,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-        }
-        for r in result.scalars()
-    ]
+    rows = list(result.scalars())
+    return {
+        "runs": [
+            {
+                "id": str(r.id),
+                "status": r.status,
+                "rules_analyzed": r.rules_analyzed,
+                "groups_analyzed": r.groups_analyzed,
+                "groups_available": r.groups_available,
+                "rules_uncompared": r.rules_uncompared,
+                "rules_budget_skipped": r.rules_budget_skipped,
+                "prompt_version": r.prompt_version,
+                "error_message": r.error_message,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "truncated": len(rows) == limit,
+    }
 
 
 @router.get("/policy-sets/{key}/correlate/findings")

@@ -95,6 +95,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
   const { actor } = useActor();
 
   const [runs, setRuns] = useState<CorrelationRunSummary[]>([]);
+  const [runsTruncated, setRunsTruncated] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
   const [findings, setFindings] = useState<CorrelationFinding[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,9 +107,10 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
 
   const loadRuns = useCallback(async () => {
     try {
-      const list = await aiApi.listCorrelationRuns(policySetKey);
-      setRuns(list);
-      return list;
+      const page = await aiApi.listCorrelationRuns(policySetKey);
+      setRuns(page.runs);
+      setRunsTruncated(page.truncated);
+      return page.runs;
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
       return [];
@@ -252,18 +254,29 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
         </Title>
         <Space>
           {runs.length > 0 && (
-            <Select
-              value={selectedRunId}
-              onChange={(v) => {
-                setSelectedRunId(v);
-                void loadFindings(v);
-              }}
-              style={{ minWidth: 260 }}
-              options={runs.map((r) => ({
-                value: r.id,
-                label: `${formatTimestamp(r.created_at)} · ${r.rules_analyzed} rules`,
-              }))}
-            />
+            // The cap has to be visible on the picker itself. An option missing
+            // from a dropdown does not look withheld, it looks like it never
+            // existed — so a reviewer looking for an older run would conclude
+            // it was never performed rather than that the list stops here.
+            <Space direction="vertical" size={0}>
+              <Select
+                value={selectedRunId}
+                onChange={(v) => {
+                  setSelectedRunId(v);
+                  void loadFindings(v);
+                }}
+                style={{ minWidth: 260 }}
+                options={runs.map((r) => ({
+                  value: r.id,
+                  label: `${formatTimestamp(r.created_at)} · ${r.rules_analyzed} rules`,
+                }))}
+              />
+              {runsTruncated && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Most recent {runs.length} runs — older ones are not listed
+                </Text>
+              )}
+            </Space>
           )}
           <Button type="primary" icon={<PlayCircleOutlined />} onClick={runAnalysis} loading={running}>
             {running ? "Analysing…" : "Run Correlation Analysis"}

@@ -93,6 +93,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   const [failingLoading, setFailingLoading] = useState(false);
   const [failingError, setFailingError] = useState<string | null>(null);
   const [history, setHistory] = useState<QualityRunSummary[]>([]);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
@@ -145,8 +146,11 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     setHistoryLoading(true);
     setHistoryError(null);
     aiApi
-      .getQualityHistory(selectedKey, scope, 25)
-      .then(setHistory)
+      .getQualityHistory(selectedKey, scope)
+      .then((page) => {
+        setHistory(page.runs);
+        setHistoryTruncated(page.truncated);
+      })
       .catch((e) => setHistoryError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
       .finally(() => setHistoryLoading(false));
   }, [selectedKey, scope]);
@@ -514,6 +518,19 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                   );
                 })}
               </div>
+            )}
+            {historyTruncated && (
+              // The list is capped, so the page has to stop claiming to be the
+              // whole sequence. It matters more here than on most lists: the
+              // card above promises each row is compared against the run before
+              // it, and the oldest row shown has no visible predecessor even
+              // when one exists. Without this line that reads as "the trend
+              // starts here" rather than "the trend continues off-screen".
+              <Paragraph type="secondary" className="quality-history-intro">
+                Showing the most recent {history.length} evaluations — older runs
+                exist and are not listed, so the earliest row here is compared
+                against nothing rather than against its true predecessor.
+              </Paragraph>
             )}
           </Card>
 

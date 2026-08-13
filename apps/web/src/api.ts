@@ -1289,6 +1289,24 @@ export interface QualityRunSummary {
   run_at: string;
 }
 
+/**
+ * A list the server may have cut short, saying so.
+ *
+ * Endpoints that apply a `limit` return this rather than a bare array, because
+ * an array gives the caller nothing to distinguish "this is all of them" from
+ * "this is the newest handful of them" — and a UI that cannot tell those apart
+ * will always render the second as if it were the first.
+ *
+ * `count` is how many rows arrived. When `truncated` is true, `count` is also
+ * the cap the server applied, so "the most recent {count}" is accurate without
+ * the client needing to know the limit it asked for.
+ */
+export interface CappedRunList<T> {
+  runs: T[];
+  count: number;
+  truncated: boolean;
+}
+
 export interface QualityRunDetail extends QualityReport {
   id: string;
   ai_review_used: boolean;
@@ -1998,11 +2016,19 @@ export const aiApi = {
   // History exists so a reviewer can tell whether the policy set is getting
   // better or worse. A single evaluation says "12 findings", which is only
   // meaningful next to last week's number.
-  getQualityHistory: (policySetKey: string, scope?: "published" | "candidates", limit = 50) =>
-    request<QualityRunSummary[]>(
-      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality/history?limit=${limit}` +
-        (scope ? `&scope=${scope}` : "")
-    ),
+  //
+  // `limit` is omitted unless a caller asks for one, so the server's own
+  // default applies rather than a copy of it kept here. Whatever it settles
+  // on, the response says whether it had to cut the list short.
+  getQualityHistory: (policySetKey: string, scope?: "published" | "candidates", limit?: number) => {
+    const query = new URLSearchParams();
+    if (scope) query.set("scope", scope);
+    if (limit !== undefined) query.set("limit", String(limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<CappedRunList<QualityRunSummary>>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality/history${suffix}`
+    );
+  },
 
   getQualityRun: (policySetKey: string, runId: string) =>
     request<QualityRunDetail>(
@@ -2028,7 +2054,7 @@ export const aiApi = {
     }),
 
   listCorrelationRuns: (policySetKey: string) =>
-    request<CorrelationRunSummary[]>(
+    request<CappedRunList<CorrelationRunSummary>>(
       `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/correlate/runs`
     ),
 
