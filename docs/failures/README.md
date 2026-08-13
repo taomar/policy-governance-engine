@@ -10,6 +10,7 @@ the end of each document.
 | [`validators-that-could-not-fail.md`](validators-that-could-not-fail.md) | Four checks that shipped reporting success while being structurally unable to report anything else |
 | [`duplicate-detection.md`](duplicate-detection.md) | Three attempts at one check; the first merged two real rules, the second hid two real duplicates |
 | [`display-overclaims.md`](display-overclaims.md) | Where the UI stated something the data did not, including `WHEN Always` on conditioned rules |
+| [`designed-pipeline-and-running-pipeline.md`](designed-pipeline-and-running-pipeline.md) | Nine designed extraction stages, two reached; why ten dead subsystems are one fact, and the order they depend on |
 
 ---
 
