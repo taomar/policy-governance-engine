@@ -31,31 +31,37 @@ human formalizing the condition.
 
 ## On the size of this file
 
-It is the largest module in the codebase, and splitting it was considered and
-rejected on evidence rather than left unexamined.
+It is the largest module in the codebase. Splitting it was considered and
+declined, and the reason is not that it cannot be split.
 
-There are four apparent seams -- FEEL parsing, condition derivation, negation,
-and rule assembly -- and they do not hold. Measured across all 33 top-level
-definitions: **14 calls cross those boundaries**, and seven of them reach into
-another group's private helpers. `derive_condition_outcome` uses
-`_fact_name`, `_row_for_index`, `_inferred_data_type` and
-`_is_boolean_outcome_table`; `_title_for` and `_effect_action` use
-`_is_separator_predicate`; `formulation_to_candidate_rules` uses
-`condition_from_stated_bound`, `condition_provenance` and `states_a_negation`.
+The structure was measured across all 33 top-level definitions. Of the 18
+private helpers that are called at all, **17 have exactly one caller**; the
+single genuinely shared one is `_is_separator_predicate`, used by `_title_for`
+and `_effect_action`. The call graph has **no cycles**. It is a layered DAG:
+`parse_fact_relative_operand` → `parse_feel_unary_test` →
+`parse_feel_boolean_expression` → `derive_condition_outcome` → the entry
+points, with `formulation_to_candidate_rules` composing public stage functions.
+A FEEL-parsing module, a modality module and an orchestrator would import in
+one direction only.
 
-That is not four modules waiting to be separated. It is one pipeline -- parse,
-derive, assemble -- where each stage legitimately uses the one below it.
-Splitting it would produce four files importing each other's underscore names,
-which is harder to reason about than one long file, not easier. The comparison
-worth making is `persistence/repositories.py`, split in the same pass: sixteen
-classes, zero shared helpers, zero cross-references. That seam was already
-there. This one is not.
+So the seams are real. What stopped the split was the trade: five of the
+recorded mutations live here — in `states_a_negation`,
+`condition_provenance_for` and `formulation_to_candidate_rules`, spanning some
+500 lines — and moving them means three spec paths rewritten at once while
+every `find` snippet stays byte-identical. Set against a file whose length
+reflects a long pipeline rather than mixed responsibilities, and a restructure
+that had already delivered its navigability elsewhere, the benefit did not
+justify the risk. That is a judgement about cost, and it should be re-made
+rather than inherited if the cost ever changes.
 
-Five of the recorded mutations live here, spanning `states_a_negation`,
-`condition_provenance_for` and `formulation_to_candidate_rules`, so a split
-would also relocate mutation-bearing code across three of the four new files at
-once. That raises the cost of being wrong; it is not the reason for the
-decision.
+An earlier version of this note claimed the seams did not hold, citing seven
+calls that reach into another group's private helpers. That was wrong, and
+wrong in a way worth recording: four of those seven were
+`derive_condition_outcome` calling `_fact_name`, `_row_for_index`,
+`_inferred_data_type` and `_is_boolean_outcome_table`, each of which has that
+one caller and nothing else. They crossed a boundary only because the grouping
+being tested had separated a function from its own exclusive helpers. The
+measurement described the grouping, not the module.
 
 Size alone is not a defect. This file is long because the pipeline is long.
 """
