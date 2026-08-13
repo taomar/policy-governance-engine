@@ -195,7 +195,7 @@ is not machine-executable yet."
 
 So every AI-generated test description carried the misreading into the product.
 
-`src/policy_platform/infrastructure/ai_scenario_engine.py`, shown to the user
+`src/policy_platform/infrastructure/assistants/ai_scenario_engine.py`, shown to the user
 verbatim:
 
 ```python

@@ -20,18 +20,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from policy_platform.infrastructure import ai_chat
-from policy_platform.infrastructure import ai_compare
-from policy_platform.infrastructure import ai_draft
+from policy_platform.infrastructure.assistants import ai_chat
+from policy_platform.infrastructure.assistants import ai_compare
+from policy_platform.infrastructure.assistants import ai_draft
 from policy_platform.infrastructure import ai_extraction
 from policy_platform.infrastructure import ai_quality
-from policy_platform.infrastructure import ai_rewrite
-from policy_platform.infrastructure import ai_scenario_eval
-from policy_platform.infrastructure import ai_scenario_engine
-from policy_platform.infrastructure import ai_summary
+from policy_platform.infrastructure.assistants import ai_rewrite
+from policy_platform.infrastructure.assistants import ai_scenario_eval
+from policy_platform.infrastructure.assistants import ai_scenario_engine
+from policy_platform.infrastructure.assistants import ai_summary
 from policy_platform.infrastructure.correlation import correlation_service
 from policy_platform.infrastructure import extraction_progress
-from policy_platform.infrastructure import rule_change_explainer
+from policy_platform.infrastructure.assistants import rule_change_explainer
 from policy_platform.domain.models import (
     CandidateRule,
     CorrelationFindingRow,

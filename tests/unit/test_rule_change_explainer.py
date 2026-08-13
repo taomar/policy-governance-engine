@@ -7,7 +7,7 @@ is built so that its absence changes nothing about the result.
 """
 from __future__ import annotations
 
-from policy_platform.infrastructure.rule_change_explainer import (
+from policy_platform.infrastructure.assistants.rule_change_explainer import (
     PROSE_FIELDS,
     _diff_fields,
 )

@@ -12,7 +12,7 @@ from __future__ import annotations
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
 from policy_platform.contracts.evaluation import EvaluationRequest, EvaluationStatus
 from policy_platform.evaluator.engine import evaluate_policy
-from policy_platform.infrastructure.ai_scenario_engine import _rule_context, find_rule_result
+from policy_platform.infrastructure.assistants.ai_scenario_engine import _rule_context, find_rule_result
 from tests.fixtures.factories import make_package, make_rule
 
 

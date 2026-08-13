@@ -70,8 +70,8 @@ at the centre and depend on nothing else in the codebase.
 | Rule relationships | `contracts/relationships.py`, `infrastructure/correlation/relationship_discovery.py` — see [Relationships](relationships.md) |
 | Quality analysis | `infrastructure/ai_quality.py` |
 | Cross-rule correlation | `infrastructure/correlation/correlation_service.py` + `correlation_agent.py` |
-| Version diff & narrative | `infrastructure/ai_compare.py`, `rule_delta.py`, `rule_change_explainer.py` |
-| Grounded chat | `infrastructure/ai_chat.py` |
+| Version diff & narrative | `infrastructure/assistants/ai_compare.py`, `rule_delta.py`, `rule_change_explainer.py` |
+| Grounded chat | `infrastructure/assistants/ai_chat.py` |
 | Azure clients | `infrastructure/ai/openai_client.py`, `infrastructure/search/search_client.py`, `search/indexing.py` |
 | Configuration | `infrastructure/settings.py` |
 | Persistence access | `infrastructure/persistence/repositories.py`, `infrastructure/persistence/mappers.py`, `infrastructure/persistence/db.py` |

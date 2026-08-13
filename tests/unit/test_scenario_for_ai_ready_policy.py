@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from policy_platform.contracts.conditions import AllCondition
 from policy_platform.contracts.policy import DecisionReadiness, EvaluationMode
-from policy_platform.infrastructure.ai_scenario_engine import explain_decided_by_reading
+from policy_platform.infrastructure.assistants.ai_scenario_engine import explain_decided_by_reading
 from tests.fixtures.factories import make_package, make_rule
 
 
