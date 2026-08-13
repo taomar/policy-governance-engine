@@ -23,6 +23,7 @@ import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause, Note
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
+import { ConditionRouteNote } from "./ConditionRouteNote";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
 import { DecisionReadinessView } from "./DecisionReadinessView";
 import { JsonView } from "./JsonView";
@@ -474,6 +475,24 @@ export function PolicyInspector({
     </div>
   );
 
+  // What goes inside the bordered condition box, or null when there is nothing
+  // to put there. Nothing is the case where the source states its test in
+  // words and the record carries no attribute table: an empty bordered box
+  // reads as a rendering failure, and the routing note under it already says
+  // what happened. The note is what replaces the old "may genuinely be
+  // unconditional, or its scope may have been missed" line, which asked the
+  // reviewer to choose between two readings the record had already settled.
+  const conditionBox = !isEmptyCondition(rule.condition) ? (
+    <ConditionView node={rule.condition} />
+  ) : hasSemanticProjection(rule) ? (
+    <SemanticProjectionView rule={rule} />
+  ) : !rule.condition_provenance ? (
+    <Text type="secondary">
+      No conditions were derived. The rule may genuinely be unconditional, or its scope
+      may have been missed during extraction — a reviewer must decide which.
+    </Text>
+  ) : null;
+
   const logic = (
     <div className="inspector-pane">
       {(rule.is_explicit_override || rule.supersedes_rule_ids.length > 0) && (
@@ -496,20 +515,8 @@ export function PolicyInspector({
         <Text strong className="rule-card-section-title">
           Condition — when this rule fires
         </Text>
-        <div className="cond-box">
-          {isEmptyCondition(rule.condition) ? (
-            hasSemanticProjection(rule) ? (
-              <SemanticProjectionView rule={rule} />
-            ) : (
-              <Text type="secondary">
-                No conditions were derived. The rule may genuinely be unconditional, or its scope
-                may have been missed during extraction — a reviewer must decide which.
-              </Text>
-            )
-          ) : (
-            <ConditionView node={rule.condition} />
-          )}
-        </div>
+        {conditionBox && <div className="cond-box">{conditionBox}</div>}
+        <ConditionRouteNote provenance={rule.condition_provenance} />
       </div>
 
       {rule.required_facts.length > 0 && (

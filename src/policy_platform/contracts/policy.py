@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field
 
@@ -643,6 +643,29 @@ def _facts_named_by(condition: object) -> list[str]:
     return names
 
 
+#: Every code `condition_provenance` can put on a record.
+#:
+#: The list was a prose comment on the field, which is a definition only a human
+#: can read. The code is emitted by one module and turned into words by another
+#: — in a different language, in a different tree — and the two drift the moment
+#: a sixth case is added: the record still routes correctly and the interface
+#: showing it has nothing to say. Declaring the set here gives a test something
+#: to enumerate, so the drift fails a build instead of reaching a reviewer.
+#:
+#: Deliberately not a `Literal` on `code`. That would make pydantic reject a
+#: record carrying a code this version has never heard of, and records outlive
+#: the code that wrote them — a stored rule from an older or newer writer must
+#: still parse. The set is a declaration of what *we* emit, not a gate on what
+#: we accept.
+CONDITION_PROVENANCE_CODES: Final[tuple[str, ...]] = (
+    "derived",
+    "derived_from_stated_bound",
+    "conditions_not_projected",
+    "conditions_not_representable",
+    "no_scope_derived",
+)
+
+
 class ConditionProvenance(BaseModel):
     """Why a rule's condition tree looks the way it does.
 
@@ -666,8 +689,8 @@ class ConditionProvenance(BaseModel):
     compile.
     """
 
-    #: `derived` | `derived_from_stated_bound` | `conditions_not_projected`
-    #: | `conditions_not_representable` | `no_scope_derived`.
+    #: One of `CONDITION_PROVENANCE_CODES`, declared above. Anything a human
+    #: should read about it belongs in the interface that shows it to them.
     code: str
     unsupported_expression: str = ""
 

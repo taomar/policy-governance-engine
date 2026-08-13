@@ -10730,17 +10730,21 @@
   border-bottom: 1px dotted var(--border);
 }
 
-/* Why a rule's condition tree is empty, stated once in the inspector instead
-   of buried in the description alongside two other machine annotations. */
-.condition-provenance-notice {
+/* How a record is decided, under the condition box that raises the question.
+   These rules outlived the panel they were written for: the panel was deleted
+   for saying it in an alarmed register, and the styling stayed behind under
+   the old names for two releases with nothing rendering it. Repointed at the
+   panel that says it as a route rather than deleted, because the spacing was
+   right — it was only ever the words that were wrong. */
+.condition-route {
   margin: 12px 0 16px;
 }
 
-.condition-provenance-notice .condition-provenance-reason {
+.condition-route .condition-route-reason {
   margin-bottom: 8px;
 }
 
-.condition-provenance-notice .condition-provenance-expression {
+.condition-route .condition-route-expression {
   margin-bottom: 0;
 }
 
