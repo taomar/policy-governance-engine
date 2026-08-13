@@ -27,8 +27,8 @@ from policy_platform.api.schemas import (
     PolicyAttestationResponse,
 )
 from policy_platform.domain.models import PolicyAttestation
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     PolicyAttestationRepository,
     PolicySetRepository,

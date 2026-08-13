@@ -34,8 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.aggregate_eligibility import EligibilityReport, assess_rules
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     PolicySetRepository,
 )

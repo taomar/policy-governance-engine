@@ -26,7 +26,7 @@ from policy_platform.api.routers.policy_attestations import (
     _status_of,
 )
 from policy_platform.domain.models import PolicyAttestation
-from policy_platform.infrastructure.repositories import PolicyAttestationRepository
+from policy_platform.infrastructure.persistence.repositories import PolicyAttestationRepository
 
 
 def _make_row(*, due_date: date, acknowledged_at: datetime | None = None) -> PolicyAttestation:

@@ -30,10 +30,10 @@ from policy_platform.api.schemas import (
 )
 from policy_platform.domain.models import PolicyTest, PolicyTestBatch, PolicyTestRun
 from policy_platform.infrastructure import ai_test_proposal
-from policy_platform.infrastructure.db import get_session
+from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.policy_test_execution import execute_test_by_id
 from policy_platform.infrastructure.policy_test_commitment import build_expectation_snapshot, expectation_hash
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.repositories import (
     PolicySetRepository,
     PolicyTestRepository,
     PolicyTestBatchRepository,

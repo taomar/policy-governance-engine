@@ -86,7 +86,7 @@ from policy_platform.infrastructure.policy_formulator import (
     PolicyFormulationError,
     PolicyFormulatorAgent,
 )
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.repositories import (
     CandidateRuleRepository,
     ClauseRepository,
     ExtractionRunRepository,

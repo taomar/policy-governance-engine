@@ -23,7 +23,7 @@ import inspect
 from pathlib import Path
 
 from policy_platform.api.routers import candidate_rules as candidate_module
-from policy_platform.infrastructure import mappers as mappers_module
+from policy_platform.infrastructure.persistence import mappers as mappers_module
 
 
 def _keys_assigned_in_model_copy(source: str) -> set[str]:

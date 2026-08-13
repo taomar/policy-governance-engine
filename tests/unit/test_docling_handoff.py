@@ -119,7 +119,7 @@ def fake_repos(monkeypatch):
     candidates: list[_Row] = []
     runs: list[_Row] = []
 
-    from policy_platform.infrastructure import repositories
+    from policy_platform.infrastructure.persistence import repositories
 
     monkeypatch.setattr(
         repositories, "CandidateRuleRepository", lambda _session: _FakeCandidateRepo(candidates)

@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.api.schemas import CreateNoteRequest, NoteResponse
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.repositories import NoteRepository
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.repositories import NoteRepository
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 

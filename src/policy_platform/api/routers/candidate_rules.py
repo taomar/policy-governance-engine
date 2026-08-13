@@ -38,7 +38,7 @@ from policy_platform.api.schemas import (
     RequestChangesRequest,
 )
 from policy_platform.contracts.policy import AggregateLimit, AggregateLimitContribution, CanonicalRule
-from policy_platform.infrastructure.db import get_session
+from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.formulation_mapping import (
     _decision_readiness_for,
     condition_provenance_for,
@@ -53,7 +53,7 @@ from policy_platform.infrastructure.export import (
     media_type_for,
     rows_to_export,
 )
-from policy_platform.infrastructure.audit import (
+from policy_platform.infrastructure.persistence.audit import (
     CANDIDATE_REVIEW_OVERRIDDEN,
     CANDIDATE_REVIEWED,
     CANDIDATES_BULK_REVIEWED,
@@ -61,10 +61,10 @@ from policy_platform.infrastructure.audit import (
     record_audit_event,
 )
 from policy_platform.infrastructure.manual_extraction import get_or_create_manual_extraction_run
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.policy_test_execution import run_active_tests_for_version
-from policy_platform.infrastructure.policy_version_import import import_approved_policy_version
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     CandidateRuleRepository,
     NoteRepository,

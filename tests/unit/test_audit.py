@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from policy_platform.infrastructure.audit import (
+from policy_platform.infrastructure.persistence.audit import (
     CANDIDATE_REVIEWED,
     record_audit_event,
 )

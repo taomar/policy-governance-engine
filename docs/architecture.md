@@ -74,7 +74,7 @@ at the centre and depend on nothing else in the codebase.
 | Grounded chat | `infrastructure/ai_chat.py` |
 | Azure clients | `infrastructure/ai/openai_client.py`, `infrastructure/search/search_client.py`, `search/indexing.py` |
 | Configuration | `infrastructure/settings.py` |
-| Persistence access | `infrastructure/repositories.py`, `infrastructure/mappers.py`, `infrastructure/db.py` |
+| Persistence access | `infrastructure/persistence/repositories.py`, `infrastructure/persistence/mappers.py`, `infrastructure/persistence/db.py` |
 
 ## How components are invoked
 

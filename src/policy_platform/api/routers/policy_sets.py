@@ -35,7 +35,7 @@ from policy_platform.contracts.policy import AggregateLimit, CanonicalRule
 from policy_platform.infrastructure.aggregate_eligibility import assess_rules
 from policy_platform.infrastructure.aggregate_preview import preview_aggregate_limit
 from policy_platform.infrastructure.ai_aggregate_proposal import propose_aggregate_limits
-from policy_platform.infrastructure.db import get_session
+from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.export import (
     ExportFormat,
     content_disposition,
@@ -43,10 +43,10 @@ from policy_platform.infrastructure.export import (
     media_type_for,
     models_to_export,
 )
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.policy_version_import import import_approved_policy_version
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
 from policy_platform.infrastructure.policy_formulator import check_trusted_config
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     PolicyAggregateLimitRepository,
     PolicySetRepository,

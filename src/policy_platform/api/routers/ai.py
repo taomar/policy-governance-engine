@@ -41,9 +41,9 @@ from policy_platform.domain.models import (
     ExtractionRun,
     PolicySet,
 )
-from policy_platform.infrastructure.audit import FINDING_DISPOSED, record_audit_event
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.audit import FINDING_DISPOSED, record_audit_event
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.repositories import (
     PolicySetRepository,
     QualityRunRepository,
 )

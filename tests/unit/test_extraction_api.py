@@ -33,7 +33,7 @@ from policy_platform.domain.models import (  # noqa: E402
     ExtractionStage,
     SourceDocument,
 )
-from policy_platform.infrastructure.db import get_session  # noqa: E402
+from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
 
 
 @compiles(JSONB, "sqlite")

@@ -25,9 +25,9 @@ from policy_platform.api.schemas import EvaluationLogDetail, EvaluationLogSummar
 from policy_platform.contracts.evaluation import EvaluationRequest, EvaluationResponse
 from policy_platform.domain.models import Evaluation
 from policy_platform.evaluator.engine import evaluate_policy
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     EvaluationRepository,
     PolicySetRepository,

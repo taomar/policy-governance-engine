@@ -39,7 +39,7 @@ from policy_platform.infrastructure.correlation_agent import (
     group_rules_for_comparison,
     groupable_rule_ids,
 )
-from policy_platform.infrastructure.repositories import PolicySetRepository
+from policy_platform.infrastructure.persistence.repositories import PolicySetRepository
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)

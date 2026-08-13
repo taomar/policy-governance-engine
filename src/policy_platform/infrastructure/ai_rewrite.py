@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.repositories import CandidateRuleRepository
+from policy_platform.infrastructure.persistence.repositories import CandidateRuleRepository
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)

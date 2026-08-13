@@ -24,8 +24,8 @@ from policy_platform.contracts.policy import (
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.formulation_mapping import _is_separator_predicate
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     CandidateRuleRepository,
     PolicySetRepository,

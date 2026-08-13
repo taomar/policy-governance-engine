@@ -51,8 +51,8 @@ from policy_platform.contracts.evaluation import EvaluationRequest, RuleEvaluati
 from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.evaluator.engine import evaluate_policy
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.repositories import ApprovedPolicyVersionRepository, PolicySetRepository
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.repositories import ApprovedPolicyVersionRepository, PolicySetRepository
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)

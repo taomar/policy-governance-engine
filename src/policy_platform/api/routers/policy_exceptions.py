@@ -25,8 +25,8 @@ from policy_platform.api.schemas import (
     PolicyExceptionResponse,
 )
 from policy_platform.domain.models import PolicyException
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.repositories import PolicyExceptionRepository, PolicySetRepository
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.repositories import PolicyExceptionRepository, PolicySetRepository
 
 router = APIRouter(prefix="/api/policy-exceptions", tags=["policy-exceptions"])
 

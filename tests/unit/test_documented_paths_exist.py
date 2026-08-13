@@ -14,7 +14,7 @@ to directories then found a third false claim on a pass already reported clean.
 What is checked, and what is deliberately not:
 
 * A reference must contain a separator and end either in a known extension or
-  in `/`. That admits `infrastructure/mappers.py` and `docs/specs/` while
+  in `/`. That admits `infrastructure/persistence/mappers.py` and `docs/specs/` while
   leaving out HTTP routes (`/api/policy-sets`), media types
   (`application/problem+json`) and GitHub slugs (`casbin/casbin`), none of
   which are paths in this repository.

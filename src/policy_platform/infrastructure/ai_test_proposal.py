@@ -31,8 +31,8 @@ from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.contracts.policy_test import PolicyTestKind
 from policy_platform.domain.models import DocumentVersion
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
-from policy_platform.infrastructure.repositories import ApprovedPolicyVersionRepository, PolicySetRepository
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.repositories import ApprovedPolicyVersionRepository, PolicySetRepository
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
 from policy_platform.infrastructure.settings import get_settings
 

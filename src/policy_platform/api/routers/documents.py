@@ -22,8 +22,8 @@ from sqlalchemy.orm import selectinload
 from policy_platform.api.schemas import AssignDocumentRequest, ClauseResponse, SourceDocumentResponse
 from policy_platform.domain.models import DocumentVersion, SourceDocument
 from policy_platform.infrastructure import document_extraction
-from policy_platform.infrastructure.db import get_session
-from policy_platform.infrastructure.repositories import ClauseRepository, PolicySetRepository
+from policy_platform.infrastructure.persistence.db import get_session
+from policy_platform.infrastructure.persistence.repositories import ClauseRepository, PolicySetRepository
 from policy_platform.infrastructure.search.indexing import clause_search_document_id, index_clauses_best_effort
 from policy_platform.infrastructure.settings import get_settings
 

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.ext.compiler import compiles
 
 from policy_platform.domain.models import ExtractionStage
-from policy_platform.infrastructure.extraction_stage_repository import (
+from policy_platform.infrastructure.persistence.extraction_stage_repository import (
     ExtractionStageRepository,
 )
 

@@ -4,7 +4,7 @@ Translates `policy_platform.contracts.policy.CanonicalRule` objects (the
 canonical, provider-neutral representation) into the relational + JSONB
 `ApprovedPolicyVersion` / `ApprovedRule` rows described in
 docs/data-model.md. This is the inverse of
-`policy_platform.infrastructure.mappers.approved_policy_version_to_package`.
+`policy_platform.infrastructure.persistence.mappers.approved_policy_version_to_package`.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from policy_platform.domain.models import (
     ApprovedRule,
     RuleException,
 )
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     ClauseRepository,
     EvidenceReferenceRepository,

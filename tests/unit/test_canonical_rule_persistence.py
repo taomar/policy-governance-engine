@@ -36,7 +36,7 @@ import textwrap
 import pytest
 
 from policy_platform.contracts.policy import CanonicalRule
-from policy_platform.infrastructure import mappers
+from policy_platform.infrastructure.persistence import mappers
 
 
 # Fields the mapper legitimately derives from somewhere other than a same-named

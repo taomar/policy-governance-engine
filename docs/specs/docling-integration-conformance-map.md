@@ -27,9 +27,9 @@ This document records the state of the platform *before* the Docling integration
 | 14 | Review and approval APIs | 11 routers; `api/routers/candidate_rules.py` owns draft → review → approve → request-changes → override → bulk-review → publish | **preserve** | The extraction handoff must enter through this boundary. No second reviewer workbench, authority service, or approval engine (directive §12). |
 | 15 | Web application | 68 components under `apps/web/src`, including `ReviewQueue`, `PolicyInspector`, `QualityPage`, `CorrelationPage`, `PolicyValidationLab`, `ExtractionProgressPanel`, `DocumentsPage`, `ComparePage` | **preserve / extend** | Phase 12 permits only extraction-specific additions to these existing surfaces. |
 | 16 | Azure AI Search | `infrastructure/search/indexing.py` — best-effort, writes only `policy-authoring`, `status` hardcoded to `"draft"`, resource shared with roughly 4,760 unrelated documents; `policy-evidence` deliberately untouched | **adapt** ⚠ | Phase 10 requires two rigorously separated projections. The runtime approved-evidence projection does not exist, and there is no pre-activation verification or outbox-based publish. The shared-resource constraint is recorded in `docs/known-limitations.md`. |
-| 17 | Publication and activation | `candidate_rules.py::publish_approved_candidates` → `ApprovedPolicyVersion`; `infrastructure/policy_version_import.py`; on-publish `PolicyTest` re-run | **preserve** | Add the new extraction gates to this flow; do not restructure it. |
+| 17 | Publication and activation | `candidate_rules.py::publish_approved_candidates` → `ApprovedPolicyVersion`; `infrastructure/persistence/policy_version_import.py`; on-publish `PolicyTest` re-run | **preserve** | Add the new extraction gates to this flow; do not restructure it. |
 | 18 | Evaluator | `evaluator/engine.py`, `precedence.py`, `conditions.py`, `facts.py` | **preserve** | Already evaluates approved canonical rules only, which is what Phase 11 requires. |
-| 19 | Audit | `infrastructure/audit.py`, `AuditEvent` | **preserve** | Extend with extraction-stage events. |
+| 19 | Audit | `infrastructure/persistence/audit.py`, `AuditEvent` | **preserve** | Extend with extraction-stage events. |
 
 ---
 

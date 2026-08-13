@@ -203,7 +203,7 @@ async def submit_package(
     the latter needs a constraint on a table this pipeline does not own.
     """
 
-    from policy_platform.infrastructure.repositories import (
+    from policy_platform.infrastructure.persistence.repositories import (
         CandidateRuleRepository,
         ExtractionRunRepository,
     )

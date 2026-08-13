@@ -1,6 +1,6 @@
 """Read access to the audit trail.
 
-The trail is written by `infrastructure/audit.py` from the endpoints that take
+The trail is written by `infrastructure/persistence/audit.py` from the endpoints that take
 authoritative action. This router is deliberately read-only: an audit record
 that can be edited or deleted through the API is not evidence of anything, so
 there is no POST, PUT or DELETE here and there should not be one.
@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.domain.models import AuditEvent
-from policy_platform.infrastructure.db import get_session
+from policy_platform.infrastructure.persistence.db import get_session
 
 router = APIRouter(prefix="/api/audit-events", tags=["audit"])
 

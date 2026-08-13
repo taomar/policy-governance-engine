@@ -25,9 +25,9 @@ from policy_platform.contracts.policy import ApprovedPolicyPackage
 from policy_platform.contracts.policy_test import PolicyTestCase, PolicyTestKind
 from policy_platform.domain.models import PolicyTest, PolicyTestRun
 from policy_platform.evaluator.test_runner import run_policy_test
-from policy_platform.infrastructure.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.policy_test_commitment import expectation_hash, expectation_snapshot_for_test
-from policy_platform.infrastructure.repositories import (
+from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     PolicyTestRepository,
     PolicyTestBatchRepository,

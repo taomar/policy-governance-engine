@@ -58,7 +58,7 @@ from policy_platform.infrastructure.policy_formulator import (
     PolicyFormulationError,
     PolicyFormulatorAgent,
 )
-from policy_platform.infrastructure.repositories import PolicySetRepository
+from policy_platform.infrastructure.persistence.repositories import PolicySetRepository
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)

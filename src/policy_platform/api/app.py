@@ -44,7 +44,7 @@ async def _reconcile_interrupted_runs() -> None:
     """
 
     from policy_platform.domain.models import ExtractionRun
-    from policy_platform.infrastructure.db import get_sessionmaker
+    from policy_platform.infrastructure.persistence.db import get_sessionmaker
 
     try:
         async with get_sessionmaker()() as session:
