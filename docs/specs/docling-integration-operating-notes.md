@@ -269,3 +269,102 @@ offence row 1 of page 21 resolve to `1st Time`, `2nd Time`, `3rd Time` and
   same-row cell in each column a span covers, but Docling represents a spanned
   region as one cell and emits nothing for the covered columns. The edge kind is
   currently unreachable from a Docling parse.
+
+## 7. Text fidelity: display glyphs, and which converter reads in logical order
+
+A second measurement on the same source, independent of table structure, found
+a defect that neither the table work nor the existing diagnostics could see.
+
+Some PDF text extraction records the *painted glyph stream* rather than the
+characters the document contains. The stored codepoints are then Unicode
+presentation forms — the shaped glyph a renderer selected for a letter given its
+neighbours — and, depending on the extractor, the sequence may be the order the
+glyphs were painted rather than the order they are read in.
+
+This is a general text-extraction defect. It affects any script whose letters
+have positional forms, and it affects an otherwise English document that quotes
+a single term in one of them. It is not a language feature and must not be
+treated as one.
+
+### Why it survived every existing check
+
+The platform promises that an attribute holds the source's words verbatim. A
+verbatim check compares a record against the canonical store — but when the
+canonical store holds glyphs, both sides hold the same glyphs and the check
+reports a match. A fidelity measurement taken this way read 92.6% while every
+affected span was wrong.
+
+`rtl_script_detected` did not fire either. Its predicate is
+`bidirectional(char) in ("R","AL")`, which does match presentation forms, but it
+is gated on those characters exceeding 20% of all letters. On a bilingual
+document the affected script was 13.3% of letters, so the one diagnostic aimed
+near this problem stayed silent precisely because the document was mixed. It is
+also the wrong signal: it fires on correctly-encoded right-to-left text and says
+nothing about whether characters were preserved.
+
+### Measured, same source, same run
+
+| | legacy | docling |
+|---|---:|---:|
+| presentation-form codepoints | 5124 | 5586 |
+| standard-block codepoints | 60 | 55 |
+| elements carrying display glyphs | 68/522 (13.0%) | 283/797 (35.5%) |
+| affected pages | 21–27 | 21–27 |
+| character sequence | **visual** | **logical** |
+
+Order was established with four probes, taking known logical strings and testing
+membership in each parser's NFKC-normalised output. All four appear in the
+Docling output and none in the legacy output; all four *reversed* appear in the
+legacy output and none in the Docling output.
+
+On the appendix heading:
+
+```
+legacy  stored : <presentation forms>
+legacy  NFKC   : تاءازجلاو تافلاخملا لوادج      <- normalises but reads backwards
+legacy  NFKC[::-1] : جداول المخالفات والجزاءات   <- correct, only after reversing
+
+docling stored : <presentation forms>
+docling NFKC   : جداول المخالفات والجزاءات      <- correct, no reversal needed
+```
+
+So the two halves of the defect separate cleanly:
+
+* **Character order** — legacy stores visual order; Docling stores logical
+  order. Legacy output cannot be recovered by any order-preserving operation;
+  restoring it would require reversing runs, which cannot be verified against
+  the source and would corrupt text that is merely awkward.
+* **Codepoint form** — both store presentation forms. This is recoverable in
+  principle by NFKC, which maps each form to the character it renders, but that
+  is a decision about altering quoted text and is deliberately not taken here.
+
+Selecting Docling therefore fixes the unrecoverable half and leaves the
+recoverable half. That is a materially stronger argument for the cutover than
+table structure alone.
+
+### The diagnostic
+
+`document_extraction.detect_display_glyphs` is applied at the seam, after either
+converter returns, so neither path can be fixed while the other silently is not.
+It emits `display_glyphs_not_characters` at severity `warning` with the affected
+character count, the proportion of letters, and the affected pages.
+
+The predicate is a Unicode-database property and nothing else: a codepoint is a
+display glyph when its compatibility decomposition tag is `<isolated>`,
+`<initial>`, `<medial>` or `<final>`. There is no script list, no language
+detection and no direction check, so any script Unicode gives positional forms
+is covered automatically and correctly-encoded text can never trip it. Verified
+silent on correctly-encoded Arabic, Hebrew, Farsi, Syriac, Thaana, Greek, CJK,
+Latin typographic ligatures and fullwidth forms; verified firing on display
+glyphs in any of them.
+
+Nothing is normalised, reordered or rewritten. Detection only. A stored value
+that reads oddly is a defect a reviewer can see and weigh; a value silently
+rewritten into something the document does not literally contain is a defect
+nobody can see.
+
+**Known limit.** This detects the presentation-form symptom, which is decidable
+from the character data. It does not detect visual ordering on its own — a
+parser that emitted standard codepoints in visual order would pass. In the
+sources measured the two travel together, and order is not decidable without
+language knowledge the ingestion layer deliberately does not have.

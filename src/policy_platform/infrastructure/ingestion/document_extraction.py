@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import sys
+import unicodedata
 from typing import Any
 
 from policy_platform.contracts.canonical_document import (
@@ -93,18 +94,123 @@ def extract_document(
     raises. Quietly reverting to the legacy parser would downgrade a structured
     parse to a flattened one without anybody being told — the same invisible
     downgrade this seam exists to end.
+
+    TEXT FIDELITY IS CHECKED FOR BOTH
+    ---------------------------------
+    Whichever converter runs, the result is checked for text captured as display
+    glyphs rather than characters (see `detect_display_glyphs`) and a diagnostic
+    is appended when it is found. Extraction itself is untouched by this: the
+    elements and their text are exactly what the converter produced. The only
+    difference is that a document with the defect now says so.
     """
 
     if get_settings().document_converter == "docling":
-        return _extract_with_docling(
+        document = _extract_with_docling(
             storage_path,
             document_id=document_id,
             source_hash=source_hash,
             converter=converter,
         )
-    # Called exactly as before, with no extra arguments, so selecting the
-    # default converter reproduces today's behaviour byte for byte.
-    return ingest_document(storage_path, mime_type)
+    else:
+        # Called exactly as before, with no extra arguments, so selecting the
+        # default converter reproduces today's extraction byte for byte.
+        document = ingest_document(storage_path, mime_type)
+
+    # Checked here rather than in either parser: it is a property of the
+    # extracted text, not of the thing that extracted it, and both converters
+    # have been observed to produce it. One implementation at the seam means
+    # neither path can be fixed while the other silently is not.
+    glyphs = detect_display_glyphs(document)
+    if glyphs is not None:
+        document.diagnostics.append(glyphs)
+    return document
+
+
+#: Unicode decomposition tags that mark a codepoint as a *shaped form* of some
+#: other character — the glyph a renderer chooses for a letter given its
+#: neighbours, rather than the letter itself.
+#:
+#: This is read from the Unicode character database, so it is a statement about
+#: codepoints and nothing else. There is deliberately no script list, no
+#: language detection and no direction check: any script whose letters have
+#: positional forms is covered the day Unicode says so, and a document in a
+#: script that has none can never trip it.
+_DISPLAY_GLYPH_TAGS = ("<isolated>", "<initial>", "<medial>", "<final>")
+
+
+def _is_display_glyph(char: str) -> bool:
+    return unicodedata.decomposition(char).startswith(_DISPLAY_GLYPH_TAGS)
+
+
+def detect_display_glyphs(document: CanonicalDocument) -> IngestionDiagnostic | None:
+    """Report text captured as display glyphs rather than as characters.
+
+    Some extractors read a PDF's painted glyph stream and record what was drawn
+    instead of what was written. The result still looks right to a human reading
+    the rendered page, because the glyphs are the same ones the renderer chose —
+    but the stored codepoints are presentation forms, not the characters the
+    document contains, and the platform's promise that an attribute holds the
+    source's words verbatim is quietly untrue for every such run.
+
+    It is worse than an ordinary parse problem because it is invisible to the
+    checks that would normally catch it: a verbatim comparison between a record
+    and the canonical store compares one rendering against the same rendering
+    and reports a match. Only a check against the *source's characters* can see
+    it, which is why this fires at ingestion rather than at review.
+
+    DETECTION, NOT REPAIR
+    ---------------------
+    Nothing is normalised, reordered or rewritten. A stored value that reads
+    oddly is a defect a reviewer can see and weigh; a stored value silently
+    rewritten into something the document does not literally contain is a defect
+    nobody can see, and this product must never alter the words it attributes to
+    a source. So this reports scale and location and stops there.
+
+    Returns ``None`` when the document is clean, so a caller can append only
+    when there is something to say.
+    """
+
+    affected_pages: set[int] = set()
+    glyphs = 0
+    letters = 0
+    for element in document.elements:
+        found = False
+        for char in element.text:
+            if char.isalpha():
+                letters += 1
+            if _is_display_glyph(char):
+                glyphs += 1
+                found = True
+        if found:
+            affected_pages.update(
+                fragment.page
+                for fragment in element.source_fragments
+                if isinstance(fragment, SourceFragment)
+            )
+
+    if not glyphs:
+        return None
+
+    # Proportion of letters, so the figure means "how much of the writing is
+    # affected" rather than being diluted by punctuation and whitespace.
+    share = f"{glyphs / letters:.1%}" if letters else "unknown"
+    pages = sorted(affected_pages)
+    where = f"pages {pages[:20]}" if pages else "page numbers unavailable"
+    return IngestionDiagnostic(
+        code="display_glyphs_not_characters",
+        # The document is usable and its structure is sound; what is not sound
+        # is any claim that a quoted span reproduces the source's characters.
+        severity="warning",
+        detail=(
+            f"{glyphs} characters ({share} of letters) are Unicode presentation forms — "
+            f"display glyphs recorded in place of the characters they render ({where}). "
+            "Text quoted from these regions reproduces how the document was drawn, not "
+            "what it says, so a verbatim check against this text compares a rendering "
+            "with itself and cannot detect the difference. No normalisation or "
+            "reordering was applied: rewriting quoted text would replace a defect a "
+            "reviewer can see with one nobody can."
+        ),
+    )
 
 
 def _extract_with_docling(
