@@ -50,10 +50,29 @@ class ClauseData:
     source_fragments: list[dict] = field(default_factory=list)
 
 
-def extract_clauses(storage_path: str, mime_type: str) -> list[ClauseData]:
-    """Parse a document into ordered clauses with full source provenance."""
+def extract_clauses(
+    storage_path: str,
+    mime_type: str,
+    *,
+    document_id: str = "",
+    source_hash: str = "",
+) -> list[ClauseData]:
+    """Parse a document into ordered clauses with full source provenance.
 
-    document = ingest_document(storage_path, mime_type)
+    Routes through `extract_document` rather than calling the legacy parser
+    directly. It used to call `ingest_document`, which meant it walked around
+    the one seam that decides how an upload is parsed: a caller reaching for
+    this helper got the legacy parser no matter what the converter setting
+    said, and nothing told them so. A second extraction path that ignores the
+    setting is how the original defect spread, so there is no longer one.
+    """
+
+    document = extract_document(
+        storage_path,
+        mime_type,
+        document_id=document_id,
+        source_hash=source_hash,
+    )
     return clauses_from_document(document)
 
 
@@ -222,7 +241,21 @@ def _extract_with_docling(
     does not have it installed is misconfigured, and the operator needs to be
     told which setting and which environment to look at — an ImportError
     surfacing from three modules down does not say that.
+
+    An empty `source_hash` is refused for the same reason. Element ids are
+    namespaced by it so that the same sentence in two documents never collides;
+    an empty namespace puts every document in one bucket and the collision is
+    silent, surfacing later as one document's element resolving to another's.
+    A caller that has not been given the real hash is better stopped here.
     """
+
+    if not source_hash:
+        raise IngestionError(
+            "the structured converter needs the document's source hash: element "
+            "ids are namespaced by it, so extracting with an empty hash lets "
+            "elements from different documents collide. Pass the SHA-256 of the "
+            "uploaded bytes."
+        )
 
     try:
         from policy_platform.infrastructure.docling.converter import convert_document

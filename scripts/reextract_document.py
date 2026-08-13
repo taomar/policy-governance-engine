@@ -57,7 +57,12 @@ async def main() -> None:
             deleted = await clause_repo.delete_by_document_version(doc_version.id)
             print(f"Deleted {deleted} old (polluted) clause rows.")
 
-            extracted = document_extraction.extract_clauses(doc_version.storage_path, doc_version.mime_type)
+            extracted = document_extraction.extract_clauses(
+                doc_version.storage_path,
+                doc_version.mime_type,
+                document_id=str(doc_version.document_id),
+                source_hash=doc_version.content_hash,
+            )
             new_clauses = await clause_repo.bulk_create(
                 document_version_id=doc_version.id,
                 clauses=[

@@ -449,3 +449,82 @@ class TestTheHeaderReachesTheReader:
                 assert label.element_id in as_context | set(unit.target_element_ids), (
                     f"{cell.text} reached the reader without its row label"
                 )
+
+
+class TestNoSecondExtractionPathIgnoresTheSetting:
+    """Every helper that parses a document has to go through the seam.
+
+    The seam is only a seam if it is the sole way in. A convenience wrapper
+    that calls the parser directly reads as supported, but silently pins its
+    callers to one converter regardless of configuration - which is the shape
+    of the original defect, not a new one.
+    """
+
+    def test_the_clause_helper_honours_the_converter_setting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It must reach the selected converter, not the parser it used to call."""
+
+        _use_converter(monkeypatch, "docling")
+        seen: dict[str, object] = {}
+        real = document_extraction.extract_document
+
+        def spy(storage_path, mime_type, **kwargs):
+            seen["called"] = True
+            seen.update(kwargs)
+            kwargs.setdefault("converter", _grid_converter(1, 2))
+            return real(storage_path, mime_type, **kwargs)
+
+        monkeypatch.setattr(document_extraction, "extract_document", spy)
+
+        clauses = document_extraction.extract_clauses(
+            FALLBACK_SOURCE,
+            FALLBACK_MIME,
+            document_id="doc",
+            source_hash=SOURCE_HASH,
+        )
+
+        assert seen.get("called"), (
+            "extract_clauses did not route through extract_document, so the "
+            "converter setting cannot reach it"
+        )
+        assert seen.get("source_hash") == SOURCE_HASH, (
+            "the source hash was not forwarded to the seam, so element ids "
+            "would be namespaced by an empty string"
+        )
+        texts = {c.text for c in clauses}
+        assert header_text(1) in texts, (
+            "the structured converter's cells did not reach the clause helper"
+        )
+
+    def test_the_structured_path_refuses_an_empty_namespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty source hash collides element ids across documents, silently."""
+
+        _use_converter(monkeypatch, "docling")
+
+        with pytest.raises(document_extraction.IngestionError) as raised:
+            document_extraction.extract_document(
+                FALLBACK_SOURCE,
+                FALLBACK_MIME,
+                document_id="doc",
+                source_hash="",
+                converter=_grid_converter(1, 2),
+            )
+
+        assert "source hash" in str(raised.value).lower()
+
+    def test_the_default_converter_needs_no_hash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The refusal belongs to the structured path only.
+
+        The legacy parser does not namespace ids by the hash, so requiring one
+        of every caller would be a behaviour change smuggled in beside a
+        different fix.
+        """
+
+        _use_converter(monkeypatch, "legacy")
+        clauses = document_extraction.extract_clauses(FALLBACK_SOURCE, FALLBACK_MIME)
+        assert clauses, "the default path stopped returning clauses"
