@@ -68,8 +68,10 @@ source establishes enter `related_rule_ids`; similarity-based candidates are
 surfaced for review and never written there. See
 [Relationships](relationships.md).
 
-Rules become machine-executable only when the project's `trusted_config` supplies
-the required fact/output mappings.
+A rule compiles to an executable condition only when the project's
+`trusted_config` supplies the required fact/output mappings. A rule that does
+not compile is still a complete policy record: it is routed `ai_ready` and
+decided by a judge reading it.
 
 ### When a rule does not compile
 

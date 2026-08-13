@@ -30,6 +30,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
+DOCS = ROOT / "docs"
+
+#: Documents whose purpose is recording the wording that was removed.
+_FAILURE_RECORD = DOCS / "failures"
 
 #: Prose that frames being decided by reading as a shortfall.
 #:
@@ -137,3 +141,46 @@ def test_no_readiness_framing_in_rendered_web_strings():
                 )
 
     assert not offenders, "readiness framing in the interface:\n  " + "\n  ".join(offenders)
+
+
+def test_no_readiness_framing_in_the_documentation():
+    """Documentation reaches users too, and it was never checked.
+
+    Scope started at code and the interface, so `docs/` went unscanned. The
+    user guide accordingly told a reader to "improve machine-executable
+    coverage" and listed it beside publication and ownership as something a
+    package should be — presenting the ordinary case as a gap to close, in the
+    one document written for the person least able to tell it was wrong.
+
+    `docs/failures/` is excluded for the same reason docstrings are: its whole
+    purpose is recording the wording that was removed and why.
+    """
+
+    offenders: list[str] = []
+    for path in sorted(DOCS.rglob("*.md")):
+        if _FAILURE_RECORD in path.parents:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            match = _FRAMING_RE.search(line)
+            if match:
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{lineno}: {match.group(0)!r} in {line.strip()[:70]!r}"
+                )
+
+    assert not offenders, "readiness framing in documentation:\n  " + "\n  ".join(offenders)
+
+
+def test_the_documentation_scan_reaches_files_and_honours_its_exclusion():
+    """Guard the guard: an empty glob or a swallowed root would prove nothing."""
+
+    scanned = [p for p in DOCS.rglob("*.md") if _FAILURE_RECORD not in p.parents]
+    assert len(scanned) > 20, f"only {len(scanned)} documents scanned; the glob is wrong"
+    assert (DOCS / "user-guide.md") in scanned
+
+    # The exclusion is real, and the excluded records do contain the wording --
+    # so excluding them is a deliberate decision, not a way to pass.
+    excluded = list(_FAILURE_RECORD.rglob("*.md"))
+    assert excluded, "the failure records are missing, so the exclusion hides nothing"
+    assert any(
+        _FRAMING_RE.search(path.read_text(encoding="utf-8")) for path in excluded
+    ), "no excluded document contains the framing, so the exclusion is unnecessary"

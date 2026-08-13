@@ -58,7 +58,7 @@ The dashboard leads with work that needs attention:
 
 - candidates awaiting review;
 - high quality findings;
-- machine-executable coverage;
+- how policies are routed — deterministic or AI Ready;
 - regression guards;
 - project readiness.
 
@@ -71,10 +71,22 @@ Open **Projects**, then select a policy set such as HR.
 The Overview answers whether the current package is:
 
 - published and effective;
-- machine-executable;
 - linked to source evidence;
 - assigned to accountable owners;
 - scheduled for review.
+
+It also shows how the package's policies are routed. Each carries an
+`evaluation_mode` stating how it must be decided:
+
+| Route | The source states its test as | Decided by |
+|---|---|---|
+| `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine |
+| `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
+
+**AI Ready is a route, not a fault.** Most policy text is written in words, and
+a package that is largely `ai_ready` reflects how its source document is
+written, not a shortfall in extraction. There is nothing to "fix" about it, and
+the platform will not ask you to.
 
 Use the tabs in journey order:
 
@@ -153,8 +165,31 @@ Select a row and verify:
 - verbatim source text;
 - canonical JSON.
 
+The **Logic** tab shows the policy as a table of attributes in two groups —
+what the policy applies to, and what follows:
+
+| Group | Rows |
+|---|---|
+| Applies to | Subject, condition, threshold, trigger, timing, scope |
+| Outcome | Modality, action, authority, exception, advice |
+
+Every row shows the attribute, its value, and the field the value was read
+from. The values are the record's own words, not a paraphrase: if the table and
+the source read differently, that is an extraction defect worth reporting, not
+a display choice.
+
 Use **View source** before deciding. AI output is a proposal; source evidence and
 human judgement are authoritative.
+
+### When a rule has been extracted more than once
+
+Running extraction twice over one document produces a second reading of the
+same sentence. The queue shows only the **latest** reading; each card offers the
+one it replaced, read-only, so you can see what changed rather than deciding
+between two records with no statement of which is current.
+
+Approving a reading does not delete its predecessor — the audit trail keeps
+every approved version.
 
 ### Decide
 
@@ -298,7 +333,6 @@ Use the readiness docket to:
 
 - assign accountable ownership and escalation contacts;
 - schedule the next review;
-- improve machine-executable coverage;
 - resolve missing source evidence;
 - clear the review backlog;
 - rerun Quality and Regression after changes.
@@ -326,7 +360,7 @@ for runtime evidence.
 | Extraction is slow | Large documents require many model calls; avoid API reload mode |
 | Publish unavailable | Policy Manager persona, header identity, approved candidates |
 | Evaluation is `INDETERMINATE` | Supply the listed missing facts |
-| No testable policies | Active rules may be definitions or documentation-only |
+| No testable policies | Active rules may be definitions, or routed `ai_ready` for a judge rather than the engine |
 | Quality finding seems wrong | Compare it with the exact versioned policy and source evidence |
 
 ## Safe operating rules
