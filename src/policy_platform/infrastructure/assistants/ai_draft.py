@@ -232,7 +232,7 @@ async def draft_rules_from_text(
     trace.append(
         {
             "key": "derive",
-            "label": "Derive executable rule",
+            "label": "Derive policy rules",
             "status": "done" if rules else "skipped",
             "detail": (
                 f"{len(rules)} rule{'' if len(rules) == 1 else 's'} derived"
