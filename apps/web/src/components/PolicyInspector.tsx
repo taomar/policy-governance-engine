@@ -23,6 +23,8 @@ import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause, Note
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
+import { ambiguityNote } from "../ambiguityNote";
+import { AmbiguityNoteView } from "./AmbiguityNoteView";
 import { ConditionRouteNote } from "./ConditionRouteNote";
 import { EvidenceHeadingContext } from "./EvidenceHeadingContext";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
@@ -904,7 +906,7 @@ export function PolicyInspector({
               </Tooltip>
             )}
             {hasAmbiguityFlag(rule.ambiguity_status) && (
-              <Tooltip title={`Ambiguity: ${ambiguityMeta(rule.ambiguity_status).label}`}>
+              <Tooltip title={ambiguityNote(rule.ambiguity_status).reason}>
                 <ExclamationCircleOutlined
                   className={`policy-row-flag policy-row-flag-ambiguity policy-row-flag-ambiguity--${ambiguityMeta(rule.ambiguity_status).color}`}
                 />
@@ -997,6 +999,13 @@ export function PolicyInspector({
             </Space>
           </div>
         )}
+        {/* What the source's wording admits, in text, immediately above the
+            review actions. This was previously reachable only by hovering the
+            warning glyph in the title row, which a keyboard user never sees.
+            Renders only for a status worth interrupting for; the complete
+            field, including "reads one way", is on the Parties & readiness
+            tab so it is never invisible. */}
+        <AmbiguityNoteView status={rule.ambiguity_status} variant="banner" />
         <Space size={8} className="policy-inspector-actions">
           {rule.evidence.length > 0 && (
             <Button

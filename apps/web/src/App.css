@@ -5370,6 +5370,36 @@
   font-style: italic;
 }
 
+/* What the source's wording admits — see AmbiguityNoteView.tsx. The banner
+   variant sits in the inspector header beside Approve/Reject; the section
+   variant sits on the Parties & readiness tab and renders for every status. */
+.ambiguity-note--banner {
+  margin-bottom: 10px;
+}
+
+.ambiguity-note-tag {
+  margin-bottom: 2px;
+}
+
+.ambiguity-note-reason {
+  margin-bottom: 6px !important;
+  font-size: 12px;
+}
+
+/* The record stores a status and not which words are open. This states that
+   limit, so it is set quieter than the reason it qualifies. */
+.ambiguity-note-unnamed {
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Only rendered for a status this build has no wording for. */
+.ambiguity-note-raw {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
 .decision-readiness-source {
   font-size: 11px;
 }

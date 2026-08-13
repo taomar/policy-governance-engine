@@ -2,6 +2,7 @@ import { Alert, Empty, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { AuditOutlined, TeamOutlined } from "@ant-design/icons";
 import type { CanonicalRule, DecisionReadiness, RuleParty } from "../api";
 import { XACML_NOTE } from "../xacml";
+import { AmbiguityNoteView } from "./AmbiguityNoteView";
 
 const { Text, Paragraph } = Typography;
 
@@ -178,6 +179,11 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
           />
         )}
       </div>
+
+      {/* What the source's wording admits. Rendered for every status,
+          including "none", so the field is never invisible on the tab a
+          reviewer opens to see what the system holds about deciding this. */}
+      <AmbiguityNoteView status={rule.ambiguity_status} variant="section" />
 
       <div className="decision-readiness-section">
         <Text strong>Attributes the evaluator must find</Text>
