@@ -183,7 +183,7 @@ Places designed to be extended, with the seam already in place:
 | **Document formats** | `infrastructure/document_ingestion.py` produces a canonical representation; `document_extraction.py` adapts it to the persistence shape. |
 | **Storage** | Document storage is a local path in the documents router; swapping in blob storage means replacing that write/read pair. |
 | **Eventing** | `outbox_messages` exists and is modelled, but no publisher consumes it. |
-| **Orchestration** | `src/policy_platform/worker/` is an empty reserved package. |
+| **Orchestration** | No worker process exists; extraction runs inside the API request that starts it. |
 
 ## Troubleshooting
 

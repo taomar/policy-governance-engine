@@ -41,8 +41,8 @@ rather than a supported deployment. See
 
 The web app is a pure client: it holds no policy logic, and every decision,
 extraction and quality result comes from the API. There is no separate worker
-process — `src/policy_platform/worker/` is an empty placeholder reserved for a
-future orchestration runtime.
+process: extraction runs inside the API request that starts it, which is why a
+large document takes minutes rather than returning immediately.
 
 ## Backend layers
 
