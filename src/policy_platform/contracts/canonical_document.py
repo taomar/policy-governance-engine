@@ -268,6 +268,16 @@ class CanonicalPage(BaseModel):
         default_factory=list,
         description="Header/footer lines dropped from the logical flow but retained here for provenance.",
     )
+    visual_order_raw_text: str | None = Field(
+        default=None,
+        description=(
+            "The parser's own output for this page in the order the page paints it, before "
+            "reading order was recovered. Present only when the two differ, which happens when "
+            "the page contains a run written in a right-to-left script. Recorded so the "
+            "recovery stays auditable against the source; raw_text remains the single "
+            "authoritative representation and offsets are recorded against it alone."
+        ),
+    )
 
 
 class IngestionDiagnostic(BaseModel):

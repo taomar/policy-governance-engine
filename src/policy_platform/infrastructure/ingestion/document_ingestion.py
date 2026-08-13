@@ -72,6 +72,12 @@ from policy_platform.contracts.canonical_document import (
     SourceFragment,
     Transformation,
 )
+from policy_platform.infrastructure.ingestion.reading_order import (
+    Glyph,
+    has_rtl,
+    logical_order,
+    normalize_presentation_forms,
+)
 
 PARSER_NAME = "pdfplumber-layout-v1"
 DOCX_PARSER_NAME = "python-docx-layout-v1"
@@ -151,6 +157,11 @@ class _Line:
     end_offset: int = 0
     in_table: str | None = None  # table_id when the line sits inside a table bbox
     is_boilerplate: bool = False
+    #: The parser's own output for this line, in the order the page paints it,
+    #: before any reading-order recovery. Kept so that the transformation stays
+    #: auditable: anyone can compare what the page painted against what was
+    #: stored. Equal to ``text`` whenever nothing needed recovering.
+    visual_text: str = ""
 
     @property
     def fragment(self) -> SourceFragment:
@@ -257,7 +268,17 @@ def ingest_pdf(storage_path: str | Path, document_id: str = "") -> CanonicalDocu
         # flow only (spec section 11) — dropping them from raw_text would
         # invalidate every offset already recorded against it.
         raw_text = "\n".join(line.text for line in lines)
-        pages.append(CanonicalPage(page=page_index, raw_text=raw_text, removed_boilerplate=removed))
+        visual_raw_text = "\n".join(line.visual_text or line.text for line in lines)
+        pages.append(
+            CanonicalPage(
+                page=page_index,
+                raw_text=raw_text,
+                removed_boilerplate=removed,
+                visual_order_raw_text=(
+                    visual_raw_text if visual_raw_text != raw_text else None
+                ),
+            )
+        )
         page_blocks.append(_build_blocks(lines, table_blocks, body_size))
 
     elements = _assemble_elements(page_blocks)
@@ -347,15 +368,21 @@ def _append_document_diagnostics(document: CanonicalDocument) -> None:
         1 for element in document.elements for char in element.text if char.isalpha()
     )
     if total_letters and rtl_chars / total_letters > 0.2:
+        recovered_pages = [
+            page.page for page in document.pages if page.visual_order_raw_text is not None
+        ]
         document.diagnostics.append(
             IngestionDiagnostic(
                 code="rtl_script_detected",
-                severity="warning",
+                severity="info",
                 detail=(
-                    "right-to-left script detected. Words are ordered by horizontal position, "
-                    "which may not match logical reading order for this script. No reordering "
-                    "was applied because it cannot be verified against this source, and a wrong "
-                    "reordering would corrupt text that is currently merely awkward."
+                    "right-to-left script detected. Characters are ordered within each "
+                    "directional run and the runs ordered by their own direction, so the text "
+                    "is stored in reading order rather than paint order. Left-to-right runs "
+                    "embedded in it, such as numbers and Latin terms, keep their own order. "
+                    f"Pages whose paint order differed from reading order: {len(recovered_pages)}. "
+                    "The parser's unmodified output for those pages is retained on each page as "
+                    "visual_order_raw_text."
                 ),
             )
         )
@@ -381,9 +408,11 @@ def _read_page(page, page_index: int) -> tuple[list[_Line], list[_Block], list[I
 
     diagnostics: list[IngestionDiagnostic] = []
     try:
-        words = page.extract_words(x_tolerance=_X_TOLERANCE, extra_attrs=["size"])
+        words = page.extract_words(
+            x_tolerance=_X_TOLERANCE, extra_attrs=["size"], return_chars=True
+        )
     except Exception:  # malformed font metrics; retry without the extra attribute
-        words = page.extract_words(x_tolerance=_X_TOLERANCE)
+        words = page.extract_words(x_tolerance=_X_TOLERANCE, return_chars=True)
 
     # Rotated text is almost always a watermark, sidebar label, or stamp. Left
     # in the flow it interleaves with body text at arbitrary positions and
@@ -564,11 +593,70 @@ def _group_words_into_lines(words: list[dict], page_index: int) -> list[_Line]:
     return lines
 
 
+def _text_from_words(words: list[dict]) -> tuple[str, str]:
+    """Return ``(logical_text, visual_text)`` for one visual line of words.
+
+    A PDF records where each glyph was *painted*, not the order in which the
+    words were written. For text whose script runs left to right the two
+    coincide, so left-to-right pages take the original path unchanged and come
+    out byte for byte identical. Where a run of the line runs right to left they
+    do not coincide, and ordering by horizontal position alone stores the line
+    backwards — text that is not the document's words.
+
+    Recovery is delegated to :mod:`reading_order`, which orders characters by
+    coordinate *within each directional run* and orders the runs themselves by
+    direction. It never reverses a string: reversal would also reverse the
+    digits of any number embedded in the run, turning 50% into 05%.
+    """
+
+    ordered = sorted(words, key=lambda word: word["x0"])
+    visual = " ".join(word["text"] for word in ordered)
+    if not has_rtl(visual):
+        return visual, visual
+
+    glyphs: list[Glyph] = []
+    for index, word in enumerate(ordered):
+        chars = word.get("chars") or []
+        if chars:
+            glyphs.extend(
+                Glyph(
+                    text=char["text"],
+                    x0=float(char["x0"]),
+                    x1=float(char["x1"]),
+                    group=index,
+                )
+                for char in chars
+            )
+            continue
+        # Degraded path: the parser gave no per-character geometry for this
+        # word. Its characters are still known to be painted left to right
+        # across its own box, so spacing them evenly across that box reproduces
+        # their relative visual positions, which is all the ordering needs.
+        text = word["text"]
+        x0, x1 = float(word["x0"]), float(word["x1"])
+        step = (x1 - x0) / len(text) if text else 0.0
+        glyphs.extend(
+            Glyph(text=char, x0=x0 + step * offset, x1=x0 + step * (offset + 1), group=index)
+            for offset, char in enumerate(text)
+        )
+
+    pieces: list[str] = []
+    previous_group: int | None = None
+    for glyph in logical_order(glyphs):
+        if previous_group is not None and glyph.group != previous_group:
+            pieces.append(" ")
+        pieces.append(glyph.text)
+        previous_group = glyph.group
+    return normalize_presentation_forms("".join(pieces)), visual
+
+
 def _line_from_words(words: list[dict], page_index: int) -> _Line:
     ordered = sorted(words, key=lambda w: w["x0"])
     sizes = [float(w.get("size", 0.0) or 0.0) for w in ordered]
+    text, visual_text = _text_from_words(ordered)
     return _Line(
-        text=" ".join(w["text"] for w in ordered),
+        text=text,
+        visual_text=visual_text,
         top=min(float(w["top"]) for w in ordered),
         bottom=max(float(w["bottom"]) for w in ordered),
         x0=min(float(w["x0"]) for w in ordered),
@@ -611,7 +699,10 @@ def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) 
     if not rows:
         return []
 
-    headers = [(cell or "").strip() for cell in rows[0]]
+    headers = [
+        _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
+        for column_index, cell in enumerate(rows[0])
+    ]
     has_headers = any(headers)
 
     if not _is_genuine_table(rows):
@@ -621,7 +712,10 @@ def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) 
 
     blocks: list[_Block] = []
     for row_index, row in data_rows:
-        cells = [(cell or "").strip() for cell in row]
+        cells = [
+            _cell_in_reading_order(table, row_objects, row_index, column_index, (cell or "").strip())
+            for column_index, cell in enumerate(row)
+        ]
         if not any(cells):
             continue
         # A pipe-joined cell list keeps every cell value verbatim and adds no
@@ -650,6 +744,49 @@ def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) 
             )
         )
     return blocks
+
+
+def _cell_in_reading_order(
+    table, row_objects: list, row_index: int, column_index: int, extracted: str
+) -> str:
+    """Return one table cell's text in reading order.
+
+    ``table.extract`` hands back strings with no geometry attached, so a cell
+    holding a right-to-left run arrives in paint order and cannot be repaired
+    from the string alone. The cell's own bounding box is known, though, so the
+    characters inside it can be read again with their coordinates and put
+    through the same recovery the body text uses.
+
+    Cells with no right-to-left character return the parser's original string
+    untouched, so ordinary tables are unaffected.
+    """
+
+    if not has_rtl(extracted):
+        return extracted
+    try:
+        bbox = row_objects[row_index].cells[column_index]
+        if not bbox:
+            return extracted
+        words = table.page.crop(bbox).extract_words(
+            x_tolerance=_X_TOLERANCE, return_chars=True
+        )
+    except Exception:  # pragma: no cover - degenerate cell geometry
+        return extracted
+    if not words:
+        return extracted
+
+    lines: dict[float, list[dict]] = {}
+    for word in words:
+        if not word.get("upright", True):
+            continue
+        key = round(float(word["top"]) / _Y_TOLERANCE)
+        lines.setdefault(key, []).append(word)
+    rendered = [
+        _text_from_words(sorted(group, key=lambda word: word["x0"]))[0]
+        for _, group in sorted(lines.items())
+    ]
+    recovered = " ".join(part for part in rendered if part).strip()
+    return recovered or extracted
 
 
 def _is_genuine_table(rows: list[list[str | None]]) -> bool:
