@@ -22,11 +22,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from mutation_check import (  # noqa: E402
+    ConcurrentRun,
     Mutation,
+    RestoreFailed,
     TargetNotFound,
     _write,
     apply_mutation,
     check,
+    exclusive_lock,
     main,
 )
 
@@ -247,3 +250,180 @@ def test_an_incomplete_mutation_is_rejected(missing: str):
 
     with pytest.raises(ValueError, match=missing):
         Mutation.from_spec(spec, 0)
+
+
+# --------------------------------------------------------------------------
+# Two runs must not mutate one checkout at the same time
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def lock_in_tmp(tmp_path: Path, monkeypatch) -> Path:
+    """Point the lock at a temporary directory, never the real checkout."""
+
+    import mutation_check
+
+    path = tmp_path / ".mutation-check.lock"
+    monkeypatch.setattr(mutation_check, "LOCK_PATH", path)
+    return path
+
+
+def test_a_second_run_cannot_start_while_the_first_holds_the_lock(lock_in_tmp: Path):
+    """The defect this closes was observed, not imagined.
+
+    Two agents ran specs against one worktree at the same time. The harness
+    reads the original, writes a mutation, and restores — so the second run can
+    read the first run's mutation as its "original" and write that defect into
+    source permanently, while both runs report success.
+    """
+
+    with exclusive_lock():
+        assert lock_in_tmp.exists()
+        with pytest.raises(ConcurrentRun, match="Another mutation run"):
+            with exclusive_lock():
+                pass
+
+
+def test_the_lock_is_released_even_when_the_run_raises(lock_in_tmp: Path):
+    """A lock that outlives its run would block every later run."""
+
+    with pytest.raises(RuntimeError):
+        with exclusive_lock():
+            raise RuntimeError("suite could not start")
+
+    assert not lock_in_tmp.exists()
+
+
+def test_the_lock_records_who_holds_it(lock_in_tmp: Path):
+    """A stale lock is reported, not broken, so it has to be diagnosable."""
+
+    import os
+
+    with exclusive_lock():
+        held = lock_in_tmp.read_text(encoding="utf-8")
+
+    assert f"pid={os.getpid()}" in held
+    assert "started=" in held
+
+
+def test_a_held_lock_makes_a_run_exit_three(tmp_path: Path, lock_in_tmp: Path, capsys):
+    """Distinct from 1 (survived) and 2 (stale spec): nothing was measured."""
+
+    target = tmp_path / "module.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "blocked",
+                    "file": str(target),
+                    "find": "x = 1",
+                    "replace": "x = 2",
+                    "tests": ["tests/unit/test_mutation_check.py"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    lock_in_tmp.write_text("pid=999999 started=earlier\n", encoding="utf-8")
+
+    assert main([str(spec)]) == 3
+    assert "another mutation run" in capsys.readouterr().out.lower()
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+
+
+# --------------------------------------------------------------------------
+# A restore that did not restore is the loudest failure there is
+# --------------------------------------------------------------------------
+
+
+def test_a_restore_that_does_not_reproduce_the_original_raises(
+    sample: Path, lock_in_tmp: Path, monkeypatch
+):
+    """Writing the original back is not the same as the original being back.
+
+    Simulated by corrupting the file during the restore, which is what an
+    interleaved second run does in practice.
+    """
+
+    import mutation_check
+
+    monkeypatch.setattr("mutation_check.run_tests", lambda tests: True)
+
+    real_write = mutation_check._write
+
+    def write_something_else(path, text, newline):
+        real_write(path, text + "# an edit nobody made\n", newline)
+
+    monkeypatch.setattr("mutation_check._write", write_something_else)
+
+    with pytest.raises(RestoreFailed, match="nobody wrote deliberately"):
+        check(
+            Mutation(
+                name="m",
+                file=sample,
+                find="return True",
+                replace="return False",
+                tests=("tests/unit/test_mutation_check.py",),
+            )
+        )
+
+
+def test_a_failed_restore_makes_a_run_exit_four(tmp_path: Path, lock_in_tmp: Path, monkeypatch, capsys):
+    import mutation_check
+
+    target = tmp_path / "module.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "corrupted",
+                    "file": str(target),
+                    "find": "x = 1",
+                    "replace": "x = 2",
+                    "tests": ["tests/unit/test_mutation_check.py"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("mutation_check.run_tests", lambda tests: False)
+    real_write = mutation_check._write
+
+    def write_something_else(path, text, newline):
+        real_write(path, text + "# an edit nobody made\n", newline)
+
+    monkeypatch.setattr("mutation_check._write", write_something_else)
+
+    assert main([str(spec)]) == 4
+    assert "restore failed" in capsys.readouterr().out.lower()
+
+
+def test_a_clean_run_leaves_no_lock_behind(sample: Path, lock_in_tmp: Path, monkeypatch):
+    """Otherwise the first successful run blocks every one after it."""
+
+    monkeypatch.setattr("mutation_check.run_tests", lambda tests: False)
+
+    spec = sample.parent / "spec.json"
+    spec.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "ordinary",
+                    "file": str(sample),
+                    "find": "return True",
+                    "replace": "return False",
+                    "tests": ["tests/unit/test_mutation_check.py"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert main([str(spec)]) == 0
+    assert not lock_in_tmp.exists()

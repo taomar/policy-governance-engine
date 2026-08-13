@@ -14,6 +14,11 @@ apps/web/dist/
 App_Data/
 *.log
 
+# Held only while scripts/mutation_check.py is running, to stop two runs
+# mutating one checkout at the same time. Runtime state, and a committed one
+# would block every run until someone deleted it.
+.mutation-check.lock
+
 # Uploaded document store. Runtime state, not source: these files are only
 # meaningful alongside the Postgres rows that reference them, and the database
 # is not in version control either. Sample documents that *are* source live in

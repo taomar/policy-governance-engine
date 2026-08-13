@@ -35,18 +35,50 @@ Each is applied on its own, the tests are run, and the file is restored
 whatever happens. The exit status is non-zero when any mutation survived — when
 the code was broken and the suite still passed — because that is the finding
 worth acting on.
+
+Exit codes are distinct on purpose:
+
+===  ==========================================================================
+0    every mutation was caught
+1    a mutation survived — the code was broken and the suite still passed
+2    a mutation found no target — the spec is stale and checked nothing
+3    another run holds the lock, so this one refused to start
+4    a restore did not reproduce the original file
+===  ==========================================================================
+
+Codes 3 and 4 exist because the harness edits source in place. Two runs over
+the same checkout can interleave: the second reads its "original" while the
+first has its mutation applied, and then restores *that* — writing a deliberate
+defect into the source permanently, behind a green result. It was observed:
+two agents ran specs against one worktree at the same time and `git status`
+showed three different files modified across consecutive calls. Nothing was
+corrupted that time.
+
+So a run takes an exclusive lock before touching anything, and verifies after
+restoring that the file it wrote back hashes to what it read. A silent
+corruption behind a passing run is the one failure this tool cannot be allowed
+to have, since its whole purpose is to say whether the suite can be trusted.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: Held for the duration of a run. Deliberately inside the checkout it guards,
+#: because what must not overlap is two runs mutating *these* files — a lock in
+#: a temp directory would not stop a second checkout, and would wrongly block
+#: two runs over different worktrees.
+LOCK_PATH = REPO_ROOT / ".mutation-check.lock"
 
 
 class TargetNotFound(Exception):
@@ -56,6 +88,57 @@ class TargetNotFound(Exception):
     code correct, so the suite passes and the run reports "not caught" for a
     mutation that was never made.
     """
+
+
+class ConcurrentRun(Exception):
+    """Another run is already mutating this checkout."""
+
+
+class RestoreFailed(Exception):
+    """The file put back does not match the file read.
+
+    The loudest failure here, because every later result in the checkout is now
+    suspect: source contains something nobody wrote deliberately.
+    """
+
+
+@contextmanager
+def exclusive_lock():
+    """Refuse to start while another run holds the checkout.
+
+    `O_CREAT | O_EXCL` is atomic, so two runs racing to create the file cannot
+    both win. The loser fails fast rather than waiting: a queued second run
+    would still be running the suite against a tree the first is editing, and
+    the point is not to overlap at all.
+
+    A stale lock is reported rather than broken automatically. Deciding a lock
+    is stale means guessing that the other process is gone, and guessing wrong
+    reintroduces exactly the interleaving this prevents.
+    """
+
+    payload = f"pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    try:
+        handle = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            held_by = LOCK_PATH.read_text(encoding="utf-8").strip()
+        except OSError:
+            held_by = "<unreadable>"
+        raise ConcurrentRun(
+            f"{LOCK_PATH} exists ({held_by}). Another mutation run is using this "
+            "checkout. Wait for it to finish; if that process is gone, delete the "
+            "file to release it."
+        ) from None
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            file.write(payload)
+        yield
+    finally:
+        try:
+            LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+
 
 
 @dataclass(frozen=True)
@@ -150,13 +233,29 @@ def run_tests(tests: tuple[str, ...]) -> bool:
 
 
 def check(mutation: Mutation) -> bool:
-    """Apply, test, restore. True when the mutation survived."""
+    """Apply, test, restore. True when the mutation survived.
+
+    The restore is verified rather than assumed. Writing the original text back
+    is not the same as the original file being back: an interleaved run, a
+    partial write, or an encoding slip would all leave source altered while
+    this function returned normally and the summary printed a clean result.
+    """
 
     original, newline = apply_mutation(mutation.file, mutation.find, mutation.replace)
+    before = hashlib.sha256(original.encode("utf-8")).hexdigest()
     try:
         return run_tests(mutation.tests)
     finally:
         _write(mutation.file, original, newline)
+        restored, _ = _read(mutation.file)
+        after = hashlib.sha256(restored.encode("utf-8")).hexdigest()
+        if after != before:
+            raise RestoreFailed(
+                f"{mutation.file} does not match what was read before the mutation "
+                f"({before[:12]} -> {after[:12]}). The file now contains something "
+                "nobody wrote deliberately; check it against git before trusting any "
+                "later result from this checkout."
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,16 +267,29 @@ def main(argv: list[str] | None = None) -> int:
     mutations = [Mutation.from_spec(spec, index) for index, spec in enumerate(specs)]
 
     survived: list[str] = []
-    for mutation in mutations:
-        try:
-            lived = check(mutation)
-        except TargetNotFound as error:
-            print(f"ERROR  {mutation.name}: target not found — {error}")
-            return 2
-        status = "SURVIVED" if lived else "caught"
-        print(f"{status:9} {mutation.name}")
-        if lived:
-            survived.append(mutation.name)
+    try:
+        # Entered inside the `try`, not before it: `exclusive_lock` is a
+        # generator-based context manager, so calling it builds the manager
+        # without acquiring anything. Acquisition happens on `__enter__`, and a
+        # conflict raised there would otherwise escape as a traceback instead of
+        # the exit status callers switch on.
+        with exclusive_lock():
+            for mutation in mutations:
+                try:
+                    lived = check(mutation)
+                except TargetNotFound as error:
+                    print(f"ERROR  {mutation.name}: target not found — {error}")
+                    return 2
+                except RestoreFailed as error:
+                    print(f"ERROR  {mutation.name}: restore failed — {error}")
+                    return 4
+                status = "SURVIVED" if lived else "caught"
+                print(f"{status:9} {mutation.name}")
+                if lived:
+                    survived.append(mutation.name)
+    except ConcurrentRun as error:
+        print(f"ERROR  {error}")
+        return 3
 
     print()
     if survived:
