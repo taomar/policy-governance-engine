@@ -43,6 +43,16 @@ graph = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The prompts are source, not documentation: three agents load them at call time
+# through `infrastructure.prompts.prompt_path`. Without this they are absent from
+# a built wheel, and the failure is invisible locally because the development
+# install is editable and resolves `__file__` into the source tree. A real
+# `pip install .` -- which is what the Dockerfile does -- would put the modules
+# in site-packages with no `prompts/` beside them, and extraction would raise
+# FileNotFoundError mid-run rather than at import.
+[tool.setuptools.package-data]
+"policy_platform.infrastructure" = ["prompts/*.md"]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
