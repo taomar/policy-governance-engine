@@ -182,8 +182,8 @@ export function EffectivePolicyModal({
           </ul>
           <Text type="secondary" className="effective-policy-shared-note">
             Every rule carries this same list, so it describes the policy rather than any one case.
-            Which condition selects which case is not stated in a form the platform can read — a
-            reviewer must establish that before this becomes executable.
+            Which condition selects which case is not stated as a comparison, so a reviewer decides
+            that by reading.
           </Text>
         </div>
       )}

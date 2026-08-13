@@ -99,9 +99,13 @@ _CAPTION_WORDS = 6
 #: `contracts/formulation.py` declares the requirement codes as an enum: the
 #: names have to exist for the agent's replies to parse. They are excluded from
 #: serialization, so they reach no reader.
+#:
+#: An entry has to keep earning its place. `test_every_exemption_is_earned`
+#: holds each one to that: the path must exist, and the file must still carry a
+#: phrase that needs excusing. An entry failing either is not a narrow
+#: exemption, it is a standing permission for whatever lands at that path next.
 _MECHANISM = {
     SRC / "contracts" / "formulation.py",
-    SRC / "infrastructure" / "dmn_parity.py",
 }
 
 
@@ -231,6 +235,35 @@ def test_the_guard_would_notice_a_bare_executability_caption():
             if _BARE_EXECUTABILITY.search(caption)
         ]
         assert not offenders, f"{line!r} read as display text: {offenders!r}"
+
+
+def test_every_exemption_is_earned():
+    """An exemption that protects nothing is a hole with a comment over it.
+
+    Two ways one rots. The path stops existing, because the file moved and the
+    entry kept the old name -- that is how `infrastructure/dmn_parity.py` sat
+    here after the real module became `infrastructure/projection/dmn_parity.py`,
+    excusing a path nothing occupied. Or the file stays put but loses the phrase
+    that earned it, and the entry outlives its reason.
+
+    Either way what remains is not a narrow exemption for a known mechanism. It
+    is a standing permission for whatever is written at that path next, and it
+    reads as deliberate to whoever finds it. So each entry has to keep paying.
+    """
+
+    for path in sorted(_MECHANISM):
+        assert path.exists(), (
+            f"{path.relative_to(SRC)} is exempt but does not exist. "
+            "The entry now excuses whatever lands at that path next -- "
+            "point it at the real file, or delete it."
+        )
+        earned = [
+            value for _, value in _string_literals(path) if _FRAMING_RE.search(value)
+        ]
+        assert earned, (
+            f"{path.relative_to(SRC)} is exempt but carries no banned phrase. "
+            "Delete the entry rather than leave it standing."
+        )
 
 
 def test_no_readiness_framing_in_python_string_literals():

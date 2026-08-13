@@ -91,7 +91,7 @@ export function deterministicReason(provenance?: ConditionProvenance | null): st
     case "conditions_not_representable":
       return (
         "The trusted configuration is complete for this rule and the extraction produced " +
-        "executable logic from it, but this platform's condition format cannot yet express " +
+        "a comparison from it, but this platform's condition format cannot yet express " +
         "that comparison — it compares a fact against a fixed value, and this rule compares " +
         "one fact against a proportion of another. Nothing you can change in the fact model " +
         "will resolve it; it needs an engineering change."
