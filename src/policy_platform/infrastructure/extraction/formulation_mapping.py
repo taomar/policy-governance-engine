@@ -28,6 +28,36 @@ wrong one silently returns confident decisions.
 That strictness preserves the platform's existing invariant: an AI-drafted rule
 can never become machine-executable without either a trusted fact model or a
 human formalizing the condition.
+
+## On the size of this file
+
+It is the largest module in the codebase, and splitting it was considered and
+rejected on evidence rather than left unexamined.
+
+There are four apparent seams -- FEEL parsing, condition derivation, negation,
+and rule assembly -- and they do not hold. Measured across all 33 top-level
+definitions: **14 calls cross those boundaries**, and seven of them reach into
+another group's private helpers. `derive_condition_outcome` uses
+`_fact_name`, `_row_for_index`, `_inferred_data_type` and
+`_is_boolean_outcome_table`; `_title_for` and `_effect_action` use
+`_is_separator_predicate`; `formulation_to_candidate_rules` uses
+`condition_from_stated_bound`, `condition_provenance` and `states_a_negation`.
+
+That is not four modules waiting to be separated. It is one pipeline -- parse,
+derive, assemble -- where each stage legitimately uses the one below it.
+Splitting it would produce four files importing each other's underscore names,
+which is harder to reason about than one long file, not easier. The comparison
+worth making is `persistence/repositories.py`, split in the same pass: sixteen
+classes, zero shared helpers, zero cross-references. That seam was already
+there. This one is not.
+
+Five of the recorded mutations live here, spanning `states_a_negation`,
+`condition_provenance_for` and `formulation_to_candidate_rules`, so a split
+would also relocate mutation-bearing code across three of the four new files at
+once. That raises the cost of being wrong; it is not the reason for the
+decision.
+
+Size alone is not a defect. This file is long because the pipeline is long.
 """
 from __future__ import annotations
 
