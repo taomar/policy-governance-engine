@@ -4,27 +4,29 @@ WHAT THIS PROTECTS
 ------------------
 `document_extraction.extract_document` is the only place the platform decides
 how an uploaded file becomes canonical elements, and for a long time it had no
-decision to make: it called the legacy parser unconditionally, so the Docling
-converter — and every downstream stage built on the cell-level structure it
-produces — was unreachable in production.
+decision to make: it called the legacy parser unconditionally, so the converter
+that preserves cell structure — and every downstream stage built on it — was
+unreachable in production.
 
-That is not a cosmetic difference. Measured on a 27-page HR handbook whose
-final seven pages are a "Table of Violations and Penalties":
+The invariant these tests enforce is a general one, and it is worth stating
+plainly because it is the whole reason cell-level parsing exists:
 
-  * the legacy parser produced 91 `table_row` elements and zero `table_cell`
-    ones, and the structural graph contained zero `header_for`,
-    `table_cell_of` and `merged_with` edges;
-  * a row whose four columns are "1st Time / 2nd Time / 3rd Time / 4th Time"
-    reached the model as one pipe-joined line, and the four distinct sanctions
-    it encodes were extracted as a single record whose fact identifier was
-    "written-warning-one-1-day-deduction-two-2-days-deduction-..." — a fact no
-    real case could ever supply.
+    A cell in a table means nothing on its own. "15 minutes", "denied", "£500"
+    are values whose meaning lives in the column header above them and the row
+    they sit in. So a parse that keeps cells must keep the *association* too,
+    and that association must survive all the way to what the model reads.
 
-So these tests assert the property that failure destroyed: on the structured
-path a cell survives as a cell, keeps its row and column, knows which cell is
-its header, and arrives in the reading plan *with that header attached*. A
-future change that quietly routes uploads back through row flattening fails
-here rather than in a reviewer's judgement six weeks later.
+Concretely, for a table of any shape: every body cell is emitted as its own
+element carrying its row index, column index and header flag; the structural
+graph links it to the header cell in its own column; and the reading plan hands
+the model that header alongside the cell. When a parser flattens a row into one
+pipe-joined string instead, all of that is destroyed before any later stage can
+see it, and distinct values in distinct columns become indistinguishable.
+
+These tests are therefore written against synthetic grids of several shapes,
+not against any real document. They assert the rule, not an instance of it. The
+measurements that first exposed the defect live in
+`docs/specs/docling-integration-operating-notes.md`, where evidence belongs.
 
 Deliberately written against `extract_document`, not against `convert_document`
 or `run_extraction`. Those already have tests and both passed throughout the
@@ -46,9 +48,14 @@ from policy_platform.infrastructure.settings import Settings
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "source-documents"
 SOURCE_HASH = "b" * 64
 
+#: Grid shapes exercised by the structural assertions, as (body_rows, columns).
+#: Several shapes, so nothing can come to depend on a particular table having a
+#: particular width, or on a header sitting in a particular place.
+GRID_SHAPES = [(1, 2), (1, 5), (3, 3), (2, 4)]
+
 
 # --------------------------------------------------------------------------
-# Stub Docling document, mirroring the shape used in test_docling_converter.py
+# Stub document, mirroring the shape used in test_docling_converter.py
 # --------------------------------------------------------------------------
 
 
@@ -104,30 +111,35 @@ class _StubConverter:
         return type("Result", (), {"document": self._document})()
 
 
-#: The shape that broke: an offence described in column 0, then one sanction
-#: per escalation tier. Only the header row carries `column_header`.
-_PENALTY_HEADERS = ["Violation", "1st Time", "2nd Time", "3rd Time", "4th Time"]
-_PENALTY_ROW = [
-    "Departing from work more than 15 minutes early without permission",
-    "10% deduction",
-    "25% deduction",
-    "One (1) day deduction",
-    "Two (2) days deduction",
-]
+def header_text(column: int) -> str:
+    return f"Header {column}"
 
 
-def _penalty_table_converter() -> _StubConverter:
+def body_text(row: int, column: int) -> str:
+    """Unique per cell, so an assertion can always name the one it means."""
+
+    return f"Body r{row} c{column}"
+
+
+def _grid_converter(body_rows: int, columns: int) -> _StubConverter:
+    """A table with one header row and `body_rows` body rows.
+
+    The only structural claim baked in is the one the canonical model itself
+    makes: a cell has a row index, a column index, and may be flagged a header.
+    """
+
     cells = [
-        _Cell(text, start_row_offset_idx=0, start_col_offset_idx=column, column_header=True)
-        for column, text in enumerate(_PENALTY_HEADERS)
+        _Cell(header_text(column), start_row_offset_idx=0, start_col_offset_idx=column, column_header=True)
+        for column in range(columns)
     ]
     cells += [
-        _Cell(text, start_row_offset_idx=1, start_col_offset_idx=column)
-        for column, text in enumerate(_PENALTY_ROW)
+        _Cell(body_text(row, column), start_row_offset_idx=row, start_col_offset_idx=column)
+        for row in range(1, body_rows + 1)
+        for column in range(columns)
     ]
     return _StubConverter(
         _StubDocument(
-            texts=[_Text("Table of Violations and Penalties", label="section_header")],
+            texts=[_Text("Enclosing Section", label="section_header")],
             tables=[_Table(data=_TableData(cells))],
         )
     )
@@ -141,22 +153,26 @@ def _use_converter(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     """
 
     settings = Settings(
-        database_url="postgresql://u:p@localhost:5433/db",
-        alembic_database_url="postgresql://u:p@localhost:5433/db",
+        database_url="******localhost:5433/db",
+        alembic_database_url="******localhost:5433/db",
         document_converter=name,
     )
     monkeypatch.setattr(document_extraction, "get_settings", lambda: settings)
 
 
-def _extract_penalty_table(monkeypatch: pytest.MonkeyPatch):
+def _extract_grid(monkeypatch: pytest.MonkeyPatch, body_rows: int, columns: int):
     _use_converter(monkeypatch, "docling")
     return document_extraction.extract_document(
-        "penalties.pdf",
+        "table.pdf",
         "application/pdf",
         document_id="guard-doc",
         source_hash=SOURCE_HASH,
-        converter=_penalty_table_converter(),
+        converter=_grid_converter(body_rows, columns),
     )
+
+
+def _element_by_text(document, text: str):
+    return next(element for element in document.elements if element.text == text)
 
 
 class TestTheSeamCanReachTheStructuredParser:
@@ -164,8 +180,8 @@ class TestTheSeamCanReachTheStructuredParser:
         """The behaviour change is opt-in; the default must not move on its own."""
 
         settings = Settings(
-            database_url="postgresql://u:p@localhost:5433/db",
-            alembic_database_url="postgresql://u:p@localhost:5433/db",
+            database_url="******localhost:5433/db",
+            alembic_database_url="******localhost:5433/db",
         )
         assert settings.document_converter == "legacy"
 
@@ -179,8 +195,8 @@ class TestTheSeamCanReachTheStructuredParser:
 
         with pytest.raises(Exception):
             Settings(
-                database_url="postgresql://u:p@localhost:5433/db",
-                alembic_database_url="postgresql://u:p@localhost:5433/db",
+                database_url="******localhost:5433/db",
+                alembic_database_url="******localhost:5433/db",
                 document_converter="docling ",
             )
 
@@ -188,7 +204,8 @@ class TestTheSeamCanReachTheStructuredParser:
         """The contrast that makes the rest of this file mean something.
 
         If this stopped being true the guard below would pass for a document
-        that had lost its cells anyway.
+        that had lost its cells anyway. Uses a sample already shared with the
+        converter and pipeline suites.
         """
 
         _use_converter(monkeypatch, "legacy")
@@ -200,32 +217,43 @@ class TestTheSeamCanReachTheStructuredParser:
         assert document.parser != "docling"
         assert not [e for e in document.elements if e.element_type == "table_cell"]
 
-    def test_selecting_docling_emits_one_element_per_cell(self, monkeypatch) -> None:
-        document = _extract_penalty_table(monkeypatch)
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_selecting_the_structured_parser_emits_one_element_per_cell(
+        self, monkeypatch, body_rows: int, columns: int
+    ) -> None:
+        document = _extract_grid(monkeypatch, body_rows, columns)
 
         cells = [e for e in document.elements if e.element_type == "table_cell"]
-        assert len(cells) == len(_PENALTY_HEADERS) + len(_PENALTY_ROW)
+        assert len(cells) == (body_rows + 1) * columns
         assert document.parser == "docling"
         # The flattened form must not reappear under a different label.
         assert not [e for e in document.elements if e.element_type == "table_row"]
 
-    def test_a_penalty_cell_keeps_its_own_text_and_position(self, monkeypatch) -> None:
-        document = _extract_penalty_table(monkeypatch)
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_every_cell_keeps_its_own_text_and_position(
+        self, monkeypatch, body_rows: int, columns: int
+    ) -> None:
+        document = _extract_grid(monkeypatch, body_rows, columns)
 
-        third_time = next(e for e in document.elements if e.text == "One (1) day deduction")
-        assert third_time.table_cell is not None
-        assert (third_time.table_cell.row_index, third_time.table_cell.column_index) == (1, 3)
-        assert third_time.table_cell.is_header is False
+        for row in range(1, body_rows + 1):
+            for column in range(columns):
+                cell = _element_by_text(document, body_text(row, column))
+                assert cell.table_cell is not None
+                assert (cell.table_cell.row_index, cell.table_cell.column_index) == (row, column)
+                assert cell.table_cell.is_header is False
 
-    def test_the_escalation_header_row_is_marked_as_header(self, monkeypatch) -> None:
-        document = _extract_penalty_table(monkeypatch)
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_the_header_row_is_marked_as_header(
+        self, monkeypatch, body_rows: int, columns: int
+    ) -> None:
+        document = _extract_grid(monkeypatch, body_rows, columns)
 
         headers = {
             e.text: e.table_cell
             for e in document.elements
             if e.table_cell is not None and e.table_cell.is_header
         }
-        assert set(headers) == set(_PENALTY_HEADERS)
+        assert set(headers) == {header_text(column) for column in range(columns)}
         assert all(cell.row_index == 0 for cell in headers.values())
 
     def test_source_hash_namespaces_the_element_ids(self, monkeypatch) -> None:
@@ -233,13 +261,13 @@ class TestTheSeamCanReachTheStructuredParser:
 
         _use_converter(monkeypatch, "docling")
         other = document_extraction.extract_document(
-            "penalties.pdf",
+            "table.pdf",
             "application/pdf",
             document_id="guard-doc",
             source_hash="c" * 64,
-            converter=_penalty_table_converter(),
+            converter=_grid_converter(2, 3),
         )
-        baseline = _extract_penalty_table(monkeypatch)
+        baseline = _extract_grid(monkeypatch, 2, 3)
 
         assert {e.element_id for e in baseline.elements}.isdisjoint(
             e.element_id for e in other.elements
@@ -270,75 +298,128 @@ class TestTheHeaderReachesTheReader:
     """The point of keeping cells: a bare value must arrive with its column.
 
     Cell-level elements are only worth having if the association survives all
-    the way to what the model reads. These assertions walk the same path the
+    the way to what the model reads. These assertions walk the same path an
     upload does — canonical document, structural graph, reading plan.
     """
 
-    def test_the_graph_associates_each_cell_with_its_column_header(
-        self, monkeypatch
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_the_graph_links_every_cell_to_the_header_of_its_own_column(
+        self, monkeypatch, body_rows: int, columns: int
     ) -> None:
-        document = _extract_penalty_table(monkeypatch)
+        """The general rule, asserted over every cell rather than a chosen one.
+
+        Not "some header is attached" — the header of *that cell's* column, so
+        that values sitting side by side stay distinguishable.
+        """
+
+        document = _extract_grid(monkeypatch, body_rows, columns)
         graph = build_structural_graph(document)
 
         kinds = {edge.kind for edge in graph.edges}
         assert "table_cell_of" in kinds
         assert "header_for" in kinds
 
-        third_time = next(e for e in document.elements if e.text == "One (1) day deduction")
-        header_ids = set(graph.sources(third_time.element_id, "header_for"))
-        headers = {graph.nodes[i].text for i in header_ids if i in graph.nodes}
-        assert headers == {"3rd Time"}
+        for row in range(1, body_rows + 1):
+            for column in range(columns):
+                cell = _element_by_text(document, body_text(row, column))
+                headers = {
+                    graph.nodes[i].text
+                    for i in graph.sources(cell.element_id, "header_for")
+                    if i in graph.nodes
+                }
+                assert headers == {header_text(column)}
 
-    def test_the_reading_plan_gives_a_penalty_cell_its_column_and_row_label(
-        self, monkeypatch
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_the_reading_plan_hands_each_cell_its_column_header(
+        self, monkeypatch, body_rows: int, columns: int
     ) -> None:
-        """"One (1) day deduction" states nothing on its own.
+        """The association must survive planning, not just graph construction.
 
-        Its meaning is entirely in the column that says which offence number it
-        punishes and the row that says which offence it is. Without both, four
-        escalating sanctions read as one.
+        This is the assertion that would have caught the original defect: the
+        graph edges are what `reading_plan._add_table_context` consumes, and a
+        cell that reaches the model without its column header is a cell whose
+        meaning has been thrown away.
         """
 
-        document = _extract_penalty_table(monkeypatch)
+        document = _extract_grid(monkeypatch, body_rows, columns)
         graph = build_structural_graph(document)
         plan = build_reading_plan(document, graph)
 
-        third_time = next(e for e in document.elements if e.text == "One (1) day deduction")
-        unit = next(u for u in plan.units if third_time.element_id in u.target_element_ids)
+        for row in range(1, body_rows + 1):
+            for column in range(columns):
+                cell = _element_by_text(document, body_text(row, column))
+                unit = next(u for u in plan.units if cell.element_id in u.target_element_ids)
+                attached = {
+                    graph.nodes[c.element_id].text
+                    for c in unit.context
+                    if c.reason == "table_header"
+                    and cell.element_id in graph.targets(c.element_id, "header_for")
+                }
+                assert attached == {header_text(column)}
 
-        context = {(c.reason, graph.nodes[c.element_id].text) for c in unit.context}
-        assert ("table_header", "3rd Time") in context
-
-        # The offence itself may arrive as a target rather than as context when
-        # the planner chunks a short table into one unit, so this asserts the
-        # property that matters — the reader has it — not the route it took.
-        row_label = next(e for e in document.elements if e.text == _PENALTY_ROW[0])
-        assert row_label.element_id in unit.ordered_element_ids
-
-    def test_each_tier_gets_a_different_header(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_cells_sharing_a_row_are_told_apart_by_their_headers(
+        self, monkeypatch, body_rows: int, columns: int
+    ) -> None:
         """The regression in one assertion.
 
-        All four sanctions previously collapsed into a single record because
-        nothing distinguished them. Four cells, four different headers, is
-        precisely what makes them four decisions again.
+        When a row is flattened, every value in it arrives as one string and
+        the distinct decisions it encodes collapse into one. Distinct headers
+        per column are exactly what keeps them distinct.
         """
 
-        document = _extract_penalty_table(monkeypatch)
+        document = _extract_grid(monkeypatch, body_rows, columns)
         graph = build_structural_graph(document)
         plan = build_reading_plan(document, graph)
 
-        seen: dict[str, str] = {}
-        for sanction in _PENALTY_ROW[1:]:
-            cell = next(e for e in document.elements if e.text == sanction)
-            unit = next(u for u in plan.units if cell.element_id in u.target_element_ids)
-            headers = [
-                graph.nodes[c.element_id].text
-                for c in unit.context
-                if c.reason == "table_header"
-                and cell.element_id
-                in graph.targets(c.element_id, "header_for")
-            ]
-            assert len(headers) == 1, f"{sanction} has headers {headers}"
-            seen[sanction] = headers[0]
+        for row in range(1, body_rows + 1):
+            attached: dict[str, str] = {}
+            for column in range(columns):
+                cell = _element_by_text(document, body_text(row, column))
+                unit = next(u for u in plan.units if cell.element_id in u.target_element_ids)
+                headers = [
+                    graph.nodes[c.element_id].text
+                    for c in unit.context
+                    if c.reason == "table_header"
+                    and cell.element_id in graph.targets(c.element_id, "header_for")
+                ]
+                assert len(headers) == 1, f"{cell.text} has headers {headers}"
+                attached[cell.text] = headers[0]
 
-        assert sorted(seen.values()) == ["1st Time", "2nd Time", "3rd Time", "4th Time"]
+            # One header per column, all different: the row is still readable
+            # as several values rather than one run-together string.
+            assert len(set(attached.values())) == columns
+
+    @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
+    def test_the_reading_plan_also_hands_each_cell_its_row_label(
+        self, monkeypatch, body_rows: int, columns: int
+    ) -> None:
+        """A cell needs its row as well as its column to be interpretable.
+
+        Which cell counts as the row's label is the platform's own rule, not
+        this test's assumption: `reading_plan._add_table_context` treats the
+        leftmost cell of a row as its label and deliberately does not pull the
+        remaining siblings, because a whole table in every cell's context is a
+        sliding window under another name.
+
+        Accepts the label either as context or as a co-target, because the
+        planner supplies it as a target when a small table chunks into a single
+        unit. Both mean the reader has it, which is the property that matters;
+        pinning the route would make this fail on table size alone.
+        """
+
+        document = _extract_grid(monkeypatch, body_rows, columns)
+        graph = build_structural_graph(document)
+        plan = build_reading_plan(document, graph)
+
+        for row in range(1, body_rows + 1):
+            label = _element_by_text(document, body_text(row, 0))
+            for column in range(1, columns):
+                cell = _element_by_text(document, body_text(row, column))
+                unit = next(u for u in plan.units if cell.element_id in u.target_element_ids)
+                as_context = {
+                    c.element_id for c in unit.context if c.reason == "table_row_label"
+                }
+                assert label.element_id in as_context | set(unit.target_element_ids), (
+                    f"{cell.text} reached the reader without its row label"
+                )

@@ -72,13 +72,12 @@ def extract_document(
     WHY THIS IS SELECTABLE
     ----------------------
     The legacy parser emits one element per table row with the cells pipe-joined
-    into a single string. A penalty matrix whose columns are "1st Time / 2nd
-    Time / 3rd Time / 4th Time" therefore arrives downstream as one undivided
-    line, and the four distinct decisions it encodes collapse into one. Docling
-    emits one element per *cell* with its row index, column index and header
-    flag, which is what `structural_graph` turns into `header_for` edges and
-    what `reading_plan._add_table_context` uses to tell a reader which column a
-    bare value sits under.
+    into a single string, so every value in a row arrives downstream as one
+    undivided line and the distinct facts they encode become indistinguishable.
+    Docling emits one element per *cell* with its row index, column index and
+    header flag, which is what `structural_graph` turns into `header_for` edges
+    and what `reading_plan._add_table_context` uses to tell a reader which
+    column a bare value sits under.
 
     `source_hash` is the SHA-256 of the uploaded bytes and namespaces element
     ids, so the same sentence in two documents never collides. Callers on the

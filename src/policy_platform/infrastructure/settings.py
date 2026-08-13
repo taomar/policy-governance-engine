@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     #               which is what `structural_graph` needs to build `header_for`
     #               / `table_cell_of` / `merged_with` edges and what
     #               `reading_plan._add_table_context` needs to tell the model
-    #               which column a value like "15 minutes" sits under.
+    #               which column a bare value sits under.
     #
     # Defaults to "legacy" — the behaviour in production today. The conformance
     # map (docs/specs/docling-integration-conformance-map.md) calls for Docling
