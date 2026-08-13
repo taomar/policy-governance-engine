@@ -2132,11 +2132,83 @@ export interface ExtractionStagesResponse {
   stages: ExtractionStageRecord[];
 }
 
+/** Every canonical element of one version, assembled from as many windows as it took.
+ *
+ * Distinct from {@link CanonicalDocumentPage}, which is one window. The
+ * distinction is the point: a caller holding a page has no idea whether it is
+ * holding the document, and a viewer that assumed it was showed a 522-element
+ * handbook as 500 elements with no sign the last two pages existed.
+ */
+export interface CanonicalDocumentElements {
+  document_version_id: string;
+  /** The server's count of every element in the version, not of what arrived. */
+  total_elements: number;
+  elements: CanonicalElement[];
+  /** True when `elements` holds all `total_elements` of them. False means the
+   * ceiling below stopped the walk, and a caller displaying this list owes the
+   * reader a visible note that it is partial. */
+  is_complete: boolean;
+}
+
+/** Elements per request. The server's own default, and well under its 2000 cap. */
+const CANONICAL_WINDOW = 500;
+
+/** Requests one walk may make: 40 windows, so 20,000 elements.
+ *
+ * Present so a server that stops advancing cannot spin the browser forever,
+ * not as a size limit — it sits far above any real policy document, and
+ * reaching it is reported through `is_complete` rather than passed off as the
+ * whole document.
+ */
+const CANONICAL_MAX_REQUESTS = 40;
+
+const fetchCanonicalPage = (documentVersionId: string, offset: number, limit: number) =>
+  request<CanonicalDocumentPage>(
+    `/api/extraction/${encodeURIComponent(documentVersionId)}/canonical?offset=${offset}&limit=${limit}`
+  );
+
 export const extractionApi = {
-  getCanonicalDocument: (documentVersionId: string, offset = 0, limit = 500) =>
-    request<CanonicalDocumentPage>(
-      `/api/extraction/${encodeURIComponent(documentVersionId)}/canonical?offset=${offset}&limit=${limit}`
-    ),
+  getCanonicalDocument: (documentVersionId: string, offset = 0, limit = CANONICAL_WINDOW) =>
+    fetchCanonicalPage(documentVersionId, offset, limit),
+
+  /** Walk the windows until the version's elements are all in hand.
+   *
+   * The endpoint answers with a window and the true total beside it. Reading
+   * the window and ignoring the total is how the document viewer came to hide
+   * the end of a handbook, so this asks again until what it holds matches what
+   * the server says exists.
+   */
+  getAllCanonicalElements: async (
+    documentVersionId: string
+  ): Promise<CanonicalDocumentElements> => {
+    const elements: CanonicalElement[] = [];
+    let totalElements = 0;
+    let resolvedVersionId = documentVersionId;
+
+    for (let requests = 0; requests < CANONICAL_MAX_REQUESTS; requests += 1) {
+      const page = await fetchCanonicalPage(documentVersionId, elements.length, CANONICAL_WINDOW);
+      totalElements = page.total_elements;
+      resolvedVersionId = page.document_version_id;
+      elements.push(...page.elements);
+
+      if (elements.length >= totalElements) {
+        break;
+      }
+      // A window that came back empty while the total says otherwise means
+      // asking again would ask for the same thing. Stop and let `is_complete`
+      // say so, rather than loop.
+      if (page.elements.length === 0) {
+        break;
+      }
+    }
+
+    return {
+      document_version_id: resolvedVersionId,
+      total_elements: totalElements,
+      elements,
+      is_complete: elements.length >= totalElements,
+    };
+  },
 
   getStructure: (documentVersionId: string) =>
     request<StructuralGraphResponse>(

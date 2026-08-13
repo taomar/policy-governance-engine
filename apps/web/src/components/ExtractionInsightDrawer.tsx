@@ -3,6 +3,7 @@ import { Alert, Drawer, Empty, Space, Spin, Statistic, Table, Tabs, Tag, Typogra
 import type { ColumnsType } from "antd/es/table";
 import {
   extractionApi,
+  type CanonicalDocumentElements,
   type CanonicalElement,
   type CoverageDisposition,
   type CoverageResponse,
@@ -69,7 +70,7 @@ export default function ExtractionInsightDrawer({
   const [plan, setPlan] = useState<ReadingPlanResponse | null>(null);
   const [structure, setStructure] = useState<StructuralGraphResponse | null>(null);
   const [stages, setStages] = useState<ExtractionStagesResponse | null>(null);
-  const [elements, setElements] = useState<CanonicalElement[]>([]);
+  const [canonical, setCanonical] = useState<CanonicalDocumentElements | null>(null);
 
   const load = useCallback(async (versionId: string) => {
     setLoading(true);
@@ -83,13 +84,17 @@ export default function ExtractionInsightDrawer({
           extractionApi.getReadingPlan(versionId),
           extractionApi.getStructure(versionId),
           extractionApi.getStages(versionId),
-          extractionApi.getCanonicalDocument(versionId, 0, 500),
+          // Every element, however many windows that takes. Asking for one
+          // window and showing it as the document is what hid the last two
+          // pages of a 27-page handbook — including its disciplinary schedule
+          // — from reviewers checking extraction against the source.
+          extractionApi.getAllCanonicalElements(versionId),
         ]);
       setCoverage(coverageResult);
       setPlan(planResult);
       setStructure(structureResult);
       setStages(stagesResult);
-      setElements(canonicalResult.elements);
+      setCanonical(canonicalResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load extraction detail");
     } finally {
@@ -108,7 +113,30 @@ export default function ExtractionInsightDrawer({
     [coverage]
   );
 
-  const coverageColumns: ColumnsType<CoverageResponse["elements"][number]> = [
+  /**
+   * Every leaf the coverage report accounts for, plus every leaf it could not.
+   *
+   * The server returns dispositions in `elements` and lists what received none
+   * separately, so `elements.length` is the document minus exactly the content
+   * nobody looked at — the one part a reviewer most needs to open. Rows for
+   * those are added here so the tab's count is the document's leaf count and
+   * every element it counts can actually be reached.
+   */
+  const coverageRows = useMemo<CoverageRow[]>(() => {
+    if (!coverage) {
+      return [];
+    }
+    return [
+      ...coverage.elements,
+      ...coverage.unaccounted_element_ids.map((elementId) => ({
+        element_id: elementId,
+        disposition: null,
+        reason: "No disposition was recorded for this element",
+      })),
+    ];
+  }, [coverage]);
+
+  const coverageColumns: ColumnsType<CoverageRow> = [
     {
       title: "Element",
       dataIndex: "element_id",
@@ -124,9 +152,12 @@ export default function ExtractionInsightDrawer({
         value: key,
       })),
       onFilter: (value, record) => record.disposition === value,
-      render: (value: CoverageDisposition) => (
-        <Tag color={DISPOSITION_COLOUR[value]}>{DISPOSITION_LABEL[value]}</Tag>
-      ),
+      render: (value: CoverageDisposition | null) =>
+        value === null ? (
+          <Tag color="red">None recorded</Tag>
+        ) : (
+          <Tag color={DISPOSITION_COLOUR[value]}>{DISPOSITION_LABEL[value]}</Tag>
+        ),
     },
     { title: "Why", dataIndex: "reason" },
   ];
@@ -280,26 +311,42 @@ export default function ExtractionInsightDrawer({
             items={[
               {
                 key: "document",
-                label: `Document (${elements.length})`,
+                // The server's total, not the number of rows that happen to be
+                // in hand: a count taken from the rows can only ever agree with
+                // itself, which is how "Document (500)" looked right on a
+                // 522-element document.
+                label: `Document (${canonical?.total_elements ?? 0})`,
                 children: (
-                  <Table
-                    size="small"
-                    rowKey={(record) => record.element_id ?? String(record.sequence)}
-                    columns={documentColumns}
-                    dataSource={elements}
-                    pagination={{ pageSize: 25, showSizeChanger: true }}
-                  />
+                  <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                    {canonical && !canonical.is_complete && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={`Showing ${canonical.elements.length} of ${canonical.total_elements} elements`}
+                        description="The rest could not be retrieved, so this tab is part of the document rather than all of it."
+                      />
+                    )}
+                    <Table
+                      size="small"
+                      rowKey={(record) => record.element_id ?? String(record.sequence)}
+                      columns={documentColumns}
+                      dataSource={canonical?.elements ?? []}
+                      pagination={{ pageSize: 25, showSizeChanger: true }}
+                    />
+                  </Space>
                 ),
               },
               {
                 key: "coverage",
-                label: `Coverage (${coverage.elements.length})`,
+                // Leaf count from the report, so elements that received no
+                // disposition are counted rather than quietly dropped.
+                label: `Coverage (${coverage.total_leaf_elements})`,
                 children: (
                   <Table
                     size="small"
                     rowKey="element_id"
                     columns={coverageColumns}
-                    dataSource={coverage.elements}
+                    dataSource={coverageRows}
                     pagination={{ pageSize: 25, showSizeChanger: true }}
                   />
                 ),
@@ -319,6 +366,9 @@ export default function ExtractionInsightDrawer({
               },
               {
                 key: "stages",
+                // The stages endpoint is not windowed and returns every run's
+                // stages, so the array is the whole set and its length is the
+                // authoritative count.
                 label: `Run stages (${stages?.stages.length ?? 0})`,
                 children: (stages?.stages.length ?? 0) === 0 ? (
                   <Empty description="No recorded stages for this version" />
@@ -341,3 +391,13 @@ export default function ExtractionInsightDrawer({
 }
 
 type ReadingPlanUnitContext = ReadingPlanResponse["units"][number]["context"][number];
+
+/** A coverage row: a disposition the report recorded, or the absence of one.
+ *
+ * `null` is not a seventh disposition. It is the report saying this element was
+ * never considered, which is why it renders differently from every classified
+ * outcome.
+ */
+type CoverageRow = Omit<CoverageResponse["elements"][number], "disposition"> & {
+  disposition: CoverageDisposition | null;
+};
