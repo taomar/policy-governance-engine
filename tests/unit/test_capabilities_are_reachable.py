@@ -549,7 +549,12 @@ def test_every_quarantine_entry_is_earned():
 def test_no_unreachable_capability_outside_quarantine():
     """A capability production cannot reach is not delivered, only written."""
 
-    findings, _ = analyse(_production_modules())
+    findings, reach = analyse(_production_modules())
+    assert reach.definitions > 300, (
+        f"only {reach.definitions} definitions examined; an analyser that reads "
+        "nothing reports no offenders and passes on silence"
+    )
+
     offenders = sorted(
         f"{f.module}:{f.lineno} {f.qualname}"
         for f in findings

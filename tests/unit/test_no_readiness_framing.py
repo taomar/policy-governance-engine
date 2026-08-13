@@ -267,16 +267,19 @@ def test_no_readiness_framing_in_python_string_literals():
     """Text a user reads, wherever a string ends up being rendered."""
 
     offenders: list[str] = []
+    examined = 0
     for path in sorted(SRC.rglob("*.py")):
         if path in _MECHANISM:
             continue
         for lineno, value in _string_literals(path):
+            examined += 1
             match = _FRAMING_RE.search(value)
             if match:
                 offenders.append(
                     f"{path.relative_to(ROOT)}:{lineno}: {match.group(0)!r} in {value[:70]!r}"
                 )
 
+    assert examined > 2000, f"only {examined} strings read; a blind scan finds nothing"
     assert not offenders, "readiness framing in code:\n  " + "\n  ".join(offenders)
 
 
@@ -284,17 +287,20 @@ def test_no_readiness_framing_in_rendered_web_strings():
     """The interface reaches every user, whatever they upload."""
 
     offenders: list[str] = []
+    examined = 0
     for path in sorted(p for p in WEB.rglob("*.ts*") if p.is_file()):
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
                 continue
+            examined += 1
             match = _FRAMING_RE.search(line)
             if match:
                 offenders.append(
                     f"{path.relative_to(ROOT)}:{lineno}: {match.group(0)!r} in {stripped[:70]!r}"
                 )
 
+    assert examined > 10000, f"only {examined} lines read; a blind scan finds nothing"
     assert not offenders, "readiness framing in the interface:\n  " + "\n  ".join(offenders)
 
 
@@ -302,18 +308,21 @@ def test_no_bare_executability_in_interface_captions():
     """The bare noun, wherever a user reads it as the name of a thing."""
 
     offenders: list[str] = []
+    examined = 0
     for path in sorted(p for p in WEB.rglob("*.ts*") if p.is_file()):
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
                 continue
             for caption in _interface_captions(line):
+                examined += 1
                 match = _BARE_EXECUTABILITY.search(caption)
                 if match:
                     offenders.append(
                         f"{path.relative_to(ROOT)}:{lineno}: {match.group(0)!r} in {caption[:70]!r}"
                     )
 
+    assert examined > 2000, f"only {examined} strings read; a blind scan finds nothing"
     assert not offenders, (
         "executability named as a property of a policy:\n  " + "\n  ".join(offenders)
     )
@@ -366,16 +375,19 @@ def test_no_readiness_framing_in_the_documentation():
     """
 
     offenders: list[str] = []
+    examined = 0
     for path in sorted(DOCS.rglob("*.md")):
         if _FAILURE_RECORD in path.parents:
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            examined += 1
             match = _FRAMING_RE.search(line)
             if match:
                 offenders.append(
                     f"{path.relative_to(ROOT)}:{lineno}: {match.group(0)!r} in {line.strip()[:70]!r}"
                 )
 
+    assert examined > 3000, f"only {examined} lines read; a blind scan finds nothing"
     assert not offenders, "readiness framing in documentation:\n  " + "\n  ".join(offenders)
 
 
