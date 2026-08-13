@@ -1169,6 +1169,73 @@ def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
     )
 
 
+def _merged_verb_phrase(rule: CanonicalPolicyRule | None) -> str | None:
+    """The whole verb phrase, when the decomposition split one phrase in two.
+
+    Returns `None` in the ordinary case, where `modality` and `predicate` hold
+    different words: "are not allowed to" + "walk around" describes the phrase
+    once, across two fields, and both are verbatim spans of the sentence.
+
+    It returns the modality when the predicate's words are already *inside* it.
+    That shape means one verb phrase was written into both fields, and the
+    smaller copy is not an independent claim — it is the same words minus
+    whichever ones the other field kept. When the words it lost are the
+    negation, the surviving fragment states the opposite of the source:
+
+        "Slippers are strictly not allowed."   modality="strictly not allowed"
+                                               predicate="allowed"
+        "The company does not permit ..."      modality="does not permit"
+                                               predicate="permit"
+
+    Both fields are read for display, so this reached a reviewer twice over: as
+    an attribute row quoting "allowed" against a sentence that says the
+    opposite, and as a title reading "Slippers strictly not allowed allowed".
+    `_effect_action` carries it further still — the engine puts that text
+    verbatim into `denied_actions`, so a decision point was handed "allowed"
+    as the thing being denied.
+
+    The effect *type* is unharmed and is not touched here: it comes from the
+    rule type, with `states_a_negation` as its backstop, and both read the
+    modality — the field that kept the negation. This is the attribute-level
+    repair only: it restores the words the source actually wrote.
+
+    Containment is compared on whole words over case-folded, whitespace-
+    collapsed text, so a fragment is only merged when the sentence really did
+    write those words in that order. Substring matching would fuse unrelated
+    fields whenever one happened to spell the other ("no" inside "another").
+
+    A phrase already completed by the *object* is left alone. In "There is to
+    be no other communication ..." the fields read modality="is to be no",
+    predicate="is to be", object="no other communication ...": the negation
+    fell on the boundary and the object carries it, so the predicate is a
+    truthful span and merging would print "is to be no no other communication".
+    The test is therefore not containment alone but whether merging repeats
+    words at the join — which is the same duplication this exists to remove,
+    and it must not be introduced while removing it.
+    """
+
+    if rule is None:
+        return None
+    modality = " ".join((rule.modality or "").split())
+    predicate = " ".join((rule.predicate or "").split())
+    if not modality or not predicate:
+        return None
+    haystack = modality.casefold().split()
+    needle = predicate.casefold().split()
+    if not needle or len(needle) > len(haystack):
+        return None
+    contained = any(
+        haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
+    )
+    if not contained:
+        return None
+    following = " ".join((rule.object or "").split()).casefold().split()
+    overlap = min(len(haystack), len(following))
+    if any(haystack[-n:] == following[:n] for n in range(1, overlap + 1)):
+        return None
+    return modality
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
@@ -1176,8 +1243,13 @@ def _title_for(policy: CanonicalPolicy) -> str:
     parts: list[str] = []
     if rule is not None:
         predicate = rule.predicate or ""
+        merged = _merged_verb_phrase(rule)
         if _is_separator_predicate(predicate):
             parts = [p for p in (rule.subject, rule.object) if p]
+        elif merged is not None:
+            # One phrase written into both fields: say it once, in full, rather
+            # than printing the whole phrase and then repeating the fragment.
+            parts = [p for p in (rule.subject, merged, rule.object) if p]
         else:
             parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
     text = " ".join(parts) if parts else policy.source_text
@@ -1208,7 +1280,7 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     rule = policy.rule
     if rule is None:
         return ""
-    predicate = rule.predicate or ""
+    predicate = _merged_verb_phrase(rule) or rule.predicate or ""
     obj = rule.object or ""
     parts = [obj] if _is_separator_predicate(predicate) else [p for p in (predicate, obj) if p]
     return " ".join(" ".join(parts).split())
