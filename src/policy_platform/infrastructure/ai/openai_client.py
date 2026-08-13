@@ -47,10 +47,22 @@ class AzureOpenAIClient:
         json_mode: bool = False,
         max_tokens: int = 1500,
         temperature: float | None = None,
+        seed: int | None = None,
         timeout: float = 120.0,
         reasoning_effort: str | None = None,
     ) -> str:
         """Single chat-completion call; returns the assistant message content.
+
+        NOTE on determinism: which sampling controls a deployment accepts differs
+        per model, and an unsupported one is a hard 400 rather than a warning.
+        Probed live against this resource on `gpt-5.6-sol`: `temperature=0` and
+        `top_p=0` are both rejected ("Only the default (1) value is supported" /
+        "not supported with this model"), while `seed` is accepted. So for the
+        reasoning deployment `seed` is the only determinism control available,
+        and callers that pass `temperature` to it will lose the call entirely.
+        Accepting `seed` is not the same as honouring it: measured over six
+        identical quality reviews it made no difference at all. The fast
+        deployment (`gpt-5.4-mini`) does accept `temperature=0`.
 
         NOTE on reasoning models: `gpt-5.6-sol` (the "quality" deployment used for
         extraction/rewrite/quality-review) is a reasoning model — it silently spends
@@ -78,6 +90,15 @@ class AzureOpenAIClient:
             body["response_format"] = {"type": "json_object"}
         if temperature is not None:
             body["temperature"] = temperature
+        if seed is not None:
+            # Accepted, and measured to do nothing on the reasoning deployment:
+            # six reviews of one unchanged rule set varied as much seeded as
+            # unseeded (see ai_quality._AI_REVIEW_SEED). The service also
+            # reports nothing back — `system_fingerprint`, the field that exists
+            # to tell a caller the backend changed underneath a seed, comes back
+            # null from this resource. Pass it if you like; do not build
+            # anything on top of it that assumes two runs match.
+            body["seed"] = seed
         if reasoning_effort is not None:
             # Reasoning-capable deployments (gpt-5.6-sol) accept this field to
             # trade latency for deeper reasoning. Not verified against every

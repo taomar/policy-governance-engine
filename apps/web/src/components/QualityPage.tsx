@@ -23,6 +23,7 @@ import {
   aiApi,
   api,
   policyTestApi,
+  hasBeenEvaluated,
   PolicyPlatformApiError,
   type PolicySet,
   type PolicyTestListItem,
@@ -79,6 +80,10 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState(policySetKey ?? "");
   const [report, setReport] = useState<QualityReport | null>(null);
+  // Set when the server reports that this scope has never been evaluated. Held
+  // apart from `report` so an unexamined policy set can never be drawn as one
+  // that was examined and came back clean.
+  const [notEvaluated, setNotEvaluated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState<string>("all");
@@ -148,16 +153,54 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
 
   useEffect(loadHistory, [loadHistory]);
 
+  // What the page shows on arrival is the last evaluation somebody asked for,
+  // read back from storage. Opening the page used to *perform* an evaluation:
+  // a couple of minutes of AI review, and a new row in the history below, for
+  // anyone who merely clicked the tab. The trend that history is there to show
+  // was partly a record of people looking at it.
+  const loadLatest = useCallback(() => {
+    if (!selectedKey) return;
+    setLoading(true);
+    setError(null);
+    setViewingRunId(null);
+    const read = scope === "published" ? aiApi.readQuality : aiApi.readCandidateQuality;
+    read(selectedKey)
+      .then((readout) => {
+        if (hasBeenEvaluated(readout)) {
+          setNotEvaluated(null);
+          setReport(readout);
+          setReportEvaluatedAt(readout.run_at ?? null);
+          setViewingRunId(readout.quality_run_id ?? null);
+        } else {
+          // Nothing recorded. Say so, and show no counts at all — a zero here
+          // would read as a verdict.
+          setReport(null);
+          setReportEvaluatedAt(null);
+          setNotEvaluated(readout.detail);
+        }
+      })
+      .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
+      .finally(() => setLoading(false));
+  }, [selectedKey, scope]);
+
+  useEffect(loadLatest, [loadLatest]);
+
   const runEvaluation = async () => {
     if (!selectedKey) return;
     setLoading(true);
     setError(null);
     setReport(null);
+    setNotEvaluated(null);
     setViewingRunId(null);
     try {
-      const result = scope === "published" ? await aiApi.getQuality(selectedKey) : await aiApi.getCandidateQuality(selectedKey);
+      // A POST, because this is the expensive, state-changing half: it calls
+      // the model and appends to the history. The read above is the cheap half.
+      const result =
+        scope === "published"
+          ? await aiApi.runQuality(selectedKey)
+          : await aiApi.runCandidateQuality(selectedKey);
       setReport(result);
-      setReportEvaluatedAt(new Date().toISOString());
+      setReportEvaluatedAt(result.run_at ?? new Date().toISOString());
       // The run has been persisted server-side; refresh so the new entry — and
       // therefore the comparison against the previous one — is visible without
       // a page reload.
@@ -173,6 +216,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     if (!selectedKey) return;
     setLoading(true);
     setError(null);
+    setNotEvaluated(null);
     try {
       const detail = await aiApi.getQualityRun(selectedKey, runId);
       setReport(detail);
@@ -355,6 +399,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
               </Button>
               <Text type="secondary" className="eval-launch-note">
                 Read-only. Running this never changes a rule, an approval, or a published version.
+                It records the result, so the history below can compare this run against the one before it.
               </Text>
             </div>
             <details className="quality-methodology">
@@ -479,6 +524,21 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
               action={
                 <Button size="small" onClick={runEvaluation}>
                   Run a fresh evaluation
+                </Button>
+              }
+            />
+          )}
+
+          {notEvaluated && !loading && (
+            <Alert
+              className="quality-historic-banner"
+              type="info"
+              showIcon
+              message="No evaluation recorded yet"
+              description={`${notEvaluated} Until then this page has nothing to report — which is not the same as reporting that there is nothing wrong.`}
+              action={
+                <Button size="small" type="primary" onClick={runEvaluation} disabled={runDisabled}>
+                  Run the first evaluation
                 </Button>
               }
             />

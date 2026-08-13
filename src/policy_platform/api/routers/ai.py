@@ -421,6 +421,35 @@ async def compare_versions(
 
 @router.get("/policy-sets/{key}/quality")
 async def quality_report(key: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """The most recent recorded quality evaluation of the published version.
+
+    Reads only. This used to run a full AI evaluation and append a history row,
+    which meant simply opening the page cost minutes of model time and wrote a
+    new entry into the very sequence the page asks a reviewer to read as a
+    trend. Producing a new evaluation is now `POST .../quality/runs`.
+
+    When nothing has ever been evaluated, the response says so explicitly
+    (`evaluated: false`, `findings: null`) rather than returning an empty
+    findings list that would read as a clean bill of health.
+    """
+    try:
+        return await ai_quality.latest_quality_report(
+            session, policy_set_key=key, scope="published"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/policy-sets/{key}/quality/runs")
+async def run_quality_evaluation(key: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Evaluate the published version now and record the result.
+
+    Expensive (a full AI review over every rule) and non-idempotent (it appends
+    to the evaluation history), which is why it is a POST: a run has to be
+    something a reviewer asked for. It changes no rule, no approval and no
+    published version -- the only thing it writes is the record of having
+    looked.
+    """
     try:
         return await ai_quality.evaluate_policy_set_quality(
             session, policy_set_key=key, use_ai_review=get_settings().ai_enabled
@@ -519,9 +548,28 @@ async def policy_set_summary(
 
 @router.get("/policy-sets/{key}/candidates/quality")
 async def candidate_quality_report(key: str, session: AsyncSession = Depends(get_session)) -> dict:
-    """Quality report on unpublished (candidate/approved) rules — lets a reviewer
-    see structural + AI-flagged issues in freshly AI-extracted rules *before*
-    deciding whether to approve/publish them (see ai_quality.evaluate_candidate_quality).
+    """The most recent recorded quality evaluation of unpublished rules.
+
+    Reads only, for the same reason as the published-scope endpoint above.
+    Producing a new evaluation is `POST .../candidates/quality/runs`.
+    """
+    try:
+        return await ai_quality.latest_quality_report(
+            session, policy_set_key=key, scope="candidates"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/policy-sets/{key}/candidates/quality/runs")
+async def run_candidate_quality_evaluation(
+    key: str, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Evaluate unpublished (candidate/approved) rules now and record the result.
+
+    Lets a reviewer see structural + AI-flagged issues in freshly AI-extracted
+    rules *before* deciding whether to approve/publish them (see
+    ai_quality.evaluate_candidate_quality). Approves and rejects nothing.
     """
     try:
         return await ai_quality.evaluate_candidate_quality(

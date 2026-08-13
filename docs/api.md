@@ -20,7 +20,7 @@ generated description as authoritative — this page only orients you. The
 description is generated from the same Pydantic contracts the evaluator consumes,
 so it cannot drift from the implementation.
 
-The current surface is **78 paths / 89 operations** across 12 tags.
+The current surface is **80 paths / 91 operations** across 12 tags.
 
 ## Endpoint groups
 
@@ -30,7 +30,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 |---|---|---|---|
 | `policy-sets` | `/api/policy-sets` | 22 | Projects (policy sets): create, list, update, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version export, active version, and aggregate limits (list/create/update/delete/propose/preview/eligibility). |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 10 | The review queue: draft, list, facets, edit, review, request-changes, override, bulk-review, export — plus `POST /api/policy-sets/{key}/publish`. |
-| `ai` | `/api/ai` | 22 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation, compare, quality (published + candidates + history), policy-set summary, correlation runs/findings/dispositions, change explanation. |
+| `ai` | `/api/ai` | 24 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation, compare, quality (published + candidates, each split into a POST that evaluates and a GET that reads the last result, plus history), policy-set summary, correlation runs/findings/dispositions, change explanation. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
 | `extraction` | `/api/extraction/{document_version_id}` | 5 | What a run actually saw: the canonical document, its structural graph, the reading plan, per-stage records, and element coverage. Read-only, and the fastest way to answer "why was this clause not extracted?". |
 | `documents` | `/api/documents` | 4 | List documents, multipart upload, list a version's clauses, assign a document to a project. |
@@ -87,6 +87,8 @@ publish:
 curl.exe -s http://127.0.0.1:8010/api/ai/status
 
 curl.exe -s -X POST http://127.0.0.1:8010/api/ai/policy-sets/<key>/documents/<document_version_id>/extract
+
+curl.exe -s -X POST http://127.0.0.1:8010/api/ai/policy-sets/<key>/candidates/quality/runs
 
 curl.exe -s http://127.0.0.1:8010/api/ai/policy-sets/<key>/candidates/quality
 

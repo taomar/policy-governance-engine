@@ -1222,15 +1222,55 @@ export interface QualityFinding {
   source: "deterministic" | "ai_review";
 }
 
+/** A completed evaluation: something looked at the rules and reached a verdict. */
 export interface QualityReport {
   policy_set_key: string;
   scope?: "published" | "candidates";
+  /** Always true here. The discriminant against {@link QualityNotEvaluated}. */
+  evaluated?: true;
   version_number: number | null;
   rule_count: number;
   candidate_statuses_included?: string[];
   findings: QualityFinding[];
+  finding_count?: number;
+  quality_run_id?: string | null;
+  run_at?: string | null;
+  ai_review_used?: boolean;
+  triggered_by?: string | null;
   methodology_version?: string;
 }
+
+/** Nobody has evaluated this scope yet.
+ *
+ * `findings` is null, not `[]`. An empty list would render identically to a
+ * completed evaluation that found nothing, and those are opposite facts: one
+ * says the rules were examined and are clean, the other says nobody has looked.
+ * Callers must branch on `evaluated` before reading a count.
+ */
+export interface QualityNotEvaluated {
+  policy_set_key: string;
+  scope: "published" | "candidates";
+  evaluated: false;
+  version_number: null;
+  rule_count: null;
+  findings: null;
+  finding_count: null;
+  quality_run_id: null;
+  run_at: null;
+  ai_review_used: null;
+  triggered_by: null;
+  methodology_version: null;
+  /** Plain-language explanation, safe to show a reader as-is. */
+  detail: string;
+}
+
+/** What a read of the quality endpoints returns: a past evaluation, or the
+ *  recorded absence of one. */
+export type QualityReadout = QualityReport | QualityNotEvaluated;
+
+/** Narrow a readout to a real evaluation. */
+export const hasBeenEvaluated = (readout: QualityReadout): readout is QualityReport =>
+  readout.evaluated !== false;
 
 /** One past evaluation, summarised. Findings are omitted so the history list
  *  stays cheap to render; fetch them per-run with `getQualityRun`. */
@@ -1911,6 +1951,44 @@ export const aiApi = {
       `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/compare?version_a=${versionA}&version_b=${versionB}&narrative=${narrative}`
     ),
 
+  // Reading and running are separate calls, because they cost different things.
+  //
+  // A read returns the last evaluation that was recorded and touches neither
+  // the model nor the database. A run costs a full AI review -- around two
+  // minutes on 273 rules -- and appends a row to the history below. While these
+  // were one GET, opening the page was enough to append a row, so the sequence
+  // a reviewer reads as a trend was partly made of page loads.
+  readQuality: (policySetKey: string) =>
+    request<QualityReadout>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality`),
+
+  readCandidateQuality: (policySetKey: string) =>
+    request<QualityReadout>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/candidates/quality`),
+
+  runQuality: (policySetKey: string) =>
+    request<QualityReport>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality/runs`,
+      { method: "POST" }
+    ),
+
+  runCandidateQuality: (policySetKey: string) =>
+    request<QualityReport>(
+      `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/candidates/quality/runs`,
+      { method: "POST" }
+    ),
+
+  /** @deprecated Use `readQuality` (a read) or `runQuality` (an evaluation).
+   *
+   * These two hit the same URLs as `readQuality`/`readCandidateQuality`, but
+   * their declared type is deliberately optimistic: it still promises
+   * `findings: QualityFinding[]` when the endpoint can now answer
+   * `{ evaluated: false, findings: null }`. ReviewQueue.tsx iterates
+   * `report.findings` directly and is owned by another workstream, so widening
+   * the type here would break a file this change is not allowed to touch.
+   *
+   * The consequence is real and belongs to that owner: a scope nobody has
+   * evaluated yet now returns null findings, and iterating it throws. Switching
+   * that call to `readCandidateQuality` and branching on `evaluated` fixes it.
+   */
   getQuality: (policySetKey: string) =>
     request<QualityReport>(`/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/quality`),
 

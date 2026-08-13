@@ -22,6 +22,7 @@ from policy_platform.contracts.policy import (
     unanswered_for_judge,
     unrunnable_reasons,
 )
+from policy_platform.domain.models import QualityRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.extraction.formulation_mapping import _is_separator_predicate
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
@@ -36,6 +37,15 @@ from policy_platform.infrastructure.settings import get_settings
 logger = logging.getLogger(__name__)
 
 QUALITY_METHODOLOGY_VERSION = "2"
+
+#: Fixed so repeated reviews of an unchanged rule set ask the service for the
+#: same sampling every time. Measured, and it does not work: six live reviews of
+#: one unchanged 3-rule set returned 5, 3, 3, 5, 4 and 5 findings, and the two
+#: unseeded runs agreed with each other more closely than either seeded pair
+#: did. The seed is kept because it is the only control this deployment accepts
+#: and costs nothing, not because it makes a run reproducible. Nothing in this
+#: module may assume two runs are comparable -- see `_run_ai_review`.
+_AI_REVIEW_SEED = 20250101
 
 _AI_REVIEW_SYSTEM_PROMPT = """You are a senior policy analyst reviewing a versioned package of formalized \
 governance rules. Deterministic structural findings are supplied separately. Identify only ADDITIONAL \
@@ -796,6 +806,15 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
             ],
             deployment=settings.azure_openai_deployment,
             json_mode=True,
+            # Fixed seed rather than temperature. Probed live against this
+            # resource: the quality deployment (gpt-5.6-sol) returns 400 for
+            # both `temperature=0` ("Only the default (1) value is supported")
+            # and `top_p=0`, and `_run_ai_review` swallows every exception --
+            # so passing temperature here would quietly convert every review
+            # into a "review did not complete" finding. `seed` is accepted but,
+            # measured, changes nothing: see `_AI_REVIEW_SEED`. Two reviews of
+            # the same rules are two opinions, not one measurement repeated.
+            seed=_AI_REVIEW_SEED,
             # See openai_client.chat() docstring: gpt-5.6-sol is a reasoning
             # model and needs a generous budget or it returns empty content.
             max_tokens=8000,
@@ -836,6 +855,12 @@ async def evaluate_policy_set_quality(
     record_run: bool = True,
     triggered_by: str = "",
 ) -> dict:
+    """Perform a quality evaluation of the active published version and record it.
+
+    This costs a full AI review and appends a row to the evaluation history, so
+    it belongs behind a deliberate action. Reading the result of a previous
+    evaluation is `latest_quality_report`.
+    """
     policy_set_repo = PolicySetRepository(session)
     policy_set = await policy_set_repo.get_by_key(policy_set_key)
     if policy_set is None:
@@ -871,6 +896,7 @@ async def evaluate_policy_set_quality(
     _mark_deterministic_findings(findings)
 
     run_id = None
+    run_at = None
     if record_run:
         run = await QualityRunRepository(session).create(
             policy_set_id=policy_set.id,
@@ -884,14 +910,20 @@ async def evaluate_policy_set_quality(
         )
         await session.commit()
         run_id = str(run.id)
+        run_at = run.run_at.isoformat()
 
     return {
         "policy_set_key": policy_set_key,
         "scope": "published",
+        "evaluated": True,
         "version_number": active.version_number,
         "rule_count": len(rules),
         "findings": findings,
+        "finding_count": len(findings),
         "quality_run_id": run_id,
+        "run_at": run_at,
+        "ai_review_used": ai_review_used,
+        "triggered_by": triggered_by,
         "methodology_version": QUALITY_METHODOLOGY_VERSION,
     }
 
@@ -949,6 +981,7 @@ async def evaluate_candidate_quality(
     _mark_deterministic_findings(findings)
 
     run_id = None
+    run_at = None
     if record_run:
         run = await QualityRunRepository(session).create(
             policy_set_id=policy_set.id,
@@ -962,14 +995,106 @@ async def evaluate_candidate_quality(
         )
         await session.commit()
         run_id = str(run.id)
+        run_at = run.run_at.isoformat()
 
     return {
         "policy_set_key": policy_set_key,
         "scope": "candidates",
+        "evaluated": True,
         "version_number": None,
         "rule_count": len(rules),
         "candidate_statuses_included": list(review_statuses),
         "findings": findings,
+        "finding_count": len(findings),
         "quality_run_id": run_id,
+        "run_at": run_at,
+        "ai_review_used": ai_review_used,
+        "triggered_by": triggered_by,
         "methodology_version": QUALITY_METHODOLOGY_VERSION,
     }
+
+
+# ---------------------------------------------------------------------------
+# Reading a previous evaluation
+#
+# Evaluating and reading are separate acts. An evaluation costs a full AI review
+# and appends to the history the Quality page compares runs against, so it can
+# only be asked for deliberately. Everything below reads what a previous
+# evaluation recorded and touches neither the model nor the database.
+# ---------------------------------------------------------------------------
+
+
+def _report_from_run(run: QualityRun, policy_set_key: str) -> dict:
+    """Render a stored run in the same shape a fresh evaluation returns.
+
+    `candidate_statuses_included` is absent here on purpose: the stored row does
+    not record which candidate statuses the run covered, and inventing the
+    default would state something the record does not.
+    """
+
+    findings = list(run.findings_json or [])
+    return {
+        "policy_set_key": policy_set_key,
+        "scope": run.scope,
+        "evaluated": True,
+        "version_number": run.version_number,
+        "rule_count": run.rule_count,
+        "findings": findings,
+        "finding_count": len(findings),
+        "quality_run_id": str(run.id),
+        "run_at": run.run_at.isoformat(),
+        "ai_review_used": run.ai_review_used,
+        "triggered_by": run.triggered_by,
+        "methodology_version": run.methodology_version,
+    }
+
+
+def never_evaluated_report(policy_set_key: str, scope: str) -> dict:
+    """The answer when nothing has ever been evaluated for this scope.
+
+    `findings` is null rather than `[]`, and `evaluated` is false. An empty list
+    would be indistinguishable from a completed evaluation that found nothing,
+    which is the opposite conclusion: one says the policy set was examined and
+    is clean, the other says nobody has looked. Every other field is null for
+    the same reason -- a `rule_count` of 0 would read as a measurement.
+    """
+
+    return {
+        "policy_set_key": policy_set_key,
+        "scope": scope,
+        "evaluated": False,
+        "version_number": None,
+        "rule_count": None,
+        "findings": None,
+        "finding_count": None,
+        "quality_run_id": None,
+        "run_at": None,
+        "ai_review_used": None,
+        "triggered_by": None,
+        "methodology_version": None,
+        "detail": (
+            f"No quality evaluation has been recorded for the {scope} rules of "
+            f"policy set '{policy_set_key}'. Run one to produce a result."
+        ),
+    }
+
+
+async def latest_quality_report(
+    session: AsyncSession, *, policy_set_key: str, scope: str
+) -> dict:
+    """The most recent recorded evaluation for this scope, or the absence of one.
+
+    Reads only. No AI call, no write -- the caller gets what was recorded, not a
+    fresh opinion.
+    """
+
+    policy_set = await PolicySetRepository(session).get_by_key(policy_set_key)
+    if policy_set is None:
+        raise ValueError(f"policy set '{policy_set_key}' not found")
+
+    runs = await QualityRunRepository(session).list_by_policy_set(
+        policy_set.id, scope=scope, limit=1
+    )
+    if not runs:
+        return never_evaluated_report(policy_set_key, scope)
+    return _report_from_run(runs[0], policy_set_key)
