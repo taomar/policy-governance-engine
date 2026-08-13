@@ -9,6 +9,7 @@ import {
   type DraftTraceStep,
   type ScenarioEvaluation,
 } from "../api";
+import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -93,10 +94,10 @@ function TraceItems({ step }: { step: DraftTraceStep }) {
               <Tag color={EFFECT_COLOR[str(item.effect_type)] ?? "default"}>{str(item.effect_type)}</Tag>
               <Tag>{str(item.rule_type)}</Tag>
               {item.machine_executable ? (
-                <Tag color="green">deterministic</Tag>
+                <Tag color="green">{DETERMINISTIC_LABEL.yes}</Tag>
               ) : (
-                <Tooltip title="No trusted fact model was supplied, so the condition is a placeholder. The rule is still reviewable and publishable — it just cannot be auto-evaluated yet.">
-                  <Tag color="gold">needs human judgment</Tag>
+                <Tooltip title="The source states this rule's test in words rather than as a comparison, so a reviewer decides it by reading. It is reviewable and publishable as it stands.">
+                  <Tag>{DETERMINISTIC_LABEL.no}</Tag>
                 </Tooltip>
               )}
             </Space>
