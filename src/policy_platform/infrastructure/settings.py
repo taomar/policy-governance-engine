@@ -6,6 +6,7 @@ Single source of truth for configuration; no component should read
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -61,6 +62,32 @@ class Settings(BaseSettings):
     azure_search_api_version: str = "2025-09-01"
     azure_search_authoring_index: str = "policy-authoring"
     azure_search_evidence_index: str = "policy-evidence"
+
+    # Which parser turns an uploaded file into a canonical document at upload
+    # time. This is a DIFFERENT concern from `docling_graph_enabled` below,
+    # which selects a model-driven dense-extraction backend; the two must not
+    # be conflated or share a flag. This one chooses a deterministic converter.
+    #
+    #   "legacy"  — `ingestion.document_ingestion.ingest_document`. Emits one
+    #               element per table *row*, pipe-joining the cells, so a cell's
+    #               column header is lost before any downstream stage sees it.
+    #   "docling" — `docling.converter.convert_document`. Emits one element per
+    #               table *cell* carrying row/column index and header identity,
+    #               which is what `structural_graph` needs to build `header_for`
+    #               / `table_cell_of` / `merged_with` edges and what
+    #               `reading_plan._add_table_context` needs to tell the model
+    #               which column a value like "15 minutes" sits under.
+    #
+    # Defaults to "legacy" — the behaviour in production today. The conformance
+    # map (docs/specs/docling-integration-conformance-map.md) calls for Docling
+    # to become primary, but that flip is a deliberate, evidence-backed decision
+    # and not something this setting's default should make on anyone's behalf.
+    #
+    # Typed as a Literal so an unrecognised value fails loudly at startup.
+    # Coercing an unknown value to "legacy" would silently downgrade a
+    # structured parse to a flattened one, which is precisely the class of
+    # defect this setting exists to fix.
+    document_converter: Literal["legacy", "docling"] = "legacy"
 
     # Docling Graph dense extraction. Off by default: the dependency is an
     # optional extra (`pip install -e .[graph]`), and importing it in a runtime

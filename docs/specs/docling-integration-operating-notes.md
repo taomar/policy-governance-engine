@@ -220,3 +220,52 @@ Confirmed by executing against the real sample documents:
 - heading paths resolve through the document title to each leaf clause;
 - every installed file of `docling-graph`, `docling-slim`, and `docling-core`
   matches the SHA-256 digest recorded at install time.
+
+---
+
+## 6. The upload seam, and what selecting Docling measured
+
+Until this was wired, `convert_document` had no production caller. Uploads went
+through `document_extraction.extract_document`, which called the legacy parser
+unconditionally, so the cell-level structure the rest of the pipeline is built
+on was unreachable outside tests and scripts.
+
+`DOCUMENT_CONVERTER` (`legacy` | `docling`, default `legacy`) now selects the
+converter at that seam. It is distinct from `DOCLING_GRAPH_ENABLED`, which
+selects a model-driven dense-extraction backend and is a different concern.
+
+### Measured on a 27-page bilingual HR handbook
+
+Its last seven pages are a "Table of Violations and Penalties" whose columns are
+`1st Time / 2nd Time / 3rd Time / 4th Time`.
+
+| | legacy | docling |
+|---|---|---|
+| elements | 522 | 797 |
+| pages covered | 27/27 | 27/27 |
+| `table_cell` | 0 | 540 |
+| `table_row` | 91 | 0 |
+| `table_cell_of` edges | 0 | 540 |
+| `header_for` edges | 0 | 324 |
+| reading-plan units | 157 | 192 |
+| token recall vs the other | — | 6179/6196 (99.7%) |
+
+The 17 token occurrences Docling has fewer of are all from a repeated copyright
+footer. On every substantive term Docling has more, and both parsers surface the
+same 9 quantified prose provisions, so the prose body does not regress.
+
+Each escalation cell now carries its own column header: the four sanctions on
+offence row 1 of page 21 resolve to `1st Time`, `2nd Time`, `3rd Time` and
+`4th Time` respectively, which is what makes them four decisions rather than one.
+
+### Two limits worth knowing before the default is flipped
+
+- **Continuation tables carry no header.** Docling models each page's grid as
+  its own table, and the appendix repeats its header only on pages 21 and 24. So
+  319 of 487 body cells (65.5%) get a `header_for` edge; on pages 22 and 27 none
+  do. The cells and their column indices are still present and correct — only
+  the association to a header printed on an earlier page is missing.
+- **`merged_with` never fires.** `_add_table_edges` emits it by looking for a
+  same-row cell in each column a span covers, but Docling represents a spanned
+  region as one cell and emits nothing for the covered columns. The edge kind is
+  currently unreachable from a Docling parse.

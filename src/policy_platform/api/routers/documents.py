@@ -150,7 +150,15 @@ async def upload_document(
     extraction_error: str | None = None
     ingestion_diagnostics: list[dict] = []
     try:
-        canonical = document_extraction.extract_document(str(storage_path), doc_version.mime_type)
+        canonical = document_extraction.extract_document(
+            str(storage_path),
+            doc_version.mime_type,
+            # Element ids are namespaced by the source hash so the same sentence
+            # in two documents never collides, and the canonical document is
+            # labelled with the row it belongs to rather than a filename stem.
+            document_id=str(document.id),
+            source_hash=content_hash,
+        )
         extracted = document_extraction.clauses_from_document(canonical)
         # Surface parse problems (scanned pages, unreadable pages, coverage
         # loss) to the caller. Reporting zero clauses without saying why lets a

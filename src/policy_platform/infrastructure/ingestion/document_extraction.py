@@ -23,6 +23,8 @@ item, a table row) rather than to an artifact of pagination.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import sys
+from typing import Any
 
 from policy_platform.contracts.canonical_document import (
     CanonicalDocument,
@@ -33,6 +35,7 @@ from policy_platform.infrastructure.ingestion.document_ingestion import (  # noq
     IngestionError,
     ingest_document,
 )
+from policy_platform.infrastructure.settings import get_settings
 
 
 @dataclass
@@ -53,10 +56,86 @@ def extract_clauses(storage_path: str, mime_type: str) -> list[ClauseData]:
     return clauses_from_document(document)
 
 
-def extract_document(storage_path: str, mime_type: str) -> CanonicalDocument:
-    """Return the full canonical document, for callers that need offsets/diagnostics."""
+def extract_document(
+    storage_path: str,
+    mime_type: str,
+    *,
+    document_id: str = "",
+    source_hash: str = "",
+    converter: Any | None = None,
+) -> CanonicalDocument:
+    """Return the full canonical document, for callers that need offsets/diagnostics.
 
+    This is the one seam where the platform decides *how* an upload is parsed,
+    so the converter choice lives here rather than in the route.
+
+    WHY THIS IS SELECTABLE
+    ----------------------
+    The legacy parser emits one element per table row with the cells pipe-joined
+    into a single string. A penalty matrix whose columns are "1st Time / 2nd
+    Time / 3rd Time / 4th Time" therefore arrives downstream as one undivided
+    line, and the four distinct decisions it encodes collapse into one. Docling
+    emits one element per *cell* with its row index, column index and header
+    flag, which is what `structural_graph` turns into `header_for` edges and
+    what `reading_plan._add_table_context` uses to tell a reader which column a
+    bare value sits under.
+
+    `source_hash` is the SHA-256 of the uploaded bytes and namespaces element
+    ids, so the same sentence in two documents never collides. Callers on the
+    structured path must pass the real hash.
+
+    `converter` injects a Docling document converter, so a test can pin this
+    seam's behaviour without a multi-minute layout-model run. It is ignored on
+    the legacy path, which has no such dependency.
+
+    NO SILENT FALLBACK
+    ------------------
+    If Docling is selected but cannot be imported or cannot convert, this
+    raises. Quietly reverting to the legacy parser would downgrade a structured
+    parse to a flattened one without anybody being told — the same invisible
+    downgrade this seam exists to end.
+    """
+
+    if get_settings().document_converter == "docling":
+        return _extract_with_docling(
+            storage_path,
+            document_id=document_id,
+            source_hash=source_hash,
+            converter=converter,
+        )
+    # Called exactly as before, with no extra arguments, so selecting the
+    # default converter reproduces today's behaviour byte for byte.
     return ingest_document(storage_path, mime_type)
+
+
+def _extract_with_docling(
+    storage_path: str, *, document_id: str, source_hash: str, converter: Any | None
+) -> CanonicalDocument:
+    """Parse through Docling, failing loudly and diagnosably if it is absent.
+
+    Docling ships in the optional `graph` extra. A runtime that selected it but
+    does not have it installed is misconfigured, and the operator needs to be
+    told which setting and which environment to look at — an ImportError
+    surfacing from three modules down does not say that.
+    """
+
+    try:
+        from policy_platform.infrastructure.docling.converter import convert_document
+    except ImportError as exc:  # pragma: no cover - depends on the installed extra
+        raise IngestionError(
+            "DOCUMENT_CONVERTER=docling is selected but the Docling stack is not "
+            f"importable in this interpreter ({sys.executable}): {exc}. Install the "
+            "optional extra (`pip install -e .[graph]`) or set DOCUMENT_CONVERTER=legacy. "
+            "Falling back to the legacy parser silently is deliberately not done: it "
+            "would flatten table cells into rows without anyone being told."
+        ) from exc
+
+    return convert_document(
+        storage_path,
+        document_id=document_id,
+        source_hash=source_hash,
+        converter=converter,
+    )
 
 
 def clauses_from_document(document: CanonicalDocument) -> list[ClauseData]:
