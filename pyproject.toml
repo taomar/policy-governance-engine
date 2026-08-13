@@ -75,3 +75,11 @@ testpaths = ["tests"]
 # module at import with ModuleNotFoundError, which reads like broken tests
 # rather than a missing install step.
 pythonpath = ["src"]
+# A parametrised test whose parameter list comes out empty has stopped testing
+# anything. pytest's default is to mark that as a skip, which is indistinguishable
+# from a deliberate skip and disappears into a suite that already has a dozen of
+# them. Several guards here derive their parameters from the codebase -- a renamed
+# constant, a moved module or a glob that stops matching would silently empty them
+# and still report green. Fail at collection instead, so the derivation breaking is
+# an event rather than a quieter kind of silence.
+empty_parameter_set_mark = "fail_at_collect"
