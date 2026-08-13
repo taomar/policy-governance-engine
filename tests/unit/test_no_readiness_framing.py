@@ -84,16 +84,6 @@ _QUOTED = re.compile(r"\"([^\"\n]*)\"|'([^'\n]*)'|`([^`\n]*)`")
 #: full stop; it does not carry a brace, a colon or a semicolon.
 _CODE_PUNCTUATION = set("{}()[]<>=;:|&$#\"'`/\\")
 
-#: Where a caption stops and a sentence starts.
-#:
-#: A caption names a thing -- a column header, a tag, a button -- and naming the
-#: ordinary route as a property is the fault this rule exists for. A sentence
-#: explains a mechanism, and the phrases above already read sentences, in code,
-#: in the interface and in the documentation. Drawing the line here keeps the
-#: rule off engineering prose about the DMN projection, where "non-executable
-#: row" is the accurate term for a row and means nothing about a policy.
-_CAPTION_WORDS = 6
-
 #: Files whose whole purpose is the mechanism rather than the message.
 #:
 #: `contracts/formulation.py` declares the requirement codes as an enum: the
@@ -135,11 +125,18 @@ def _string_literals(path: Path) -> list[tuple[int, str]]:
 
 
 def _interface_captions(line: str) -> list[str]:
-    """The short display text on one line of interface source.
+    """The display text on one line of interface source.
 
     Two things reach a user as a label. Text between tags is rendered by
     construction, and a quoted string is rendered when it reads as language
     rather than as a value.
+
+    Length is not a test. An earlier version of this rule read only short
+    text, on the theory that a caption names a thing while a sentence explains
+    a mechanism. That theory was wrong in the way that matters: a user reads a
+    sentence in the interface exactly as they read a label, and the longest
+    strings were the ones stating the fault outright. Whether text is shown to
+    a user does not depend on how many words it has.
 
     Code is removed first, so an expression is never mistaken for the text
     around it. That is what keeps the rule off `{published - executable}`,
@@ -168,7 +165,7 @@ def _interface_captions(line: str) -> list[str]:
         if value and (" " in value or value[0].isupper()):
             captions.append(value)
 
-    return [caption for caption in captions if 1 <= len(caption.split()) <= _CAPTION_WORDS]
+    return [caption for caption in captions if caption.split()]
 
 
 def test_the_guard_would_notice_the_wording_it_forbids():
@@ -323,20 +320,36 @@ def test_no_bare_executability_in_interface_captions():
 
 
 def test_the_caption_scan_reads_the_interface():
-    """Guard the guard: an extractor returning nothing would pass on silence."""
+    """Guard the guard: an extractor returning nothing would pass on silence.
+
+    The last assertion is the one that matters most. This rule used to read
+    only text of six words or fewer, and the strings it missed were the long
+    ones. Counting text beyond that length means the scan cannot quietly
+    narrow back to captions and still report a clean run -- if the limit
+    returns, this figure drops to nothing and says so.
+    """
 
     files = [p for p in WEB.rglob("*.ts*") if p.is_file()]
-    assert len(files) > 20, f"only {len(files)} interface files found; the glob is wrong"
+    assert len(files) > 50, f"only {len(files)} interface files found; the glob is wrong"
 
     captions = 0
+    beyond_a_caption = 0
     for path in files:
         for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
                 continue
-            captions += len(_interface_captions(line))
+            for caption in _interface_captions(line):
+                captions += 1
+                if len(caption.split()) > 6:
+                    beyond_a_caption += 1
 
-    assert captions > 500, f"only {captions} captions read; the extractor sees no text"
+    assert captions > 3000, f"only {captions} strings read; the extractor sees no text"
+    assert beyond_a_caption > 300, (
+        f"only {beyond_a_caption} strings longer than a caption were read; "
+        "the scan is reading short text only, which is how the wording it "
+        "exists to catch got through the first time"
+    )
 
 
 def test_no_readiness_framing_in_the_documentation():
