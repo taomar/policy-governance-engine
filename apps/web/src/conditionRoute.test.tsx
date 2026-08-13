@@ -27,6 +27,16 @@ import { PolicyInspector } from "./components/PolicyInspector";
 
 const KNOWN_CODES = Object.keys(CONDITION_ROUTE);
 
+/**
+ * What the mapping held when this was written.
+ *
+ * A floor, not an equality — adding a code is ordinary and the guard beside
+ * this one already insists a new one gets wording. Losing the lot is not
+ * ordinary, and every loop below over `KNOWN_CODES` would pass by running zero
+ * times if it happened. Lowering this should be a deliberate edit.
+ */
+const CODES_AT_WRITING = 5;
+
 /** A code no build has wording for. Deliberately shaped like a real one. */
 const UNSEEN_CODE = "conditions_deferred_to_a_later_reading";
 
@@ -115,10 +125,11 @@ describe("condition route wording", () => {
   it("has a code to check in the first place", () => {
     // A mapping that emptied out would let every test below pass by iterating
     // nothing, which is the failure mode of a guard rather than of a feature.
-    expect(KNOWN_CODES.length).toBeGreaterThan(0);
+    expect(KNOWN_CODES.length).toBeGreaterThanOrEqual(CODES_AT_WRITING);
   });
 
   it("says something for every code it knows, and never the code itself", () => {
+    let checked = 0;
     for (const code of KNOWN_CODES) {
       const entry = CONDITION_ROUTE[code];
       expect(entry.route.length, code).toBeGreaterThan(0);
@@ -128,7 +139,13 @@ describe("condition route wording", () => {
       for (const other of KNOWN_CODES) {
         expect(`${entry.route} ${entry.reason}`, code).not.toContain(other);
       }
+      checked += 1;
     }
+    // Counted inside the loop, so this cannot be satisfied by the loop being
+    // skipped. The test above states the same floor; this one proves the body
+    // actually ran, which is a different claim and survives that test being
+    // deleted.
+    expect(checked).toBeGreaterThanOrEqual(CODES_AT_WRITING);
   });
 
   it("answers for a code it has never seen, without printing it", () => {
@@ -153,12 +170,18 @@ describe("condition route wording", () => {
 
 describe("ConditionRouteNote", () => {
   it("renders the reason for every code, and shows no identifier", () => {
+    let rendered = 0;
     for (const code of KNOWN_CODES) {
       const { unmount } = render(<ConditionRouteNote provenance={provenance(code)} />);
       expect(screen.getByText(CONDITION_ROUTE[code].reason)).toBeTruthy();
       expect(document.body.textContent).not.toContain(code);
       unmount();
+      rendered += 1;
     }
+    // `not.toContain` is clean against a component that renders nothing at
+    // all, and so is a loop that never runs. Counting the renders is what
+    // separates "no identifier reached the page" from "no page".
+    expect(rendered).toBeGreaterThanOrEqual(CODES_AT_WRITING);
   });
 
   it("still tells a reviewer a reason exists when it cannot name it", () => {

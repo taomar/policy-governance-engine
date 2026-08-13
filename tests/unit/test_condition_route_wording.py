@@ -52,6 +52,35 @@ _KEY = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_]*): \{$", re.MULTILINE)
 #: beside this one skips them: a comment naming a code is documentation.
 _QUOTED = re.compile(r'"([^"\n]*)"')
 
+#: Floors on what each scan LOOKED AT, as distinct from what it found.
+#:
+#: Every verdict below is an empty collection, and an empty collection is what
+#: a healthy codebase and a blind scan both produce. `assert not offenders`
+#: cannot tell "examined fifteen strings, none bad" from "examined nothing".
+#: These numbers make the second case fail.
+#:
+#: They are floors, not equalities. Growth is ordinary and must not fail here;
+#: collapse is not ordinary. Lowering one should be a deliberate edit with a
+#: reason attached, not a quiet side effect of moving a file.
+_CODES_AT_WRITING = 5  # the declared set the day this was written
+_MINIMUM_FILES_SCANNED = 60  # src/policy_platform held 121; loose on purpose
+_MINIMUM_DISPLAY_STRINGS = 10  # the wording file carried 15
+
+# Where the floor goes is not uniform, and getting it wrong hides the defect
+# the test exists for.
+#
+# When the verdict is a list of offenders, a blind scan produces an empty list
+# and passes vacuously — so the floor goes AFTER, where it is the only thing
+# left to fail. Putting it first would be harmless but pointless.
+#
+# When the verdict is a set difference against what the scan found, a blind
+# scan inverts the meaning: `declared - mapped` with `mapped` empty reports
+# every code as missing wording, which is a confident, precise and entirely
+# wrong diagnosis. There the floor goes FIRST, so the run says "the extractor
+# read nothing" instead of "the interface has no wording". It does not shadow a
+# real offender, because a genuine missing code leaves the volume untouched —
+# checked by injecting one and confirming the failure still names it.
+
 
 def _wording_source() -> str:
     assert WORDING.exists(), (
@@ -76,11 +105,18 @@ def _mapped_codes() -> set[str]:
     return set(_KEY.findall(_mapping_body()))
 
 
-def _emitted_codes() -> list[tuple[str, str]]:
-    """Every literal code passed to `ConditionProvenance(...)`, with its site."""
+def _emitted_codes() -> tuple[list[tuple[str, str]], int]:
+    """Every literal code passed to `ConditionProvenance(...)`, and files read.
+
+    The file count is returned because the codes alone cannot report it. A
+    `SRC` pointing at a directory that no longer exists yields no paths, no
+    codes, and a clean bill of health.
+    """
 
     found: list[tuple[str, str]] = []
+    files = 0
     for path in sorted(SRC.rglob("*.py")):
+        files += 1
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -94,7 +130,7 @@ def _emitted_codes() -> list[tuple[str, str]]:
                     value = keyword.value.value
                     if isinstance(value, str):
                         found.append((value, f"{path.relative_to(ROOT)}:{node.lineno}"))
-    return found
+    return found, files
 
 
 def test_every_code_the_server_emits_is_declared():
@@ -105,11 +141,7 @@ def test_every_code_the_server_emits_is_declared():
     carries something nothing has words for.
     """
 
-    emitted = _emitted_codes()
-    assert emitted, (
-        "no ConditionProvenance(code=...) call found anywhere in the source; "
-        "this scan has stopped reading the emitter"
-    )
+    emitted, files = _emitted_codes()
 
     undeclared = [
         f"{code} at {site}" for code, site in emitted if code not in CONDITION_PROVENANCE_CODES
@@ -117,6 +149,20 @@ def test_every_code_the_server_emits_is_declared():
     assert not undeclared, (
         "codes emitted but not declared in CONDITION_PROVENANCE_CODES:\n  "
         + "\n  ".join(undeclared)
+    )
+
+    # Floors last: the verdict above is an empty list either way, so these are
+    # the only assertions that can tell a clean scan from a stopped one.
+    assert files >= _MINIMUM_FILES_SCANNED, (
+        f"the scan read {files} python files under {SRC.relative_to(ROOT)}, expected at "
+        f"least {_MINIMUM_FILES_SCANNED}. It is not reading the source tree, so the "
+        "verdict above was reached without examining the emitter."
+    )
+    assert len(emitted) >= _CODES_AT_WRITING, (
+        f"the scan found {len(emitted)} ConditionProvenance(code=...) call sites, "
+        f"expected at least {_CODES_AT_WRITING}. Either the emitter was rewritten into "
+        "a shape this AST walk no longer recognises, or codes are now built somewhere "
+        "this does not look — both leave the check above passing on a short list."
     )
 
 
@@ -130,11 +176,22 @@ def test_every_declared_code_has_wording_in_the_interface():
     """
 
     mapped = _mapped_codes()
-    assert mapped, (
-        f"no codes read out of {WORDING.relative_to(ROOT)}; the extractor sees nothing, "
-        "so it would pass whatever the interface says"
+
+    # Floors first here, and only here. The verdict below is `declared - mapped`,
+    # which does not degrade to empty when the extractor goes blind — it
+    # degrades to "every code is missing wording", a precise and false report
+    # about the interface when the fault is in this file.
+    assert len(mapped) >= _CODES_AT_WRITING, (
+        f"read {len(mapped)} codes out of {WORDING.relative_to(ROOT)}, expected at least "
+        f"{_CODES_AT_WRITING}. The extractor has gone blind; the comparison below would "
+        "blame the interface for wording that is present and unreadable to this test."
     )
-    assert CONDITION_PROVENANCE_CODES, "no codes declared; there is nothing to check"
+    assert len(CONDITION_PROVENANCE_CODES) >= _CODES_AT_WRITING, (
+        f"{len(CONDITION_PROVENANCE_CODES)} codes declared in the contracts, expected at "
+        f"least {_CODES_AT_WRITING}. A renamed constant, a moved module or an import "
+        "resolving to a stub all shrink this to nothing, and every loop over it then "
+        "passes by iterating no codes at all."
+    )
 
     missing = sorted(set(CONDITION_PROVENANCE_CODES) - mapped)
     assert not missing, (
@@ -152,16 +209,33 @@ def test_the_interface_never_shows_a_reviewer_a_raw_code():
     """
 
     offenders: list[str] = []
+    examined = 0
     for lineno, line in enumerate(_wording_source().splitlines(), 1):
         stripped = line.strip()
         if stripped.startswith(("//", "*", "/*")):
             continue
         for text in _QUOTED.findall(line):
+            examined += 1
             for code in CONDITION_PROVENANCE_CODES:
                 if code in text:
                     offenders.append(f"{WORDING.name}:{lineno}: {code!r} in {text[:60]!r}")
 
     assert not offenders, "raw provenance codes in display text:\n  " + "\n  ".join(offenders)
+
+    # Floors last: a clean run and a stopped one both reach here with an empty
+    # list. This scan has two independent ways to see nothing, and one number
+    # cannot report both — a healthy string count says nothing about whether
+    # there were any codes to compare them against, and vice versa.
+    assert examined >= _MINIMUM_DISPLAY_STRINGS, (
+        f"read {examined} display strings out of {WORDING.relative_to(ROOT)}, expected at "
+        f"least {_MINIMUM_DISPLAY_STRINGS}. The wording moved, changed quoting, or the "
+        "file is gone; every string in the interface just passed without being read."
+    )
+    assert len(CONDITION_PROVENANCE_CODES) >= _CODES_AT_WRITING, (
+        f"compared those strings against {len(CONDITION_PROVENANCE_CODES)} codes, expected "
+        f"at least {_CODES_AT_WRITING}. With an empty code list every string is clean by "
+        "definition, however many of them were read."
+    )
 
 
 def test_an_unrecognised_code_still_has_somewhere_to_land():
