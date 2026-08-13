@@ -40,9 +40,9 @@ rather than a supported deployment. See
 [Configuration and operations](configuration.md#environment).
 
 The web app is a pure client: it holds no policy logic, and every decision,
-extraction and quality result comes from the API. There is no separate worker
-process: extraction runs inside the API request that starts it, which is why a
-large document takes minutes rather than returning immediately.
+extraction and quality result comes from the API. Extraction runs inside the
+request that starts it, which is why a large document takes minutes rather than
+returning immediately.
 
 ## Backend layers
 
@@ -100,8 +100,9 @@ together. `ai/` holds the client itself.
 
 ## How components are invoked
 
-Everything is request-driven. There is no scheduler, queue, or event bus in the
-running system.
+Everything is request-driven: a call arrives, the work happens inside that
+request, and the response carries the result. Extraction is the visible
+consequence — a large document takes minutes rather than returning a job id.
 
 - **Browser → API.** The web app calls the API over HTTP/JSON from
   `apps/web/src/api.ts`, using `VITE_API_BASE_URL`. CORS is configured in

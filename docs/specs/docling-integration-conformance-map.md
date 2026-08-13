@@ -39,7 +39,7 @@ These are the points where the directive assumes something the repository does n
 
 1. **Ordinal element identity (row 4).** Canonical element IDs are currently assigned from output order. A zero-tolerance acceptance gate states that no canonical identity may depend on model-local labels, filenames, or list order. Resolving this requires a new derivation function and an Alembic migration widening `Clause.element_id`, while leaving already-published releases untouched.
 
-2. **No job or worker system (row 13).** Phase 9 says to use the repository's existing job/worker patterns. The only progress mechanism is an in-memory dictionary that documents its own unsuitability for multi-worker deployment, and the outbox table is unconsumed. Durable, restartable, idempotent stage execution must be built.
+2. **The directive assumes a job/worker runtime (row 13).** Phase 9 says to use the repository's existing job/worker patterns. This platform runs work inside the request that starts it, tracking progress in memory, and records lifecycle events to an outbox nothing consumes. Durable, restartable, idempotent stage execution is therefore new work rather than a wiring exercise.
 
 3. **No runtime Search projection (row 16).** Phase 10 requires a rigorously separated approved/runtime projection whose unit is one approved atomic rule. Today there is a single best-effort draft projection into a shared index. The runtime projection, its verification, and its activation gate do not exist.
 

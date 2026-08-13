@@ -54,11 +54,25 @@ stored source.
 1. Stage 1 selects verbatim policy passages.
 2. Python verifies each passage against the canonical source text.
 3. Stage 2 formulates structured rules.
-4. Deterministic mapping derives conditions, effects, facts, and executability.
+4. Deterministic mapping derives conditions, effects, facts, and the route each
+   rule takes.
 5. Candidate rows are persisted for review.
 
 Nothing is published automatically. A restart marks an interrupted run failed
 while keeping candidates already committed.
+
+### How a rule is routed
+
+Every rule carries an `evaluation_mode` saying how it must be decided. It is a
+property of how the source sentence is written, not a grade:
+
+| Route | The source states its test as | Decided by |
+|---|---|---|
+| `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine, from the rule's `condition` |
+| `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
+
+Most policy text is the second kind. Both are complete records; running or
+judging them is a separate system's job, not this platform's.
 
 ## 3. Review and approve
 

@@ -44,3 +44,6 @@ htmlcov/
 
 # Authoring skills: local methodology, not part of the published product.
 skills/
+
+# Browser-tool scratch output.
+.playwright-mcp/

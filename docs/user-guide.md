@@ -1,8 +1,9 @@
 # User guide
 
 This guide follows the user journey from source document to governed policy
-decision. Screenshots use the local **HR** and **Saudi Labor Law** demonstration
-projects. Counts and dates will differ in another environment.
+decision. Screenshots come from a local instance with one project loaded from a
+single extraction run. Project names, counts and dates will differ in another
+environment.
 
 ## Deployment status
 
@@ -64,9 +65,9 @@ The dashboard leads with work that needs attention:
 
 ## 2. Choose a project and assess readiness
 
-Open **Projects**, then select a policy set such as HR.
+Open **Projects**, then select a policy set.
 
-![HR project overview with publication and governance readiness](images/user-guide/02-hr-overview.png)
+![Project overview: publication state and governance readiness](images/user-guide/02-project-overview.png)
 
 The Overview answers whether the current package is:
 
@@ -100,7 +101,7 @@ Supporting tabs include Aggregate Limits, Compare, and Decision Log.
 
 Open **Documents** inside the project.
 
-![HR Documents tab with upload and source history](images/user-guide/03-hr-documents.png)
+![The Documents tab: upload and source history](images/user-guide/03-documents.png)
 
 ### Upload
 
@@ -139,7 +140,7 @@ available.
 
 Open **Review**.
 
-![HR review queue with filters and candidate records](images/user-guide/04-hr-review-queue.png)
+![The review queue: filters, candidate records and the inspector](images/user-guide/04-review-queue.png)
 
 ### Narrow the queue
 
@@ -170,11 +171,16 @@ what the policy applies to, and what follows:
 
 | Group | Rows |
 |---|---|
-| Applies to | Subject, condition, threshold, trigger, timing, scope |
-| Outcome | Modality, action, authority, exception, advice |
+| Applies | `subject`, `beneficiary`, `recipient`, `candidate`, `actor`, `location`, `condition`, `prerequisite`, `trigger`, `temporal_constraint`, `constraint` |
+| Outcome | `modality`, `predicate`, `object`, `threshold`, `calculation`, `unit`, `currency`, `frequency`, `deadline`, `sequence`, `consequence`, `remedy`, `assigner`, `exception` |
 
-Every row shows the attribute, its value, and the field the value was read
-from. The values are the record's own words, not a paraphrase: if the table and
+Only the attributes a rule actually states appear; a rule naming no deadline
+shows no deadline row. Each row gives the attribute, its value, and the fact the
+value was matched to.
+
+![The Logic tab, showing a rule as applies and outcome attributes](images/user-guide/05-logic-attributes.png)
+
+The values are the record's own words, not a paraphrase: if the table and
 the source read differently, that is an extraction defect worth reporting, not
 a display choice.
 
@@ -203,7 +209,7 @@ every approved version.
 
 Open **Quality** and choose **Rules still in review**.
 
-![Quality workspace with evaluation history and findings](images/user-guide/06-hr-quality.png)
+![Quality workspace with evaluation history and findings](images/user-guide/07-quality.png)
 
 Run the evaluation before approving a large batch. Review:
 
@@ -235,7 +241,7 @@ active regression guards.
 
 Open **Policies**.
 
-![Published policy workspace with rule register and inspector](images/user-guide/05-hr-published-policies.png)
+![Published policy workspace with rule register and inspector](images/user-guide/06-published-policies.png)
 
 Use the workspace to:
 
@@ -254,7 +260,7 @@ and publishing another version.
 
 Open **Tests**.
 
-![Policy validation lab with selected policies and scenario generator](images/user-guide/07-hr-policy-tests.png)
+![Policy validation lab with selected policies and scenario generator](images/user-guide/08-policy-tests.png)
 
 The four-stage flow is:
 
@@ -310,7 +316,7 @@ stored in the project's **Decision Log**.
 
 Select **Ask AI** and choose the project scope.
 
-![Ask AI drawer scoped to HR](images/user-guide/10-ask-ai.png)
+![The Ask AI drawer, scoped to the selected project](images/user-guide/10-ask-ai.png)
 
 Useful questions ask for:
 
@@ -327,7 +333,7 @@ before relying on an answer.
 
 Return to Overview after publication.
 
-![Saudi Labor Law overview showing readiness gaps](images/user-guide/08-saudi-labor-law-overview.png)
+![Project overview: publication state and governance readiness](images/user-guide/02-project-overview.png)
 
 Use the readiness docket to:
 

@@ -1,52 +1,59 @@
 # Known limitations
 
-This page describes current product and engineering limits. It complements the
-[capability flows](capability-flows.md), [testing guide](testing.md) and
-[configuration guide](configuration.md).
+What this build does not yet do, and what to know before relying on it. It
+complements the [capability flows](capability-flows.md),
+[testing guide](testing.md) and [configuration guide](configuration.md).
 
-## Product and deployment readiness
+A note on what is *not* here. This page used to list absent infrastructure — no
+queue, no broker, no worker runtime, no CI pipeline — as though each were a
+defect. They are design decisions, and describing them as shortfalls made the
+platform look unfinished in ways it is not. Those now sit under
+[Deliberate scope](#deliberate-scope), stated as what the system does. What
+remains below constrains whether the build is safe to rely on.
 
-| Limitation | Current behavior | Impact |
-|---|---|---|
-| AI requirements are not enforced at startup | Azure OpenAI and a grounding/search layer are required for the intended product, but the API can start with blank Azure settings. AI routes then return `503`, indexing returns `0`, and deterministic features remain available. | A deployment can appear healthy while core product capabilities are unavailable. Production deployment should validate required Azure settings before accepting traffic. |
-| No production authentication or authorization | The application has no identity-provider integration or trusted user directory. Role-like request fields and development headers are not a security boundary. | Do not expose the current build to untrusted networks or users. |
-| No tenant isolation | Policy data is not partitioned or authorized by organization. | The current build is suitable only for a single trusted environment. |
-| Local document storage | Uploaded documents are stored on the local filesystem. | Horizontal scaling, durable cloud storage, backup and disaster recovery are not implemented. |
-| Long-running work executes in the API process | Extraction and quality analysis are request-driven and can take minutes. There is no job queue, scheduler or worker runtime. | Restarts interrupt work; clients receive no durable job identifier or incremental progress stream. |
-| No event publisher | An outbox model exists, but no process publishes messages to a broker. | Downstream systems cannot subscribe to policy lifecycle changes. |
-| Limited operational telemetry | Application logs exist, but distributed tracing, production dashboards, alerting and service-level objectives are not defined. | Diagnosing latency and dependency failures requires manual investigation. |
-| No CI/CD pipeline | A validated interactive `azd`/Bicep deployment kit exists, but no pipeline invokes it automatically. | Build, test, policy checks and deployment remain operator-triggered. |
-
-## AI and grounding
+## Before relying on this build
 
 | Limitation | Current behavior | Impact |
 |---|---|---|
-| Best-effort indexing | Clause indexing catches Azure AI Search failures, logs a warning and returns `0` so document upload can still succeed. | A document can exist in PostgreSQL and local storage but be absent from the grounding index. |
-| No index reconciliation | There is no scheduled freshness check, repair job or complete re-index workflow. | Search results can become stale after re-extraction or source replacement. |
-| Direct Azure AI Search coupling | Retrieval callers construct Azure AI Search requests directly. There is no retrieval interface. | Replacing the grounding backend requires code changes in each caller. |
-| Foundry IQ is not integrated | No Foundry IQ knowledge base, knowledge source or Foundry Agent Service connection exists. | Foundry IQ can become an alternative grounding implementation only after an adapter and citation mapping are added. |
-| Grounding is capability-specific | Ask AI and AI-proposed policy tests query Azure AI Search. Other AI capabilities use the source passage, selected rule, policy version or database records supplied by their caller. | Do not assume every model call performs retrieval-augmented generation. See [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded). |
-| No external web grounding | The platform grounds against uploaded documents and persisted policy data, not public web sources. | Answers are limited to the organization's loaded policy corpus and selected records. |
-| Structured output is validated after generation | Model calls request JSON-object output and Pydantic validates the result. They do not use schema-constrained structured output for every request. | Invalid model output can require retry or produce an explicit failure before persistence. |
-| No automated live-service evaluation | Unit tests mock or isolate AI boundaries; they do not call Azure OpenAI or Azure AI Search. | Retrieval relevance, index freshness, filter correctness and model behavior require separate environment validation. |
+| No production authentication or authorization | There is no identity-provider integration or trusted user directory. Role-like request fields and development headers are not a security boundary. | Do not expose the current build to untrusted networks or users. |
+| No tenant isolation | Policy data is not partitioned or authorized by organization. | Suitable only for a single trusted environment. |
+| AI settings are not enforced at startup | The API starts with blank Azure settings. AI routes then return `503`, indexing returns `0`, and deterministic features keep working. | A deployment can look healthy while extraction is unavailable. Validate required settings before accepting traffic. |
+| Documents are stored on the local filesystem | Uploads are written beside the API process. | Durability and backup are the operator's responsibility. |
+| Indexing is best-effort | Clause indexing catches search failures, logs a warning and returns `0` so upload still succeeds. | A document can exist in PostgreSQL and be absent from the grounding index. |
+| Model output is validated after generation | Calls request JSON and Pydantic validates the result, rather than constraining generation to a schema. | Invalid output causes a retry or an explicit failure before anything is persisted. |
+| AI behavior is not verified against live services | Tests isolate the AI boundary; none call Azure OpenAI or Azure AI Search. | Retrieval relevance, index freshness and model behavior need validation in a real environment. |
 
-## Workflow limitations
+## Deliberate scope
 
-| Capability | Current limitation |
+These are choices, not gaps. They are recorded so nobody re-derives them.
+
+| Decision | How it works |
 |---|---|
-| Policy tests | Tests can be proposed, accepted or rejected, run on demand and rerun after publication. There is no edit-in-place or hard-delete endpoint, bulk "run all" action, schedule, CI trigger or candidate-version simulation before publish. |
-| Change management | Version comparison identifies added, removed and changed rules and can generate an AI narrative. It does not create a durable change request or approval workflow around the diff. |
-| Quality and conflict analysis | Quality combines deterministic checks with AI review. There is no independent contradiction engine or automatic conflict resolution. |
-| Rule relationships | Relationship fields can be curated in the UI, but older sample data may not populate them. Heuristic grouping is display assistance, not authoritative policy metadata. |
-| Attestations | Campaigns and acknowledgements are stored, but reminders, escalation delivery, directory integration and automatic re-attestation after a new release are absent. |
-| Ownership and RACI | Ownership fields are metadata only. Contacts are not validated and do not drive routing, notifications or publish gates. |
-| Exceptions | Exception requests have a stored lifecycle, but no notification or external approval integration exists. |
-| Exports | JSON, JSONL and CSV are point-in-time downloads. There is no subscription, scheduled delivery or event stream. |
+| Work runs in the request that starts it | Extraction and quality analysis are request-driven and can take minutes. The trade is visible: a restart interrupts the run, and progress is polled rather than streamed. |
+| Lifecycle events are recorded, not broadcast | An outbox model persists what happened. Nothing consumes it yet, so a subscriber would be added against a table that already exists rather than a schema invented later. |
+| Deployment is operator-triggered | The `azd`/Bicep kit is invoked by a person. Deployment automation belongs to the Azure phase, which is not finished. |
+| Grounding is capability-specific | Ask AI and AI-proposed tests query the search index. Other calls ground on the source passage, selected rule, policy version or records their caller supplies. Do not assume every model call performs retrieval. See [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded). |
+| Grounding is corpus-bounded | Answers come from uploaded documents and persisted policy data. That is the point: an answer traceable to a clause is worth more here than one drawn from the open web. |
+| Retrieval calls the search service directly | There is no abstraction over it. Replacing the backend means changing the callers — accepted while there is one backend, because an interface with a single implementation states a generality nobody has tested. |
+
+## Workflow boundaries
+
+| Capability | Where it stops |
+|---|---|
+| Policy tests | Proposed, accepted or rejected, run on demand and rerun after publication. No edit-in-place or hard delete, no bulk run, no schedule or trigger, no candidate simulation before publish. |
+| Change management | Version comparison identifies added, removed and changed rules and can narrate them. It does not open a change request or approval workflow around the diff. |
+| Quality and conflict analysis | Deterministic checks plus AI review. There is no independent contradiction engine and no automatic conflict resolution. |
+| Rule relationships | Curated in the UI; older sample data may not populate them. Heuristic grouping is display assistance, not authoritative metadata. |
+| Attestations | Campaigns and acknowledgements are stored. Reminders, escalation delivery, directory integration and automatic re-attestation are not implemented. |
+| Ownership and RACI | Metadata only. Contacts are not validated and do not drive routing, notification or publish gates. |
+| Exceptions | Requests have a stored lifecycle; no notification or external approval integration. |
+| Exports | JSON, JSONL and CSV point-in-time downloads. No subscription or scheduled delivery. |
+| Index maintenance | No freshness check, repair job or full re-index workflow, so results can go stale after re-extraction. |
 
 ## Test coverage boundaries
 
-The current automated suite is strong around deterministic domain behavior but
-does not prove the complete deployed system:
+The suite is strong around deterministic domain behavior and does not prove the
+deployed system:
 
 - no database or Alembic migration tests
 - no FastAPI integration tests
@@ -55,8 +62,8 @@ does not prove the complete deployed system:
 - no performance, load, penetration or dependency-security tests
 - no tests against live Azure OpenAI or Azure AI Search resources
 
-See [Testing and scripts](testing.md#current-coverage-gaps) for the
-verified module-level inventory and commands.
+See [Testing and scripts](testing.md#current-coverage-gaps) for the verified
+inventory and commands.
 
 ## Structural debt
 
@@ -76,9 +83,8 @@ verified module-level inventory and commands.
   FastAPI, which is also why [no FastAPI integration tests](#test-coverage-boundaries)
   and this entry reinforce each other.
 
-  The repositories package used to open by calling itself "the only place that
-  issues SQL against domain entities". That was never true. It now states the
-  intent and says plainly what the layer can and cannot guarantee.
+  These counts are checked by `tests/unit/test_documented_sql_debt_is_current.py`,
+  so the paragraph above cannot drift from the code without failing the suite.
 
 ## Documentation gaps
 
