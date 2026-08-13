@@ -29,6 +29,8 @@ TWO PROPERTIES, BOTH LOAD-BEARING
 """
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 
 from policy_platform.contracts.canonical_document import (
@@ -91,6 +93,57 @@ def _document(*texts: str, pages: tuple[int, ...] | None = None) -> CanonicalDoc
         page_count=max(page_numbers, default=1),
         elements=elements,
     )
+
+
+class TestTheFixturesStillSayWhatTheyClaim:
+    """Guard the guard.
+
+    A detector that has stopped seeing anything passes its silence tests
+    perfectly and fails nothing. These assertions are deliberately written
+    against ``unicodedata`` directly rather than against the detector, so they
+    stay true even if the detector breaks, and they establish that the two
+    corpora really do differ in the property under test.
+    """
+
+    @pytest.mark.parametrize("label", sorted(GLYPH_TEXT))
+    def test_the_affected_corpus_really_does_carry_positional_forms(self, label: str) -> None:
+        text = GLYPH_TEXT[label]
+        positional = [
+            char
+            for char in text
+            if unicodedata.decomposition(char).startswith(
+                ("<isolated>", "<initial>", "<medial>", "<final>")
+            )
+        ]
+        assert positional, (
+            f"the {label!r} fixture no longer contains any positional glyph, so "
+            "the tests that assert the diagnostic fires would be asserting "
+            "against text that does not have the defect"
+        )
+
+    @pytest.mark.parametrize("label", sorted(CLEAN_TEXT))
+    def test_the_clean_corpus_really_does_carry_letters(self, label: str) -> None:
+        text = CLEAN_TEXT[label]
+        letters = [char for char in text if char.isalpha()]
+        assert letters, (
+            f"the {label!r} fixture contains no letters, so asserting the "
+            "diagnostic stays silent on it would prove nothing"
+        )
+
+    def test_the_two_corpora_are_disjoint_on_the_property_under_test(self) -> None:
+        """Silence on the clean corpus has to be a decision, not an absence."""
+
+        def positional(text: str) -> set[str]:
+            return {
+                char
+                for char in text
+                if unicodedata.decomposition(char).startswith(
+                    ("<isolated>", "<initial>", "<medial>", "<final>")
+                )
+            }
+
+        assert all(positional(text) for text in GLYPH_TEXT.values())
+        assert not any(positional(text) for text in CLEAN_TEXT.values())
 
 
 class TestItFiresOnDisplayGlyphs:

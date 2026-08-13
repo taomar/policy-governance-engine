@@ -160,11 +160,24 @@ def _use_converter(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     monkeypatch.setattr(document_extraction, "get_settings", lambda: settings)
 
 
+#: A real, parseable document, used as the path for every structured-path call.
+#:
+#: The stub converter ignores it, so it has no effect while the seam works. It
+#: matters when the seam is BROKEN: the legacy parser then receives a file it
+#: can actually read and returns ordinary flattened elements, so these tests
+#: fail on the claim — no cell, no header — instead of on a missing file.
+#: Pointing this at a non-existent path made every failure a FileNotFoundError,
+#: which is red for a reason that has nothing to do with table structure and
+#: proves nothing about it.
+FALLBACK_SOURCE = str(SAMPLES / "HR-Special-Leave-Policy-v1.0.docx")
+FALLBACK_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
 def _extract_grid(monkeypatch: pytest.MonkeyPatch, body_rows: int, columns: int):
     _use_converter(monkeypatch, "docling")
     return document_extraction.extract_document(
-        "table.pdf",
-        "application/pdf",
+        FALLBACK_SOURCE,
+        FALLBACK_MIME,
         document_id="guard-doc",
         source_hash=SOURCE_HASH,
         converter=_grid_converter(body_rows, columns),
@@ -172,7 +185,20 @@ def _extract_grid(monkeypatch: pytest.MonkeyPatch, body_rows: int, columns: int)
 
 
 def _element_by_text(document, text: str):
-    return next(element for element in document.elements if element.text == text)
+    """Find the element carrying exactly this text.
+
+    Raises as an assertion rather than a StopIteration so that a missing cell
+    reads as the claim it violates. A bare `next()` would surface as an opaque
+    iterator error, which is indistinguishable from the fixture being wrong.
+    """
+
+    matches = [element for element in document.elements if element.text == text]
+    assert matches, (
+        f"no element carries the text {text!r}: the cell did not survive as an "
+        f"element of its own. Element types present: "
+        f"{sorted({e.element_type for e in document.elements})}"
+    )
+    return matches[0]
 
 
 class TestTheSeamCanReachTheStructuredParser:
@@ -261,8 +287,8 @@ class TestTheSeamCanReachTheStructuredParser:
 
         _use_converter(monkeypatch, "docling")
         other = document_extraction.extract_document(
-            "table.pdf",
-            "application/pdf",
+            FALLBACK_SOURCE,
+            FALLBACK_MIME,
             document_id="guard-doc",
             source_hash="c" * 64,
             converter=_grid_converter(2, 3),
@@ -284,8 +310,8 @@ class TestTheSeamCanReachTheStructuredParser:
 
         _use_converter(monkeypatch, "docling")
         empty = document_extraction.extract_document(
-            "scanned.pdf",
-            "application/pdf",
+            FALLBACK_SOURCE,
+            FALLBACK_MIME,
             source_hash=SOURCE_HASH,
             converter=_StubConverter(_StubDocument(texts=[], tables=[])),
         )
