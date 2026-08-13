@@ -54,8 +54,30 @@ at the centre and depend on nothing else in the codebase.
 | Contracts | `policy_platform.contracts` | Pydantic models for the canonical rule, the condition AST, evaluation request/response, policy tests, correlation findings, and the canonical hash. No I/O. |
 | Evaluator | `policy_platform.evaluator` | The deterministic decision core: condition interpretation, precedence resolution, the evaluation engine, and the policy-test runner. No database, no network, no AI. |
 | Domain | `policy_platform.domain` | SQLAlchemy ORM entities and table definitions. |
-| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world: async engine/session, repositories, mappers, document ingestion, AI services, Azure clients, prompts, export, audit. |
+| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into eleven sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
 | API | `policy_platform.api` | FastAPI app, request/response schemas, and ten routers. |
+
+### Inside infrastructure
+
+Grouped by the question each answers, not by the technology each uses. A module
+that calls a model sits with the capability it serves — `quality/ai_quality.py`,
+`extraction/ai_extraction.py` — because "calls an LLM" is a transport detail
+while "is part of extraction" is what someone changing extraction needs to find
+together. `ai/` holds the client itself.
+
+| Sub-package | Responsibility |
+|---|---|
+| `persistence/` | Async engine and session, repositories, mappers, version import, audit |
+| `ingestion/` | PDF/DOCX parsing into clauses, source numbering, manual entry |
+| `docling/` | Docling conversion and graph discovery, under its own dependency boundary — see [Docling](docling.md) |
+| `extraction/` | The two model stages, then the condition compiler and what a record can support |
+| `projection/` | Restating an approved rule: XACML, DMN parity, version diff, export |
+| `quality/` | Faithfulness to source, and the duplicate/contradiction/instability passes |
+| `correlation/` | Deterministic relationship discovery, and model-assisted contradiction finding |
+| `aggregates/` | Limits that apply across a run of requests rather than within one |
+| `policy_tests/` | Proposing, committing to and running saved tests |
+| `assistants/` | Chat, draft, rewrite, summary, compare, scenario — advisory only |
+| `ai/`, `search/` | Azure OpenAI and Azure AI Search clients |
 
 ### Key modules
 
@@ -70,7 +92,7 @@ at the centre and depend on nothing else in the codebase.
 | Rule relationships | `contracts/relationships.py`, `infrastructure/correlation/relationship_discovery.py` — see [Relationships](relationships.md) |
 | Quality analysis | `infrastructure/quality/ai_quality.py` |
 | Cross-rule correlation | `infrastructure/correlation/correlation_service.py` + `correlation_agent.py` |
-| Version diff & narrative | `infrastructure/assistants/ai_compare.py`, `rule_delta.py`, `rule_change_explainer.py` |
+| Version diff & narrative | `infrastructure/projection/rule_delta.py` (computes) + `infrastructure/assistants/ai_compare.py`, `infrastructure/assistants/rule_change_explainer.py` (narrate) |
 | Grounded chat | `infrastructure/assistants/ai_chat.py` |
 | Azure clients | `infrastructure/ai/openai_client.py`, `infrastructure/search/search_client.py`, `search/indexing.py` |
 | Configuration | `infrastructure/settings.py` |
