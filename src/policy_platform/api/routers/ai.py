@@ -29,7 +29,7 @@ from policy_platform.infrastructure import ai_rewrite
 from policy_platform.infrastructure import ai_scenario_eval
 from policy_platform.infrastructure import ai_scenario_engine
 from policy_platform.infrastructure import ai_summary
-from policy_platform.infrastructure import correlation_service
+from policy_platform.infrastructure.correlation import correlation_service
 from policy_platform.infrastructure import extraction_progress
 from policy_platform.infrastructure import rule_change_explainer
 from policy_platform.domain.models import (

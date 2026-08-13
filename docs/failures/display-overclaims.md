@@ -184,7 +184,7 @@ again.
 
 ## 3. The prompts taught the same error to the models
 
-`src/policy_platform/infrastructure/ai_test_proposal.py`:
+`src/policy_platform/infrastructure/policy_tests/ai_test_proposal.py`:
 
 ```python
 # BEFORE

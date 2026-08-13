@@ -7,7 +7,7 @@ any AI/DB/network call: `run_policy_test` takes a plain
 `PolicyTestExecutionResult` — nothing here decides pass/fail by asking an
 LLM, it only calls the real `evaluate_policy` and diffs the result against
 the test's stored expectations. AI may PROPOSE a `PolicyTestCase` (see
-`infrastructure/ai_test_proposal.py`), but only this function ever executes
+`infrastructure/policy_tests/ai_test_proposal.py`), but only this function ever executes
 one.
 """
 from __future__ import annotations

@@ -18,7 +18,7 @@ import uuid
 import pytest
 
 from policy_platform.contracts.correlation import CorrelationFinding
-from policy_platform.infrastructure import correlation_service
+from policy_platform.infrastructure.correlation import correlation_service
 
 
 class _FakeSession:

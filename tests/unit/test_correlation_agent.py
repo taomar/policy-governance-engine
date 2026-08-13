@@ -18,7 +18,7 @@ from policy_platform.contracts.correlation import (
     CorrelationAnalysis,
     CorrelationFinding,
 )
-from policy_platform.infrastructure.correlation_agent import (
+from policy_platform.infrastructure.correlation.correlation_agent import (
     CorrelationError,
     _render_rule,
     finding_key,

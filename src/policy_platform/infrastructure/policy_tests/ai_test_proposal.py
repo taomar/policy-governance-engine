@@ -4,7 +4,7 @@ Agent" / Section 21.6).
 This service PROPOSES candidate `PolicyTest` definitions only — it never
 executes one. It must never import or call `evaluate_policy` /
 `evaluator.test_runner.run_policy_test`; only the deterministic engine ever
-decides pass/fail (see `infrastructure/policy_test_execution.py`). This
+decides pass/fail (see `infrastructure/policy_tests/policy_test_execution.py`). This
 mirrors `ai_extraction.py`'s "AI drafts, deterministic code / human review
 decides" philosophy and `ai_scenario_eval.py`'s "advisory only" framing.
 

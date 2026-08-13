@@ -39,7 +39,7 @@ class PolicyTestRunStatus(str, Enum):
 class PolicyTestCase(BaseModel):
     """A saved test's inputs + expected assertions — the shape
     `evaluator/test_runner.run_policy_test` consumes. Constructed from a
-    `PolicyTest` ORM row by `infrastructure/policy_test_execution.py`, or
+    `PolicyTest` ORM row by `infrastructure/policy_tests/policy_test_execution.py`, or
     directly by unit tests with no DB involved at all.
     """
 

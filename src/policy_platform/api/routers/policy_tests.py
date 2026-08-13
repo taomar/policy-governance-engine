@@ -3,7 +3,7 @@
 Named, saved test cases for a policy set — distinct from the ad hoc
 `/api/evaluations` simulation endpoint (see evaluations.py). AI may propose
 tests via `/propose`, but every test is actually executed by the real
-deterministic evaluator (`infrastructure/policy_test_execution.py`), never
+deterministic evaluator (`infrastructure/policy_tests/policy_test_execution.py`), never
 by AI. Follows the same error-handling convention as `ai.py`:
 `_require_ai_configured()` gate + 503 for AI-unavailable, 404 for
 not-found, 422 for validation errors.
@@ -29,10 +29,10 @@ from policy_platform.api.schemas import (
     RunPolicyValidationBatchRequest,
 )
 from policy_platform.domain.models import PolicyTest, PolicyTestBatch, PolicyTestRun
-from policy_platform.infrastructure import ai_test_proposal
+from policy_platform.infrastructure.policy_tests import ai_test_proposal
 from policy_platform.infrastructure.persistence.db import get_session
-from policy_platform.infrastructure.policy_test_execution import execute_test_by_id
-from policy_platform.infrastructure.policy_test_commitment import build_expectation_snapshot, expectation_hash
+from policy_platform.infrastructure.policy_tests.policy_test_execution import execute_test_by_id
+from policy_platform.infrastructure.policy_tests.policy_test_commitment import build_expectation_snapshot, expectation_hash
 from policy_platform.infrastructure.persistence.repositories import (
     PolicySetRepository,
     PolicyTestRepository,

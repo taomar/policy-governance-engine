@@ -22,7 +22,7 @@ from policy_platform.contracts.relationships import (
     PolicyRelationshipGraph,
     PolicyRelationshipType,
 )
-from policy_platform.infrastructure import relationship_discovery as rd
+from policy_platform.infrastructure.correlation import relationship_discovery as rd
 from tests.fixtures.policy_domains import (
     compliance_fixture,
     finance_procurement_fixture,

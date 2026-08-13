@@ -31,7 +31,7 @@ from policy_platform.domain.models import (
     CorrelationRun,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.correlation_agent import (
+from policy_platform.infrastructure.correlation.correlation_agent import (
     CORRELATION_PROMPT_VERSION,
     CorrelationAgent,
     CorrelationError,

@@ -23,7 +23,7 @@ from policy_platform.contracts.formulation import (
 )
 from policy_platform.contracts.policy import EvidenceReference, RuleFormulation, RuleType
 from policy_platform.infrastructure.ai_extraction import _relationship_anchors
-from policy_platform.infrastructure.relationship_discovery import (
+from policy_platform.infrastructure.correlation.relationship_discovery import (
     discover_structural_relationships,
 )
 from tests.fixtures.factories import make_rule

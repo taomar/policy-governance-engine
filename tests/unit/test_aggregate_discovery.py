@@ -11,15 +11,15 @@ from __future__ import annotations
 
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
 from policy_platform.contracts.policy import RequiredFact
-from policy_platform.infrastructure.aggregate_eligibility import (
+from policy_platform.infrastructure.aggregates.aggregate_eligibility import (
     BLOCKER_NO_NUMERIC_FACT,
     BLOCKER_NOT_MACHINE_EXECUTABLE,
     assess_rule,
     assess_rules,
     numeric_facts_for,
 )
-from policy_platform.infrastructure.aggregate_preview import preview_aggregate_limit
-from policy_platform.infrastructure.ai_aggregate_proposal import _validate_group
+from policy_platform.infrastructure.aggregates.aggregate_preview import preview_aggregate_limit
+from policy_platform.infrastructure.aggregates.ai_aggregate_proposal import _validate_group
 from tests.fixtures.factories import make_package, make_rule
 
 _ALWAYS_TRUE = FactComparisonCondition(fact="x", operator=ConditionOperator.EXISTS)

@@ -1,4 +1,4 @@
-from policy_platform.infrastructure.policy_test_commitment import (
+from policy_platform.infrastructure.policy_tests.policy_test_commitment import (
     build_expectation_snapshot,
     expectation_hash,
 )

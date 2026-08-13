@@ -1,4 +1,4 @@
-from policy_platform.infrastructure.ai_test_proposal import _validate_proposed_test
+from policy_platform.infrastructure.policy_tests.ai_test_proposal import _validate_proposed_test
 
 
 def _proposal(kind: str, timestamp: str | None) -> dict:

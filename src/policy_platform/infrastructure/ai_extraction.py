@@ -67,7 +67,7 @@ from policy_platform.infrastructure.continuation_adjudicator import (
     discover_continuations,
 )
 from policy_platform.infrastructure.policy_faithfulness import validate_rules
-from policy_platform.infrastructure.relationship_discovery import (
+from policy_platform.infrastructure.correlation.relationship_discovery import (
     RuleAnchor,
     discover_enumeration_relationships,
     discover_semantic_role_relationships,
