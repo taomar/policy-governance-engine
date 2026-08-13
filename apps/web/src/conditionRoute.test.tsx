@@ -180,11 +180,22 @@ describe("ConditionRouteNote", () => {
     unmount();
 
     render(<ConditionRouteNote provenance={provenance(KNOWN_CODES[0])} />);
+    // Positive control first. Without it the assertion below passes against a
+    // render that produced nothing at all, and would report the block correctly
+    // withheld when in fact the panel never drew.
+    expect(screen.getByText(CONDITION_ROUTE[KNOWN_CODES[0]].reason)).toBeTruthy();
     // Keyed on content, so the common case carries no empty block.
     expect(document.querySelector(".condition-route-expression")).toBeNull();
   });
 
   it("says nothing at all for a record with no provenance", () => {
+    // Same shape, same component, one field different — so the empty result
+    // below is attributable to the missing provenance and not to the render.
+    const { container: withCode } = render(
+      <ConditionRouteNote provenance={provenance(KNOWN_CODES[0])} />
+    );
+    expect(withCode.textContent).not.toBe("");
+
     const { container } = render(<ConditionRouteNote provenance={null} />);
     expect(container.textContent).toBe("");
   });
@@ -203,7 +214,39 @@ describe("the record detail view", () => {
       />
     );
 
+    // Proven mount-sensitive: with ConditionRouteNote stubbed to render null,
+    // this query returns nothing and this line is what fails. It is not
+    // satisfied by the reason appearing anywhere else in the app, because
+    // nothing else renders it, and not by a pane the reviewer cannot reach,
+    // because the sibling test below shows it is absent on another tab.
     expect(screen.getByText(CONDITION_ROUTE[code].reason)).toBeTruthy();
+  });
+
+  it("puts it on the tab that shows the condition, not on every tab", () => {
+    // Guards the claim in the test above. antd keeps visited panes mounted, so
+    // "it rendered" and "it rendered where a reviewer meets it" are different
+    // facts and only this one distinguishes them.
+    const code = KNOWN_CODES[0];
+    render(
+      <PolicyInspector
+        rule={ruleWith(provenance(code))}
+        activeTabKey="overview"
+        onTabChange={() => {}}
+      />
+    );
+
+    // Positive control: we are on the tab we asked for, and it drew. Without
+    // this, an inspector that rendered no tabs at all would satisfy the two
+    // assertions below and be reported as correct scoping.
+    //
+    // Queried by role, not by antd's class names. The first draft of this line
+    // used `.ant-tabs-tabpane-active` and matched nothing — a control that
+    // would have passed for the wrong reason had it been written as an absence
+    // check, which is the failure it exists to prevent.
+    expect(screen.getByRole("tabpanel")).toBeTruthy();
+    expect(screen.getByRole("tab", { selected: true }).textContent).toContain("Overview");
+    expect(screen.queryByText(/Condition — when this rule fires/i)).toBeNull();
+    expect(screen.queryByText(CONDITION_ROUTE[code].reason)).toBeNull();
   });
 
   it("leaves the panel alone for a record that carries no provenance", () => {
@@ -211,6 +254,10 @@ describe("the record detail view", () => {
       <PolicyInspector rule={ruleWith(null)} activeTabKey="logic" onTabChange={() => {}} />
     );
 
+    // Positive control. Asserting only the absence would pass against an
+    // inspector that failed to draw the Logic tab, against a stubbed-out note,
+    // and against a build where this whole feature had been reverted.
+    expect(screen.getByText(/Condition — when this rule fires/i)).toBeTruthy();
     expect(document.querySelector(".condition-route")).toBeNull();
   });
 });
