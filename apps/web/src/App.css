@@ -1028,6 +1028,44 @@
   grid-column: 1 / -1;
 }
 
+/* Heading context sits between the citation line and the ID grid, in both of
+   its states. The label uses the same micro-caps as the grid below so the row
+   reads as one more recorded fact about the citation rather than as a notice. */
+.evidence-heading-context {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--border);
+  background: #f8f9fa;
+  border-radius: 0 6px 6px 0;
+}
+
+.evidence-heading-context-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.evidence-heading-context-hint {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.evidence-heading-context-value {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* Set apart from a quoted heading so the two states never read alike at a
+   glance: no quotation marks, muted, italic. */
+.evidence-heading-context-absent {
+  font-size: 12px;
+  font-style: italic;
+}
+
 .evidence-quote-box {
   background: #f8f9fa;
   border: 1px solid #e3e6eb;

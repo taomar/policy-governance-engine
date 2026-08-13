@@ -24,6 +24,7 @@ import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
 import { ConditionRouteNote } from "./ConditionRouteNote";
+import { EvidenceHeadingContext } from "./EvidenceHeadingContext";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
 import { DecisionReadinessView } from "./DecisionReadinessView";
 import { JsonView } from "./JsonView";
@@ -375,10 +376,13 @@ export function PolicyInspector({
                   <Text type="secondary" className="evidence-line">
                     <FileTextOutlined />{" "}
                     {docMeta ? `${docMeta.documentTitle} (${docMeta.versionLabel})` : "Document"}
-                    {ev.section ? ` · ${ev.section}` : ""}
                     {ev.page !== null ? `, p.${ev.page}` : ""}
                     {clause ? ` · clause ${clause.clause_ref}` : ""}
                   </Text>
+                  {/* Was appended to the line above as ` · {section}`, which read as part
+                      of the document's title and disappeared entirely when absent. It has
+                      its own row now so that both of its states are visible. */}
+                  <EvidenceHeadingContext section={ev.section} />
                   <div className="evidence-provenance-grid">
                     <div>
                       <span>Document version ID</span>

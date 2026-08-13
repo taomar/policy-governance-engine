@@ -183,7 +183,7 @@ export function CandidateRow({
             }
             title={
               decision.conditionIsStatedOnly
-                ? "Stated by the source. No fact model compiles it yet, so the deterministic engine does not test it."
+                ? "The source states this test in words rather than as a comparison between named quantities, so a judge settles a case by reading it."
                 : undefined
             }
           >
