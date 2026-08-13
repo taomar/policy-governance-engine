@@ -730,7 +730,7 @@ export function PolicyValidationLab({
               onClick={() => setSelectedRuleIds(new Set(executableRules.slice(0, 12).map((rule) => rule.rule_id)))}
               disabled={executableRules.length === 0}
             >
-              Select executable
+              Select deterministic
             </Button>
           </div>
           <div className="validation-workbench-body">

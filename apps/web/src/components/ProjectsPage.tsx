@@ -256,7 +256,7 @@ export function ProjectsPage({
           <div className="project-register-columns" aria-hidden="true">
             <span>Project</span>
             <span>Published package</span>
-            <span>Executability</span>
+            <span>How decided</span>
             <span>Quality</span>
             <span>Validation</span>
             <span>Review</span>

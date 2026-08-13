@@ -65,7 +65,7 @@ export function EffectivePolicyModal({
                 <Text key={line}>{line}</Text>
               ))}
               <Tag bordered={false} color="orange" className="effective-policy-flag">
-                stated, not executable
+                decided by reading
               </Tag>
             </Space>
           );
