@@ -59,6 +59,48 @@ def _inflation_policy() -> CanonicalPolicy:
     )
 
 
+def _supplied_attribute_policy() -> CanonicalPolicy:
+    """A rule whose condition shares no wording at all with its own sentence.
+
+    This is the shape a governing stem produces: the phrase is real, but it
+    comes from a clause above rather than from the sentence beside it.
+    """
+
+    return CanonicalPolicy(
+        source_text=_INFLATION_TEXT,
+        rule=CanonicalPolicyRule(
+            rule_type=CanonicalRuleType.CONDITIONAL_OUTCOME,
+            subject="Employee basic salary",
+            modality="shall",
+            predicate="be increased",
+            object="Increase due to inflation",
+            condition="Once confirmed",
+            constraint="subject to the judgment and approval of the Board of Trustees",
+        ),
+    )
+
+
+def _finding_for_claim(policy: CanonicalPolicy, claim: str):
+    """The quotation finding a fixture is built to produce, found by its claim.
+
+    Indexing `findings[0]` would let a fixture that started producing a
+    different finding, or an extra one, pass this file silently. Selecting by
+    claim rather than by position also keeps the assertion pointed at the
+    phrase under test when a neighbouring phrase changes classification.
+    """
+
+    findings = [
+        f
+        for f in judge_logic(policy).findings
+        if f.code == "attribute_not_in_source" and f.claim == claim
+    ]
+    assert len(findings) == 1, (
+        f"expected exactly one finding for {claim!r}, got "
+        f"{[(f.code, f.claim) for f in judge_logic(policy).findings]}"
+    )
+    return findings[0]
+
+
 class TestTheChecksActuallyFire:
     """Each check, shown failing on the defect it exists for."""
 
@@ -151,40 +193,89 @@ class TestTheChecksActuallyFire:
 
 class TestInheritedContext:
     """A rule formulated from a governing stem carries fields that are not in
-    its own sentence. The canonical record declares this with `source_origin`,
-    and the check has to read that signal rather than condemn the enumeration
-    handling the platform deliberately performs.
+    its own sentence, and the canonical record declares this with
+    `source_origin`.
 
-    This case was found by running the pass on the real inflation rule: its
-    subject "Employee basic salary" is not a contiguous quotation of its own
-    sentence, which says "the employee's basic salary".
+    That signal used to *be* the severity axis: declaring provenance downgraded
+    a finding, and omitting it blocked. Measured against the live corpus, that
+    ranked findings by whether a record admitted where it came from and not at
+    all by what had gone wrong — so it blocked hardest on flattened table
+    structure, which no reviewer can repair by editing, and merely noted
+    genuinely fabricated phrases. Severity now follows the shape of the
+    mismatch, and `source_origin` survives as a modifier on the explanation.
+
+    The original case still stands as a fixture: the subject "Employee basic
+    salary" is not a contiguous quotation of a sentence reading "the employee's
+    basic salary".
     """
 
-    def test_inherited_rule_is_reviewable_not_blocking(self) -> None:
-        policy = _inflation_policy()
-        policy.rule.source_origin = "inherited_context"
-        verdict = judge_logic(policy)
-        assert verdict.passed
-        assert {f.severity for f in verdict.findings} == {LogicFindingSeverity.REVIEW}
+    def test_provenance_no_longer_moves_severity(self) -> None:
+        """The axis is gone: the same claim against the same sentence is ranked
+        the same whether or not the record declares where it came from.
 
-    def test_the_unverifiable_claim_is_still_reported(self) -> None:
-        """Downgrading severity must not mean going quiet — a reviewer still
-        has to confirm the parent clause actually says it."""
+        The fixture has to be one that actually produces a finding. Run against
+        a record whose findings are suppressed this compares two empty lists and
+        passes on any implementation whatsoever, which is why the count is
+        asserted before the comparison.
+        """
 
-        policy = _inflation_policy()
-        policy.rule.source_origin = "inherited_context"
-        verdict = judge_logic(policy)
-        assert "attribute_not_in_source" in {f.code for f in verdict.findings}
-        assert any("governing clause" in f.detail for f in verdict.findings)
+        declared = _supplied_attribute_policy()
+        declared.rule.source_origin = "inherited_context"
+        silent = _supplied_attribute_policy()
+        silent.rule.source_origin = None
 
-    def test_without_inherited_context_the_same_claim_blocks(self) -> None:
-        """Guard the exemption: it must be the declared signal doing the work,
-        not the check having gone soft."""
+        declared_findings = judge_logic(declared).findings
+        silent_findings = judge_logic(silent).findings
+        assert declared_findings, "fixture produced nothing to rank"
+        assert silent_findings, "fixture produced nothing to rank"
 
-        policy = _inflation_policy()
-        policy.rule.source_origin = None
-        verdict = judge_logic(policy)
-        assert not verdict.passed
+        assert [(f.code, f.severity) for f in declared_findings] == [
+            (f.code, f.severity) for f in silent_findings
+        ]
+
+    def test_every_word_present_and_in_order_is_not_a_defect(self) -> None:
+        """"Employee basic salary" holds every word of "the employee's basic
+        salary" in the order the sentence gives them. That is decomposition
+        working, not a faithfulness failure, and it must not be reported at
+        all — under either provenance."""
+
+        for origin in ("inherited_context", None):
+            policy = _inflation_policy()
+            policy.rule.source_origin = origin
+            verdict = judge_logic(policy)
+            assert verdict.passed
+            assert [f.code for f in verdict.findings] == []
+
+    def test_provenance_still_informs_a_phrase_from_outside_the_sentence(self) -> None:
+        """Demoting it must not mean discarding it. Where a claim shares no
+        wording with its sentence, whether the record declares an inherited
+        origin is the most useful thing a reviewer can be told about it."""
+
+        supplied = _supplied_attribute_policy()
+        supplied.rule.source_origin = "inherited_context"
+        detail = _finding_for_claim(supplied, "Once confirmed").detail
+        assert "governing clause" in detail
+
+        undeclared = _supplied_attribute_policy()
+        undeclared.rule.source_origin = None
+        assert (
+            "governing clause"
+            not in _finding_for_claim(undeclared, "Once confirmed").detail
+        )
+
+    def test_the_modifier_does_not_change_the_rank(self) -> None:
+        """Guard the demotion itself: the two details above differ, and the two
+        severities do not."""
+
+        declared = _supplied_attribute_policy()
+        declared.rule.source_origin = "inherited_context"
+        undeclared = _supplied_attribute_policy()
+        undeclared.rule.source_origin = None
+
+        assert (
+            _finding_for_claim(declared, "Once confirmed").severity
+            == _finding_for_claim(undeclared, "Once confirmed").severity
+        )
 
 
 class TestSoundLogicPasses:

@@ -25,6 +25,12 @@ from policy_platform.contracts.policy import (
 from policy_platform.domain.models import QualityRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.extraction.formulation_mapping import _is_separator_predicate
+from policy_platform.infrastructure.quality.logic_faithfulness import (
+    LogicFinding,
+    LogicFindingSeverity,
+    MismatchShape,
+    judge_logic,
+)
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
@@ -268,7 +274,104 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     findings.extend(_unstable_extraction_findings(rules))
     # And whether each record can be decided the way it says it can.
     findings.extend(_runner_fitness_findings(rules))
+    # And whether the logic formed from each sentence still quotes it.
+    findings.extend(_logic_faithfulness_findings(rules))
 
+    return findings
+
+
+#: How a logic-faithfulness verdict ranks among the findings a reviewer sees.
+#: `reextraction` sits below a fabricated claim and above a note, because it is
+#: serious but nobody reading the record can act on it — the document has to be
+#: read again.
+_LOGIC_SEVERITY: dict[LogicFindingSeverity, str] = {
+    LogicFindingSeverity.BLOCKING: "high",
+    LogicFindingSeverity.REEXTRACTION: "medium",
+    LogicFindingSeverity.REVIEW: "low",
+}
+
+#: What to do about each, keyed to what actually went wrong rather than to how
+#: it ranks. Severity says who can act; this says what the action is, and the
+#: two are not the same axis — a damaged decomposition and a fabricated phrase
+#: are both serious, but only one of them can be answered by editing wording.
+#: Every one of these is a defect in how the document was *read* — never in the
+#: policy, and never in a record being decided by reading, which is a route and
+#: not a shortfall.
+_LOGIC_RECOMMENDATION_BY_SHAPE: dict[MismatchShape, str] = {
+    MismatchShape.UNSUPPORTED: (
+        "Compare this phrase against the quoted sentence. If the document does not "
+        "say it, correct the record's wording or reject it."
+    ),
+    MismatchShape.CONCATENATED: (
+        "Re-extract this record's source. Its structure was flattened when the "
+        "document was read, and editing the wording cannot separate values the "
+        "record no longer holds apart."
+    ),
+    MismatchShape.INVERTED: (
+        "Check this phrase against the sentence's negation. The record may state "
+        "the opposite of what the document says."
+    ),
+    MismatchShape.SUPPLIED: (
+        "Confirm the document supports this phrase somewhere, such as a governing "
+        "clause or heading it was formulated under."
+    ),
+}
+
+#: For findings that are not a quotation mismatch and so carry no shape.
+_LOGIC_RECOMMENDATION_BY_CODE: dict[str, str] = {
+    "decomposition_malformed": (
+        "Re-extract this sentence. The decomposition is missing a part the rest of "
+        "the record is derived from, so its wording cannot be corrected in place."
+    ),
+    "discretion_without_authority": (
+        "Record who exercises the discretion, or note that the source leaves it "
+        "unnamed."
+    ),
+}
+
+_LOGIC_RECOMMENDATION_FALLBACK = (
+    "Compare this record against the sentence quoted beside it."
+)
+
+
+def _logic_recommendation(finding: LogicFinding) -> str:
+    """What to do about a faithfulness finding, by what it found."""
+
+    if finding.shape is not None:
+        return _LOGIC_RECOMMENDATION_BY_SHAPE[finding.shape]
+    return _LOGIC_RECOMMENDATION_BY_CODE.get(
+        finding.code, _LOGIC_RECOMMENDATION_FALLBACK
+    )
+
+
+def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Whether each record's formed logic still quotes the sentence it came from.
+
+    Advisory. It reports and does not gate, deliberately: the largest population
+    it finds is flattened table structure, which the extractor produced and no
+    reviewer can repair by editing, and holding a record for a defect its reader
+    cannot fix is not a decision to put in front of them.
+    """
+
+    findings: list[dict] = []
+    for rule in rules:
+        canonical = rule.formulation.canonical if rule.formulation else None
+        if canonical is None:
+            continue
+        for finding in judge_logic(canonical).findings:
+            findings.append(
+                {
+                    "severity": _LOGIC_SEVERITY[finding.severity],
+                    "category": finding.code,
+                    "finding": (
+                        f"Rule '{rule.title}' ({rule.rule_id}): {finding.claim!r} — "
+                        f"{finding.detail}. Source: {finding.source_excerpt[:200]!r}"
+                    ),
+                    "affected_rule_ids": [rule.rule_id],
+                    "recommendation": _logic_recommendation(finding),
+                    "source": "deterministic",
+                }
+            )
     return findings
 
 

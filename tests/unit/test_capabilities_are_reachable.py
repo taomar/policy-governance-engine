@@ -334,7 +334,6 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/persistence/repositories/policy_tests.py::PolicyTestRunRepository.get_latest_by_test": "repository operation, no caller",
     "infrastructure/persistence/repositories/versions.py::ApprovedPolicyVersionRepository.insert_version": "repository operation, no caller",
     # --- Analysis helpers with no production call site. ---
-    "infrastructure/quality/logic_faithfulness.py::judge_logic": "quality judge, test call sites only",
     "infrastructure/extraction/policy_parties.py::is_judgement_bounded": "helper, test call sites only",
     "infrastructure/ingestion/source_structure.py::detect_references": "helper, test call sites only",
     "infrastructure/ingestion/source_structure.py::push_heading": "helper, test call sites only",
