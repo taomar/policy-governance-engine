@@ -70,10 +70,13 @@ from policy_platform.infrastructure.quality.policy_faithfulness import validate_
 from policy_platform.infrastructure.correlation.relationship_discovery import (
     RuleAnchor,
     discover_enumeration_relationships,
+    discover_referent_relationships,
     discover_semantic_role_relationships,
+    discover_split_decision_relationships,
     discover_structural_relationships,
     stems_needing_adjudication,
 )
+from policy_platform.infrastructure.extraction.evaluability import dangling_referents
 from policy_platform.infrastructure.extraction.passage_extractor import (
     PASSAGE_PROMPT_VERSION,
     PassageExtractionError,
@@ -364,6 +367,22 @@ def _relationship_anchors(
             rule.evidence[0].clause_id if rule.evidence else "", ""
         )
         anchor_text = (canonical.source_text if canonical else "") or rule.description
+        # The decomposition, and whatever of it points outside this record.
+        # Both are read from what the rule already carries, so the anchor still
+        # asserts nothing the extraction did not record.
+        canonical_fields = (
+            {
+                name: value
+                for name in type(policy_rule).model_fields
+                if isinstance(value := getattr(policy_rule, name, None), str)
+                or hasattr(value, "value")
+            }
+            if policy_rule is not None
+            else {}
+        )
+        unresolved = [
+            item.phrase for item in dangling_referents(policy_rule, anchor_text)
+        ]
         anchors.append(
             RuleAnchor(
                 rule_id=rule.rule_id,
@@ -379,6 +398,8 @@ def _relationship_anchors(
                 promises_enumeration=source_structure.promises_enumeration(
                     clause_text or anchor_text
                 ),
+                canonical_fields=canonical_fields,
+                unresolved_phrases=unresolved,
             )
         )
     return anchors
@@ -807,6 +828,12 @@ async def extract_candidate_rules(
             anchors = _relationship_anchors(drafted, clause_texts_by_id)
             edges = discover_structural_relationships(anchors)
             edges += discover_semantic_role_relationships(anchors)
+            # Records cut out of one statement of one obligation, and records
+            # cut away from wording they depend on. Both leave a fragment that
+            # reads as a whole rule; the links are what let a reviewer see the
+            # rest without the record having to quote text it never contained.
+            edges += discover_split_decision_relationships(anchors)
+            edges += discover_referent_relationships(anchors)
             # Governing stems and the clauses that complete them. Without this a
             # stem states an exhaustive limit with nothing to limit it to, and
             # every case is a rule that cannot say what it is a case of.

@@ -24,6 +24,11 @@ from policy_platform.contracts.policy import (
 )
 from policy_platform.domain.models import QualityRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.extraction.decision_families import (
+    FamilyMember,
+    decision_families,
+)
+from policy_platform.infrastructure.extraction.evaluability import dangling_referents
 from policy_platform.infrastructure.extraction.formulation_mapping import _is_separator_predicate
 from policy_platform.infrastructure.quality.logic_faithfulness import (
     LogicFinding,
@@ -274,6 +279,10 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     findings.extend(_unstable_extraction_findings(rules))
     # And whether each record can be decided the way it says it can.
     findings.extend(_runner_fitness_findings(rules))
+    # Whether the slice the extractor took can be read on its own, and whether
+    # it is a whole decision. Both are defects in the cut, not in the document.
+    findings.extend(_self_containment_findings(rules))
+    findings.extend(_split_decision_findings(rules))
     # And whether the logic formed from each sentence still quotes it.
     findings.extend(_logic_faithfulness_findings(rules))
 
@@ -620,6 +629,108 @@ def _runner_fitness_findings(rules: list[CanonicalRule]) -> list[dict]:
                     "source": "deterministic",
                 }
             )
+    return findings
+
+
+def _canonical_core(rule: CanonicalRule):
+    """The subject/predicate/object decomposition, or None if there is none."""
+
+    canonical = rule.formulation.canonical if rule.formulation else None
+    return canonical.rule if canonical else None
+
+
+def _self_containment_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Records whose operative wording points outside themselves.
+
+    A record decided by reading is read on its own, so wording like "in the
+    case of absences on that day" is only usable where the record also says
+    which day. Where it does not, the reader is sent to a neighbour the record
+    does not name, and the record still looks complete: it carries a condition,
+    so nothing that counts fields notices.
+
+    The document is not at fault and neither is the route. The passage this was
+    cut from says which day; the cut is what lost it. So the finding is against
+    the extraction, and the remedy is to re-cut the record or link it to the
+    neighbour that supplies the referent — never to paste the neighbour's words
+    into it, which would put text in the record that the source does not carry.
+    """
+
+    findings: list[dict] = []
+    for rule in rules:
+        core = _canonical_core(rule)
+        if core is None:
+            continue
+        dangling = dangling_referents(core, _source_sentence(rule))
+        if not dangling:
+            continue
+        findings.append(
+            {
+                "severity": "high",
+                "category": "record_does_not_stand_alone",
+                "finding": (
+                    f"'{rule.title}' ({rule.rule_id}) was cut away from wording it depends "
+                    f"on: {'; '.join(item.as_reason() for item in dangling)}."
+                ),
+                "affected_rule_ids": [rule.rule_id],
+                "recommendation": (
+                    "Re-cut this record to include the wording it points at, or link it to "
+                    "the record that carries it. Do not copy the neighbour's words in: the "
+                    "record has to quote one passage of the source, not assemble one."
+                ),
+                "source": "deterministic",
+            }
+        )
+    return findings
+
+
+def _split_decision_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """One decision cut into several records, each holding a piece.
+
+    The mirror of the check above. There a record carries too little of its
+    sentence to be read alone; here several records carry one obligation
+    between them, agreeing on who must do what and differing only in which
+    thing, which occasion, or which limit.
+
+    Splitting is often right — two subjects or two actions are two decisions,
+    and this never groups those. What it reports is one obligation appearing
+    more than once with a different piece attached each time, which leaves a
+    reader unable to answer what the obligation actually requires without
+    finding every fragment first.
+
+    Nothing is merged. Combining fragments would state something no single
+    sentence of the document states, and a record that cannot be traced to one
+    passage is worth less than several that can.
+    """
+
+    members = [
+        FamilyMember(rule_id=rule.rule_id, sentence=_source_sentence(rule), core=core)
+        for rule in rules
+        if (core := _canonical_core(rule)) is not None
+    ]
+    titles = {rule.rule_id: rule.title for rule in rules}
+
+    findings: list[dict] = []
+    for family in decision_families(members):
+        first = titles.get(family.rule_ids[0], family.rule_ids[0])
+        findings.append(
+            {
+                "severity": "medium",
+                "category": "decision_split_across_records",
+                "finding": (
+                    f"'{first}' and {len(family.rule_ids) - 1} other record(s) were cut from "
+                    f"one statement and {family.as_reason()}: {family.sentence[:110]!r}. As "
+                    f"stored, nothing tells a reader which of them applies to a given case."
+                ),
+                "affected_rule_ids": list(family.rule_ids),
+                "recommendation": (
+                    "Check the sentence. If it states one obligation, the pieces belong in "
+                    "one record whose fields carry them all. If it states several, each "
+                    "record needs whatever distinguishes it — that is what is missing here, "
+                    "and it was lost in extraction rather than absent from the document."
+                ),
+                "source": "deterministic",
+            }
+        )
     return findings
 
 

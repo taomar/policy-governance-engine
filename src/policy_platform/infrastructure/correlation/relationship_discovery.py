@@ -43,6 +43,10 @@ from policy_platform.contracts.relationships import (
     PolicyRelationshipType,
     RelationshipEvidence,
 )
+from policy_platform.infrastructure.extraction.decision_families import (
+    FamilyMember,
+    decision_families,
+)
 from policy_platform.infrastructure.ingestion import source_structure
 
 logger = logging.getLogger(__name__)
@@ -90,6 +94,14 @@ class RuleAnchor:
     #: following cases only:"). Independent of numbering, so it still fires on
     #: documents that number nothing.
     promises_enumeration: bool = False
+    #: The canonical decomposition as a neutral name→value mapping. Carried
+    #: whole rather than as named slots because the family test below compares
+    #: the *set* of fields two records disagree on, and naming them here would
+    #: mean adding a slot every time the formulator gains a qualifier.
+    canonical_fields: dict[str, str] = field(default_factory=dict)
+    #: Operative wording this record points at but does not itself contain,
+    #: already quoted from the record. Empty for a record that stands alone.
+    unresolved_phrases: list[str] = field(default_factory=list)
 
 
 def discover_enumeration_relationships(anchors: list[RuleAnchor]) -> list[PolicyRelationship]:
@@ -268,6 +280,109 @@ def _edge(
         origin=origin,
         state=state,
     )
+
+
+def discover_split_decision_relationships(
+    anchors: list[RuleAnchor],
+) -> list[PolicyRelationship]:
+    """Link records that were cut out of one statement of one obligation.
+
+    `same_decision` is exactly what these are: several records that have to be
+    read together before anyone can say what the obligation requires. Left
+    unlinked, each one reads as the whole rule, and a consumer answering "may
+    this employee do X" gets whichever fragment it happened to retrieve.
+
+    `confirmed`, not proposed. The claim is that two records quote the same
+    sentence verbatim and decompose it to the same subject, predicate, modality
+    and rule type — every part of which a reader can check against the source
+    without interpreting anything. What the records *disagree* on is never
+    inspected for meaning, so no judgment about the document enters here.
+
+    Nothing is merged and nothing is superseded. The edge says these belong
+    together; what belongs in one record is a decision for a reviewer holding
+    the sentence.
+    """
+
+    members = [
+        FamilyMember(rule_id=anchor.rule_id, sentence=anchor.text, core=anchor.canonical_fields)
+        for anchor in anchors
+        if anchor.canonical_fields
+    ]
+    by_id = {anchor.rule_id: anchor for anchor in anchors}
+
+    edges: list[PolicyRelationship] = []
+    for family in decision_families(members):
+        ordered = sorted(
+            (by_id[rule_id] for rule_id in family.rule_ids if rule_id in by_id),
+            key=lambda item: item.order,
+        )
+        if len(ordered) < 2:
+            continue
+        # The earliest fragment stands in for the decision, the same way a
+        # table's first row stands in for the table: linking every pair would
+        # grow with the square of the family and say nothing extra.
+        head = ordered[0]
+        for member in ordered[1:]:
+            edges.append(
+                _edge(
+                    PolicyRelationshipType.SAME_DECISION,
+                    member,
+                    head,
+                    signals=["same_sentence", "same_obligation"],
+                    score=1.0,
+                    origin="structural",
+                    state="confirmed",
+                    detail=(
+                        "cut from one statement of one obligation, differing in "
+                        + ", ".join(family.varying)
+                    ),
+                    quote=family.sentence[:300],
+                )
+            )
+    return edges
+
+
+def discover_referent_relationships(anchors: list[RuleAnchor]) -> list[PolicyRelationship]:
+    """Propose the neighbour that supplies wording a record points at.
+
+    A record saying "on that day" without saying which day was cut away from
+    the sentence that named it. The remedy is never to write the missing words
+    into the record — the record's text is the document's text — so the link is
+    the repair: a reviewer opening both can decide the rule honestly.
+
+    `candidate`, deliberately. Which neighbour supplies the referent is not
+    something the document states; the nearest preceding record is where an
+    antecedent normally lives, and normally is not always. Recording that as
+    established would put a positional guess into the field consumers read as
+    fact, so it is offered for adjudication instead.
+    """
+
+    ordered = sorted(anchors, key=lambda item: item.order)
+    edges: list[PolicyRelationship] = []
+    for position, anchor in enumerate(ordered):
+        if not anchor.unresolved_phrases or position == 0:
+            continue
+        supplier = ordered[position - 1]
+        if supplier.rule_id == anchor.rule_id:
+            continue
+        edges.append(
+            _edge(
+                PolicyRelationshipType.SAME_DECISION,
+                anchor,
+                supplier,
+                signals=["unresolved_referent"],
+                score=0.5,
+                origin="candidate",
+                state="candidate",
+                detail=(
+                    "points at wording it does not contain ("
+                    + "; ".join(anchor.unresolved_phrases)
+                    + "); this is the record immediately before it"
+                ),
+                quote=anchor.text[:300],
+            )
+        )
+    return edges
 
 
 #: Ordinal/step markers that make an ordered procedure explicit. `precedes` is

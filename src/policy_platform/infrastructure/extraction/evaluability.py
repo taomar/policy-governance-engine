@@ -44,6 +44,10 @@ from policy_platform.infrastructure.extraction.policy_parties import (
     PolicyParty,
     extract_parties,
 )
+from policy_platform.infrastructure.extraction.self_containment import (
+    UnresolvedReferent,
+    unresolved_referents,
+)
 
 
 class Evaluability(str, Enum):
@@ -76,8 +80,9 @@ class Evaluability(str, Enum):
     #: Carries no decision by construction — a definition, a classification, or
     #: a statement about the document. Nothing to evaluate, and nothing wrong.
     NOT_A_DECISION = "not_a_decision"
-    #: The decomposition itself is damaged (no subject, no predicate, or a
-    #: predicate that swallowed the modal word). An extraction defect, not a
+    #: The decomposition itself is damaged (no subject, no predicate, a
+    #: predicate that swallowed the modal word, or operative wording that
+    #: points at text the record does not contain). An extraction defect, not a
     #: property of the source.
     MALFORMED = "malformed"
 
@@ -252,6 +257,42 @@ def referenced_attributes(rule: CanonicalPolicyRule | None) -> list[ReferencedAt
     return found
 
 
+#: Fields whose wording a reader has to understand before the rule can be
+#: applied at all: who it is about, and what pins it down. A pointer that does
+#: not resolve is a defect wherever it sits, but here it is *load-bearing* —
+#: these are the very fields the `decidable` verdict below is granted for, so a
+#: record earning that verdict from wording it cannot explain is claiming
+#: something it does not deliver.
+_OPERATIVE_FIELDS: tuple[str, ...] = ("subject", *_SPECIFYING_FIELDS)
+
+
+def dangling_referents(
+    rule: CanonicalPolicyRule | None, source_text: str = ""
+) -> list[UnresolvedReferent]:
+    """Operative wording in `rule` that the record itself does not explain.
+
+    The record is its own resolution scope, which is exactly the promise being
+    checked: a rule decided by reading is read on its own. So every field the
+    record carries counts as available text, and the source sentence counts
+    twice over — it is what a judge actually reads.
+    """
+
+    if rule is None:
+        return []
+
+    def text(name: str) -> str:
+        value = getattr(rule, name, None)
+        return value.strip() if isinstance(value, str) else ""
+
+    fields = {name: text(name) for name in _OPERATIVE_FIELDS}
+    carried = " ".join(
+        value
+        for value in (getattr(rule, name, None) for name in type(rule).model_fields)
+        if isinstance(value, str)
+    )
+    return unresolved_referents(fields, f"{source_text} {carried}")
+
+
 def _predicate_repeats_modality(rule: CanonicalPolicyRule) -> bool:
     """True when the predicate swallowed the modal word.
 
@@ -317,6 +358,19 @@ def assess(rule: CanonicalPolicyRule | None, source_text: str = "") -> Evaluabil
             Evaluability.MALFORMED,
             f"canonical 'predicate' repeats the modality '{rule.modality}', "
             "so the sentence was mis-split and the verb is unreliable",
+        )
+
+    # A pointer the record cannot answer. The source passage says which day,
+    # which cases, which documents; this record was sliced out of it without
+    # them, so a reader is sent somewhere the record does not go. The document
+    # is intact — the slice is not — which is why this is `malformed` and not
+    # `underspecified`.
+    dangling = dangling_referents(rule, source_text)
+    if dangling:
+        return verdict(
+            Evaluability.MALFORMED,
+            "the extraction cut this record away from wording it depends on: "
+            + "; ".join(item.as_reason() for item in dangling),
         )
 
     # A stated test wins over a delegation. "not exceeding 5% ... and subject
