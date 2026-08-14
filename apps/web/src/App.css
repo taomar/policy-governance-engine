@@ -3703,6 +3703,14 @@
   background: #f7f8fa;
 }
 
+.upload-wait {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2, var(--surface));
+}
+
 .documents-register {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);

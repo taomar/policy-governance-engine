@@ -23,6 +23,7 @@ import {
 import type { UploadFile } from "antd/es/upload/interface";
 import { aiApi, api, PolicyPlatformApiError, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
+import { uploadOutcome, uploadWaitState } from "../uploadFeedback";
 import ExtractionInsightDrawer from "./ExtractionInsightDrawer";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import ExtractionRunHistory from "./ExtractionRunHistory";
@@ -54,7 +55,14 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   const [owner, setOwner] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Wall-clock start of the in-flight upload, and a tick that re-renders it.
+  // The elapsed number is what distinguishes a slow parse from a hung request,
+  // so it has to keep moving on its own rather than only on other state changes.
+  const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
+  const [uploadElapsedMs, setUploadElapsedMs] = useState(0);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [uploadProblem, setUploadProblem] = useState<string | null>(null);
+  const [uploadNotes, setUploadNotes] = useState<string[]>([]);
 
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [extractOpenFor, setExtractOpenFor] = useState<string | null>(null);
@@ -99,18 +107,36 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policySetKey]);
 
+  useEffect(() => {
+    if (uploadStartedAt === null) return;
+    // One second is fine: this clock exists to show the request is still open,
+    // not to time it precisely.
+    const timer = window.setInterval(() => {
+      setUploadElapsedMs(Date.now() - uploadStartedAt);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [uploadStartedAt]);
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setUploadMessage(null);
+    setUploadProblem(null);
+    setUploadNotes([]);
     if (!file) {
       setError("Choose a file to upload.");
       return;
     }
+    const uploaded = file;
     setUploading(true);
+    setUploadStartedAt(Date.now());
+    setUploadElapsedMs(0);
     try {
-      const result = await api.uploadDocument(title, owner, file, policySetKey);
-      setUploadMessage(`Uploaded "${file.name}" as version ${result.version_number}.`);
+      const result = await api.uploadDocument(title, owner, uploaded, policySetKey);
+      const outcome = uploadOutcome(uploaded.name, result ?? {});
+      setUploadMessage(outcome.message);
+      setUploadProblem(outcome.problem);
+      setUploadNotes(outcome.notes);
       setTitle("");
       setOwner("");
       setFile(null);
@@ -119,6 +145,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setUploading(false);
+      setUploadStartedAt(null);
     }
   };
 
@@ -156,6 +183,10 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
     }
   };
 
+  // Only while a request is actually open and a file is in hand: the panel
+  // states facts about that file, so it has nothing to say without one.
+  const waitState = uploading && file ? uploadWaitState(file.name, file.size, uploadElapsedMs) : null;
+
   return (
     <>
       <div>
@@ -181,7 +212,25 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
       </div>
 
       {error && <Alert type="error" showIcon message={error} />}
-      {uploadMessage && <Alert type="success" showIcon message={uploadMessage} />}
+      {uploadMessage && (
+        <Alert
+          type={uploadProblem ? "warning" : "success"}
+          showIcon
+          title={uploadMessage}
+          description={
+            uploadProblem || uploadNotes.length > 0 ? (
+              <Space orientation="vertical" size={2}>
+                {uploadProblem && <Text>{uploadProblem}</Text>}
+                {uploadNotes.map((note, i) => (
+                  <Text key={i} type="secondary">
+                    {note}
+                  </Text>
+                ))}
+              </Space>
+            ) : undefined
+          }
+        />
+      )}
 
       <Card title="Upload Document">
         <Form layout="vertical" onSubmitCapture={handleUpload}>
@@ -225,9 +274,20 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
               </Form.Item>
             </Col>
           </Row>
-          <Button type="primary" htmlType="submit" loading={uploading}>
-            {uploading ? "Uploading…" : "Upload"}
+          <Button type="primary" htmlType="submit" loading={uploading} disabled={uploading}>
+            {uploading ? "Reading document…" : "Upload"}
           </Button>
+          {waitState && (
+            <div className="upload-wait" role="status" aria-live="polite">
+              <Space orientation="vertical" size={4}>
+                <Text strong>
+                  {waitState.headline} · {waitState.elapsed} elapsed
+                </Text>
+                <Text type="secondary">{waitState.activity}</Text>
+                <Text type="secondary">{waitState.next}</Text>
+              </Space>
+            </div>
+          )}
         </Form>
       </Card>
 
