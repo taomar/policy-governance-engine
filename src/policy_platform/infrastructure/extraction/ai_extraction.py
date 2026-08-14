@@ -35,6 +35,8 @@ Design decisions (see docs/known-limitations.md for the full writeup):
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -405,6 +407,63 @@ def _relationship_anchors(
     return anchors
 
 
+#: Fields excluded when asking "did the model state this same rule twice?".
+#: These are not the statement of the rule; they are identifiers assigned to a
+#: particular emission of it, or derivations carrying such identifiers. Measured
+#: against the live store: `formulation` differs between two rows even when
+#: every reviewer-visible field is identical, so including it would make
+#: repetition undetectable, while `title`, `description` and `attributes` differ
+#: between rules that merely share a fingerprint, so excluding those would merge
+#: rules that are genuinely distinct.
+_EMISSION_FIELDS = frozenset({"rule_id", "related_rule_ids", "formulation", "fact_model"})
+
+
+def _repetition_key(payload: dict) -> tuple | None:
+    """Identity of "this same rule, stated again from the same place".
+
+    Returns None whenever repetition cannot be established, so that unknown
+    never matches unknown.
+
+    Identity is taken over what the rule *says* — every field except the
+    identifiers of this emission — together with the clauses it cites. Both
+    halves are load-bearing, and both were established by measurement rather
+    than assumption:
+
+    * Content alone is not enough. A document can genuinely state the same
+      obligation in two places, and those are two facts about the document, not
+      one. Requiring the same clauses keeps them apart.
+    * The clause plus a semantic fingerprint is *also* not enough. One sentence
+      ("disclosure, distribution or copying is prohibited") legitimately yields
+      several rules that share a clause and a fingerprint while differing in
+      title and attributes. Keying on the fingerprint would have deleted 12 such
+      groups from the live store. Identity is therefore over the whole
+      statement, so any difference a reviewer could see keeps the rules apart.
+
+    `evidence` is deliberately not part of the digest: it is provenance, and
+    provenance is already carried by the clause tuple. Digesting it as well
+    would make the order in which citations happened to be emitted count as a
+    difference between two rules, which it is not.
+    """
+    clause_ids = tuple(
+        sorted(
+            str(item.get("clause_id"))
+            for item in payload.get("evidence") or []
+            if isinstance(item, dict) and item.get("clause_id")
+        )
+    )
+    if not clause_ids:
+        # A rule citing no clause cannot be shown to come from the same place as
+        # another, so it is never treated as a repetition.
+        return None
+    statement = {k: v for k, v in payload.items() if k not in _EMISSION_FIELDS and k != "evidence"}
+    if not statement:
+        return None
+    digest = hashlib.sha256(
+        json.dumps(statement, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    return (clause_ids, digest)
+
+
 async def _classify_run_delta(
     session: AsyncSession,
     *,
@@ -592,6 +651,13 @@ async def extract_candidate_rules(
 
     drafted: list[CanonicalRule] = []
     skipped: list[dict] = []
+    #: Rules the model restated within this run. Kept apart from `skipped`
+    #: because a repetition does not reduce coverage — the fact is already
+    #: recorded — whereas every entry in `skipped` is material we did not read.
+    repeated: list[dict] = []
+    #: Repetition key -> the candidate id that first carried it, so a restated
+    #: rule can point at the one that was kept.
+    seen_this_run: dict[tuple, str] = {}
     created_ids: list[str] = []
     #: rule_id -> persisted CandidateRule, so the cross-batch linking pass below
     #: can update rows that were already committed.
@@ -772,12 +838,37 @@ async def extract_candidate_rules(
                 superseded_done = True
                 extraction_progress.update(progress_key, superseded=superseded)
             for rule in rules:
+                payload = rule.model_dump(mode="json")
+                key = _repetition_key(payload)
+                if key is not None and key in seen_this_run:
+                    # The model restated a rule it had already produced from the
+                    # same clause. Establishing identity here rather than in the
+                    # delta pass is the point: identity used to be computed
+                    # *after* persistence, so nothing could recognise a repeat
+                    # at the moment of writing and the store accumulated them
+                    # from any source.
+                    #
+                    # This is deliberately NOT appended to `skipped`. A skip
+                    # reduces coverage; a repetition does not — the fact is
+                    # already recorded. Conflating them would mark a run
+                    # `completed_with_gaps` for having read the document
+                    # correctly, which is the opposite of what that status means.
+                    repeated.append(
+                        {
+                            "item": rule.rule_id,
+                            "reason": "the model restated a rule already produced from the same clause in this run",
+                            "first_candidate_id": seen_this_run[key],
+                        }
+                    )
+                    continue
                 candidate = await candidate_repo.create(
                     policy_set_id=policy_set.id,
                     extraction_run_id=run.id,
                     rule_type=rule.rule_type.value,
-                    payload_json=rule.model_dump(mode="json"),
+                    payload_json=payload,
                 )
+                if key is not None:
+                    seen_this_run[key] = str(candidate.id)
                 created_ids.append(str(candidate.id))
                 persisted[rule.rule_id] = candidate
             await session.commit()
@@ -1084,6 +1175,7 @@ async def extract_candidate_rules(
         "extraction_run_id": str(run.id),
         "created": created_ids,
         "skipped": skipped,
+        "repeated": repeated,
         "superseded": superseded,
         "delta": delta_counts,
     }
