@@ -1151,6 +1151,25 @@ export interface ExtractionProgress {
   elapsed_seconds?: number;
 }
 
+/** What one extraction run passed over, and whether the document was covered.
+ *
+ * Two unrelated events land in the same skip list and only `kind` tells them
+ * apart. `batches_unread` is material the run never read — the document is not
+ * covered and the run should be repeated. `read_not_extracted` is sentences it
+ * read and judged to carry no rule; coverage is whole and a judgement was made
+ * that may be worth checking. Reported separately because a single count told a
+ * clean run it had a hole in it, which is the fastest way to teach someone to
+ * ignore the warning.
+ */
+export interface RunCoverage {
+  complete: boolean;
+  batches_unread: number;
+  passages_discarded: number;
+  read_not_extracted: number;
+  /** The entries themselves, so a reviewer can read what was dropped. */
+  skipped: { item: string; reason: string; kind: string }[];
+}
+
 /** One recorded extraction attempt against a document version. */
 export interface ExtractionRunSummary {
   id: string;
@@ -1164,8 +1183,12 @@ export interface ExtractionRunSummary {
   deployment_name: string | null;
   rules_total: number;
   rules_reviewed: number;
-  /** True for the run whose rules are the ones currently in the review queue. */
+  /** True for the run whose rules are the ones currently in the review queue.
+   */
   is_current: boolean;
+  /** Null for runs recorded before skips were kept — which is weaker than a
+   * run that skipped nothing, so it is shown as unknown rather than as zero. */
+  coverage: RunCoverage | null;
 }
 
 export interface RewriteSuggestion {

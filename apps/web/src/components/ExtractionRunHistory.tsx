@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Empty, Space, Table, Tag, Tooltip, Typography } from "antd";
-import { aiApi, type ExtractionRunSummary } from "../api";
+import { aiApi, type ExtractionRunSummary, type RunCoverage } from "../api";
 
 const { Text } = Typography;
 
@@ -26,10 +26,90 @@ function formatDuration(started: string | null, completed: string | null) {
 
 const STATUS_COLOR: Record<string, string> = {
   completed: "green",
+  // A run that finished without reading everything is not a success and not a
+  // failure. Left out of this map it fell through to the neutral grey used for
+  // "pending", which reads as less notable than the green beside it — the
+  // opposite of what it means.
+  completed_with_gaps: "orange",
   running: "processing",
   failed: "red",
   pending: "default",
 };
+
+/** What a run passed over, phrased as the two different things it can mean.
+ *
+ * A count on its own was the defect: `10 skipped` said the same thing whether
+ * ten sentences were read and correctly rejected or three pages were never
+ * read. The first is a recall question for the reviewer; the second means the
+ * document was not covered and the run should be repeated.
+ */
+function CoverageCell({ coverage }: { coverage: RunCoverage | null }) {
+  if (!coverage) {
+    return (
+      <Tooltip title="This run kept no record of what it passed over. Not the same as having passed over nothing — the record was never stored.">
+        <Text type="secondary">unknown</Text>
+      </Tooltip>
+    );
+  }
+
+  const dropped = coverage.read_not_extracted + coverage.passages_discarded;
+  const sample = coverage.skipped.slice(0, 6);
+  const detail = (
+    <div style={{ maxWidth: 460 }}>
+      {coverage.skipped.length === 0 ? (
+        <span>This run read every passage it was handed and extracted from all of them.</span>
+      ) : (
+        <>
+          <div style={{ marginBottom: 6 }}>
+            {coverage.batches_unread > 0 && (
+              <div>
+                <strong>{coverage.batches_unread}</strong> batch(es) were never read. Re-run to cover
+                the document.
+              </div>
+            )}
+            {dropped > 0 && (
+              <div>
+                <strong>{dropped}</strong> passage(s) were read and not extracted. Coverage is whole;
+                these are judgements worth checking.
+              </div>
+            )}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {sample.map((s, i) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                {s.item}
+                <br />
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {s.reason}
+                </Text>
+              </li>
+            ))}
+          </ul>
+          {coverage.skipped.length > sample.length && (
+            <div style={{ marginTop: 4 }}>…and {coverage.skipped.length - sample.length} more.</div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <Tooltip title={detail}>
+      <Space size={4}>
+        {coverage.batches_unread > 0 ? (
+          <Tag color="orange">{coverage.batches_unread} unread</Tag>
+        ) : (
+          <Tag color="green">full</Tag>
+        )}
+        {dropped > 0 && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {dropped} dropped
+          </Text>
+        )}
+      </Space>
+    </Tooltip>
+  );
+}
 
 /** History of extraction attempts for one document version.
  *
@@ -139,6 +219,11 @@ export default function ExtractionRunHistory({ documentVersionId, refreshKey = 0
                 </span>
               </Tooltip>
             ),
+          },
+          {
+            title: "Coverage",
+            key: "coverage",
+            render: (_: unknown, row) => <CoverageCell coverage={row.coverage} />,
           },
           { title: "Started", dataIndex: "started_at", render: formatWhen },
           {
