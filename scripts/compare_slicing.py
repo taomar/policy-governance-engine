@@ -23,6 +23,7 @@ from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.extraction.decision_families import (
     FamilyMember,
     decision_families,
+    promoted_qualifiers,
 )
 from policy_platform.infrastructure.extraction.evaluability import dangling_referents
 from policy_platform.infrastructure.quality.logic_faithfulness import judge_logic
@@ -76,6 +77,7 @@ def measure(rules: list[CanonicalRule]) -> dict:
             codes[finding.code] += 1
 
     families = decision_families(members)
+    promotions = promoted_qualifiers(members)
     return {
         "records": len(rules),
         "examined": len(members),
@@ -86,6 +88,16 @@ def measure(rules: list[CanonicalRule]) -> dict:
         "records_in_families": sum(len(f.rule_ids) for f in families),
         "family_detail": [
             (len(f.rule_ids), f.varying, f.sentence[:90]) for f in families
+        ],
+        "promotions": len(promotions),
+        "records_in_promotions": len(
+            {p.qualifier_rule_id for p in promotions}
+            | {rid for p in promotions for rid in p.antecedent_rule_ids}
+        ),
+        "promotion_sentences": len({p.sentence for p in promotions}),
+        "promotion_detail": [
+            (p.qualifier_rule_id, p.antecedent_rule_ids, p.phrase, p.sentence[:90])
+            for p in promotions
         ],
         "logic_codes": dict(codes),
     }
@@ -129,6 +141,18 @@ def main() -> int:
         f"{_pct(cand['records_in_families'], cand['examined'])}"
     )
     print(f"{'split families':<34}{base['families']:<32}{cand['families']}")
+    print(
+        f"{'records with a promoted qualifier':<34}"
+        f"{_pct(base['records_in_promotions'], base['examined']):<32}"
+        f"{_pct(cand['records_in_promotions'], cand['examined'])}"
+    )
+    print(
+        f"{'promoted qualifiers':<34}{base['promotions']:<32}{cand['promotions']}"
+    )
+    print(
+        f"{'  ...across source statements':<34}"
+        f"{base['promotion_sentences']:<32}{cand['promotion_sentences']}"
+    )
 
     print()
     print("judge_logic findings by code")

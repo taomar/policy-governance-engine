@@ -27,6 +27,7 @@ from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.extraction.decision_families import (
     FamilyMember,
     decision_families,
+    promoted_qualifiers,
 )
 from policy_platform.infrastructure.extraction.evaluability import dangling_referents
 from policy_platform.infrastructure.extraction.formulation_mapping import _is_separator_predicate
@@ -283,6 +284,7 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     # it is a whole decision. Both are defects in the cut, not in the document.
     findings.extend(_self_containment_findings(rules))
     findings.extend(_split_decision_findings(rules))
+    findings.extend(_promoted_qualifier_findings(rules))
     # And whether the logic formed from each sentence still quotes it.
     findings.extend(_logic_faithfulness_findings(rules))
 
@@ -727,6 +729,65 @@ def _split_decision_findings(rules: list[CanonicalRule]) -> list[dict]:
                     "one record whose fields carry them all. If it states several, each "
                     "record needs whatever distinguishes it — that is what is missing here, "
                     "and it was lost in extraction rather than absent from the document."
+                ),
+                "source": "deterministic",
+            }
+        )
+    return findings
+
+
+def _promoted_qualifier_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """A qualifier cut out of its sentence and made a rule of its own.
+
+    A relative clause, an apposition or a trailing predicate says something
+    *about* the thing an obligation lands on. Split out, it becomes a record
+    whose subject is that thing rather than a party, and a record about a thing
+    gives a reader no case to apply it to.
+
+    The signature is string identity between one record's subject and another's
+    object, both cut from one sentence. It reports a shape rather than asserting
+    a defect: a genuine hand-off, where a party acted upon then carries an
+    obligation of its own, has the same shape and is correct. Telling those
+    apart needs to know which nouns name parties, which is vocabulary rather
+    than structure, so the judgement is left to the reviewer.
+
+    Nothing is merged. The remedy is to fold the qualifier back into the record
+    that names what it qualifies, which is a re-cut of the source, not an
+    assembly of two records.
+    """
+
+    members = [
+        FamilyMember(rule_id=rule.rule_id, sentence=_source_sentence(rule), core=core)
+        for rule in rules
+        if (core := _canonical_core(rule)) is not None
+    ]
+    titles = {rule.rule_id: rule.title for rule in rules}
+
+    findings: list[dict] = []
+    for promotion in promoted_qualifiers(members):
+        qualifier = titles.get(promotion.qualifier_rule_id, promotion.qualifier_rule_id)
+        findings.append(
+            {
+                "severity": "medium",
+                "category": "qualifier_promoted_to_record",
+                "finding": (
+                    f"'{qualifier}' was cut from the same statement as "
+                    f"{', '.join(promotion.antecedent_rule_ids)} and "
+                    f"{promotion.as_reason()}: {promotion.sentence[:110]!r}. As stored, "
+                    f"it states something about a thing rather than about anyone, so a "
+                    f"reader has no case to apply it to."
+                ),
+                "affected_rule_ids": [
+                    *promotion.antecedent_rule_ids,
+                    promotion.qualifier_rule_id,
+                ],
+                "recommendation": (
+                    "Check the sentence. If the second record qualifies the thing the "
+                    "first one acts on, it belongs in that record as a further "
+                    "attribute rather than beside it. If it genuinely obliges someone "
+                    "in their own right, leave both. Do not compose a new record from "
+                    "the two: whichever survives has to quote one passage of the "
+                    "source."
                 ),
                 "source": "deterministic",
             }

@@ -48,6 +48,31 @@ that a single condition should have carried. What remains reported is the case
 nothing else sees: one obligation, several fragments, each carrying a piece and
 none of them saying when it is the piece that applies.
 
+A QUALIFIER PROMOTED TO A RULE
+-----------------------------
+A second shape, reported separately because the remedy differs. A relative
+clause, an apposition or a trailing predicate qualifies the thing it hangs off;
+it does not state a decision of its own. Split out, it becomes a record whose
+subject is that thing:
+
+    "all employees undergo an ongoing performance evaluation process, which is
+     officially documented once a year"
+
+The obligation is on the employees. That the process is documented annually is
+a property of the process, and belongs in the record that names it. Cut apart,
+the second record's subject is a *process*, and no case is ever about a
+process, so nothing can ever be decided from it.
+
+The signature is structural, not semantic: one record's subject is, verbatim,
+another record's object, and both were cut from one sentence. No judgement
+about what the words mean is involved, which is why it generalises.
+
+What it cannot tell apart is a genuine hand-off — "the manager notifies the
+employee, and the employee must respond" has the same shape and is two real
+obligations. Distinguishing those needs to know that an employee is a party and
+a process is not, which is a fact about vocabulary rather than about structure.
+So this reports a shape for a reviewer to judge; it does not assert a defect.
+
 NOT A MERGE
 -----------
 Nothing here rewrites, combines or supersedes a record. Merging fragments would
@@ -147,12 +172,43 @@ class DecisionFamily:
         )
 
 
+@dataclass(frozen=True)
+class PromotedQualifier:
+    """A record made about a thing another record's obligation lands on."""
+
+    sentence: str
+    #: The records stating the obligation, whose object names the thing. More
+    #: than one when the sentence was cut into several that all act on it.
+    antecedent_rule_ids: tuple[str, ...]
+    #: The record that was cut out of the qualifier and made about that thing.
+    qualifier_rule_id: str
+    #: The shared noun phrase, in the wording the records use.
+    phrase: str
+
+    def as_reason(self) -> str:
+        holders = ", ".join(self.antecedent_rule_ids)
+        return (
+            f"its subject is {self.phrase!r}, which is what the obligation in "
+            f"{holders} already lands on"
+        )
+
+
 def _value(core: Any, name: str) -> str:
     raw = core.get(name) if isinstance(core, Mapping) else getattr(core, name, None)
     if raw is None:
         return ""
     text = getattr(raw, "value", raw)
     return text.strip().casefold() if isinstance(text, str) else str(text).strip().casefold()
+
+
+def _display(core: Any, name: str) -> str:
+    """The field as written, for a reason a reviewer reads."""
+
+    raw = core.get(name) if isinstance(core, Mapping) else getattr(core, name, None)
+    if raw is None:
+        return ""
+    text = getattr(raw, "value", raw)
+    return text.strip() if isinstance(text, str) else str(text).strip()
 
 
 def _obligation(core: Any) -> tuple[str, ...]:
@@ -221,6 +277,63 @@ def _is_a_ladder(varying: Sequence[str]) -> bool:
     """
 
     return _OUTCOME_FIELD in varying and any(name in _SELECTING_FIELDS for name in varying)
+
+
+def promoted_qualifiers(members: Sequence[FamilyMember]) -> list[PromotedQualifier]:
+    """Records made about a thing that another record's obligation lands on.
+
+    Grouped by sentence, as families are: a subject matching an object across
+    two sentences is the document reusing a noun, not a decision cut in two.
+
+    A record is never reported against itself. A rule whose subject and object
+    are the same phrase says something reflexive; it is not a promotion.
+
+    One report per record made about the thing, naming every record that acts
+    on it. A sentence cut into several that all land on one noun would
+    otherwise raise a report per pairing, and a reviewer would read the same
+    defect four times.
+    """
+
+    grouped: dict[str, list[FamilyMember]] = {}
+    for member in members:
+        sentence = (member.sentence or "").strip()
+        if not sentence or member.core is None:
+            continue
+        grouped.setdefault(sentence, []).append(member)
+
+    promotions: list[PromotedQualifier] = []
+    for sentence, group in grouped.items():
+        if len(group) < 2:
+            continue
+        holders: dict[str, list[FamilyMember]] = {}
+        for member in group:
+            landed_on = _value(member.core, _OUTCOME_FIELD)
+            # A record whose object repeats its own subject says nothing about
+            # a second thing. It is malformed on its own account, and pairing
+            # two of them would report each as the other's qualifier.
+            if landed_on and landed_on != _value(member.core, "subject"):
+                holders.setdefault(landed_on, []).append(member)
+
+        for member in group:
+            subject = _value(member.core, "subject")
+            if not subject or subject == _value(member.core, _OUTCOME_FIELD):
+                continue
+            antecedents = tuple(
+                holder.rule_id
+                for holder in holders.get(subject, [])
+                if holder.rule_id != member.rule_id
+            )
+            if not antecedents:
+                continue
+            promotions.append(
+                PromotedQualifier(
+                    sentence=sentence,
+                    antecedent_rule_ids=antecedents,
+                    qualifier_rule_id=member.rule_id,
+                    phrase=_display(member.core, "subject"),
+                )
+            )
+    return promotions
 
 
 def _varying_fields(group: Iterable[FamilyMember]) -> tuple[str, ...]:

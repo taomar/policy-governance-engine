@@ -30,6 +30,7 @@ from policy_platform.infrastructure.correlation.relationship_discovery import (
 from policy_platform.infrastructure.extraction.decision_families import (
     FamilyMember,
     decision_families,
+    promoted_qualifiers,
 )
 from policy_platform.infrastructure.extraction.evaluability import Evaluability, assess
 from policy_platform.infrastructure.extraction.self_containment import unresolved_referents
@@ -475,6 +476,199 @@ class TestTheSplitFindingSaysWhatWasCutApart:
                 _record("R-B", _ONE_SENTENCE, _FRAGMENT_B),
                 _record("R-C", other_sentence, waive_a),
                 _record("R-D", other_sentence, waive_b),
+            ]
+        )
+
+        named = {frozenset(f["affected_rule_ids"]) for f in findings}
+        assert named == {frozenset({"R-A", "R-B"}), frozenset({"R-C", "R-D"})}
+
+
+# --------------------------------------------------------------------------
+# A qualifier promoted to a rule of its own.
+#
+# The pair is again the point. Both populations put the same noun phrase in two
+# records; only one of them makes that phrase the *subject* of a second rule. A
+# check keyed on a shared noun would flag both and be worthless.
+# --------------------------------------------------------------------------
+
+_QUALIFIED_SENTENCE = (
+    "The applicant submits a renewal form, which is retained for five years."
+)
+_THE_OBLIGATION = _core(
+    subject="the applicant",
+    predicate="submits",
+    object="a renewal form",
+)
+# The relative clause, cut out and made a rule. Its subject is the thing the
+# obligation above lands on, so nothing a case can be about is named here.
+_THE_QUALIFIER = _core(
+    subject="a renewal form",
+    predicate="is retained",
+    temporal_constraint="for five years",
+)
+
+# The control shares an *object* across both records and is a correct split.
+# Nothing is promoted, because neither subject is the other's object. It is
+# `_TWO_OBLIGATIONS_SENTENCE`, reused deliberately: the same pair that proves
+# the family check keys on the right thing proves this one does too.
+
+
+def _assert_promotion_scan_saw(records) -> None:
+    findings = ai_quality._promoted_qualifier_findings(records)
+    named = {frozenset(f["affected_rule_ids"]) for f in findings}
+
+    assert named == {frozenset({"R-A", "R-B"})}, (
+        f"expected the record made about the thing the obligation lands on to be "
+        f"paired with it, and the correct split sharing an object to be left alone; "
+        f"actual: paired {[sorted(g) for g in named]} out of {len(records)} records "
+        f"examined"
+    )
+
+
+class TestAQualifierIsNotADecision:
+    def test_a_subject_that_is_another_records_object_is_reported(self) -> None:
+        promotions = promoted_qualifiers(
+            _members(
+                ("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                ("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+            )
+        )
+
+        assert len(promotions) == 1
+        assert promotions[0].antecedent_rule_ids == ("R-A",)
+        assert promotions[0].qualifier_rule_id == "R-B"
+        assert promotions[0].phrase == "a renewal form"
+
+    def test_several_records_acting_on_the_thing_raise_one_report(self) -> None:
+        """A reviewer reads the defect once, with everything it touches named."""
+
+        approve = _core(subject="the reviewer", predicate="approves", object="a renewal form")
+        promotions = promoted_qualifiers(
+            _members(
+                ("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                ("R-C", _QUALIFIED_SENTENCE, approve),
+                ("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+            )
+        )
+
+        assert len(promotions) == 1
+        assert promotions[0].qualifier_rule_id == "R-B"
+        assert sorted(promotions[0].antecedent_rule_ids) == ["R-A", "R-C"]
+
+    def test_records_merely_sharing_an_object_are_left_alone(self) -> None:
+        assert (
+            promoted_qualifiers(
+                _members(
+                    ("R-A", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_ONE),
+                    ("R-B", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_TWO),
+                )
+            )
+            == []
+        )
+
+    def test_the_same_phrase_across_two_sentences_is_not_a_promotion(self) -> None:
+        """A document reusing a noun is not a decision cut in two."""
+
+        assert (
+            promoted_qualifiers(
+                _members(
+                    ("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                    ("R-B", "Some other sentence entirely.", _THE_QUALIFIER),
+                )
+            )
+            == []
+        )
+
+    def test_a_reflexive_record_is_not_reported_against_itself(self) -> None:
+        reflexive = _core(subject="the register", predicate="lists", object="the register")
+
+        assert (
+            promoted_qualifiers(
+                _members(
+                    ("R-A", _QUALIFIED_SENTENCE, reflexive),
+                    ("R-B", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                )
+            )
+            == []
+        )
+
+    def test_two_reflexive_records_are_not_reported_against_each_other(self) -> None:
+        """Real shape: 'Overtime should be approved and controlled' cut in two,
+        each record repeating the noun in both slots. Malformed on its own
+        account, and neither is a qualifier of the other."""
+
+        approved = _core(subject="overtime", predicate="be approved", object="overtime")
+        controlled = _core(subject="overtime", predicate="be controlled", object="overtime")
+
+        assert (
+            promoted_qualifiers(
+                _members(
+                    ("R-A", "Overtime should be approved and controlled.", approved),
+                    ("R-B", "Overtime should be approved and controlled.", controlled),
+                )
+            )
+            == []
+        )
+
+
+class TestThePromotionFindingSaysWhichRecordWasPromoted:
+    def test_the_finding_names_both_records_and_the_phrase(self) -> None:
+        findings = ai_quality._promoted_qualifier_findings(
+            [
+                _record("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                _record("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+            ]
+        )
+
+        assert [f["category"] for f in findings] == ["qualifier_promoted_to_record"]
+        assert sorted(findings[0]["affected_rule_ids"]) == ["R-A", "R-B"]
+        assert "a renewal form" in findings[0]["finding"]
+
+    def test_it_is_reported_apart_from_the_split_family_shape(self) -> None:
+        """The two shapes have different remedies, so they are different findings."""
+
+        records = [
+            _record("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+            _record("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+        ]
+
+        assert ai_quality._split_decision_findings(records) == []
+        assert len(ai_quality._promoted_qualifier_findings(records)) == 1
+
+    def test_the_check_examined_both_populations(self) -> None:
+        _assert_promotion_scan_saw(
+            [
+                _record("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                _record("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+                _record("R-C", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_ONE),
+                _record("R-D", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_TWO),
+            ]
+        )
+
+    def test_a_blind_scan_is_caught_by_that_assertion(self, monkeypatch) -> None:
+        monkeypatch.setattr(ai_quality, "_canonical_core", lambda rule: None)
+
+        with pytest.raises(AssertionError, match=r"actual: paired \[\]"):
+            _assert_promotion_scan_saw(
+                [
+                    _record("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                    _record("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+                    _record("R-C", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_ONE),
+                    _record("R-D", _TWO_OBLIGATIONS_SENTENCE, _OBLIGATION_TWO),
+                ]
+            )
+
+    def test_with_the_floor_in_place_a_new_promotion_is_still_named(self) -> None:
+        other_sentence = "The school issues a certificate, which is signed by the head."
+        issues = _core(subject="the school", predicate="issues", object="a certificate")
+        signed = _core(subject="a certificate", predicate="is signed by the head")
+
+        findings = ai_quality._promoted_qualifier_findings(
+            [
+                _record("R-A", _QUALIFIED_SENTENCE, _THE_OBLIGATION),
+                _record("R-B", _QUALIFIED_SENTENCE, _THE_QUALIFIER),
+                _record("R-C", other_sentence, issues),
+                _record("R-D", other_sentence, signed),
             ]
         )
 
