@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 #: Bump whenever the prompt asset or the transport addendum changes, so
 #: `RuleLineage.prompt_version` distinguishes rules formulated under different
 #: revisions of the standard. Recorded on every rule this agent contributes to.
-FORMULATOR_PROMPT_VERSION = "dmn-formulator-v1"
+FORMULATOR_PROMPT_VERSION = "dmn-formulator-v2"
 
 #: Spec Section 3 mandates medium reasoning effort. It is set here rather than
 #: left to callers because it is part of the standard, not a tuning knob.

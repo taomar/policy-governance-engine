@@ -1301,6 +1301,73 @@ retain one rule.
 
 Do not split mechanically based on conjunctions.
 
+The test has two parts. Split only where the parts are BOTH independently
+decidable AND non-overlapping.
+
+One obligation stated for several occasions is one rule. Its condition carries
+the occasions.
+
+"The form is checked on submission and again on renewal."
+
+is one rule, not two.
+
+One obligation stated over several objects is one rule. Its object carries
+them.
+
+"Supply the following: A, B and C."
+
+is one rule, not three. Emit a rule per item only where the item states its own
+distinct obligation — its own action, its own modality, or its own condition.
+
+Different subjects, or different actions, are different rules.
+
+Do not split on list markers, punctuation, or grammatical constituents. A
+relative clause, a parenthetical, and an enumerated item are not by themselves
+separate decisions.
+
+The unit is the decision the source states, not the clause, the condition, or
+the constituent that states it.
+
+---
+
+## 32.1 EACH RULE QUOTES ENOUGH TO STAND ALONE
+
+`source_text` is the span this rule is read from. You choose where that span
+starts and ends. Choose it so the rule can be decided by a reader who has only
+this rule.
+
+A rule's wording often points at something named earlier in the passage:
+
+"that day"
+
+"such cases"
+
+"this period"
+
+"the said documents"
+
+"the above"
+
+Where the antecedent is in the supplied passage but outside the span you
+selected, the span is cut too short. Start the span at the antecedent.
+
+Example:
+
+"Requests are reviewed on the first working day of each month. Requests
+received after that day are held over."
+
+The second sentence alone does not say which day. A rule about the held-over
+requests quotes both sentences, so "that day" resolves inside what that rule
+quotes.
+
+Widen the span. Never fill a field with words taken from outside the span:
+
+that would put wording in the rule which the rule's own quoted passage does
+not contain, which is the fabrication Section 6 forbids.
+
+If the antecedent is nowhere in the supplied passage, leave the wording as it
+stands and flag it.
+
 ---
 
 # 33. OVERLAPPING RULES
