@@ -214,6 +214,46 @@ stops being true, so this paragraph cannot quietly become false.
 
 ---
 
+## Three ways a capability looks whole and is not
+
+The two sections above are the first two. Both were found the expensive way, and
+both are invisible to the question "is it tested?". A third was found the same
+way, and it is the least visible of them.
+
+**1. Built and never called.** Nothing reaches it. This is the easy one: a
+reference analyser finds it, and
+`tests/unit/test_capabilities_are_reachable.py` does.
+
+**2. Reached, rendered, never consulted.** Live callers, visible output, and no
+path to the thing it was built to inform. Reachability analysis reports it
+healthy, because it is reached. Only tracing *which* calls lead to the consumer
+finds it.
+
+**3. Correct to read, and a `NameError` at call time.** The code is right under
+every static check a person or a grep can apply, and raises the moment a user
+exercises it.
+
+The instance here is PEP 562. A module-level `__getattr__` can serve a derived
+value to importers, so `module.CONSTANT` works from outside and reads as an
+ordinary constant. It does **not** serve a bare global lookup inside the same
+module: that lookup bypasses module `__getattr__` entirely and raises
+`NameError`. So in-module call sites of a name that only `__getattr__` provides
+are all broken, and every one of them greps as correct — the name is defined,
+the definition is right there, the call sites spell it exactly.
+
+`infrastructure/quality/ai_quality.py` carries this construct and records the
+trap in a comment beside it; its own call sites go through the private function
+rather than the name. That is the working arrangement, and it is written down
+there because nothing else would catch it being undone.
+
+The general shape, and the reason this belongs on a page about what runs:
+**each of the three is invisible to a different check, and all three survive a
+green suite.** The first defeats "is it tested". The second defeats "is it
+reached". The third defeats reading the code. Only running the thing a user
+runs finds the third, which is how it was found.
+
+---
+
 ## What can still go wrong
 
 Stated because each is a live property of the path above, not a historical note.
