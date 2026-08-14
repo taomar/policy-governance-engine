@@ -127,15 +127,37 @@
 /* A project listed under Projects. Indented and set slightly smaller so the
    list reads as contents of the destination above it rather than as four more
    peer destinations, and quieter until hovered or open so the primary
-   destinations stay the dominant reading of the sider. */
+   destinations stay the dominant reading of the sider.
+
+   Height is `auto`, not the 32px it used to be, because the label below is
+   allowed to wrap. A fixed height would put the clipping back by another
+   route. */
 .app-menu .ant-menu-item:has(> .ant-menu-title-content > .nav-item--child) {
   padding-left: 40px !important;
-  height: 32px;
-  line-height: 32px;
+  height: auto;
+  min-height: 32px;
+  line-height: 1.35;
+  padding-block: 5px;
 }
 
 .nav-item--child {
   font-size: 12.5px;
+  align-items: flex-start;
+}
+
+/* The label of a project row carries a name that has already been shortened,
+   in JS, to a budget chosen so that two different projects cannot shorten to
+   the same string (see distinctNames.ts). CSS truncation on top of that would
+   silently undo the guarantee: two labels that differ only in their last few
+   characters would be cut back to identical text and the eye could not tell
+   the rows apart. So this label never clips -- if a name is wide enough to
+   need a second line it takes one, which shows every character the algorithm
+   decided to keep. */
+.nav-item--child .nav-item-label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Count pill on a nav destination. Reads as a quantity, not a status, so it is
@@ -1164,41 +1186,39 @@
   font-weight: 600;
 }
 
-.dashboard-ledger {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.8fr);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  box-shadow: none;
-  overflow: hidden;
-}
+/* `.dashboard-ledger` is gone. It was a two-column grid holding a fixed summary
+ * beside an unbounded project list. A grid stretches its cells to the tallest,
+ * so the summary was given the list's height -- 872px at nine projects, of which
+ * 695px was empty, and unboundedly worse above that. Two previous fixes changed
+ * `justify-content` and `min-height` inside the summary and moved the void
+ * without shrinking it, because the height was never being decided there.
+ *
+ * The two panels are now full-width siblings of `.dashboard-page`, which is a
+ * flex column: each is exactly as tall as its own content, so the void is zero
+ * by construction rather than by tuning, at every portfolio size. Full width
+ * also gives project names roughly twice the horizontal room they had. */
 
 .dashboard-priority {
-  /* Was `min-height: 282px` with `justify-content: space-between` over three
-   * children, which reserved a fixed block of height and then pushed the
-   * content to its two ends. The gap in the middle was specified, not
-   * incidental: whatever the content, the panel held it apart to fill 282px.
-   *
-   * Now the height follows the content and the children stack from the top,
-   * so the panel is as tall as it has something to say. The `min-height` is
-   * kept only as a floor for the adjacent column and is well under what the
-   * content needs, so it no longer drives the layout. */
-  min-height: 0;
+  /* Height follows content. There is no `min-height` and no
+   * `justify-content: space-between`: nothing here reserves space it has not
+   * been given something to put in. */
   padding: 20px 22px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
   gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   background:
     linear-gradient(90deg, rgba(91, 77, 177, 0.06) 1px, transparent 1px) 0 0 / 32px 100%,
     #fbfbfe;
-  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .dashboard-priority-copy {
-  max-width: 680px;
+  width: 100%;
+  max-width: 780px;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -1317,6 +1337,16 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.dashboard-panel-heading-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .dashboard-panel-heading,
@@ -1332,7 +1362,22 @@
   border-bottom: 1px solid var(--border);
 }
 
-.dashboard-panel-heading > .ant-typography:last-child,
+/* Shown in place of a panel's contents when the request failed, so the panel
+ * admits it has no answer instead of spinning on "Loading..." forever. */
+.dashboard-panel-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px;
+}
+
+.dashboard-retry {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+.dashboard-panel-heading .dashboard-panel-heading-side > .ant-typography,
 .dashboard-section-heading > .ant-typography:last-child {
   font-size: 11.5px;
 }
@@ -1353,8 +1398,12 @@
 .dashboard-readiness-row {
   appearance: none;
   width: 100%;
-  min-height: 92px;
-  padding: 11px 14px;
+  /* Was 92px. That height existed to help a narrow column fill the space the
+   * grid had stretched it into. The row is full width now and carries two lines
+   * of text, so it is sized to those two lines: at fifty projects the register
+   * is a list to scan, not a stack of cards to scroll past. */
+  min-height: 54px;
+  padding: 9px 14px;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto 16px;
   align-items: center;
@@ -1406,6 +1455,29 @@
   white-space: nowrap;
 }
 
+/* Shown only when no shortening can tell two project names apart, and it
+ * carries the project's own key -- data the project already has, so the reader
+ * is given something they can act on rather than a disambiguating counter. */
+.dashboard-readiness-key {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The last row of a bounded list, stating what the bound left out. It is a row
+ * rather than a footnote so the count is read in the same sweep as the list. */
+.dashboard-readiness-more {
+  grid-template-columns: minmax(0, 1fr) 16px;
+  background: #fbfbfe;
+}
+
+.dashboard-readiness-more strong {
+  color: #5b4db1;
+}
+
 .dashboard-readiness-signals {
   display: flex;
   align-items: flex-end;
@@ -1420,10 +1492,12 @@
 }
 
 .dashboard-readiness-empty {
-  min-height: 180px;
+  /* Was 180px, reserved so an empty panel still filled a stretched grid cell.
+   * Nothing stretches it now, so an empty panel is the size of the sentence it
+   * has to say. */
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 20px 16px;
   text-align: center;
 }
 
@@ -2902,16 +2976,20 @@
 }
 
 @media (max-width: 1000px) {
-  .dashboard-ledger {
-    grid-template-columns: 1fr;
+  /* Nothing to reflow here any more: the dashboard panels are already
+   * full-width stacked siblings at every width, so there is no two-column
+   * arrangement to collapse. */
+  .dashboard-pressure-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard-priority {
-    min-height: 190px;
+  .dashboard-pressure-strip > div:nth-child(2) {
     border-right: 0;
+  }
+
+  .dashboard-pressure-strip > div:nth-child(-n + 2) {
     border-bottom: 1px solid var(--border);
   }
-
 }
 
 @media (max-width: 760px) {
@@ -2928,7 +3006,6 @@
   }
 
   .dashboard-priority {
-    min-height: 0;
     padding: 18px;
     gap: 16px;
   }
@@ -10900,6 +10977,87 @@
   color: var(--text-tertiary, #8c8c8c);
 }
 
+/* The last row when the list is bounded. It states how many documents are not
+ * shown and opens the register, so the reader is never left to assume the list
+ * is complete. */
+.dashboard-queue-scope-more button {
+  appearance: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: #5b4db1;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dashboard-queue-scope-more button:hover {
+  text-decoration: underline;
+}
+.dashboard-queue-scope-more button:focus-visible {
+  outline: 2px solid #5b4db1;
+  outline-offset: 2px;
+}
+.dashboard-queue-scope-more .anticon {
+  font-size: 10px;
+}
+
+/* The sider's project shortcuts. `--overflow` is the doorway to the register;
+ * `-key` appears only when two names cannot be told apart by shortening. */
+.nav-item--overflow .nav-item-label {
+  font-style: italic;
+  opacity: 0.8;
+}
+.nav-item-key {
+  display: block;
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
+  font-size: 9px;
+  line-height: 1.4;
+  opacity: 0.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Bidirectional text
+   ---------------------------------------------------------------------------
+   Every run of text that may not be in the interface's own direction is
+   rendered inside a <bdi>, which the user-agent stylesheet already gives
+   `unicode-bidi: isolate`. There is deliberately no rule here that sets
+   `direction` or `unicode-bidi` on a class: direction is carried by the `dir`
+   attribute on the run itself, so it travels with the markup into a copied
+   selection, a printed page and a screen reader, and cannot be lost by a
+   stylesheet failing to load or a container overriding a class.
+*/
+
+/* Align a block to the side its own base direction starts from. `start` is the
+   logical keyword, so one rule right-aligns an Arabic paragraph and
+   left-aligns an English one without asking which language it is.
+   `text-align` only governs a box that owns its line boxes, so the wrapper is
+   promoted out of the inline flow here; measured without it, the last line of
+   an Arabic paragraph sat flush left. */
+.directional-text--block {
+  display: block;
+  text-align: start;
+}
+
+/* A run whose two scripts are interleaved character by character was damaged
+   before it reached this screen. It is shown exactly as stored — nothing here
+   repairs it — but it is not allowed to look like ordinary prose, because a
+   reviewer who cannot read the script has no other way to tell the difference
+   between text they cannot read and text that is not text. */
+.directional-text__interleaved {
+  background: var(--warning-bg, #fff8c5);
+  border-bottom: 2px dotted var(--warning, #9a6700);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+}
+
 /* The passage a run of rules came from.
    A band above the rules rather than a container around them: each rule stays
    individually reviewable and individually routed, and a policy of one rule --
@@ -10940,40 +11098,4 @@
 .policy-passage-header__source {
   font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   opacity: 0.65;
-}
-
-/* ---------------------------------------------------------------------------
-   Bidirectional text
-   ---------------------------------------------------------------------------
-   Every run of text that may not be in the interface's own direction is
-   rendered inside a <bdi>, which the user-agent stylesheet already gives
-   `unicode-bidi: isolate`. There is deliberately no rule here that sets
-   `direction` or `unicode-bidi` on a class: direction is carried by the `dir`
-   attribute on the run itself, so it travels with the markup into a copied
-   selection, a printed page and a screen reader, and cannot be lost by a
-   stylesheet failing to load or a container overriding a class.
-*/
-
-/* Align a block to the side its own base direction starts from. `start` is the
-   logical keyword, so one rule right-aligns an Arabic paragraph and
-   left-aligns an English one without asking which language it is.
-   `text-align` only governs a box that owns its line boxes, so the wrapper is
-   promoted out of the inline flow here; measured without it, the last line of
-   an Arabic paragraph sat flush left. */
-.directional-text--block {
-  display: block;
-  text-align: start;
-}
-
-/* A run whose two scripts are interleaved character by character was damaged
-   before it reached this screen. It is shown exactly as stored — nothing here
-   repairs it — but it is not allowed to look like ordinary prose, because a
-   reviewer who cannot read the script has no other way to tell the difference
-   between text they cannot read and text that is not text. */
-.directional-text__interleaved {
-  background: var(--warning-bg, #fff8c5);
-  border-bottom: 2px dotted var(--warning, #9a6700);
-  border-radius: 2px;
-  padding: 0 1px;
-  cursor: help;
 }

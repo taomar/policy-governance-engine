@@ -18,6 +18,8 @@ import { DocumentsPage } from "./components/DocumentsPage";
 import { EvaluatePage } from "./components/EvaluatePage";
 import { MyAttestationsPage } from "./components/MyAttestationsPage";
 import { AskAiDrawer } from "./components/AskAiDrawer";
+import { distinctLabelsByKey } from "./distinctNames";
+import { PROJECT_NAV_PREFIX, projectNavTarget } from "./projectNav";
 import "./App.css";
 
 const { Sider, Header, Content } = Layout;
@@ -91,8 +93,9 @@ const NAV_GROUP_LABELS: Record<"overview" | "author" | "runtime", string> = {
 const HIDDEN_NAV_IDS: Page[] = ["my-attestations"];
 const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter((item) => !HIDDEN_NAV_IDS.includes(item.id));
 
-/** Namespaces project keys in the menu so they cannot collide with a `Page` id. */
-const PROJECT_NAV_PREFIX = "project:";
+/** Namespaces project keys in the menu so they cannot collide with a `Page` id.
+ *  Defined in `projectNav` so surfaces other than the sider can navigate to a
+ *  named project rather than only to the register. */
 
 function ActorSwitcher() {
   const { actor, setActor } = useActor();
@@ -178,10 +181,37 @@ function App() {
 
   const currentNavItem = NAV_ITEMS.find((item) => item.id === page);
 
+  /**
+   * Projects listed directly in the sider.
+   *
+   * The sider listed every project, so on an instance with fifty it became a
+   * fifty-item scrolling menu that buried the four fixed destinations below it.
+   * The nav is a shortcut to the ones in play; the register enumerates them all.
+   * The overflow entry below says how many are not shown and opens the register,
+   * so the list is never silently partial. This is a display constant — no
+   * project, name or count is treated specially by it.
+   */
+  const SIDER_PROJECT_ROWS = 8;
+  const siderProjects = policySets.slice(0, SIDER_PROJECT_ROWS);
+  const siderOverflow = policySets.length - siderProjects.length;
+  // The sider is 224px wide, so names are cut hard. Cutting from the end makes
+  // projects that share a prefix render as the same string; this keeps whatever
+  // part of the name actually distinguishes them. Labels are computed across
+  // the whole portfolio, not just the shown slice, so a label does not change
+  // meaning when the list scrolls.
+  const siderNames = distinctLabelsByKey(policySets, (ps) => ps.key, (ps) => ps.name, 26);
+
   // Central navigation entrypoint: keeps the lifted `activeProject` (used to scope the
   // "Ask AI" drawer to whatever project the user is currently inside) in sync whenever the
   // user leaves the Projects page via any route — top nav, Dashboard quick links, etc.
   const handleNavigate = (target: string) => {
+    // The sider's overflow row is a doorway to the register, not a project.
+    if (target === "projects-overflow") {
+      setProjectOpenRequest({ key: null, nonce: Date.now() });
+      setActiveProject(null);
+      setPage("projects");
+      return;
+    }
     // Project entries in the sider carry the project key, so a project is one
     // click away instead of three (Projects → find card → open).
     if (target.startsWith(PROJECT_NAV_PREFIX)) {
@@ -223,8 +253,14 @@ function App() {
           mode="inline"
           selectedKeys={[
             // Reflect the open project rather than just the Projects page, so the
-            // sider always shows where the user actually is.
-            page === "projects" && activeProject && !siderCollapsed ? `${PROJECT_NAV_PREFIX}${activeProject.key}` : page,
+            // sider always shows where the user actually is. A project past the
+            // shortcut list has no row to light up, so the parent carries it.
+            page === "projects" &&
+            activeProject &&
+            !siderCollapsed &&
+            siderProjects.some((ps) => ps.key === activeProject.key)
+              ? projectNavTarget(activeProject.key)
+              : page,
           ]}
 
           className="app-menu"
@@ -260,15 +296,34 @@ function App() {
                   // instance actually contains instead of a fixed four links.
                   return [
                     entry,
-                    ...policySets.map((ps) => ({
-                      key: `${PROJECT_NAV_PREFIX}${ps.key}`,
+                    ...siderProjects.map((ps) => ({
+                      key: projectNavTarget(ps.key),
                       label: (
                         <span className="nav-item nav-item--child">
-                          <span className="nav-item-label">{ps.name}</span>
+                          <span className="nav-item-label">{siderNames.labelFor(ps.key)}</span>
+                          {/* When no shortening can tell two names apart the key
+                              does, and the key is real data the project already
+                              carries -- never a counter invented for display. */}
+                          {siderNames.hasCollisions && <span className="nav-item-key">{ps.key}</span>}
                         </span>
                       ),
                       title: `Open ${ps.name}`,
                     })),
+                    ...(siderOverflow > 0
+                      ? [
+                          {
+                            key: "projects-overflow",
+                            label: (
+                              <span className="nav-item nav-item--child nav-item--overflow">
+                                <span className="nav-item-label">
+                                  {siderOverflow} more in the register
+                                </span>
+                              </span>
+                            ),
+                            title: "Open the project register",
+                          },
+                        ]
+                      : []),
                   ];
                 }),
               },
