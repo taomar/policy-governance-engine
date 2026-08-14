@@ -154,6 +154,34 @@ npx tsc --noEmit
 npm run build
 ```
 
+### One check that is triggered, not routine
+
+If your change **puts a new module on the production path** — anything reachable
+from document upload or from the AI extraction endpoint — run this as well:
+
+```powershell
+.\.venv-graph\Scripts\python.exe scripts/running_path_closure.py
+```
+
+It computes the call closure from the two entry points and reports modules on it
+that [the running path](running-path.md) does not name. Read what it names and
+decide; roughly four findings in five are worth acting on, which is why it is a
+script and not a build-failing guard.
+
+The trigger is the point. A step added to the running system and left off that
+page is how the divergence recorded in
+[failures](failures/designed-pipeline-and-running-pipeline.md) began, and the
+person best placed to catch it is the one adding the module — who is also the
+person least likely to know the page exists. That is why the instruction lives
+here, next to the checks everyone runs, rather than only on the page it serves.
+
+**This check is itself subject to
+[the rule two sections up](#safety-that-a-human-has-to-arm-is-off):** it needs a
+human to decide to run it, so by default it is off. That is a known and accepted
+weakness, chosen over a guard at this precision because an alarm that misfires
+gets disabled and takes the honest limitation down with it. Recorded plainly
+rather than dressed up.
+
 The suite needs the `graph` extra: 13 modules import Docling directly and fail
 at collection in a `.venv` built from `.[dev]` alone. The torch footprint is a
 constraint on the runtime image, not on a development machine.

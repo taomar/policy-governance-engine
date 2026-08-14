@@ -314,4 +314,30 @@ not, and a build-failing check at that precision is disabled within a week. A
 suppressed alarm would be worse than this stated gap.
 
 So it ships as a script a person runs when revising this page, which is also the
-answer to "re-derived how?" above. Run it, read what it names, and decide.
+answer to "re-derived how?" above. Run it, read what it names, and decide:
+
+```powershell
+.\.venv-graph\Scripts\python.exe scripts/running_path_closure.py
+```
+
+### Who is told to run it
+
+Filing that instruction only here would have been circular. The reader who most
+needs it is the one **adding** a module to the production path, and that reader
+has no reason to open this page — not knowing this page exists is the whole
+condition the script guards against. An instruction that only the already-
+informed can find is not an instruction.
+
+So the trigger also appears in
+[how we work](how-we-work.md#checks-before-committing), beside the checks run on
+every change, phrased by the action that should prompt it rather than by the
+artefact it protects.
+
+That is a mitigation and not a fix. The check still requires a person to decide
+to run it, which makes it an instance of the same rule that caught the quality
+trend: **safety a human has to arm is off by default.** The alternative was a
+build-failing guard at four-in-five precision, which would have been disabled
+inside a week and would have taken this stated limitation down with it. A
+weakness written down is worth more than a guard nobody trusts, and this
+paragraph exists so that trade stays visible instead of being rediscovered.
+
