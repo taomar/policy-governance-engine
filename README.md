@@ -217,6 +217,7 @@ See [Known limitations](docs/known-limitations.md) and the
 | [How we work](docs/how-we-work.md) | Engineering agreements and the reasoning behind them |
 | [Standards](docs/standards.md) | Which standard governs which decision |
 | [Architecture](docs/architecture.md) | System boundaries and trust model |
+| [The running path](docs/running-path.md) | What this build actually executes, step by step, named by symbol |
 | [Relationships](docs/relationships.md) | How rules are linked, and what is not claimed |
 | [Docling](docs/docling.md) | Document conversion and graph discovery |
 | [AI assistance](docs/ai-assistance.md) | Extraction, grounding, and validation |

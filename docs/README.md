@@ -13,6 +13,7 @@ Start with the [User guide](user-guide.md) to see the product, or
 | [How we work](how-we-work.md) | Engineering agreements and the reasoning behind them |
 | [Standards](standards.md) | Which published standard governs which decision |
 | [Architecture](architecture.md) | Components, boundaries, and trust model |
+| [The running path](running-path.md) | What this build actually executes, step by step, named by symbol |
 | [Relationships](relationships.md) | How rules are linked, and what is deliberately not claimed |
 | [Docling](docling.md) | Document conversion and graph discovery |
 | [AI assistance](ai-assistance.md) | Extraction, grounding, and validation |
