@@ -62,6 +62,40 @@ Corollary: **prove a test can fail.** Reintroduce the bug, confirm the test
 catches it, restore, confirm the diff is empty. A test that cannot fail
 documents nothing.
 
+## Safety that a human has to arm is off
+
+**A guard whose trigger is a hand-maintained value is disabled by default, and
+reads as enabled.** Derive the value, or accept that the guard is decoration.
+
+This is a design rule, not an incident report, because the incident was the
+mildest possible version of it and the shape is general.
+
+The quality history refuses to draw a trend across two runs whose methodology
+differs, and says why in its own source: a change to what can be discovered
+establishes a new baseline rather than masquerading as improvement or
+regression. That mechanism was correct, and it was reviewed as correct. What
+armed it was a version constant somebody had to remember to change, and nobody
+did — so every run recorded carried the same value, every pair compared equal,
+and the refusal never fired once. The page drew deltas straight across a change
+to the instrument while containing, a few lines away, the argument for why it
+must not.
+
+Note the failure mode carefully, because it is what makes this worth a rule.
+The guard did not error. It did not warn. It reported the healthy answer — no
+methodology difference — which is indistinguishable from the answer it gives
+when it is working and there genuinely is none. **An unarmed guard and a
+satisfied guard produce the same output.**
+
+The fix was to stop asking a human: `derive_methodology_version`
+(`infrastructure/quality/methodology.py`) computes the value from the detectors
+themselves, so adding or changing one moves it whether or not anyone thought
+about comparability.
+
+Applies to anything with the same shape — a schema version, a cache key, a
+prompt revision, a feature flag defaulting to the permissive branch. If the
+correctness of a check depends on somebody updating a literal, the check is
+already wrong; it is only a question of when someone notices.
+
 ## Comments explain why
 
 Code says what it does. Comments exist for what a reader cannot recover:
@@ -101,6 +135,12 @@ two describe the same rule.
   already in the commit.
 - Include what was measured, and what was tried and rejected.
 - Do not commit secrets, generated bundles, or virtual environments.
+- **Stage by explicit pathspec.** `git add` then `git commit` is not atomic, and
+  the index is shared mutable state: anything another writer stages between the
+  two commands is swept into your commit. Name the paths on the commit itself
+  (`git commit --only <path> ...`) so the set of files is decided once, by you.
+  This is not hypothetical — a commit here collected four files belonging to
+  someone else that way.
 
 ## Checks before committing
 
@@ -134,6 +174,7 @@ Each of these cost real time and none of them fail loudly.
 | `curl` succeeds, the browser fails | `--host ::` binds IPv6-only on Windows; browsers resolve `localhost` to `::1` first while `curl` prefers IPv4. Bind `0.0.0.0`, point the UI at `127.0.0.1`. |
 | `InvalidCxxCompiler: cl not found` | Windows PDF conversion without `TORCHDYNAMO_DISABLE=1` |
 | Package resolution retries then dies | Not using the approved feed proxy |
+| Console `ReferenceError` for something you just wrote | Possibly a stale hot-reload artefact from a concurrent edit, not your defect. The dev server can serve a module from a moment that no longer exists. **Check the error against a clean build before believing it** — `npx tsc --noEmit` and `npm run build`. A scare reported from a stale bundle costs more than the check does. |
 
 ## Where to look
 
