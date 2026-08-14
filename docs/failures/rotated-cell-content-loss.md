@@ -65,7 +65,17 @@ reading order. The characters arrive reversed.
 Reversed text is not obviously reversed to anything downstream. It has the
 right characters, the right length, and the right shape. It passed through
 extraction and reached a record's title verbatim, where it was stored as the
-title of a real record.
+title of a real record. On the GMU staff handbook run the stored title reads:
+
+```
+End of Service Benefit (For Expatriates) waL ruobaL EAU eht rep sA
+```
+
+`waL ruobaL EAU eht rep sA` is *As per the UAE Labour Law* character-reversed.
+Note what the row looks like to anyone not reading it closely: a plausible
+title, a real provision name, and a trailing fragment that could pass for an
+abbreviation or a reference code. Nothing about the record's shape suggests
+corruption, which is why it survived to storage.
 
 Note which check did not catch it. Verbatim validation compares a model's output
 against the batch the model was shown. Both sides of that comparison contained
@@ -91,6 +101,45 @@ Detection for records that cannot be read without a neighbour exists —
 `discover_split_decision_relationships`, step 17 on
 [the running path](../running-path.md) — but it operates on extracted records,
 and these seven do not look incomplete. They look complete and are false.
+
+### The mechanism, and two flaws in it
+
+The attachment is decided in `_add_table_edges`
+(`contracts/structural_graph.py`). Reproducing the compensation table's geometry
+against the real builder — `data/regression/verify_table_edges.py`, no PDF, no
+model, no database — shows two distinct defects there. Both are independent of
+the rotation, and both would survive fixing it.
+
+**A row span emits no edges at all.** `_covered_columns` exists and is used
+twice; there is no `_covered_rows` counterpart. A cell declaring `row_span=7`
+produces:
+
+```
+grade rows covered by the span : 7
+grade rows the graph connects  : 0 (none)
+```
+
+The seven-of-eight loss is therefore not a subtlety of how spanning content
+*ought* to be attributed. Nothing reads `row_span` when building edges, so the
+provision is attached to no grade row by row geometry — the same outcome as if
+the span were not declared.
+
+**A merged header over-attaches.** `headers_by_column` is keyed by column with
+no row band, and the only row guard drops headers *below* the cell. So a banner
+header in row 0 spanning five columns claims every cell in those columns for the
+whole table:
+
+```
+merged_with edges emitted: 13
+  from r0c1 -> ['eos', 'r1c1'..'r1c5', 'r2c1'..'r8c1']
+```
+
+Five of those are the header row it genuinely heads. Eight are body cells it
+does not. The two flaws pull in opposite directions — one attaches nothing where
+it should attach seven rows, the other attaches a header to eight cells it does
+not govern — and they compound the rotation loss rather than offsetting it: the
+provision that went missing is absent from the rows it binds, while a banner
+that says nothing operative is bound to all of them.
 
 ## Why nothing was changed
 
