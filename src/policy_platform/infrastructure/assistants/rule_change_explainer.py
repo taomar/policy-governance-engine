@@ -16,11 +16,24 @@ reading it, never the source of it.
 
 The diff separates two things a reviewer weighs differently:
 
-- **semantic changes** — the fields the evaluator actually executes
-  (`rule_delta.SEMANTIC_FIELDS`). These change what the policy *does*.
-- **wording changes** — title and description. The model rewords freely between
-  runs, so these are reported but explicitly marked as not affecting behaviour.
-  Presenting them in the same list as a changed threshold would be misleading.
+- **semantic changes** — every top-level field on which `semantic_core` found
+  the two rules to differ, i.e. exactly what made the system call this rule
+  changed. `rule_delta.SEMANTIC_FIELDS` orders the ones a reviewer usually
+  wants first; anything else the core distinguished follows, in a stable
+  order. The list drives *sequence*, never *inclusion* — a display list can
+  safely be partial, but a display list used as a filter is a way of hiding
+  the reason a rule was flagged.
+- **wording changes** — title, description and the other presentational
+  fields. The model rewords freely between runs, so these are reported but
+  explicitly marked as not affecting behaviour. Presenting them in the same
+  list as a changed threshold would be misleading.
+
+Identity and display are deliberately not the same list, and this module does
+not try to make them one. Identity answers *is this the same rule*; this
+answers *what should a human look at*. What is not defensible is the second
+being silent about something the first counted: if the system decided two
+rules differ, the reviewer is shown why. So the floor is identity and the
+ceiling is higher — prose changes appear here and are ignored by identity.
 """
 from __future__ import annotations
 
@@ -33,20 +46,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.domain.models import CandidateRule, ExtractionRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
-from policy_platform.infrastructure.projection.rule_delta import SEMANTIC_FIELDS
+from policy_platform.infrastructure.projection.rule_delta import (
+    NON_SEMANTIC_PROSE,
+    SEMANTIC_FIELDS,
+    semantic_core,
+)
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 #: Presentational fields. Reported, but never counted as a behavioural change.
-PROSE_FIELDS = ("title", "description")
+#: Derived from the prose set identity excludes rather than restated, so the
+#: two cannot drift apart and leave a field reported by neither side. Title and
+#: description lead because they are what a reviewer reads first.
+PROSE_FIELDS: tuple[str, ...] = ("title", "description") + tuple(
+    sorted(NON_SEMANTIC_PROSE - {"title", "description"})
+)
 
 _EXPLAIN_SYSTEM_PROMPT = """You help a policy reviewer understand what changed \
 between two extractions of the same policy rule from a source document.
 
 You are given a deterministic JSON diff with two sections:
-- "semantic_changes": fields that change what the rule actually does when evaluated.
-- "wording_changes": title/description rewording that does NOT change behaviour.
+- "semantic_changes": fields that make this a different rule from its predecessor.
+- "wording_changes": presentational rewording that does NOT change behaviour.
 
 Write a short plain-English explanation (2-5 sentences) covering:
 1. what materially changed in the rule's behaviour, if anything;
@@ -74,6 +96,29 @@ def _diff_fields(before: dict, after: dict, fields: tuple[str, ...]) -> list[dic
         if old != new:
             out.append({"field": name, "before": old, "after": new})
     return out
+
+
+def semantic_diff(before: dict, after: dict) -> list[dict]:
+    """Every field on which the two rules' cores differ, in reading order.
+
+    Computed from `semantic_core` rather than from the raw payloads, which is
+    what makes the reported set exactly the set the system used to decide the
+    rules differ — not a subset of it, and not a superset containing churn the
+    identity deliberately ignores. A rule whose only difference is its position
+    in the model's output array is the same rule, and shows nothing here.
+
+    Before this, the diff walked `SEMANTIC_FIELDS` alone. Seven of those ten
+    fields are constant across the live corpus, while the fields carrying what
+    a rule actually decides — its trigger, its subject, its temporal constraint
+    — sit inside `formulation` and `attributes` and were walked by nothing. A
+    reviewer shown a `Changed` badge and an empty diff concludes the tool is
+    confused, and on that code they were right.
+    """
+    core_before, core_after = semantic_core(before), semantic_core(after)
+    present = set(core_before) | set(core_after)
+    ordered = [name for name in SEMANTIC_FIELDS if name in present]
+    ordered += sorted(present.difference(SEMANTIC_FIELDS))
+    return _diff_fields(core_before, core_after, tuple(ordered))
 
 
 async def explain_candidate_change(
@@ -122,7 +167,7 @@ async def explain_candidate_change(
         }
 
     before = baseline.payload_json or {}
-    semantic_changes = _diff_fields(before, after, SEMANTIC_FIELDS)
+    semantic_changes = semantic_diff(before, after)
     wording_changes = _diff_fields(before, after, PROSE_FIELDS)
 
     baseline_reference = None
