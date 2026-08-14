@@ -96,16 +96,23 @@ a passage discarded for not being a verbatim substring of its source, a batch
 whose formulation failed, and individual formulations that could not be mapped.
 The list is not the point; the ledger is.
 
-### What is deliberately not a skip
+### What belongs in the ledger, and what does not
 
-The model sometimes restates a rule it has already produced from the same clause
-in the same run. Those are recorded in a separate `repeated` list, never in
-`skipped`.
+Because coverage is read off `skipped`, the ledger's meaning has to stay exact:
+**an entry means material was not read.** Anything else appended to it silently
+changes what the run's status asserts.
 
-The distinction is exact: **a skip means material was not read; a repetition
-means material was read and recorded more than once.** Coverage is unharmed by
-the second. Conflating them would mark a run `completed_with_gaps` for having
-read the document correctly, which inverts the meaning of the status.
+The case to watch is a rule recorded more than once — a model restating itself,
+or two passes over the same material. That is not a gap. The material was read;
+it was recorded twice. Appending it to `skipped` would mark a run
+`completed_with_gaps` for having read the document correctly, which inverts the
+meaning of the status.
+
+This is a constraint on skip points rather than a description of a mechanism.
+Deriving coverage from the ledger is what makes a new skip count automatically,
+and it is the same property that makes the ledger's meaning load-bearing:
+whatever is appended to it inherits that meaning, whether or not the author
+appending it was thinking about run status.
 
 ### Why no migration was needed
 
