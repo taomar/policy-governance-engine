@@ -64,7 +64,7 @@ export function EffectivePolicyModal({
               {row.when.lines.map((line) => (
                 <Text key={line}>{line}</Text>
               ))}
-              <Tag bordered={false} color="orange" className="effective-policy-flag">
+              <Tag bordered={false} className="effective-policy-flag">
                 decided by reading
               </Tag>
             </Space>
