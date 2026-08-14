@@ -1,4 +1,4 @@
-import { API_UNREACHABLE_STATUS, PolicyPlatformApiError } from "./api";
+import { PolicyPlatformApiError } from "./api";
 
 /**
  * The vocabulary the interface was missing.
@@ -15,6 +15,15 @@ import { API_UNREACHABLE_STATUS, PolicyPlatformApiError } from "./api";
  *   unavailable  we could not ask, so we do not know
  *
  * `unavailable` is a true statement. A fabricated zero is not.
+ *
+ * There is deliberately no `isUnreachable` helper here. One was written and
+ * removed: every caller maps *any* failure to `unavailable`, because a 500 and
+ * a refused connection both leave us without the answer. What differs between
+ * them is the sentence shown to the reader, and that is already decided at the
+ * api.ts seam — a real HTTP failure keeps its own `detail`, a transport failure
+ * gets the "cannot reach" wording. The status distinction therefore never needs
+ * to be re-derived here, and an exported helper whose only callers were its own
+ * tests is the same dead-capability shape the reachability guard exists to find.
  */
 export type LoadState = "loading" | "ready" | "unavailable";
 
@@ -44,13 +53,4 @@ export function describeApiFailure(error: unknown): string {
 /** True when a message is really a developer-facing exception name. */
 function looksLikeExceptionName(message: string): boolean {
   return /^[A-Z]\w*Error\b/.test(message) || /^Failed to fetch$/i.test(message);
-}
-
-/**
- * Whether a failure means the server was never reached, as opposed to the
- * server answering with a refusal. Only the first justifies "we do not know" —
- * a 403 is a real answer and should not be dressed up as an outage.
- */
-export function isUnreachable(error: unknown): boolean {
-  return error instanceof PolicyPlatformApiError && error.status === API_UNREACHABLE_STATUS;
 }

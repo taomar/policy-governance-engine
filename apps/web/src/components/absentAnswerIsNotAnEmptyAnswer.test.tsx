@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Dashboard } from "./Dashboard";
 import { ProjectsPage } from "./ProjectsPage";
 import { ActorProvider } from "../ActorContext";
 import { api, PolicyPlatformApiError, API_UNREACHABLE_STATUS } from "../api";
-import { describeApiFailure, isUnreachable } from "../loadState";
+import { describeApiFailure } from "../loadState";
 
 /**
  * AN ABSENT ANSWER IS NOT AN EMPTY ANSWER.
@@ -71,6 +71,38 @@ function jsonResponse(body: unknown) {
 /** The server answers, and the answer is "there are none". */
 function serveEmpty() {
   vi.stubGlobal("fetch", vi.fn(async () => jsonResponse([])));
+}
+
+/** The server answers with real content. */
+function serveProjects() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/portfolio/summary")) {
+        return jsonResponse([
+          {
+            key: "handbook",
+            name: "Employee Handbook",
+            active_version_number: 1,
+            active_rule_count: 12,
+            review_pending: 4,
+            live_candidate_count: 20,
+            candidate_direct_count: 5,
+            candidate_reading_count: 15,
+            regression_test_count: 2,
+            test_count: 3,
+            latest_quality_high: 1,
+          },
+        ]);
+      }
+      if (url.includes("/api/policy-sets")) {
+        return jsonResponse([{ key: "handbook", name: "Employee Handbook", description: null }]);
+      }
+      if (url.includes("/api/documents")) return jsonResponse([]);
+      return jsonResponse([]);
+    }),
+  );
 }
 
 /**
@@ -175,6 +207,57 @@ describe("the register tells a reader whether it knows", () => {
   });
 });
 
+describe("dashboard panels stop waiting for an answer that was refused", () => {
+  // FLOOR. A panel that renders nothing passes every "does not say Loading"
+  // assertion below, so prove both panels reach a real answer first.
+  it("reaches a real answer for both panels when the server responds", async () => {
+    serveProjects();
+    renderDashboard();
+
+    expect(await screen.findByText(/4 candidate rules need a decision/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("1 projects");
+    });
+    expect(document.body.textContent).not.toContain("Loading review workload");
+    expect(document.body.textContent).not.toContain("Loading portfolio");
+  });
+
+  it("says the review workload is unavailable rather than loading forever", async () => {
+    refuseEverything();
+    renderDashboard();
+
+    await settleAfterRefusal();
+    expect(
+      document.body.textContent,
+      "the review queue panel never left its loading state after the fetch was refused",
+    ).not.toContain("Loading review workload");
+    expect(await screen.findByText(/Review workload unavailable/i)).toBeTruthy();
+  });
+
+  it("says the portfolio is unavailable rather than loading forever", async () => {
+    refuseEverything();
+    renderDashboard();
+
+    await settleAfterRefusal();
+    expect(
+      document.body.textContent,
+      "the portfolio panel never left its loading state after the fetch was refused",
+    ).not.toContain("Loading portfolio");
+    expect(await screen.findByText(/Portfolio unavailable/i)).toBeTruthy();
+  });
+
+  it("offers a way to ask again", async () => {
+    refuseEverything();
+    renderDashboard();
+
+    await settleAfterRefusal();
+    expect(
+      screen.queryAllByRole("button", { name: /Try again/i }).length,
+      "left a reader with two failed panels and no way to retry",
+    ).toBeGreaterThan(0);
+  });
+});
+
 describe("no internal exception name reaches a reader", () => {
   it("converts a refused fetch into an error that says what happened", async () => {
     refuseEverything();
@@ -188,10 +271,12 @@ describe("no internal exception name reaches a reader", () => {
       PolicyPlatformApiError,
     );
     const error = caught as PolicyPlatformApiError;
-    expect(error.status).toBe(API_UNREACHABLE_STATUS);
+    expect(
+      error.status,
+      "a refused fetch did not carry the unreachable status, so callers cannot tell it from a refusal",
+    ).toBe(API_UNREACHABLE_STATUS);
     expect(error.detail).not.toContain("TypeError");
     expect(error.detail).toMatch(/cannot reach/i);
-    expect(isUnreachable(error)).toBe(true);
   });
 
   // Do not weaken: a server that answers with a refusal is still answering,
@@ -213,9 +298,8 @@ describe("no internal exception name reaches a reader", () => {
     );
 
     const error = caught as PolicyPlatformApiError;
-    expect(error.status).toBe(404);
+    expect(error.status, "a 404 was reported as the server being unreachable").toBe(404);
     expect(error.detail).toBe("policy set not found");
-    expect(isUnreachable(error), "a 404 was reported as the server being unreachable").toBe(false);
   });
 
   it("never falls back to an exception name as the message", () => {
