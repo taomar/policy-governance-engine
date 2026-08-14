@@ -78,6 +78,7 @@ import {
   type ConditionRow,
 } from "../conditionRows";
 import { machineExecutableFor } from "../ruleExecutability";
+import { reviewQueueIsEmpty } from "../reviewQueueEmptiness";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
@@ -767,6 +768,28 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const totalCandidates = candidates.length;
 
   /**
+   * True when this project holds no candidate rules at all -- not "none matched
+   * the current filter", which is a different situation with a different
+   * remedy.
+   *
+   * The distinction decides how much apparatus the page is entitled to, and the
+   * reasoning behind it is in reviewQueueEmptiness.ts, where it is tested
+   * directly. The component renders the consequence.
+   */
+  const queueIsEmpty = reviewQueueIsEmpty(
+    totalCandidates,
+    {
+      status: statusFilter,
+      document: documentFilter,
+      run: runFilter,
+      delta: deltaFilter,
+      showRemoved,
+      search: searchText,
+    },
+    loading,
+  );
+
+  /**
    * An empty queue is ambiguous: it can mean "nothing matched" (a dead end)
    * or "this run changed nothing" (a successful no-op). Re-extracting an
    * unchanged document is the second case, and reading it as failure would
@@ -1310,6 +1333,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               </Row>
             )}
 
+            {queueIsEmpty ? (
+              <div className="review-queue-empty">
+                <Text strong>No candidate rules yet</Text>
+                <Text type="secondary">
+                  Rules appear here once a document has been added to this
+                  project and an extraction run has finished. You can also write
+                  one by hand with “Draft Candidate Rule” above.
+                </Text>
+              </div>
+            ) : (
+              <>
             <ReviewStatusTabs
               value={statusFilter}
               onChange={(v) => setStatusFilter(v as typeof statusFilter)}
@@ -1562,9 +1596,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 )}
               </div>
             )}
+              </>
+            )}
             </div>
           </section>
 
+          {!queueIsEmpty && (
           <section className="project-overview-panel publish-card">
             <div className="project-overview-panel__header">
               <div>
@@ -1620,6 +1657,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             )}
             </div>
           </section>
+          )}
         </>
       )}
 

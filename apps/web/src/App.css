@@ -11099,3 +11099,17 @@
   font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   opacity: 0.65;
 }
+
+/* An empty review queue.
+   The queue's apparatus -- status tabs, operation counters, filter bar,
+   content-kind switch, search, export and the two-pane 750px workspace -- is
+   sized for a queue with records in it. When the project has none, all of it is
+   suppressed in ReviewQueue.tsx and this single block stands in its place, so a
+   project with no work in it stops looking like a project with all of it. */
+.review-queue-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 2px 6px;
+  max-width: 62ch;
+}
