@@ -36,6 +36,7 @@ import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { RuleVersionHistory } from "./RuleVersionHistory";
+import { DirectionalText } from "./DirectionalText";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import {
@@ -216,7 +217,7 @@ export function PolicyInspector({
               onClick={() => onSelectRule(target)}
               title={`${rid} — jump to this rule`}
             >
-              {target.title}
+              <DirectionalText>{target.title}</DirectionalText>
             </Tag>
           );
         }
@@ -897,7 +898,7 @@ export function PolicyInspector({
       <div className="policy-inspector-header">
         <div className="policy-inspector-title-row">
           <Title level={5} className="policy-inspector-title">
-            {rule.title}
+            <DirectionalText>{rule.title}</DirectionalText>
           </Title>
           <span className="policy-row-flags">
             {rule.is_explicit_override && (

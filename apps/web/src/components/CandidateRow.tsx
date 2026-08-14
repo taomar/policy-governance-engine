@@ -19,6 +19,7 @@ import type { BandGeometry } from "../bandGeometry";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { colorForCategory } from "../policyCategories";
+import { DirectionalText } from "./DirectionalText";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { DELTA_META } from "./ReviewFilterBar";
 
@@ -134,7 +135,9 @@ export function CandidateRow({
       )}
       <div className="policy-row-main">
         <div className="policy-row-line1">
-          <span className="policy-row-title">{rule.title}</span>
+          <span className="policy-row-title">
+            <DirectionalText>{rule.title}</DirectionalText>
+          </span>
           <span className="policy-row-flags">
             {rule.is_explicit_override && (
               <Tooltip title="Explicit override — outranks otherwise-applicable rules">

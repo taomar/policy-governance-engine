@@ -25,6 +25,7 @@ import { ambiguityMeta, describeScope, hasAmbiguityFlag, isEmptyCondition } from
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
 import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { withRuleIdentity } from "../ruleIdentity";
+import { DirectionalText } from "./DirectionalText";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
 const { Text, Paragraph } = Typography;
@@ -123,7 +124,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
     <div className="rule-card-header">
       <div className="rule-card-heading">
         <Text strong className="rule-card-title">
-          {rule.title}
+          <DirectionalText>{rule.title}</DirectionalText>
         </Text>
         <div className="rule-card-meta">
           <PolicyEffectBadge effect={rule.effect} size="small" />
@@ -207,7 +208,11 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
           label: header,
           children: (
             <div className="rule-card-body">
-              {rule.description && <Paragraph type="secondary">{rule.description}</Paragraph>}
+              {rule.description && (
+                <Paragraph type="secondary">
+                  <DirectionalText align>{rule.description}</DirectionalText>
+                </Paragraph>
+              )}
 
               <div className="entity-band">
                 <div className="entity-band-row">

@@ -29,6 +29,7 @@ import {
   type CorrelationRunSummary,
 } from "../api";
 import { useActor } from "../ActorContext";
+import { DirectionalText } from "./DirectionalText";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -474,7 +475,11 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       {ev.rule_id || `rule #${ev.policy_index}`}
                     </Text>
-                    {ev.source_text && <Paragraph style={{ margin: 0 }}>“{ev.source_text}”</Paragraph>}
+                    {ev.source_text && (
+                      <Paragraph style={{ margin: 0 }}>
+                        “<DirectionalText align>{ev.source_text}</DirectionalText>”
+                      </Paragraph>
+                    )}
                   </div>
                 ))}
               </div>

@@ -3,6 +3,8 @@ import { Button, Drawer, Empty, Input, message, Select, Space, Spin, Tag, Typogr
 import { CopyOutlined, FileTextOutlined, SearchOutlined, TableOutlined } from "@ant-design/icons";
 import type { Clause } from "../api";
 import { getClausesForDocumentVersion } from "../clauseCache";
+import { baseDirection } from "../directionalText";
+import { DirectionalText } from "./DirectionalText";
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -31,16 +33,18 @@ function escapeRegExp(value: string): string {
  * highlighting — never alters the underlying verbatim text, only how it's displayed. */
 function highlightMatches(text: string, query: string): React.ReactNode {
   const trimmed = query.trim();
-  if (!trimmed) return text;
+  if (!trimmed) return <DirectionalText>{text}</DirectionalText>;
   const parts = text.split(new RegExp(`(${escapeRegExp(trimmed)})`, "ig"));
-  if (parts.length === 1) return text;
+  if (parts.length === 1) return <DirectionalText>{text}</DirectionalText>;
   return parts.map((part, i) =>
     part.toLowerCase() === trimmed.toLowerCase() ? (
       <mark key={i} className="doc-body-highlight">
-        {part}
+        <DirectionalText>{part}</DirectionalText>
       </mark>
     ) : (
-      <span key={i}>{part}</span>
+      <span key={i}>
+        <DirectionalText>{part}</DirectionalText>
+      </span>
     )
   );
 }
@@ -222,13 +226,18 @@ export function DocumentBodyDrawer({
               {showPageMarker && clause.page !== null && <div className="doc-body-page-marker">Page {clause.page}</div>}
               {showSection && clause.section && (
                 <Title level={5} className="doc-body-section-heading">
-                  {clause.section}
+                  <DirectionalText align>{clause.section}</DirectionalText>
                 </Title>
               )}
               <div id={`doc-body-clause-${clause.id}`} className={isTableRow ? "doc-body-table-row" : "doc-body-paragraph"}>
                 {isTableRow && <TableOutlined className="doc-body-table-icon" />}
                 <div className="doc-body-paragraph-main">
-                  <Paragraph className="doc-body-paragraph-text">{highlightMatches(clause.text, query)}</Paragraph>
+                  <Paragraph
+                    className="doc-body-paragraph-text directional-text--block"
+                    dir={baseDirection(clause.text)}
+                  >
+                    {highlightMatches(clause.text, query)}
+                  </Paragraph>
                   <Text type="secondary" className="doc-body-clause-ref">
                     {clause.clause_ref}
                   </Text>

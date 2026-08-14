@@ -22,6 +22,7 @@ import {
 } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
+import { DirectionalText } from "./DirectionalText";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
 export type PolicyDensity = "comfortable" | "compact";
@@ -78,17 +79,19 @@ interface PolicyRowProps {
 
 function highlight(text: string, query?: string): React.ReactNode {
   const q = query?.trim();
-  if (!q) return text;
+  if (!q) return <DirectionalText>{text}</DirectionalText>;
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parts = text.split(new RegExp(`(${escaped})`, "ig"));
-  if (parts.length === 1) return text;
+  if (parts.length === 1) return <DirectionalText>{text}</DirectionalText>;
   return parts.map((part, i) =>
     part.toLowerCase() === q.toLowerCase() ? (
       <mark key={i} className="policy-row-highlight">
-        {part}
+        <DirectionalText>{part}</DirectionalText>
       </mark>
     ) : (
-      <span key={i}>{part}</span>
+      <span key={i}>
+        <DirectionalText>{part}</DirectionalText>
+      </span>
     )
   );
 }

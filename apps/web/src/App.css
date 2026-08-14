@@ -10941,3 +10941,39 @@
   font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   opacity: 0.65;
 }
+
+/* ---------------------------------------------------------------------------
+   Bidirectional text
+   ---------------------------------------------------------------------------
+   Every run of text that may not be in the interface's own direction is
+   rendered inside a <bdi>, which the user-agent stylesheet already gives
+   `unicode-bidi: isolate`. There is deliberately no rule here that sets
+   `direction` or `unicode-bidi` on a class: direction is carried by the `dir`
+   attribute on the run itself, so it travels with the markup into a copied
+   selection, a printed page and a screen reader, and cannot be lost by a
+   stylesheet failing to load or a container overriding a class.
+*/
+
+/* Align a block to the side its own base direction starts from. `start` is the
+   logical keyword, so one rule right-aligns an Arabic paragraph and
+   left-aligns an English one without asking which language it is.
+   `text-align` only governs a box that owns its line boxes, so the wrapper is
+   promoted out of the inline flow here; measured without it, the last line of
+   an Arabic paragraph sat flush left. */
+.directional-text--block {
+  display: block;
+  text-align: start;
+}
+
+/* A run whose two scripts are interleaved character by character was damaged
+   before it reached this screen. It is shown exactly as stored — nothing here
+   repairs it — but it is not allowed to look like ordinary prose, because a
+   reviewer who cannot read the script has no other way to tell the difference
+   between text they cannot read and text that is not text. */
+.directional-text__interleaved {
+  background: var(--warning-bg, #fff8c5);
+  border-bottom: 2px dotted var(--warning, #9a6700);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+}
