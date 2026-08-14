@@ -11,6 +11,7 @@ the end of each document.
 | [`duplicate-detection.md`](duplicate-detection.md) | Three attempts at one check; the first merged two real rules, the second hid two real duplicates |
 | [`display-overclaims.md`](display-overclaims.md) | Where the UI stated something the data did not, including `WHEN Always` on conditioned rules |
 | [`designed-pipeline-and-running-pipeline.md`](designed-pipeline-and-running-pipeline.md) | Nine designed extraction stages, two reached; why ten dead subsystems are one fact, and the order they depend on |
+| [`rotated-cell-content-loss.md`](rotated-cell-content-loss.md) | A provision lost in a rotated merged cell; three mechanisms behaved correctly and the content still vanished |
 
 ---
 
