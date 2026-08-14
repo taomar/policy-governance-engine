@@ -13,6 +13,7 @@ import collections
 import json
 import logging
 from datetime import date
+from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +38,7 @@ from policy_platform.infrastructure.quality.logic_faithfulness import (
     MismatchShape,
     judge_logic,
 )
+from policy_platform.infrastructure.quality.methodology import derive_methodology_version
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
@@ -48,7 +50,13 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-QUALITY_METHODOLOGY_VERSION = "2"
+#: Derived from the detector suite below rather than declared here -- see
+#: `methodology.py`. The value this replaced was hand-maintained at "2" and
+#: stayed there while the suite changed enough to take one unchanged
+#: 273-record set from 23 findings to 99, so every one of that set's seven
+#: recorded runs claims a methodology it does not share. Assigned after
+#: `_deterministic_findings` is defined, because it is computed from it.
+QUALITY_METHODOLOGY_VERSION: str
 
 #: Fixed so repeated reviews of an unchanged rule set ask the service for the
 #: same sampling every time. Measured, and it does not work: six live reviews of
@@ -291,6 +299,29 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     return findings
 
 
+@lru_cache(maxsize=1)
+def _quality_methodology_version() -> str:
+    """Computed once per process, on first read.
+
+    Deferred rather than assigned at import because the detectors this
+    derives from are defined further down the module. Deferring also means
+    adding a detector cannot break the import order.
+    """
+    return derive_methodology_version(_deterministic_findings)
+
+
+def __getattr__(name: str) -> str:
+    # PEP 562. Serves readers outside this module -- tests and the harness read
+    # `ai_quality.QUALITY_METHODOLOGY_VERSION` and get the derived value.
+    #
+    # It does NOT serve this module's own code: a bare global lookup inside a
+    # function here bypasses module __getattr__ entirely and raises NameError.
+    # In-module call sites therefore call `_quality_methodology_version()`.
+    if name == "QUALITY_METHODOLOGY_VERSION":
+        return _quality_methodology_version()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 #: How a logic-faithfulness verdict ranks among the findings a reviewer sees.
 #: `reextraction` sits below a fabricated claim and above a note, because it is
 #: serious but nobody reading the record can act on it — the document has to be
@@ -338,6 +369,16 @@ _LOGIC_RECOMMENDATION_BY_CODE: dict[str, str] = {
         "Record who exercises the discretion, or note that the source leaves it "
         "unnamed."
     ),
+    "polarity_lost_in_projection": (
+        "Re-extract this sentence. The effect states the opposite of the source, so "
+        "the record cannot be corrected by editing its wording — and until it is, "
+        "any decision made from it recommends the conduct the policy forbids."
+    ),
+    "polarity_doubled_in_projection": (
+        "Re-extract this sentence. The negation is applied twice — once by the "
+        "effect and once inside the action — so the two cancel and the record "
+        "requires what the source forbids."
+    ),
 }
 
 _LOGIC_RECOMMENDATION_FALLBACK = (
@@ -369,7 +410,7 @@ def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
         canonical = rule.formulation.canonical if rule.formulation else None
         if canonical is None:
             continue
-        for finding in judge_logic(canonical).findings:
+        for finding in judge_logic(canonical, rule.effect).findings:
             findings.append(
                 {
                     "severity": _LOGIC_SEVERITY[finding.severity],
@@ -1213,7 +1254,7 @@ async def evaluate_policy_set_quality(
             rule_count=len(rules),
             findings=findings,
             ai_review_used=ai_review_used,
-            methodology_version=QUALITY_METHODOLOGY_VERSION,
+            methodology_version=_quality_methodology_version(),
             triggered_by=triggered_by,
         )
         await session.commit()
@@ -1232,7 +1273,7 @@ async def evaluate_policy_set_quality(
         "run_at": run_at,
         "ai_review_used": ai_review_used,
         "triggered_by": triggered_by,
-        "methodology_version": QUALITY_METHODOLOGY_VERSION,
+        "methodology_version": _quality_methodology_version(),
     }
 
 
@@ -1298,7 +1339,7 @@ async def evaluate_candidate_quality(
             rule_count=len(rules),
             findings=findings,
             ai_review_used=ai_review_used,
-            methodology_version=QUALITY_METHODOLOGY_VERSION,
+            methodology_version=_quality_methodology_version(),
             triggered_by=triggered_by,
         )
         await session.commit()
@@ -1318,7 +1359,7 @@ async def evaluate_candidate_quality(
         "run_at": run_at,
         "ai_review_used": ai_review_used,
         "triggered_by": triggered_by,
-        "methodology_version": QUALITY_METHODOLOGY_VERSION,
+        "methodology_version": _quality_methodology_version(),
     }
 
 
