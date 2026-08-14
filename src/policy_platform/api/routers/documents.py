@@ -181,6 +181,15 @@ async def upload_document(
         ingestion_diagnostics = [
             d.model_dump() for d in document_extraction.ingestion_warnings(canonical)
         ]
+        # Appended rather than routed through ingestion_warnings, which keeps
+        # only warning and error. This one is deliberately info: it says the
+        # evidence for an element shares its character range with a neighbour,
+        # which is a property of the source, not a defect in the document. It
+        # is reported at the point both converter paths converge so neither
+        # parser has to carry its own copy of the rule.
+        ingestion_diagnostics.extend(
+            d.model_dump() for d in canonical.shared_span_diagnostics()
+        )
         clause_repo = ClauseRepository(session)
         clauses = await clause_repo.bulk_create(
             document_version_id=doc_version.id,

@@ -335,6 +335,149 @@ class ConversionProvenance(BaseModel):
 FidelityStatus = Literal["complete", "degraded", "unsupported_source"]
 
 
+#: Why a recorded fragment does or does not equal the slice its offsets delimit.
+#:
+#: ``resolved``            the slice is exactly the recorded text.
+#: ``span_not_isolating``  every recorded character is present at the declared
+#:                         offsets, in order, but interleaved with characters
+#:                         belonging to a *different* element. The evidence is
+#:                         real and correctly located; a single (start, end)
+#:                         pair simply cannot express it. This happens wherever
+#:                         a parser emits two adjacent cells' characters in one
+#:                         run, which a two-column table does by construction.
+#: ``whitespace_only``     the same non-space characters in the same order, but
+#:                         the whitespace differs. Treated as a failure: it is a
+#:                         real deviation from the source and nothing has yet
+#:                         shown it to be harmless.
+#: ``text_absent``         characters the fragment claims are not there, or the
+#:                         slice contains characters belonging to no element at
+#:                         all, meaning content was dropped. A data error.
+#: ``page_missing``        the fragment names a page the document does not have.
+FragmentResolution = Literal[
+    "resolved",
+    "span_not_isolating",
+    "whitespace_only",
+    "text_absent",
+    "page_missing",
+]
+
+#: The resolutions that mean the recorded text does not resolve to its offsets.
+#: ``span_not_isolating`` is deliberately absent: reporting it as a failure is
+#: an overclaim, because the text *is* at the offsets given.
+UNRESOLVED_FRAGMENT_RESOLUTIONS: frozenset[str] = frozenset(
+    {"whitespace_only", "text_absent", "page_missing"}
+)
+
+
+class FragmentFinding(BaseModel):
+    """One fragment's verification verdict together with the reason it reached.
+
+    ``verify_fragments`` answers "did this resolve"; this answers "and why
+    not", which is the difference between a data error and a limit of the
+    two-offset representation. Reporting the second as the first raises an
+    error on correctly-ingested content, and an error that fires on healthy
+    input trains its reader to ignore it.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    element_id: str
+    page: int
+    start_offset: int
+    end_offset: int
+    resolution: FragmentResolution
+    detail: str = ""
+
+    @property
+    def resolves(self) -> bool:
+        return self.resolution not in UNRESOLVED_FRAGMENT_RESOLUTIONS
+
+
+def _classify_fragment_text(
+    text: str,
+    raw: str,
+    start_offset: int,
+    end_offset: int,
+    element_id: str,
+    spans: list[tuple[int, int, str]],
+) -> tuple[FragmentResolution, str]:
+    """Decide why ``text`` differs from ``raw[start_offset:end_offset]``.
+
+    Two questions are asked, and both must pass before a difference is excused.
+
+    1. Is every non-space character of the recorded text present in the window,
+       in order? If not, the fragment claims text the source does not have.
+    2. Are the window's remaining characters claimed by a *different* element?
+       If not, this fragment silently dropped content.
+
+    Question 2 is what makes the check safe. An ordered-subsequence test alone
+    is far too weak to excuse anything: "shall pay" is an ordered subsequence
+    of "shall not pay", so a dropped negation would look identical to an
+    interleaved table column. Requiring the skipped characters to belong to a
+    named neighbour distinguishes them, because dropped content belongs to
+    nobody.
+    """
+
+    wanted = [character for character in text if not character.isspace()]
+    if not wanted:
+        return (
+            "text_absent",
+            "the fragment records no text, but its offsets delimit source characters",
+        )
+
+    matched = 0
+    skipped: list[int] = []
+    for offset in range(start_offset, end_offset):
+        character = raw[offset]
+        if character.isspace():
+            continue
+        if matched < len(wanted) and character == wanted[matched]:
+            matched += 1
+        else:
+            skipped.append(offset)
+
+    if matched < len(wanted):
+        return (
+            "text_absent",
+            f"{len(wanted) - matched} of {len(wanted)} recorded characters are not "
+            "present at these offsets",
+        )
+
+    if not skipped:
+        return (
+            "whitespace_only",
+            "the same characters in the same order, but the whitespace differs",
+        )
+
+    neighbours = {
+        owner
+        for offset in skipped
+        for span_start, span_end, owner in spans
+        if owner != element_id and span_start <= offset < span_end
+    }
+    unclaimed = [
+        offset
+        for offset in skipped
+        if not any(
+            owner != element_id and span_start <= offset < span_end
+            for span_start, span_end, owner in spans
+        )
+    ]
+    if unclaimed:
+        return (
+            "text_absent",
+            f"{len(unclaimed)} source characters between these offsets belong to no "
+            "element, so content was dropped rather than shared",
+        )
+
+    return (
+        "span_not_isolating",
+        f"every recorded character is present at these offsets, interleaved with "
+        f"{len(skipped)} characters belonging to "
+        f"{', '.join(sorted(neighbours))}, so no single span can isolate it",
+    )
+
+
 class CanonicalDocument(BaseModel):
     """A fully ingested document: raw pages plus the ordered logical elements."""
 
@@ -371,6 +514,108 @@ class CanonicalDocument(BaseModel):
     def has_errors(self) -> bool:
         return any(diagnostic.severity == "error" for diagnostic in self.diagnostics)
 
+    def verify_fragments_detailed(self) -> list[FragmentFinding]:
+        """Verify every fragment and record *why* each one reached its verdict.
+
+        ``verify_fragments`` reports what failed. This reports what happened,
+        including the successes, so a caller can tell a data error from a
+        fragment whose evidence is correctly located but shares its character
+        range with a neighbouring element.
+        """
+
+        by_page = {page.page: page.raw_text for page in self.pages}
+        spans_by_page: dict[int, list[tuple[int, int, str]]] = {}
+        for element in self.elements:
+            for fragment in element.source_fragments:
+                spans_by_page.setdefault(fragment.page, []).append(
+                    (fragment.start_offset, fragment.end_offset, element.element_id)
+                )
+
+        findings: list[FragmentFinding] = []
+        for element in self.elements:
+            for fragment in element.source_fragments:
+                raw = by_page.get(fragment.page)
+                if raw is None:
+                    findings.append(
+                        FragmentFinding(
+                            element_id=element.element_id,
+                            page=fragment.page,
+                            start_offset=fragment.start_offset,
+                            end_offset=fragment.end_offset,
+                            resolution="page_missing",
+                            detail=f"page {fragment.page} is not in this document",
+                        )
+                    )
+                    continue
+
+                if raw[fragment.start_offset : fragment.end_offset] == fragment.text:
+                    resolution: FragmentResolution = "resolved"
+                    detail = ""
+                else:
+                    resolution, detail = _classify_fragment_text(
+                        fragment.text,
+                        raw,
+                        fragment.start_offset,
+                        fragment.end_offset,
+                        element.element_id,
+                        spans_by_page.get(fragment.page, []),
+                    )
+
+                findings.append(
+                    FragmentFinding(
+                        element_id=element.element_id,
+                        page=fragment.page,
+                        start_offset=fragment.start_offset,
+                        end_offset=fragment.end_offset,
+                        resolution=resolution,
+                        detail=detail,
+                    )
+                )
+        return findings
+
+    def fragments_with_shared_spans(self) -> list[FragmentFinding]:
+        """Fragments whose evidence is correct but whose span cannot isolate it.
+
+        Not a failure, and deliberately not silent: ``resolve_span`` returns the
+        whole slice, so a reviewer following this element's evidence sees the
+        neighbouring element's characters mixed in. That is worth reporting and
+        is not worth refusing the document over.
+        """
+
+        return [
+            finding
+            for finding in self.verify_fragments_detailed()
+            if finding.resolution == "span_not_isolating"
+        ]
+
+    def shared_span_diagnostics(self) -> list[IngestionDiagnostic]:
+        """Report shared spans so removing the false error does not create silence.
+
+        Severity is ``info``, not ``warning``: nothing is wrong with the
+        document or with the extraction. What a reader needs to know is narrower
+        and specific — that following one element's evidence link will show a
+        neighbouring element's characters too, because the source interleaves
+        them and a character range cannot separate them.
+        """
+
+        shared = self.fragments_with_shared_spans()
+        if not shared:
+            return []
+        first = shared[0]
+        return [
+            IngestionDiagnostic(
+                code="fragment_span_not_isolating",
+                severity="info",
+                page=first.page,
+                detail=(
+                    f"{len(shared)} element(s) share a character range with a neighbour, "
+                    "so following their evidence shows both elements' text. The recorded "
+                    f"text itself is present and correct at the offsets given. First: "
+                    f"{first.element_id} on page {first.page}."
+                ),
+            )
+        ]
+
     def verify_fragments(self) -> list[str]:
         """Prove every recorded offset resolves to the text it claims.
 
@@ -378,23 +623,27 @@ class CanonicalDocument(BaseModel):
         assumed. It is cheap, so it runs on every ingest: an offset that does
         not resolve makes an unverifiable extraction look verified, which is
         worse than having no provenance at all.
+
+        A fragment whose characters are all present at the offsets given, but
+        interleaved with a neighbouring element's, is *not* reported here. Its
+        offsets do resolve to its text; what fails is the assumption that a
+        character range holds one element's content, which a multi-column table
+        breaks by construction. See ``fragments_with_shared_spans``.
         """
 
-        failures: list[str] = []
-        by_page = {page.page: page.raw_text for page in self.pages}
-        for element in self.elements:
-            for fragment in element.source_fragments:
-                raw = by_page.get(fragment.page)
-                if raw is None:
-                    failures.append(f"{element.element_id}: page {fragment.page} missing")
-                    continue
-                if raw[fragment.start_offset : fragment.end_offset] != fragment.text:
-                    failures.append(
-                        f"{element.element_id}: offsets "
-                        f"{fragment.start_offset}:{fragment.end_offset} on page {fragment.page} "
-                        "do not resolve to the recorded text"
-                    )
-        return failures
+        return [
+            f"{finding.element_id}: "
+            + (
+                f"page {finding.page} missing"
+                if finding.resolution == "page_missing"
+                else (
+                    f"offsets {finding.start_offset}:{finding.end_offset} on page "
+                    f"{finding.page} do not resolve to the recorded text"
+                )
+            )
+            for finding in self.verify_fragments_detailed()
+            if not finding.resolves
+        ]
 
 
 class SpanReference(BaseModel):
