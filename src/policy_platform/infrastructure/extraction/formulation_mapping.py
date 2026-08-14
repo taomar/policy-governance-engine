@@ -1973,13 +1973,38 @@ def formulation_to_candidate_rules(
         #     the strength of the thing that declined to execute.
         #
         # Only the first is a licence to read the sentence alone.
+        #
+        # That licence governs *adoption*, not *diagnosis*, and the two were
+        # conflated until a live run showed the cost. Every formulated policy in
+        # production carries a declared decision, so guarding the whole block on
+        # `not decisions` did not narrow this fallback — it switched it off, and
+        # with it the only thing that could say which quantity failed. The
+        # result was a rule reading "48 hours in a week" filed under
+        # `no_scope_derived`: the category was reported and the evidence was
+        # withheld, leaving a reviewer a refusal they could only believe.
+        #
+        # So the sentence is now always read, and what is done with the answer
+        # still depends on what else spoke:
+        #
+        #   - a refusal is reported whatever declared, because explaining an
+        #     empty tree invents nothing and the tree really is empty;
+        #   - a compiled condition is adopted only where nothing else declared
+        #     one, exactly as before.
+        #
+        # A quantity that compiled but was not adopted is discarded rather than
+        # passed on. It would otherwise be reported as `derived_from_stated_quantity`
+        # — a derivation the record does not contain, claimed on the strength of
+        # a compiler whose output was thrown away.
         quantity = None
-        if not decisions and stated_bound is None:
+        if stated_bound is None:
             quantity = project_stated_quantity(canonical_rule)
             if quantity is not None and quantity.condition is not None:
-                condition = quantity.condition
-                required_facts = list(quantity.facts)
-                machine_executable = True
+                if decisions:
+                    quantity = None
+                else:
+                    condition = quantity.condition
+                    required_facts = list(quantity.facts)
+                    machine_executable = True
 
         # Why the tree is empty, when it is. Recorded rather than inferred later
         # from the tree's shape, because the shape cannot distinguish "no
