@@ -61,6 +61,36 @@ export const CONDITION_ROUTE: Record<string, ConditionRoute> = {
       "The sentence states its own limit — a named quantity against a fixed value — so the comparison above was read straight out of it. A case is settled by computing it, and the check is against that one sentence.",
     color: "green",
   },
+  derived_from_stated_quantity: {
+    route: DETERMINISTIC_LABEL.yes,
+    reason:
+      "The sentence states a quantity and the comparison to make against it — a limit in the source's own words and units. That comparison was read straight out of it, so a case is settled by computing it against this one sentence.",
+    color: "green",
+  },
+  quantity_states_a_range: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states a range rather than a single limit, leaving the choice within it to whoever applies the rule. There is no one comparison to compute, so a judge settles a case by reading the record against the source's words.",
+    color: "blue",
+  },
+  quantity_states_no_comparison: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states a quantity but not a test to make of it — what the figure is, rather than what must be true of it. Supplying a comparison would mean inventing a limit the document never set, so this record travels as words and a judge reads them.",
+    color: "blue",
+  },
+  quantity_not_read_as_number: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states its quantity in a form this platform does not yet read as a number. The figure is in the record and in the source; only the compiler fell short, so a judge settles a case by reading it.",
+    color: "blue",
+  },
+  proportion_has_no_stated_base: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states a percentage without saying what it is a percentage of. A comparison needs both quantities, and naming the second would mean choosing one the document did not, so a judge settles a case by reading the record.",
+    color: "blue",
+  },
   conditions_not_projected: {
     route: DETERMINISTIC_LABEL.no,
     reason:

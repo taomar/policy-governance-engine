@@ -124,6 +124,10 @@ from policy_platform.infrastructure.extraction.policy_facts import (
     parse_proportion,
     published_facts,
 )
+from policy_platform.infrastructure.extraction.quantity_projection import (
+    QuantityProjection,
+    project_stated_quantity,
+)
 
 #: Canonical rule type -> (platform rule type, effect). Every entry is a
 #: judgement call about the closest *evaluator* semantic, documented here
@@ -933,6 +937,7 @@ def condition_provenance(
     derived: object | None,
     outcome: "ConditionDerivation | None" = None,
     from_stated_bound: bool = False,
+    quantity: "QuantityProjection | None" = None,
 ) -> ConditionProvenance:
     """Explain *why* a rule's condition tree looks the way it does.
 
@@ -975,10 +980,25 @@ def condition_provenance(
     if from_stated_bound:
         return ConditionProvenance(code="derived_from_stated_bound")
 
+    if quantity is not None and quantity.compiled:
+        return ConditionProvenance(code="derived_from_stated_quantity")
+
     if outcome is not None and outcome.platform_limited:
         return ConditionProvenance(
             code="conditions_not_representable",
             unsupported_expression=outcome.unsupported_expression,
+        )
+
+    # A quantity that reached the record and did not compile outranks the two
+    # generic codes below, and that precedence is the gate. `no_scope_derived`
+    # says the source states no test; said of a rule carrying "more than 15
+    # minutes" that is simply false, and it was said of every such rule until
+    # this branch existed. The quantity's own words travel with the code so the
+    # refusal can be checked rather than believed.
+    if quantity is not None and quantity.refusal is not None:
+        return ConditionProvenance(
+            code=quantity.refusal.value,
+            unprojected_quantity=quantity.quantity_text,
         )
 
     if stated:
@@ -1036,8 +1056,31 @@ def condition_provenance_for(
         and condition_from_stated_bound(formulation.canonical.rule) is not None
         and (condition is None or not _is_vacuous(condition))
     )
+    # Same discipline for the quantity compiler, and for the same reason. A
+    # record extracted before it existed carries `all: []` while its sentence
+    # states a compilable quantity, so claiming a derivation would describe a
+    # comparison the record does not contain.
+    #
+    # A *refusal* is let through unguarded, because a refusal explains an empty
+    # tree and an empty tree is exactly what those records have. Suppressing it
+    # would send them back to `no_scope_derived` — the false statement this
+    # change exists to remove — for the records that most need the true one.
+    quantity = (
+        project_stated_quantity(formulation.canonical.rule) if derived is None else None
+    )
+    if (
+        quantity is not None
+        and quantity.compiled
+        and condition is not None
+        and _is_vacuous(condition)
+    ):
+        quantity = None
     return condition_provenance(
-        formulation.canonical, derived, blocking, from_stated_bound=from_stated_bound
+        formulation.canonical,
+        derived,
+        blocking,
+        from_stated_bound=from_stated_bound,
+        quantity=quantity,
     )
 
 
@@ -1909,11 +1952,44 @@ def formulation_to_candidate_rules(
                 condition, required_facts = stated_bound
                 machine_executable = True
 
+        # The shape documents actually use: an absolute quantity with a unit and
+        # a stated comparison — "more than 15 minutes", "at least 12 months".
+        # Read last, so a declared decision wins over a proportional bound and
+        # both win over this. Where it refuses, it says why, and that reason is
+        # what `condition_provenance` turns into a code a reviewer can see.
+        #
+        # Guarded on `not decisions`, not merely on `derived is None`, and the
+        # difference is the whole safety of this fallback. `derived is None`
+        # answers "did anything compile", which is true in two situations that
+        # must not be treated alike:
+        #
+        #   - the formulator declared no decision at all, so the sentence is the
+        #     only thing that ever spoke. Reading it invents nothing.
+        #   - the formulator declared a decision and *refused* it — enrichment
+        #     required, or a row/rule pairing it would have had to guess at.
+        #     That refusal is a finding. Compiling a condition anyway would
+        #     overturn a deliberate abstention by a component that looked at
+        #     more than this sentence, and would mark the result executable on
+        #     the strength of the thing that declined to execute.
+        #
+        # Only the first is a licence to read the sentence alone.
+        quantity = None
+        if not decisions and stated_bound is None:
+            quantity = project_stated_quantity(canonical_rule)
+            if quantity is not None and quantity.condition is not None:
+                condition = quantity.condition
+                required_facts = list(quantity.facts)
+                machine_executable = True
+
         # Why the tree is empty, when it is. Recorded rather than inferred later
         # from the tree's shape, because the shape cannot distinguish "no
         # conditions exist" from "conditions exist but were not projected".
         provenance = condition_provenance(
-            policy, derived, blocking, from_stated_bound=stated_bound is not None
+            policy,
+            derived,
+            blocking,
+            from_stated_bound=stated_bound is not None,
+            quantity=quantity,
         )
 
         # The facts this policy names, and the attribute table that pairs each

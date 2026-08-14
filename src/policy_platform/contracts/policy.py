@@ -144,6 +144,16 @@ class RequiredFact(BaseModel):
     name: str
     data_type: str
     required: bool = True
+    #: What the number counts, in the document's own words — "minutes",
+    #: "calendar days", "months". Empty when the source named none.
+    #:
+    #: Load-bearing wherever a condition compares a fact against a bare literal.
+    #: "lateness > 15" is not a rule until something says fifteen *of what*, and
+    #: a consumer holding seconds would satisfy it with a quarter of a minute.
+    #: Carried verbatim and never mapped onto a canonical vocabulary, because
+    #: "calendar days" and "working days" are different quantities and a table
+    #: that flattened them would change what rules mean without saying so.
+    unit: str = ""
 
 
 class EvidenceReference(BaseModel):
@@ -660,9 +670,19 @@ def _facts_named_by(condition: object) -> list[str]:
 CONDITION_PROVENANCE_CODES: Final[tuple[str, ...]] = (
     "derived",
     "derived_from_stated_bound",
+    "derived_from_stated_quantity",
     "conditions_not_projected",
     "conditions_not_representable",
     "no_scope_derived",
+    # A quantity reached the record and did not become a condition. Each code
+    # names what the source supplied instead of a test. Until these existed the
+    # whole set collapsed into `no_scope_derived` — "the source states no test"
+    # — which was untrue of a rule carrying a threshold and a unit, and left a
+    # reviewer no way to find the rules worth a second look.
+    "quantity_states_a_range",
+    "quantity_states_no_comparison",
+    "quantity_not_read_as_number",
+    "proportion_has_no_stated_base",
 )
 
 
@@ -693,6 +713,12 @@ class ConditionProvenance(BaseModel):
     #: should read about it belongs in the interface that shows it to them.
     code: str
     unsupported_expression: str = ""
+    #: The document's own wording for a quantity that reached the record and did
+    #: not compile into a comparison. Kept for the same reason as
+    #: `unsupported_expression`: it is the source's text, not a description of
+    #: it, so a reviewer sees exactly what was read and can judge the refusal
+    #: rather than take it on trust.
+    unprojected_quantity: str = ""
 
     @property
     def is_platform_limitation(self) -> bool:
