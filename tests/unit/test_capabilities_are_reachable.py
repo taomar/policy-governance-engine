@@ -101,6 +101,7 @@ class Reach:
     reachable: int = 0
     resolved_receivers: int = 0
     framework_registered: int = 0
+    dispatch_strings: int = 0
 
 
 def _definitions(tree: ast.Module) -> Iterable[tuple[str, ast.AST]]:
@@ -140,6 +141,36 @@ def _class_bindings(tree: ast.Module, known: set[str]) -> dict[str, str]:
     return binding
 
 
+#: Builtins that reach an attribute by name at run time.
+_DISPATCH_BY_NAME = frozenset({"getattr", "setattr", "hasattr", "delattr"})
+
+#: Callables that reach a module or attribute by name at run time.
+_DISPATCH_BY_ATTR = frozenset({"import_module", "attrgetter", "methodcaller"})
+
+
+def _dispatch_targets(node: ast.Call) -> list[str]:
+    """String arguments this call will use to reach code by name.
+
+    A quoted string is a reference only where the language actually uses it to
+    reach something. Everywhere else it is just characters that happen to spell
+    a name.
+    """
+    func = node.func
+    if isinstance(func, ast.Name):
+        dispatching = func.id in _DISPATCH_BY_NAME
+    elif isinstance(func, ast.Attribute):
+        dispatching = func.attr in _DISPATCH_BY_ATTR
+    else:
+        dispatching = False
+    if not dispatching:
+        return []
+    return [
+        arg.value.strip()
+        for arg in node.args
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+    ]
+
+
 def _collect_references(
     node: ast.AST,
     *,
@@ -161,18 +192,27 @@ def _collect_references(
     if isinstance(node, ast.Assign) and any(
         isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
     ):
-        # Naming something in `__all__` re-exports it. String constants are
-        # otherwise treated as references, to cover `getattr(obj, "name")`
-        # dispatch -- but an export list is a declaration, not a call, and
-        # counting it lets a tidy public API vouch for an unwired capability.
+        # Being named in `__all__` re-exports something; it does not call it.
+        # Counting an export list as a reference lets a tidy public API vouch
+        # for an unwired capability.
         return
 
     if isinstance(node, ast.ClassDef):
         enclosing_class = node.name
     elif isinstance(node, ast.Name):
         names.add(node.id)
-    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-        strings.add(node.value.strip())
+    elif isinstance(node, ast.Call):
+        # Only strings in a dispatch position count. This previously admitted
+        # EVERY string constant, to buy `getattr(obj, "name")` support -- which
+        # meant a JSON field name, a dict key or a log message vouched for any
+        # function sharing its spelling. That is not a remote hazard: a computed
+        # value and the field that carries it are routinely given the same name,
+        # so the scan went blind exactly where the code is most conventionally
+        # written. Measured cost of the old rule: three capabilities were judged
+        # reachable solely because their name appeared inside a quotation.
+        for text in _dispatch_targets(node):
+            strings.add(text)
+            reach.dispatch_strings += 1
     elif isinstance(node, ast.Attribute):
         receiver = node.value
         owner: str | None = None
@@ -201,7 +241,35 @@ def _collect_references(
         )
 
 
-def analyse(modules: Mapping[str, str]) -> tuple[list[Capability], Reach]:
+def _refuse_a_verdict_from_a_blind_scan(
+    trees: Mapping[str, ast.Module],
+    names: set[str],
+    unresolved: set[str],
+    reach: Reach,
+) -> None:
+    """Floors, checked BEFORE any finding is produced.
+
+    This analyser reports a set difference: its verdict is what the scan failed
+    to find. So a scan that reads nothing does not go quiet -- it accuses every
+    capability in the repository, in detail, with total confidence. The floor
+    has to come first. Checking it afterwards means the accusation was computed
+    from an empty corpus and only then asked whether the corpus existed.
+
+    These are far below what the repository contains; they catch collapse, not
+    drift.
+    """
+    assert len(trees) > 50, f"only {len(trees)} production modules parsed"
+    assert len(names) > 400, f"only {len(names)} referenced names collected"
+    assert len(unresolved) > 100, (
+        f"only {len(unresolved)} unresolved attribute names collected; without these "
+        "every method call through an unannotated receiver stops counting"
+    )
+    assert reach.resolved_receivers > 100, f"only {reach.resolved_receivers} receivers resolved"
+
+
+def analyse(
+    modules: Mapping[str, str], *, require_scale: bool = False
+) -> tuple[list[Capability], Reach]:
     """Return public capabilities with no production caller, and what was seen.
 
     `modules` maps a module path to its source, so this runs identically over
@@ -242,6 +310,9 @@ def analyse(modules: Mapping[str, str]) -> tuple[list[Capability], Reach]:
             unresolved=unresolved,
             reach=reach,
         )
+
+    if require_scale:
+        _refuse_a_verdict_from_a_blind_scan(trees, names, unresolved, reach)
 
     def method_reached(owner: str, method: str) -> bool:
         if method in unresolved or method in strings:
@@ -350,6 +421,14 @@ _QUARANTINE: dict[str, str] = {
     "contracts/relationships.py::PolicyRelationshipGraph": "contract type, unconstructed in production",
     "contracts/relationships.py::PolicyRelationshipGraph.for_rule": "contract helper, no caller",
     "contracts/relationships.py::PolicyRelationshipGraph.by_type": "contract helper, no caller",
+    # Revealed once a quoted string stopped counting as a reference. Each was
+    # judged reachable only because its name appeared inside a string literal
+    # elsewhere -- for `unsatisfied_promises`, the JSON field that carries its
+    # result is spelled the same way as the function that computes it, which is
+    # the ordinary way to name things and precisely why the old rule was blind.
+    "contracts/relationships.py::PolicyRelationshipGraph.confirmed": "contract helper, no caller",
+    "contracts/relationships.py::PolicyRelationshipGraph.candidates": "contract helper, no caller",
+    "infrastructure/correlation/relationship_discovery.py::unsatisfied_promises": "computed, never displayed; delete-or-surface decision belongs to the workstream holding the router",
     "contracts/evidence_resolution.py::EvidenceResolution.by_role": "contract helper, no caller",
     "contracts/extraction_package.py::PolicyExtractionPackage.evidence_for": "contract helper, no caller",
     "contracts/extraction_package.py::PolicyExtractionPackage.unsupported_projections": "contract helper, no caller",
@@ -546,10 +625,88 @@ def test_every_quarantine_entry_is_earned():
     )
 
 
-def test_no_unreachable_capability_outside_quarantine():
-    """A capability production cannot reach is not delivered, only written."""
+def test_a_quoted_string_does_not_vouch_for_a_capability():
+    """The defect that made this guard blind where code is most conventional.
 
-    findings, reach = analyse(_production_modules())
+    A computed value and the field that carries it are routinely given the same
+    name. When every string constant counted as a reference, that ordinary
+    naming habit made the function look called.
+    """
+
+    modules = {
+        "feature.py": "def unsatisfied_promises(rows):\n    return rows\n",
+        "router.py": 'def respond(graph):\n    return {"unsatisfied_promises": graph.rows}\n',
+    }
+    findings, reach = analyse(modules)
+    assert reach.definitions >= 2, f"only {reach.definitions} definitions examined in the fixture"
+
+    found = {f.qualname for f in findings}
+    assert "unsatisfied_promises" in found, (
+        "a function was judged reachable because a JSON field elsewhere is spelled "
+        f"the same way. Expected it reported as unreachable; findings were {sorted(found)}."
+    )
+
+
+def test_a_string_in_a_dispatch_position_still_counts():
+    """The narrow rule must not cost genuine `getattr` dispatch."""
+
+    modules = {
+        "feature.py": "def handler(rows):\n    return rows\n",
+        "caller.py": 'import feature\n\ndef run(name):\n    return getattr(feature, "handler")\n',
+    }
+    findings, reach = analyse(modules)
+    assert reach.dispatch_strings >= 1, (
+        f"no dispatch strings collected ({reach.dispatch_strings}); this fixture contains a "
+        "getattr call, so the collector has stopped recognising dispatch entirely"
+    )
+    assert "handler" not in {f.qualname for f in findings}, (
+        "a capability reached by getattr(obj, \"handler\") was reported unreachable"
+    )
+
+
+def test_a_string_naming_a_method_in_a_dispatch_position_still_counts():
+    modules = {
+        "feature.py": "class Engine:\n    def evaluate(self):\n        return 1\n",
+        "caller.py": 'def run(engine):\n    return getattr(engine, "evaluate")()\n',
+    }
+    findings, _ = analyse(modules)
+    assert "Engine.evaluate" not in {f.qualname for f in findings}
+
+
+def test_the_floor_comes_before_the_verdict():
+    """A blind set-difference scan accuses everything; it must refuse instead."""
+
+    tiny = {"only.py": "def solitary():\n    return 1\n"}
+
+    findings_without_floor, _ = analyse(tiny)
+    assert findings_without_floor, (
+        "the fixture was expected to produce findings without the floor, so that this "
+        "test proves the floor suppresses an accusation rather than there being none"
+    )
+
+    try:
+        analyse(tiny, require_scale=True)
+    except AssertionError as exc:
+        assert "production modules parsed" in str(exc), (
+            f"expected a refusal naming the corpus size; got {str(exc)!r}"
+        )
+    else:
+        raise AssertionError(
+            "the analyser returned a verdict computed from a corpus of one module "
+            "instead of refusing to judge"
+        )
+
+
+def test_no_unreachable_capability_outside_quarantine():
+    """A capability production cannot reach is not delivered, only written.
+
+    `require_scale=True` puts the floor ahead of the verdict. This analyser
+    reports a set difference, so a scan that read nothing would not fall
+    silent -- it would name every capability in the repository as unreachable,
+    with line numbers, and read as a catastrophe rather than as a broken tool.
+    """
+
+    findings, reach = analyse(_production_modules(), require_scale=True)
     assert reach.definitions > 300, (
         f"only {reach.definitions} definitions examined; an analyser that reads "
         "nothing reports no offenders and passes on silence"
