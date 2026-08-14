@@ -379,6 +379,19 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.next_attempt": "same repository",
     "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.completed_stage_names": "same repository",
     "infrastructure/ingestion/document_extraction.py::extract_clauses": "reached from scripts only; owned by another workstream",
+    # Added 2026-06 with the canonical-fidelity check (verbatim-anchor-source).
+    # This is a deferral, not a design decision. The check is built to run on the
+    # live ingest path and has been measured there: 3,000 elements, 0 failures.
+    # It is unwired for two reasons, both temporary:
+    #   1. Its call site is document_ingestion.ingest_pdf, held uncommitted by
+    #      another workstream at the time of writing.
+    #   2. Wiring it adds a new stage-failure condition immediately upstream of
+    #      the queued comparison runs, which is the confound those runs exist to
+    #      avoid.
+    # REMOVE THIS ENTRY once the comparison runs are complete and ingest_pdf is
+    # free. If this entry still exists after that, the check is not protecting
+    # anything and the honest move is to delete the module, not keep the excuse.
+    "infrastructure/ingestion/canonical_fidelity.py::verify_element_text": "built and measured, wiring deferred past the comparison runs -- see the note above; not a permanent exemption",
     "domain/models.py::OutboxMessage": "outbox table and ORM model; nothing constructs a row -- same shape as the stage repository",
     "infrastructure/docling/dependency_provenance.py::require_dependency_integrity": "its own docstring calls it 'the raising variant used by gates'; no gate calls it",
     "infrastructure/docling/graph_runtime.py::build_runtime": "graph runtime construction; test call sites only",
