@@ -20,10 +20,21 @@ on any of those would report the entire document as changed every time.
 
 So identity is built from what a rule *does* and what it *came from*:
 
-- **content fingerprint** — the executable semantics: rule type, scope,
-  condition tree, effect, priority, exceptions, required facts. This is what the
-  evaluator actually reads. Two rules with the same content fingerprint are the
-  same rule no matter how differently they are worded.
+- **content fingerprint** — everything the record says about what it decides.
+  Built by *removing* what is not meaning rather than by listing what is. The
+  first version of this listed ten fields and, by omission, excluded the
+  canonical rule core — the subject, predicate, trigger, deadline and temporal
+  constraint that say what the rule actually decides. Seven of its ten fields
+  turned out to be constant across the entire corpus, so the identity reduced in
+  practice to rule type plus effect, and three pairs of genuinely different
+  rules in one live run hashed the same. An identity that omits the thing being
+  identified is wrong eventually by construction.
+
+  Removing rather than listing also fails in the safe direction. A field nobody
+  has classified is included, so at worst two rules look different and a
+  reviewer is asked a question they did not need to be asked. The other way
+  round, a field nobody has classified is ignored, and a reviewer's approval is
+  carried onto a rule they never read.
 - **anchor fingerprint** — the verbatim source passage the rule was formulated
   from (`formulation.source_text`, which the contract already calls "the anchor
   for the whole record"). This survives clause renumbering, which matters
@@ -71,11 +82,12 @@ SIMILARITY_THRESHOLD = 0.6
 
 DeltaStatus = Literal["baseline", "new", "changed", "unchanged"]
 
-#: Fields of the canonical rule that define what it *does*. Everything outside
-#: this set is either volatile (`rule_id`, `effective_from`, `lineage`),
-#: presentational (`title`, `category`, `group_label`), or derived after the
-#: fact (`related_rule_ids`) — including any of them would flag unchanged
-#: policy as changed.
+#: The ordered top-level fields the change explainer walks when showing a
+#: reviewer *what* differs between two runs. This is a presentation ordering,
+#: **not** the identity — `semantic_core` decides whether two rules are the same
+#: rule, and it works by exclusion so that nothing can be forgotten out of it.
+#: Kept separate deliberately: a list that drives a display can safely be
+#: partial, and a list that drives an identity cannot.
 SEMANTIC_FIELDS = (
     "rule_type",
     "scope",
@@ -88,6 +100,76 @@ SEMANTIC_FIELDS = (
     "is_explicit_override",
     "machine_executable",
 )
+
+#: Fields that say *when and how this row was made*, not what it decides. A rule
+#: whose provenance differs is still the same rule.
+NON_SEMANTIC_PROVENANCE = frozenset(
+    {
+        "rule_id",
+        "lineage",
+        "evidence",
+        "effective_from",
+        "effective_to",
+        "policy_set_id",
+        "policy_version_id",
+        "rule_revision",
+        "schema_version",
+        "review_status",
+    }
+)
+
+#: Fields computed after the fact, from other rules. Including them would make a
+#: rule's identity depend on its neighbours, so adding one unrelated rule could
+#: report an untouched rule as changed.
+NON_SEMANTIC_DERIVED = frozenset(
+    {"related_rule_ids", "candidate_relationships", "supersedes_rule_ids", "xacml_view"}
+)
+
+#: Wording and presentation. Excluded from content so that a reworded rule stays
+#: `unchanged`; carried by `prose_fingerprint` instead and surfaced as
+#: `reworded`, which is what lets a reviewer see a rewrite without being asked
+#: to re-approve it.
+NON_SEMANTIC_PROSE = frozenset({"title", "description", "category", "group_label"})
+
+#: Positions in the model's own output array, at any depth. `source_index` is a
+#: record's position among the canonical policies of one call; a DMN decision's
+#: `source_rule_indexes` are its back-references to those positions. Two records
+#: alike but for these are one record the model emitted twice, and a position is
+#: not something a rule decides.
+NON_SEMANTIC_POSITIONAL = frozenset({"source_index", "source_rule_indexes"})
+
+NON_SEMANTIC: frozenset[str] = (
+    NON_SEMANTIC_PROVENANCE | NON_SEMANTIC_DERIVED | NON_SEMANTIC_PROSE
+)
+
+
+def _drop_positions(value):
+    if isinstance(value, dict):
+        return {
+            key: _drop_positions(item)
+            for key, item in value.items()
+            if key not in NON_SEMANTIC_POSITIONAL
+        }
+    if isinstance(value, list):
+        return [_drop_positions(item) for item in value]
+    return value
+
+
+def semantic_core(payload: dict) -> dict:
+    """What a rule decides, with provenance, prose and output positions removed.
+
+    The single definition of record sameness in this system. Both cross-run
+    delta matching and same-run consolidation ask the same question — *are these
+    two the same rule?* — and if they answered it differently, one of them would
+    eventually carry a decision the other would have refused to.
+
+    Callers that need the *whole* record, prose included, add the prose
+    themselves rather than redefining the core.
+    """
+    return _drop_positions(
+        {key: value for key, value in payload.items() if key not in NON_SEMANTIC}
+    )
+
 
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
@@ -139,11 +221,10 @@ class RuleIdentity:
 
 def identify(payload: dict) -> RuleIdentity:
     """Fingerprint a canonical rule payload for cross-run comparison."""
-    semantics = {key: payload.get(key) for key in SEMANTIC_FIELDS}
     source = _source_text(payload)
     tokens = _normalise_words(source)
     return RuleIdentity(
-        content_fingerprint=canonical_hash(semantics),
+        content_fingerprint=canonical_hash(semantic_core(payload)),
         # Hash the *normalised* words, not the raw string, so that a passage
         # differing only in whitespace or casing is recognised as identical.
         anchor_fingerprint=canonical_hash(tokens),
