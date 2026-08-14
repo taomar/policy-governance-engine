@@ -70,6 +70,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
@@ -1236,6 +1237,72 @@ def _merged_verb_phrase(rule: CanonicalPolicyRule | None) -> str | None:
     return modality
 
 
+def _contains_run(haystack: Sequence[str], needle: Sequence[str]) -> bool:
+    """Whether `needle` appears in `haystack` as a contiguous run of whole words."""
+
+    if not needle or len(needle) > len(haystack):
+        return False
+    return any(
+        list(haystack[i : i + len(needle)]) == list(needle)
+        for i in range(len(haystack) - len(needle) + 1)
+    )
+
+
+def _join_overlap(left: Sequence[str], right: Sequence[str]) -> int:
+    """How many words `right` opens with that `left` has just finished saying."""
+
+    for size in range(min(len(left), len(right)), 0, -1):
+        if list(left[-size:]) == list(right[:size]):
+            return size
+    return 0
+
+
+def _join_without_repeat(parts: Iterable[str]) -> str:
+    """Join phrases into one line without saying the same words twice running.
+
+    The decomposition writes one sentence across four fields, and the fields are
+    spans of that sentence rather than a partition of it. Where two neighbouring
+    spans overlap, joining them end to end says the shared words once per field:
+    a modality of "is to be no" followed by an object of "no other communication
+    ..." reads "is to be no no other communication ...", and a predicate that
+    repeats its modality reads the whole phrase twice. Both are the same defect —
+    a title that stutters — and neither is anything the source wrote.
+
+    Two rules, in this order:
+
+    * A part whose words the previous part has already said in the same order
+      adds nothing, so it is dropped. The comparison is against the immediately
+      preceding part rather than the whole line, because a phrase repeated far
+      apart is usually the sentence genuinely repeating itself ("Students must
+      inform students"), and dropping that would change what the source said.
+    * Otherwise, whatever the new part opens with that the line has just
+      finished saying is elided, and only the remainder is appended.
+
+    Both comparisons are on whole words, case-folded, so a word is only treated
+    as repeated when the same word really was written twice. Substring matching
+    would fuse unrelated fields whenever one happened to spell the other.
+
+    Nothing is reordered and no word the source wrote is invented: the result is
+    always a subsequence of the parts as given.
+    """
+
+    line: list[str] = []
+    folded: list[str] = []
+    previous: list[str] = []
+    for part in parts:
+        words = part.split()
+        if not words:
+            continue
+        lowered = [word.casefold() for word in words]
+        if _contains_run(previous, lowered):
+            continue
+        shared = _join_overlap(folded, lowered)
+        line.extend(words[shared:])
+        folded.extend(lowered[shared:])
+        previous = lowered
+    return " ".join(line)
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
@@ -1252,7 +1319,7 @@ def _title_for(policy: CanonicalPolicy) -> str:
             parts = [p for p in (rule.subject, merged, rule.object) if p]
         else:
             parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
-    text = " ".join(parts) if parts else policy.source_text
+    text = _join_without_repeat(parts) if parts else policy.source_text
     text = " ".join(text.split())
     return (text[:197] + "...") if len(text) > 200 else (text or "Untitled formulated rule")
 
