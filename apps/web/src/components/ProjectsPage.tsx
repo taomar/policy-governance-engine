@@ -17,6 +17,7 @@ import {
   type ProjectPortfolioInsight,
 } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
+import { routeCell } from "../projectRegisterRow";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
 const { Title, Text } = Typography;
@@ -264,10 +265,9 @@ export function ProjectsPage({
           </div>
           {policySets.map((ps) => {
             const s = stats[ps.key];
-            const executablePercent =
-              s && s.active_rule_count > 0
-                ? Math.round((s.machine_executable_count / s.active_rule_count) * 100)
-                : 0;
+            const route = s
+              ? routeCell(s.live_candidate_count, s.candidate_direct_count, s.candidate_reading_count)
+              : null;
             const health = s ? projectStatus(ps, s) : null;
             return (
               <button key={ps.id} type="button" role="listitem" className="project-register-row" onClick={() => openProject(ps)}>
@@ -305,8 +305,12 @@ export function ProjectsPage({
                 >
                   <CheckCircleOutlined />
                   <span>
-                    <strong>{s ? `${s.machine_executable_count} of ${s.active_rule_count}` : "—"}</strong>
-                    <small>{s?.active_rule_count ? `${executablePercent}% deterministic` : "No active rules"}</small>
+                    {/* Counts of the live generation, not a share of the published
+                        one. This cell used to read "0 of 0" and "0% deterministic"
+                        for every project, because it divided published-rule counts
+                        that are zero until a version is approved. */}
+                    <strong>{route ? route.headline : "—"}</strong>
+                    <small>{route ? route.detail : "Loading routes"}</small>
                   </span>
                 </span>
                 <span className="project-register-insight" title="Latest published-version quality evaluation">

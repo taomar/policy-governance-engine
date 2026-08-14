@@ -164,6 +164,37 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                     WHERE c.policy_set_id = ps.id
                       AND c.review_status = 'candidate'
                       AND c.superseded_at IS NULL) AS review_pending,
+                  -- The current generation's size and how its records are routed.
+                  --
+                  -- active_rule_count below counts PUBLISHED rules, which is 0 for
+                  -- every project that has not been published yet. Reporting that as
+                  -- a project's content made a set holding hundreds of records under
+                  -- review read as empty, on the same row as a badge counting them.
+                  -- Both numbers were true; they measure different lifecycle stages,
+                  -- and the register showed the one the work has not reached yet.
+                  --
+                  -- Superseded rows are excluded for the same reason the review queue
+                  -- excludes them: a re-extracted document keeps its earlier
+                  -- generations for delta comparison, and counting them would report
+                  -- a project as several times its real size.
+                  (SELECT count(*) FROM candidate_rules c
+                    WHERE c.policy_set_id = ps.id
+                      AND c.superseded_at IS NULL) AS live_candidate_count,
+                  -- Counted per route rather than as a ratio of one to the other, and
+                  -- neither is subtracted from the other. A record whose mode is
+                  -- absent or is some mode added later belongs to neither count, so
+                  -- the two never silently sum to the whole and the caller can see
+                  -- when they do not.
+                  (SELECT count(*) FROM candidate_rules c
+                    WHERE c.policy_set_id = ps.id
+                      AND c.superseded_at IS NULL
+                      AND c.payload_json->>'evaluation_mode' = 'deterministic')
+                    AS candidate_direct_count,
+                  (SELECT count(*) FROM candidate_rules c
+                    WHERE c.policy_set_id = ps.id
+                      AND c.superseded_at IS NULL
+                      AND c.payload_json->>'evaluation_mode' = 'ai_ready')
+                    AS candidate_reading_count,
                   (SELECT count(*) FROM approved_policy_versions v
                     WHERE v.policy_set_id = ps.id) AS version_count,
                   av.version_number AS active_version_number,

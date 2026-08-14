@@ -19,6 +19,7 @@ import {
   type ProjectPortfolioInsight,
 } from "../api";
 import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
+import { projectRowClauses, routeClauses } from "../projectRegisterRow";
 
 const { Title, Text } = Typography;
 
@@ -28,7 +29,9 @@ interface Summary {
   pendingCandidateCount: number | null;
   documentCount: number;
   publishedRuleCount: number | null;
-  executableRuleCount: number | null;
+  liveCandidateCount: number | null;
+  directRouteCount: number | null;
+  readingRouteCount: number | null;
   regressionGuardCount: number | null;
   validationCount: number | null;
   highFindingCount: number | null;
@@ -144,7 +147,9 @@ export function Dashboard({
           pendingCandidateCount: null,
           documentCount: documents.length,
           publishedRuleCount: null,
-          executableRuleCount: null,
+          liveCandidateCount: null,
+          directRouteCount: null,
+          readingRouteCount: null,
           regressionGuardCount: null,
           validationCount: null,
           highFindingCount: null,
@@ -169,7 +174,9 @@ export function Dashboard({
             activeVersionCount: insights.filter((item) => item.active_version_number !== null).length,
             pendingCandidateCount: insights.reduce((total, item) => total + item.review_pending, 0),
             publishedRuleCount: insights.reduce((total, item) => total + item.active_rule_count, 0),
-            executableRuleCount: insights.reduce((total, item) => total + item.machine_executable_count, 0),
+            liveCandidateCount: insights.reduce((total, item) => total + item.live_candidate_count, 0),
+            directRouteCount: insights.reduce((total, item) => total + item.candidate_direct_count, 0),
+            readingRouteCount: insights.reduce((total, item) => total + item.candidate_reading_count, 0),
             regressionGuardCount: insights.reduce((total, item) => total + item.regression_test_count, 0),
             validationCount: insights.reduce((total, item) => total + item.test_count, 0),
             highFindingCount: insights.reduce((total, item) => total + (item.latest_quality_high ?? 0), 0),
@@ -196,8 +203,9 @@ export function Dashboard({
   };
 
   const pending = summary?.pendingCandidateCount;
-  const published = summary?.publishedRuleCount;
-  const executable = summary?.executableRuleCount;
+  const liveRecords = summary?.liveCandidateCount;
+  const directRoute = summary?.directRouteCount;
+  const readingRoute = summary?.readingRouteCount;
   const pressure = [
     {
       label: "Awaiting review",
@@ -214,19 +222,21 @@ export function Dashboard({
       tone: summary?.highFindingCount ? "risk" : "neutral",
     },
     {
-      label: "Deterministic",
-      value:
-        published === null || published === undefined || executable === null || executable === undefined
-          ? null
-          : `${executable}/${published}`,
-      // The remainder is not a shortfall. Most policy text states its test in
-      // words rather than as a comparison, so it is decided by reading — which
-      // is a route, not a gap, and reporting it as "coverage" invited work on
-      // rules that can never become arithmetic.
+      // Was "Deterministic", valued as executable/published. On an unpublished
+      // portfolio that is 0/0, and the row-level version of the same figure
+      // rendered the undefined ratio as 0%, which reads as a failing grade for
+      // behaving correctly. Routes are reported as counts of the live corpus
+      // instead: how the source states a test is the source's property, not a
+      // score this system earns against it, and most policy prose states it in
+      // words.
+      label: "Decision routes",
+      value: liveRecords,
       detail:
-        published === null || published === undefined || executable === null || executable === undefined
-          ? "no published rules"
-          : `${published - executable} decided by reading`,
+        liveRecords === null || liveRecords === undefined
+          ? "records unavailable"
+          : liveRecords === 0
+            ? "no records yet"
+            : routeClauses(liveRecords, directRoute ?? 0, readingRoute ?? 0).join(", "),
       icon: <CheckCircleOutlined />,
       tone: "neutral",
     },
@@ -303,11 +313,7 @@ export function Dashboard({
             </Text>
           </div>
           <div className="dashboard-readiness-list" role="list">
-            {readiness.map(({ project, insight }) => {
-              const coverage = insight.active_rule_count
-                ? Math.round((insight.machine_executable_count / insight.active_rule_count) * 100)
-                : 0;
-              return (
+            {readiness.map(({ project, insight }) => (
               <button
                 key={project.key}
                 type="button"
@@ -318,22 +324,21 @@ export function Dashboard({
                 <span className="dashboard-metric-icon"><FolderOutlined /></span>
                 <span className="dashboard-readiness-copy">
                   <strong>{project.name}</strong>
-                  <small>
-                    {insight.active_version_number ? `v${insight.active_version_number}` : "not published"} ·{" "}
-                    {insight.active_rule_count} rules · {coverage}% deterministic
-                  </small>
+                  <small>{projectRowClauses(insight).join(" · ")}</small>
                 </span>
                 <span className="dashboard-readiness-signals">
                   {(insight.latest_quality_high ?? 0) > 0 && (
                     <Tag color="red">{insight.latest_quality_high} high</Tag>
                   )}
-                  {insight.review_pending > 0 && <Tag color="gold">{insight.review_pending} review</Tag>}
+                  {/* The review count is no longer repeated as a tag: it now leads the
+                      row's own copy. It also carried a warning colour, which told the
+                      reader something was wrong with a project for holding exactly the
+                      work it is supposed to be holding. */}
                   {insight.regression_test_count > 0 && <Tag>{insight.regression_test_count} guards</Tag>}
                 </span>
                 <ArrowRightOutlined className="dashboard-metric-arrow" />
               </button>
-              );
-            })}
+            ))}
             {summary && readiness.length === 0 && (
               <div className="dashboard-readiness-empty">
                 <Text type="secondary">No project readiness evidence is available yet.</Text>

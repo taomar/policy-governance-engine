@@ -65,6 +65,19 @@ export interface ProjectPortfolioInsight {
   key: string;
   document_count: number;
   review_pending: number;
+  /** Live (non-superseded) candidate records held by this project, whether or not
+   *  any have been published. `active_rule_count` below counts PUBLISHED rules and
+   *  is 0 until a version is approved, so the two disagree by design: they measure
+   *  different stages of the same record's life, not the same thing twice. */
+  live_candidate_count: number;
+  /** Live records whose test the source states as a comparison, so it can be
+   *  evaluated directly. */
+  candidate_direct_count: number;
+  /** Live records the source states in words, so they are decided by reading.
+   *  Counted independently of `candidate_direct_count`: a record carrying neither
+   *  mode is in no route count, so the two need not sum to `live_candidate_count`
+   *  and a caller must not derive one by subtracting the other. */
+  candidate_reading_count: number;
   version_count: number;
   active_version_number: number | null;
   last_published_at: string | null;
