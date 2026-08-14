@@ -44,7 +44,13 @@ from policy_platform.infrastructure.projection.export import (
     models_to_export,
 )
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
+from policy_platform.infrastructure.persistence.policy_set_teardown import (
+    RETAINED_TABLES,
+    delete_policy_set,
+)
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
+from policy_platform.infrastructure.search.search_client import AzureSearchClient
+from policy_platform.infrastructure.settings import get_settings
 from policy_platform.infrastructure.extraction.policy_formulator import check_trusted_config
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
@@ -318,6 +324,75 @@ async def get_policy_set(key: str, session: AsyncSession = Depends(get_session))
     if policy_set is None:
         raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
     return _to_response(policy_set)
+
+
+@router.delete("/{key}")
+async def delete_policy_set_endpoint(
+    key: str,
+    actor: str,
+    confirm: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Delete a policy set and everything scoped to it.
+
+    Projects are meant to be disposable -- created and dropped freely -- but
+    there was no way to drop one from the product, so teardown meant running SQL
+    against the database by hand.
+
+    `confirm` must repeat the key. A delete that takes hundreds of extracted
+    rules with it should not be reachable by a mistyped URL or a stray click,
+    and echoing the name is the cheapest guard that cannot be satisfied by
+    accident.
+
+    Returns a body rather than 204. The operator needs to see what actually
+    went -- in particular `search_index`, which reports `clean`, `skipped` or
+    `orphaned` rather than a count that cannot distinguish "nothing to remove"
+    from "we could not remove it".
+    """
+
+    repo = PolicySetRepository(session)
+    policy_set = await repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+    if confirm != key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"confirmation does not match: to delete policy set '{key}', "
+                f"pass confirm={key}"
+            ),
+        )
+
+    outcome, search_ids = await delete_policy_set(session, policy_set, actor=actor)
+    await session.commit()
+
+    # After the commit, and outside the transaction: this is a network call to
+    # another service, and a slow or unavailable Search resource must not hold a
+    # database transaction open. The rows are already gone, so a failure here is
+    # reported as `orphaned` rather than pretended away.
+    settings = get_settings()
+    if not search_ids:
+        outcome.search_documents_deleted = 0
+    elif settings.ai_enabled and settings.search_enabled:
+        try:
+            await AzureSearchClient(settings).delete_documents(
+                settings.azure_search_authoring_index, search_ids
+            )
+            outcome.search_documents_deleted = len(search_ids)
+        except Exception as exc:  # noqa: BLE001 - reported, never raised past the delete
+            outcome.search_index_error = str(exc)
+
+    return {
+        "key": outcome.policy_set_key,
+        "name": outcome.policy_set_name,
+        "rows_deleted": outcome.rows_deleted,
+        "total_rows_deleted": outcome.total_rows,
+        "search_index": outcome.search_index_state,
+        "search_documents_identified": outcome.search_documents_identified,
+        "search_documents_deleted": outcome.search_documents_deleted,
+        "search_index_error": outcome.search_index_error,
+        "retained": dict(RETAINED_TABLES),
+    }
 
 
 @router.get("/{key}/workspace-counts")
