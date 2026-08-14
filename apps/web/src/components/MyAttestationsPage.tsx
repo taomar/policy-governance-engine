@@ -185,7 +185,7 @@ export function MyAttestationsPage() {
         onOk={handleAcknowledge}
         confirmLoading={ackSaving}
         okText="Confirm acknowledgment"
-        destroyOnClose
+        destroyOnHidden
       >
         <Paragraph type="secondary">
           Confirming that you've read and understood{" "}

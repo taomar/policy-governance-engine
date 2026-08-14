@@ -51,7 +51,7 @@ export function FamilyCompositeHeader({
           {clusterLabel(cluster)}
         </Text>
         <Tooltip title="These rules state one policy. They were extracted separately because the source states each variant on its own row or clause.">
-          <Tag bordered={false} className="family-composite-count">
+          <Tag variant="filled" className="family-composite-count">
             {composite.memberCount} rules · 1 policy
           </Tag>
         </Tooltip>
@@ -87,14 +87,14 @@ export function FamilyCompositeHeader({
       <div className="family-composite-flags">
         {composite.statuses.length > 1 && (
           <Tooltip title="Members of this policy are in different review states, so approving what is visible would leave the policy partly decided.">
-            <Tag bordered={false} color="orange">
+            <Tag variant="filled" color="orange">
               {composite.statuses.length} review states
             </Tag>
           </Tooltip>
         )}
         {hidden > 0 && (
           <Tooltip title="The current filter hides part of this policy. What you see is not all of it.">
-            <Tag bordered={false} color="warning">
+            <Tag variant="filled" color="warning">
               {hidden} hidden by filter
             </Tag>
           </Tooltip>

@@ -140,7 +140,7 @@ export function NotesPanel({ entityType, entityId, title, compact }: NotesPanelP
               title={
                 <Space size={8} wrap>
                   <Text strong>{note.author}</Text>
-                  <Tag bordered={false} className="notes-role-tag">
+                  <Tag variant="filled" className="notes-role-tag">
                     {note.author_role}
                   </Tag>
                   <Text type="secondary" className="notes-timestamp">

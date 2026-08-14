@@ -704,7 +704,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           open={mobileInspectorOpen && !!selectedRule}
           onClose={() => setMobileInspectorOpen(false)}
           placement="right"
-          width="100%"
+          size="100%"
           closable={false}
           styles={{ body: { padding: 0 } }}
           className="policy-inspector-drawer"

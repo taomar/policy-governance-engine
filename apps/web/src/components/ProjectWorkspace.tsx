@@ -440,14 +440,14 @@ export function ProjectWorkspace({
             <div className="ws-bar__title-row">
               <h1 className="ws-bar__name">{policySet.name}</h1>
               {policySet.category && (
-                <Tag color={colorForCategory(policySet.category)} bordered={false}>
+                <Tag color={colorForCategory(policySet.category)} variant="filled">
                   {policySet.category}
                 </Tag>
               )}
               {policySet.review_due_date && (
                 <Tag
                   color={policySet.is_review_overdue ? "error" : "default"}
-                  bordered={false}
+                  variant="filled"
                   icon={policySet.is_review_overdue ? <WarningOutlined /> : <CheckCircleOutlined />}
                 >
                   {policySet.is_review_overdue ? "Review overdue · due " : "Review due "}
@@ -480,7 +480,7 @@ export function ProjectWorkspace({
               {policySet.tags.length > 0 && (
                 <Space size={4} wrap>
                   {policySet.tags.map((t) => (
-                    <Tag key={t} bordered={false} className="fact-tag">
+                    <Tag key={t} variant="filled" className="fact-tag">
                       {t}
                     </Tag>
                   ))}
@@ -551,7 +551,7 @@ ${GROUP_DIVIDER_CSS.split(",\n")
         onOk={handleSaveEdit}
         okText="Save Changes"
         confirmLoading={editSaving}
-        destroyOnClose
+        destroyOnHidden
       >
         {editError && <Alert type="error" showIcon message={editError} style={{ marginBottom: 12 }} />}
         <Form layout="vertical" form={form}>
@@ -632,7 +632,7 @@ ${GROUP_DIVIDER_CSS.split(",\n")
         onOk={handleMarkReviewed}
         okText="Mark Reviewed"
         confirmLoading={reviewSaving}
-        destroyOnClose
+        destroyOnHidden
       >
         {reviewError && <Alert type="error" showIcon message={reviewError} style={{ marginBottom: 12 }} />}
         <Paragraph type="secondary">

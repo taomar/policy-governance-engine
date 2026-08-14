@@ -64,7 +64,7 @@ export function EffectivePolicyModal({
               {row.when.lines.map((line) => (
                 <Text key={line}>{line}</Text>
               ))}
-              <Tag bordered={false} className="effective-policy-flag">
+              <Tag variant="filled" className="effective-policy-flag">
                 decided by reading
               </Tag>
             </Space>
@@ -85,7 +85,7 @@ export function EffectivePolicyModal({
         <Space direction="vertical" size={2}>
           <Text>{row.then || "—"}</Text>
           {row.effectType && (
-            <Tag bordered={false} className="effective-policy-flag">
+            <Tag variant="filled" className="effective-policy-flag">
               {row.effectType}
             </Tag>
           )}
@@ -98,7 +98,7 @@ export function EffectivePolicyModal({
       width: "12%",
       render: (_: unknown, row: EffectiveCase) => (
         <Space direction="vertical" size={2}>
-          <Tag bordered={false}>{row.reviewStatus}</Tag>
+          <Tag variant="filled">{row.reviewStatus}</Tag>
         </Space>
       ),
     },
@@ -114,7 +114,7 @@ export function EffectivePolicyModal({
         <Space size={8}>
           <ApartmentOutlined />
           <span>Effective policy</span>
-          <Tag bordered={false}>
+          <Tag variant="filled">
             {policy.cases.length} rules · 1 policy
           </Tag>
         </Space>

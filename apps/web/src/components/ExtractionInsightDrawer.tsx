@@ -257,9 +257,9 @@ export default function ExtractionInsightDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={980}
+      size={980}
       title={`Extraction detail${documentTitle ? ` — ${documentTitle}` : ""}`}
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <Spin />

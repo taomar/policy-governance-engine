@@ -1586,7 +1586,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           open={mobileInspectorOpen && !!selectedCandidate}
           onClose={() => setMobileInspectorOpen(false)}
           placement="right"
-          width="100%"
+          size="100%"
           closable={false}
           styles={{ body: { padding: 0 } }}
           className="policy-inspector-drawer"

@@ -249,7 +249,7 @@ export function Dashboard({
           <Title level={3}>Policy operations</Title>
           <Text type="secondary">Move source-grounded rules from intake to an immutable published decision.</Text>
         </div>
-        <Tag bordered={false} className="dashboard-role-tag">
+        <Tag variant="filled" className="dashboard-role-tag">
           {ACTOR_ROLE_LABELS[actor.role]}
         </Tag>
       </header>

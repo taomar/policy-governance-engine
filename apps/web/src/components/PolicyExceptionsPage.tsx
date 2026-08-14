@@ -291,7 +291,7 @@ export function PolicyExceptionsPage({ policySetKey }: { policySetKey: string })
         confirmLoading={createSaving}
         okText="Submit request"
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         {createError && <Alert type="error" message={createError} showIcon style={{ marginBottom: 16 }} />}
         <Form form={form} layout="vertical">
@@ -332,7 +332,7 @@ export function PolicyExceptionsPage({ policySetKey }: { policySetKey: string })
         confirmLoading={!!decidingId}
         okText={decideTarget?.decision === "granted" ? "Grant" : "Deny"}
         okButtonProps={{ danger: decideTarget?.decision === "denied" }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Paragraph type="secondary">
           {decideTarget?.row.justification}

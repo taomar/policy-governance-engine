@@ -103,7 +103,7 @@ export function ActivityPanel({ policySetKey, limit = 25 }: Props) {
           <Text type="secondary">Latest immutable review and publication events</Text>
         </div>
         <Tooltip title="Every approval, override, publication and finding decision is written to an immutable audit trail. This shows the most recent for this project.">
-          <Tag bordered={false}>Audit trail</Tag>
+          <Tag variant="filled">Audit trail</Tag>
         </Tooltip>
       </div>
       <div className="project-overview-panel__body">

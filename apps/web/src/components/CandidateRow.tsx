@@ -271,7 +271,7 @@ export function CandidateRow({
               <span>{ruleTypeLabel(rule.rule_type)}</span>
               {rule.tags.includes(DOCUMENT_GUIDANCE_TAG) && (
                 <Tooltip title="The subject of this statement is the document itself — what it is, who it is for, or how to read it. It was kept for you to decide, but it is not treated as an enforceable rule.">
-                  <Tag bordered={false} color="default" className="policy-row-category-tag">
+                  <Tag variant="filled" color="default" className="policy-row-category-tag">
                     <ReadOutlined /> Describes the document
                   </Tag>
                 </Tooltip>
@@ -281,7 +281,7 @@ export function CandidateRow({
               <span className="policy-row-dot">·</span>
               <span>rev {rule.rule_revision}</span>
               {rule.category && (
-                <Tag bordered={false} color={colorForCategory(rule.category)} className="policy-row-category-tag">
+                <Tag variant="filled" color={colorForCategory(rule.category)} className="policy-row-category-tag">
                   {rule.category}
                 </Tag>
               )}

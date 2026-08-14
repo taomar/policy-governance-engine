@@ -284,7 +284,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                   </Text>
                   <Space size={6} wrap>
                     {rule.required_facts.map((f) => (
-                      <Tag key={f.name} bordered={false} className="fact-tag">
+                      <Tag key={f.name} variant="filled" className="fact-tag">
                         {f.name}
                         <span className="fact-type">{f.data_type}</span>
                         {!f.required && <span className="fact-optional">optional</span>}
@@ -380,7 +380,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                     {rule.tags.length > 0 && (
                       <Space size={4} wrap>
                         {rule.tags.map((t) => (
-                          <Tag key={t} bordered={false} className="fact-tag">
+                          <Tag key={t} variant="filled" className="fact-tag">
                             {t}
                           </Tag>
                         ))}

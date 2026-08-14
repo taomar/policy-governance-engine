@@ -349,7 +349,7 @@ export function QualityFindingDrawer({
     <Drawer
       open={finding !== null}
       onClose={onClose}
-      width="min(1040px, 100vw)"
+      size="min(1040px, 100vw)"
       title={
         policyPreview ? (
           <div className="quality-finding-drawer-title">

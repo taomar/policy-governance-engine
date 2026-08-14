@@ -412,28 +412,28 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <div className="extract-delta-items">
             {deltaNew > 0 && (
               <Tooltip title="Rules this run found that the previous one did not.">
-                <Tag bordered={false} color="green">
+                <Tag variant="filled" color="green">
                   {deltaNew} new
                 </Tag>
               </Tooltip>
             )}
             {deltaChanged > 0 && (
               <Tooltip title="Rules that exist in both runs but whose content differs.">
-                <Tag bordered={false} color="gold">
+                <Tag variant="filled" color="gold">
                   {deltaChanged} changed
                 </Tag>
               </Tooltip>
             )}
             {deltaRemoved > 0 && (
               <Tooltip title="Rules the previous run produced that this one did not. They generate no row of their own, so this is the only place they appear.">
-                <Tag bordered={false} color="red">
+                <Tag variant="filled" color="red">
                   {deltaRemoved} no longer found
                 </Tag>
               </Tooltip>
             )}
             {deltaUnchanged > 0 && (
               <Tooltip title="Rules identical to the previous extraction. Nothing to decide on these.">
-                <Tag bordered={false}>{deltaUnchanged} unchanged</Tag>
+                <Tag variant="filled">{deltaUnchanged} unchanged</Tag>
               </Tooltip>
             )}
           </div>

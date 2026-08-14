@@ -277,7 +277,7 @@ function App() {
           onClick={({ key }) => handleNavigate(key)}
         />
         <div className="sider-footer">
-          <Tag icon={<DesktopOutlined />} bordered={false} className="env-tag">
+          <Tag icon={<DesktopOutlined />} variant="filled" className="env-tag">
             Local instance
           </Tag>
         </div>

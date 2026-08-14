@@ -226,8 +226,8 @@ export function DecisionLogPage({ policySetKey }: { policySetKey: string }) {
         title="Decision detail"
         open={openId !== null}
         onClose={() => setOpenId(null)}
-        width={720}
-        destroyOnClose
+        size={720}
+        destroyOnHidden
       >
         {detailLoading && <Text type="secondary">Loading…</Text>}
         {detailError && <Alert type="error" message={detailError} showIcon />}

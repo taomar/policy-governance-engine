@@ -164,7 +164,7 @@ export function DocumentBodyDrawer({
         </Space>
       }
       placement="right"
-      width={680}
+      size={680}
       open={open}
       onClose={onClose}
       extra={

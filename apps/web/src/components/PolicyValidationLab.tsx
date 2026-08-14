@@ -1200,7 +1200,7 @@ export function PolicyValidationLab({
       <Drawer
         open={policyPreview !== null}
         onClose={() => setPolicyPreview(null)}
-        width="min(920px, 100vw)"
+        size="min(920px, 100vw)"
         title={
           testPreview ? (
             <div className="validation-policy-drawer-title">
@@ -1241,7 +1241,7 @@ export function PolicyValidationLab({
           setPolicyPreview(null);
           setTestPreview(null);
         }}
-        width="min(820px, 100vw)"
+        size="min(820px, 100vw)"
         title="Read-only validation scenario"
         className="validation-readonly-drawer"
       >

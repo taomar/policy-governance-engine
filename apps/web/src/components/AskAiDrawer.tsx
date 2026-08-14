@@ -130,7 +130,7 @@ export function AskAiDrawer({
         </Space>
       }
       placement="right"
-      width={expanded ? 720 : 440}
+      size={expanded ? 720 : 440}
       open={open}
       onClose={onClose}
       className="ask-ai-drawer"

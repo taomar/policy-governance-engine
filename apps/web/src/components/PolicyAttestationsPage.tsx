@@ -279,7 +279,7 @@ export function PolicyAttestationsPage({ policySetKey }: { policySetKey: string 
         okText="Launch campaign"
         okButtonProps={{ icon: <CheckOutlined /> }}
         width={600}
-        destroyOnClose
+        destroyOnHidden
       >
         {createError && <Alert type="error" message={createError} showIcon style={{ marginBottom: 16 }} />}
         <Form form={form} layout="vertical">

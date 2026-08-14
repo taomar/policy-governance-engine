@@ -1073,7 +1073,7 @@ export function PolicyTestsPage({ policySetKey }: { policySetKey: string }) {
         onOk={handleCreate}
         okText="Create saved test"
         confirmLoading={createSaving}
-        destroyOnClose
+        destroyOnHidden
         width={760}
       >
         {createError && <Alert type="error" showIcon message={createError} style={{ marginBottom: 12 }} />}

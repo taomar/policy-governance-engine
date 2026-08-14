@@ -80,7 +80,7 @@ export function RuleDiffRow({ rule, diffKind, expanded, onToggleExpand }: RuleDi
               <span className="policy-row-dot">·</span>
               <span>rev {rule.rule_revision}</span>
               {rule.category && (
-                <Tag bordered={false} color={colorForCategory(rule.category)} className="policy-row-category-tag">
+                <Tag variant="filled" color={colorForCategory(rule.category)} className="policy-row-category-tag">
                   {rule.category}
                 </Tag>
               )}

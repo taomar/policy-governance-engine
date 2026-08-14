@@ -279,7 +279,7 @@ export function ProjectsPage({
                     <span className="project-register-title-line">
                       <strong>{ps.name}</strong>
                       {ps.category && ps.category.trim().toLowerCase() !== ps.name.trim().toLowerCase() && (
-                        <Tag bordered={false} color={colorForCategory(ps.category)}>
+                        <Tag variant="filled" color={colorForCategory(ps.category)}>
                           {ps.category}
                         </Tag>
                       )}
@@ -359,7 +359,7 @@ export function ProjectsPage({
         }}
         onOk={handleCreate}
         okText="Create Project"
-        destroyOnClose
+        destroyOnHidden
       >
         {createError && <Alert type="error" showIcon message={createError} style={{ marginBottom: 12 }} />}
         <Form layout="vertical" form={form}>

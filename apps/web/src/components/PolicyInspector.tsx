@@ -289,7 +289,7 @@ export function PolicyInspector({
           <Descriptions.Item label="Relationships">
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
               {rule.is_explicit_override && (
-                <Tag color="purple" icon={<CrownOutlined />} bordered={false}>
+                <Tag color="purple" icon={<CrownOutlined />} variant="filled">
                   Explicit override
                 </Tag>
               )}
@@ -348,7 +348,7 @@ export function PolicyInspector({
                     {sibling.title}
                   </button>
                   <Space size={4} wrap>
-                    <Tag bordered={false}>{sibling.review_status}</Tag>
+                    <Tag variant="filled">{sibling.review_status}</Tag>
                   </Space>
                 </div>
               );
@@ -532,7 +532,7 @@ export function PolicyInspector({
           </Text>
           <Space size={6} wrap>
             {rule.required_facts.map((f) => (
-              <Tag key={f.name} bordered={false} className="fact-tag">
+              <Tag key={f.name} variant="filled" className="fact-tag">
                 {f.name}
                 <span className="fact-type">{f.data_type}</span>
                 {!f.required && <span className="fact-optional">optional</span>}
@@ -638,7 +638,7 @@ export function PolicyInspector({
             {rule.tags.length > 0 && (
               <Space size={4} wrap>
                 {rule.tags.map((t) => (
-                  <Tag key={t} bordered={false} className="fact-tag">
+                  <Tag key={t} variant="filled" className="fact-tag">
                     {t}
                   </Tag>
                 ))}
