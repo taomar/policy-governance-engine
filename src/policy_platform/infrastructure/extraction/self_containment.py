@@ -39,6 +39,33 @@ Saturday/`that day` pair does. That asymmetry is deliberate and it points the
 right way: the check reports "this record gives a reader no anchor at all",
 which is a claim about the record and can be checked by eye in seconds.
 
+A POINTER AT THE DOCUMENT IS NOT A DANGLING ONE
+-----------------------------------------------
+"This handbook" in a handbook does not stand in for a noun phrase established
+earlier in the text. It points outward, at the artefact the reader is holding —
+exophoric deixis rather than anaphora — and every record carries its document by
+construction. So the thing pointed at is recoverable from the record in the only
+sense that matters here: no reader of a record has ever had to ask which
+document it came from.
+
+This is also what the extraction prompt specifies. It excludes sentences *about*
+the document — its own enactment, approval, effective date, supersession — while
+requiring that a sentence which merely names the document while stating a real
+rule be extracted, offering "This policy applies to all full-time employees" as
+an example to keep. A record arriving here with "this policy" in it is therefore
+the prompt working as specified, and a finding against it penalises the system
+for obeying its own instructions. A measure that does that will, given enough
+revisions, train the instruction out of the system. `test_record_stands_alone`
+pins the noun set below to the prompt's own worked examples, so the check and
+the specification cannot drift apart quietly.
+
+The exclusion is deliberately narrow, because its risk is the expensive one:
+suppressing a real defect. It applies only to a singular `this` or `that`
+heading a noun that names a document, never to a plural ("these policies"),
+never to `such`, `said`, `these` or `those`, and never to a noun naming content
+rather than the artefact. "This card", "these rules", "this stipulation" and
+"such circumstances" all still report.
+
 Deliberately out of scope: bare back-pointers with no head noun to look up
 ("thereof", "the above", "as mentioned"), except in the one case where local
 resolution is impossible by construction — nothing precedes them in the record.
@@ -88,6 +115,40 @@ _BARE_BACKPOINTERS: tuple[str, ...] = (
     "thereto",
     "hereinabove",
 )
+
+#: Nouns that name the document a record was taken from rather than anything
+#: inside it. A pointer at one of these is exophoric: it points at the artefact
+#: carrying the record, which every record has by construction, so it resolves
+#: without the record having to say anything more.
+#:
+#: The first group is exactly the set of forms the extraction prompt names when
+#: it states what "merely names the document" means, and a test asserts this set
+#: still covers every one of them, so a prompt revision that adds a document
+#: type fails loudly here instead of quietly reinstating the false positives.
+#: The second group the prompt does not name. It is held to nouns that cannot
+#: denote a fragment: a handbook has clauses, but no clause is "this handbook".
+_THE_DOCUMENT_ITSELF: frozenset[str] = frozenset(
+    {
+        # Named by the extraction prompt's own worked examples.
+        "document",
+        "law",
+        "policy",
+        "agreement",
+        "sop",
+        "standard",
+        # Artefact nouns the prompt happens not to use. Additions belong here
+        # only where the noun cannot name a part of a document.
+        "handbook",
+        "manual",
+    }
+)
+
+#: Determiners that can head a pointer at the document. Singular only, because
+#: "these policies" is a set of things inside the document rather than the
+#: document, and `such`/`said` point at content far more often than at the
+#: artefact.
+_DOCUMENT_DEIXIS_DETERMINERS: frozenset[str] = frozenset({"this", "that"})
+
 
 #: Tokens that can immediately precede a noun phrase. A demonstrative in any
 #: other left context is doing a different job — "provided that ...",
@@ -231,6 +292,25 @@ def _phrase_at(spans: list[tuple[str, int, int]], index: int, length: int, text:
     return text[spans[index][1] : end]
 
 
+def _points_at_the_document_itself(determiner: str, phrase_tokens: list[str]) -> bool:
+    """Whether the pointer names the document rather than anything inside it.
+
+    All three conditions do work. The determiner must be singular, because
+    `such` and `these` head a pointer at content far more often than at the
+    artefact. The head must be singular, because "these policies" is a set of
+    rules and not the document carrying them. And the noun itself is what
+    separates "this handbook", which every record answers, from "this
+    stipulation", which only the neighbouring record answers.
+    """
+
+    if determiner.casefold() not in _DOCUMENT_DEIXIS_DETERMINERS:
+        return False
+    head = phrase_tokens[-1].casefold()
+    if head != _stem(head):
+        return False
+    return head in _THE_DOCUMENT_ITSELF
+
+
 def unresolved_referents(
     fields: dict[str, str], record_text: str
 ) -> list[UnresolvedReferent]:
@@ -264,6 +344,8 @@ def unresolved_referents(
             # says nothing about whether the thing itself was named.
             head = phrase_tokens[-1]
             phrase = _phrase_at(spans, index, len(phrase_tokens), text)
+            if _points_at_the_document_itself(token, phrase_tokens):
+                continue
             if _resolves_locally([token, *phrase_tokens], available):
                 continue
             key = (field, phrase.casefold())

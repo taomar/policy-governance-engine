@@ -13,6 +13,8 @@ the failure mode both checks are built to avoid.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
@@ -33,7 +35,11 @@ from policy_platform.infrastructure.extraction.decision_families import (
     promoted_qualifiers,
 )
 from policy_platform.infrastructure.extraction.evaluability import Evaluability, assess
-from policy_platform.infrastructure.extraction.self_containment import unresolved_referents
+from policy_platform.infrastructure.extraction.self_containment import (
+    _THE_DOCUMENT_ITSELF,
+    unresolved_referents,
+)
+from policy_platform.infrastructure.prompt_assets import PROMPTS_DIR
 from policy_platform.infrastructure.quality import ai_quality
 from tests.fixtures.factories import make_rule
 
@@ -148,6 +154,89 @@ class TestAPointerIsOnlyADefectWhenItPointsOutward:
                 "The applicant may renew provided that the applicant has paid the fee.",
             )
             == []
+        )
+
+
+class TestAPointerAtTheDocumentIsNotADanglingOne:
+    """Records the extraction prompt requires, which this check must not report.
+
+    The prompt excludes sentences *about* the document — its enactment,
+    approval, effective date, supersession — while requiring that a sentence
+    which merely names the document and states a real rule be extracted. A
+    finding against one of those penalises the system for obeying its own
+    specification, and a measure that does that will, over enough revisions,
+    train the instruction out of the system: a later prompt change would be
+    scored an improvement for suppressing output the prompt asks for.
+
+    So the two have to agree, and the last test here is what keeps them
+    agreeing rather than leaving it to whoever next edits either file.
+    """
+
+    def test_a_sentence_naming_the_document_while_stating_a_rule_is_left_alone(self) -> None:
+        """The prompt's own worked example of what to extract."""
+
+        sentence = "This policy applies to all full-time employees in the United States."
+
+        assert unresolved_referents({"subject": "This policy"}, sentence) == []
+
+    def test_the_noun_is_what_carries_it(self) -> None:
+        """The same shape with a noun naming content is still reported.
+
+        The pair is the whole point. If this test ever passes, the exclusion
+        has widened from "the document carrying this record" to "anything a
+        record calls `this`", and the check has stopped doing its job.
+        """
+
+        found = unresolved_referents(
+            {"subject": "This stipulation"},
+            "This stipulation applies to all full-time employees.",
+        )
+
+        assert [item.phrase for item in found] == ["This stipulation"]
+
+    def test_a_plural_is_a_set_of_rules_rather_than_the_document(self) -> None:
+        found = unresolved_referents(
+            {"subject": "These policies"},
+            "These policies apply to all full-time employees.",
+        )
+
+        assert [item.phrase for item in found] == ["These policies"]
+
+    def test_the_noun_set_still_covers_every_form_the_prompt_names(self) -> None:
+        """The prompt is the specification, so it decides this vocabulary.
+
+        Harvested from the sentence stating what "merely names the document"
+        means rather than from the whole file, because a quoted "this X"
+        elsewhere in the prompt may be an example of something else entirely,
+        and treating one as a document noun would widen the exclusion until it
+        swallowed real defects.
+        """
+
+        prompt = (PROMPTS_DIR / "passage_extractor_v1.md").read_text(encoding="utf-8")
+        lines = prompt.splitlines()
+
+        anchors = [i for i, line in enumerate(lines) if "merely names the document" in line]
+        assert anchors, (
+            "the extraction prompt no longer states what 'merely names the document' "
+            "means, so this test harvested nothing and the assertion below would pass "
+            "having compared no forms at all"
+        )
+
+        window = " ".join(lines[anchors[0] : anchors[0] + 3])
+        named = {m.group(1).casefold() for m in re.finditer(r'"this ([A-Za-z]+)"', window, re.I)}
+
+        assert len(named) >= 3, (
+            f"expected that sentence to name several document types; harvested "
+            f"{sorted(named)} from {window!r}. A reformatting that breaks the quoting "
+            f"would otherwise leave this test asserting nothing."
+        )
+
+        missing = named - _THE_DOCUMENT_ITSELF
+        assert not missing, (
+            f"the extraction prompt now names {sorted(missing)} among the forms that "
+            f"merely name the document and must be extracted, but the self-containment "
+            f"check still reads those as pointers at content and will report every such "
+            f"record as a defect. Add them to _THE_DOCUMENT_ITSELF."
         )
 
 
