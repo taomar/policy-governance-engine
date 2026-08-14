@@ -138,7 +138,18 @@ _PROVISION_HEADING_RE = re.compile(
 
 _BOILERPLATE_MIN_PAGE_FRACTION = 0.3
 _BOILERPLATE_MIN_PAGES = 3
-_BOILERPLATE_EDGE_WINDOW = 1
+# Running page furniture is a *band* at the page edge, not a fixed number of
+# lines: a footer can be one line or several (a name, a page number and a title
+# are three), and a window measured in lines sees only part of a taller one.
+# The band is found from the page's own geometry instead — see `_edge_lines`.
+# It is capped so that a page whose body happens to be evenly leaded all the way
+# to the margin cannot hand its closing sentences to the boilerplate detector.
+_BOILERPLATE_EDGE_MAX_LINES = 6
+# A gap this many times the page's typical leading separates the furniture band
+# from the last line of body text. Matches the factor `_build_blocks` already
+# uses to recognise a paragraph break, for the same reason: it is the point at
+# which vertical space stops being leading and starts being layout.
+_BOILERPLATE_EDGE_GAP_RATIO = 1.6
 _DIGIT_RE = re.compile(r"\d+")
 
 
@@ -844,18 +855,82 @@ def _normalize_line(text: str) -> str:
     return _DIGIT_RE.sub("#", " ".join(text.strip().split())).lower()
 
 
-def _is_edge_line(line: _Line, lines: list[_Line]) -> bool:
-    non_empty = [candidate for candidate in lines if candidate.text.strip()]
+def _edge_lines(lines: list[_Line]) -> list[_Line]:
+    """The contiguous band of lines at each page edge, whatever its height.
+
+    Running furniture is set apart from the body by vertical space, not by line
+    count. A footer carrying a name, a page number and a document title is three
+    lines; a plain page number is one. Taking a fixed number of lines from each
+    edge sees all of the short footer and only the last line of the tall one,
+    which leaves the rest to be classified as content — and a repeated line that
+    survives classification becomes a heading, and then the section label for
+    everything that follows it.
+
+    So the band is read off the page instead: walk inward from the edge while
+    consecutive lines sit within normal leading of one another, and stop at the
+    first gap wide enough to be layout rather than leading. On a page with no
+    furniture this simply yields the outermost line or two, which no repetition
+    threshold will accept, so nothing changes for such a page.
+
+    The walk is capped, because a page whose body runs evenly to the margin has
+    no such gap, and an uncapped walk would offer most of the page to the
+    boilerplate detector.
+    """
+
+    non_empty = [line for line in lines if line.text.strip()]
     if not non_empty:
-        return False
-    edges = non_empty[:_BOILERPLATE_EDGE_WINDOW] + non_empty[-_BOILERPLATE_EDGE_WINDOW:]
-    return any(candidate is line for candidate in edges)
+        return []
+
+    leading = _typical_leading(non_empty)
+    limit = leading * _BOILERPLATE_EDGE_GAP_RATIO if leading > 0 else 0.0
+
+    def separation(earlier: _Line, later: _Line) -> float:
+        """Vertical space between two lines, in the units `_typical_leading` uses.
+
+        Negative when the boxes overlap, which is common inside a furniture band
+        where a page number set slightly larger shares a baseline with the text
+        beside it. Overlap is contiguity, so only a positive gap can end a band.
+        """
+
+        return later.top - earlier.bottom
+
+    def band(*, from_top: bool) -> list[_Line]:
+        ordered = non_empty if from_top else list(reversed(non_empty))
+        collected = [ordered[0]]
+        set_apart = len(ordered) == 1
+        for previous, current in zip(ordered, ordered[1:]):
+            gap = (
+                separation(previous, current) if from_top else separation(current, previous)
+            )
+            if limit <= 0 or gap > limit:
+                set_apart = True
+                break
+            if len(collected) >= _BOILERPLATE_EDGE_MAX_LINES:
+                break
+            collected.append(current)
+        # Furniture is *set apart* from the body by white space. If the walk
+        # reached its cap without ever finding that separation, this edge has no
+        # distinct band — it is simply where the body text begins — and widening
+        # here would offer real content to the boilerplate detector. A page
+        # whose genuine section heading sits at the top edge is exactly this
+        # case, so fall back to the outermost line alone.
+        return collected if set_apart else [ordered[0]]
+
+    seen: list[_Line] = []
+    for line in band(from_top=True) + band(from_top=False):
+        if not any(line is chosen for chosen in seen):
+            seen.append(line)
+    return seen
+
+
+def _is_edge_line(line: _Line, lines: list[_Line]) -> bool:
+    return any(candidate is line for candidate in _edge_lines(lines))
 
 
 def _detect_boilerplate(page_lines: list[list[_Line]]) -> set[str]:
     """Running headers/footers occupy a fixed page-edge position on most pages.
 
-    Restricting candidates to the exact page edges is what separates a true
+    Restricting candidates to the page-edge band is what separates a true
     running header from a recurring in-body subheading, which drifts by a line
     or two depending on how long the preceding title is and is real content.
     """
@@ -866,10 +941,8 @@ def _detect_boilerplate(page_lines: list[list[_Line]]) -> set[str]:
 
     counts: Counter[str] = Counter()
     for lines in page_lines:
-        non_empty = [line for line in lines if line.text.strip()]
-        edges = non_empty[:_BOILERPLATE_EDGE_WINDOW] + non_empty[-_BOILERPLATE_EDGE_WINDOW:]
         seen: set[str] = set()
-        for line in edges:
+        for line in _edge_lines(lines):
             normalized = _normalize_line(line.text)
             if normalized and normalized not in seen:
                 seen.add(normalized)
@@ -886,25 +959,62 @@ def _classify_line(line: _Line, body_size: float) -> ElementType:
     stripped = line.text.strip()
     if not stripped:
         return "other"
-    if _LIST_MARKER_RE.match(stripped):
-        return "list_item"
 
     # Font size is strong, direct evidence of a structural heading, so it is
-    # trusted on its own.
+    # weighed before the weaker signals rather than after them.
+    #
+    # It has to outrank the list-marker test in particular. A document that
+    # numbers its sections produces lines that carry a list marker and are also
+    # set larger than the body, and deciding on the marker alone calls every one
+    # of them a list item. The consequence is not a mislabelled element: a list
+    # item is merged into the text that follows it, so the section title and its
+    # first paragraph fuse into one, and the document loses every boundary
+    # between its numbered sections at once. What separates an enumerated
+    # heading from an enumerated list item is how it is set, not how it is
+    # numbered.
     larger_font = body_size > 0 and line.size >= body_size + 0.6
+
+    if _LIST_MARKER_RE.match(stripped):
+        # Whether an enumerated line is a list item or a section heading cannot
+        # be settled from the line alone. It is not decided by the shape of the
+        # marker — a document is free to number its sections — and it cannot be
+        # decided against the document's modal size either, because a document
+        # with two co-equal text classes (a bilingual one, say) has a modal that
+        # describes neither. It is settled in `_classify_lines`, which can see
+        # what the line introduces.
+        return "list_item"
+
     if larger_font and len(stripped) <= 200:
         return "heading"
 
     # The text-pattern fallback ("ALL CAPS", "Article 12", "7.2.1 ...") is much
-    # weaker, so it carries a guard: a line that ends in sentence punctuation is
-    # content, not a label. Without this, a short numbered provision such as
+    # weaker, so it carries two guards.
+    #
+    # The first is size. A heading is never set smaller than the text it
+    # introduces; type set below body size is furniture — a running footer, a
+    # page number, a copyright line, a caption. Without this, a footer in small
+    # capitals satisfies the ALL CAPS rule, becomes a heading, and is then
+    # installed as the section label for everything printed after it on every
+    # page it appears on. That reads as full section coverage while naming
+    # something that is not a section at all.
+    #
+    # The second is punctuation: a line that ends in sentence punctuation is
+    # content, not a label. Without it, a short numbered provision such as
     # "2.1 Such jobs shall not be potentially harmful to their health." is
     # classified as a heading, which both loses it as a candidate policy and
     # then mislabels the `section` of every element that follows it. The
     # asymmetry favours guessing "paragraph": a heading demoted to a paragraph
     # is merely a redundant element, whereas a rule promoted to a heading
     # disappears from extraction entirely.
-    if len(stripped) <= 90 and not stripped.endswith(_SENTENCE_END):
+    # `_modal_body_size` and the parser's own sizes both carry floating-point
+    # noise, so a heading set at exactly body size can measure a hair under it.
+    # The floor therefore uses the same margin that `larger_font` uses above:
+    # only type that is *distinctly* smaller than the body is furniture. Without
+    # the margin this rule demotes genuine section headings that happen to be
+    # set at body size and distinguished by weight or spacing instead — which is
+    # over-suppression, and costs real sections rather than false ones.
+    smaller_font = body_size > 0 and line.size < body_size - 0.6
+    if not smaller_font and len(stripped) <= 90 and not stripped.endswith(_SENTENCE_END):
         if stripped.isupper() or _PROVISION_HEADING_RE.match(stripped):
             return "heading"
     return "paragraph"
@@ -940,6 +1050,37 @@ def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
     """
 
     kinds = [_classify_line(line, body_size) for line in lines]
+
+    # Promote enumerated lines that the document sets above the content they
+    # introduce. A document that numbers its sections produces lines carrying a
+    # list marker that are nonetheless headings, and calling them list items
+    # does not merely mislabel them: `_build_blocks` merges a list item with the
+    # text that follows, so the section title and its opening paragraph fuse
+    # into a single element and every boundary between numbered sections is
+    # lost at once.
+    #
+    # The yardstick is local, not document-wide. A heading is set larger than
+    # the text it introduces; a bullet in a list of bullets is set the same as
+    # its siblings. Comparing against the neighbour rather than the document's
+    # modal size is what keeps this honest in a document with two co-equal text
+    # classes, where the modal describes one of them and slanders the other.
+    for index, kind in enumerate(kinds):
+        if kind != "list_item":
+            continue
+        stripped = lines[index].text.strip()
+        if len(stripped) > 200 or stripped.endswith(_SENTENCE_END):
+            continue
+        following = next(
+            (
+                line
+                for line in lines[index + 1 :]
+                if line.text.strip() and not line.is_boilerplate
+            ),
+            None,
+        )
+        if following is not None and lines[index].size >= following.size + 0.6:
+            kinds[index] = "heading"
+
     for index, kind in enumerate(kinds):
         if kind != "heading":
             continue
