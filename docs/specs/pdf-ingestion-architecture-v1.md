@@ -1,19 +1,19 @@
 # PDF INGESTION AND POLICY EXTRACTION ARCHITECTURE
-# Target implementation agent: Claude Opus
-# Platform: Azure AI Search + embeddings + Azure OpenAI
-# Primary requirement: exhaustive, verbatim policy extraction
-#
-# IMPORTANT:
-# This instruction governs HOW documents are parsed, chunked, indexed,
-# reconstructed and supplied to the policy-extraction LLM.
-#
-# Policy extraction itself is performed by a separate strict-verbatim
-# policy-passage extraction prompt.
+
+- **Target implementation agent:** Claude Opus
+- **Platform:** Azure AI Search + embeddings + Azure OpenAI
+- **Primary requirement:** exhaustive, verbatim policy extraction
+
+**IMPORTANT:**
+
+This instruction governs HOW documents are parsed, chunked, indexed,
+reconstructed and supplied to the policy-extraction LLM.
+
+Policy extraction itself is performed by a separate strict-verbatim
+policy-passage extraction prompt.
 
 
-======================================================================
-1. OBJECTIVE
-======================================================================
+## 1. OBJECTIVE
 
 Implement a document ingestion and retrieval architecture for policy documents
 such as:
@@ -43,9 +43,7 @@ The architecture MUST ensure that:
 10. Embedding chunk boundaries MUST NOT become policy boundaries.
 
 
-======================================================================
-2. CRITICAL ARCHITECTURAL PRINCIPLE
-======================================================================
+## 2. CRITICAL ARCHITECTURAL PRINCIPLE
 
 A PDF PAGE IS A PHYSICAL LAYOUT UNIT.
 
@@ -84,9 +82,7 @@ appears on the next page.
 The implementation MUST preserve these relationships.
 
 
-======================================================================
-3. DO NOT USE VECTOR SEARCH FOR EXHAUSTIVE EXTRACTION
-======================================================================
+## 3. DO NOT USE VECTOR SEARCH FOR EXHAUSTIVE EXTRACTION
 
 This is CRITICAL.
 
@@ -137,9 +133,7 @@ Conceptually:
 Every source region must be visited.
 
 
-======================================================================
-4. RECOMMENDED INGESTION PIPELINE
-======================================================================
+## 4. RECOMMENDED INGESTION PIPELINE
 
 Preferred logical pipeline:
 
@@ -188,9 +182,7 @@ extract policies
 That architecture is insufficient for exhaustive policy extraction.
 
 
-======================================================================
-5. PARSING TECHNOLOGY
-======================================================================
+## 5. PARSING TECHNOLOGY
 
 Use layout-aware document parsing.
 
@@ -226,9 +218,7 @@ The parser should preserve, where available:
 - document ordering
 
 
-======================================================================
-6. TWO REPRESENTATIONS MUST BE STORED
-======================================================================
+## 6. TWO REPRESENTATIONS MUST BE STORED
 
 Maintain TWO distinct representations.
 
@@ -265,9 +255,7 @@ Reconnection MUST NOT invent words.
 It can only concatenate source fragments in their original order.
 
 
-======================================================================
-7. CANONICAL DOCUMENT MODEL
-======================================================================
+## 7. CANONICAL DOCUMENT MODEL
 
 Create a deterministic intermediate representation before embedding.
 
@@ -310,9 +298,7 @@ Possible element_type values:
 Do not use LLM-generated text in this structure.
 
 
-======================================================================
-8. CROSS-PAGE PARAGRAPH RECONSTRUCTION
-======================================================================
+## 8. CROSS-PAGE PARAGRAPH RECONSTRUCTION
 
 This is one of the most important requirements.
 
@@ -359,9 +345,7 @@ source_fragments:
 The policy extractor must be able to receive the complete logical passage.
 
 
-======================================================================
-9. HOW TO DETECT CROSS-PAGE CONTINUATION
-======================================================================
+## 9. HOW TO DETECT CROSS-PAGE CONTINUATION
 
 Do NOT use one heuristic alone.
 
@@ -397,9 +381,7 @@ Potential boundary signals include:
 Do NOT allow an LLM to invent missing joining text.
 
 
-======================================================================
-10. NEVER INSERT WORDS WHILE STITCHING
-======================================================================
+## 10. NEVER INSERT WORDS WHILE STITCHING
 
 Cross-page reconstruction means:
 
@@ -437,9 +419,7 @@ Valid reconstruction:
 Only characters from source fragments may participate.
 
 
-======================================================================
-11. PAGE HEADERS AND FOOTERS
-======================================================================
+## 11. PAGE HEADERS AND FOOTERS
 
 Repeated headers and footers frequently occur inside extracted PDF text.
 
@@ -479,9 +459,7 @@ or:
 and exclude them from logical policy text.
 
 
-======================================================================
-12. PARAGRAPHS ARE THE PRIMARY CHUNKING UNIT
-======================================================================
+## 12. PARAGRAPHS ARE THE PRIMARY CHUNKING UNIT
 
 Do not begin chunking by arbitrary character count.
 
@@ -518,9 +496,7 @@ more semantically coherent chunks; use that structural information instead of
 discarding it.
 
 
-======================================================================
-13. CHUNK BOUNDARY RULE
-======================================================================
+## 13. CHUNK BOUNDARY RULE
 
 Embedding chunks MUST be created only AFTER logical blocks have been
 reconstructed.
@@ -543,9 +519,7 @@ Avoid splitting:
 - a paragraph because of a physical PDF page boundary
 
 
-======================================================================
-14. CHUNK SIZE
-======================================================================
+## 14. CHUNK SIZE
 
 Do not hard-code a tiny chunk size.
 
@@ -570,9 +544,7 @@ If a complete logical paragraph slightly exceeds the preferred target size,
 prefer keeping the paragraph intact when model limits permit.
 
 
-======================================================================
-15. OVERSIZED PARAGRAPHS
-======================================================================
+## 15. OVERSIZED PARAGRAPHS
 
 If a single logical paragraph exceeds the maximum allowable chunk size:
 
@@ -593,9 +565,7 @@ Use overlap when necessary.
 Never generate bridging language.
 
 
-======================================================================
-16. CHUNK OVERLAP
-======================================================================
+## 16. CHUNK OVERLAP
 
 Overlap is required to protect context near chunk boundaries.
 
@@ -625,9 +595,7 @@ Store metadata indicating which content is overlapping so duplicated extraction
 results can later be reconciled by source position.
 
 
-======================================================================
-17. DO NOT CONFUSE TEXT SPLIT "PAGES" WITH PDF PAGES
-======================================================================
+## 17. DO NOT CONFUSE TEXT SPLIT "PAGES" WITH PDF PAGES
 
 Azure AI Search Text Split terminology can use "pages" to describe text chunks.
 
@@ -645,9 +613,7 @@ and another field for logical/search chunk ordering:
 Do not overload these concepts.
 
 
-======================================================================
-18. REQUIRED AZURE AI SEARCH INDEX FIELDS
-======================================================================
+## 18. REQUIRED AZURE AI SEARCH INDEX FIELDS
 
 At minimum, maintain fields equivalent to:
 
@@ -691,9 +657,7 @@ The exact schema may be adapted to Azure AI Search supported field types,
 but the information MUST remain recoverable.
 
 
-======================================================================
-19. STABLE CHUNK IDENTIFIERS
-======================================================================
+## 19. STABLE CHUNK IDENTIFIERS
 
 Chunk IDs must not be random UUIDs if deterministic reprocessing is desired.
 
@@ -719,9 +683,7 @@ This assists:
 - contradiction analysis
 
 
-======================================================================
-20. STORE PREVIOUS AND NEXT RELATIONSHIPS
-======================================================================
+## 20. STORE PREVIOUS AND NEXT RELATIONSHIPS
 
 Each indexed chunk should know its neighbors.
 
@@ -737,9 +699,7 @@ Example:
 This is important for later contextual expansion.
 
 
-======================================================================
-21. EXTRACTION MUST PROCESS ALL CHUNKS
-======================================================================
+## 21. EXTRACTION MUST PROCESS ALL CHUNKS
 
 When policy extraction is requested for a document:
 
@@ -770,9 +730,7 @@ for window in build_windows(chunks):
     extract_policy_candidates(window)
 
 
-======================================================================
-22. CONTEXT WINDOW ASSEMBLY
-======================================================================
+## 22. CONTEXT WINDOW ASSEMBLY
 
 Do not send each embedding chunk independently to the policy LLM.
 
@@ -816,9 +774,7 @@ Sending Chunk 100 alone is unacceptable.
 The extraction window should contain both.
 
 
-======================================================================
-23. PRIMARY REGION VS CONTEXT REGION
-======================================================================
+## 23. PRIMARY REGION VS CONTEXT REGION
 
 To prevent duplicate extraction, tell the extractor which region it owns.
 
@@ -848,9 +804,7 @@ This allows complete cross-boundary policy extraction without processing the
 same passage repeatedly.
 
 
-======================================================================
-24. EVEN BETTER: PROCESS LOGICAL BLOCK WINDOWS
-======================================================================
+## 24. EVEN BETTER: PROCESS LOGICAL BLOCK WINDOWS
 
 Where possible do not base extraction windows directly on embedding chunks.
 
@@ -870,9 +824,7 @@ Logical source windows are optimized for POLICY EXTRACTION.
 They are related but should not be assumed to be identical.
 
 
-======================================================================
-25. SOURCE POSITION IS THE IDENTITY OF AN EXTRACTION
-======================================================================
+## 25. SOURCE POSITION IS THE IDENTITY OF AN EXTRACTION
 
 Every extraction needs a source range.
 
@@ -902,9 +854,7 @@ Do not identify policies solely by their text.
 The same text can legitimately appear more than once.
 
 
-======================================================================
-26. VERBATIM EXTRACTION GUARANTEE
-======================================================================
+## 26. VERBATIM EXTRACTION GUARANTEE
 
 The policy extractor must never be trusted merely because it was instructed
 to be verbatim.
@@ -943,9 +893,7 @@ DO NOT:
 It must be copied from the source.
 
 
-======================================================================
-27. IMPORTANT CROSS-PAGE VALIDATION ISSUE
-======================================================================
+## 27. IMPORTANT CROSS-PAGE VALIDATION ISSUE
 
 A policy may span multiple physical pages.
 
@@ -981,9 +929,7 @@ AND
 Never assume the policy must belong to only one page.
 
 
-======================================================================
-28. CANONICAL TEXT MUST BE STABLE
-======================================================================
+## 28. CANONICAL TEXT MUST BE STABLE
 
 Choose ONE authoritative text representation for downstream exact matching.
 
@@ -1019,9 +965,7 @@ another component says:
 and exact validation will fail even though both came from the same PDF.
 
 
-======================================================================
-29. DO NOT CLEAN TEXT AFTER INDEXING
-======================================================================
+## 29. DO NOT CLEAN TEXT AFTER INDEXING
 
 Never perform uncontrolled transformations such as:
 
@@ -1047,9 +991,7 @@ If canonicalization is used:
 must BOTH be retained.
 
 
-======================================================================
-30. HYPHENATION ACROSS PDF LINES
-======================================================================
+## 30. HYPHENATION ACROSS PDF LINES
 
 PDFs can contain visual line-break hyphenation.
 
@@ -1088,9 +1030,7 @@ transformation:
 The LLM must never perform this correction implicitly.
 
 
-======================================================================
-31. TABLE HANDLING
-======================================================================
+## 31. TABLE HANDLING
 
 Tables are policy-rich and require special treatment.
 
@@ -1127,9 +1067,7 @@ If the row is returned as a policy candidate, return the source row/block in
 its canonical table representation.
 
 
-======================================================================
-32. MULTI-PAGE TABLES
-======================================================================
+## 32. MULTI-PAGE TABLES
 
 A table may continue across pages.
 
@@ -1167,9 +1105,7 @@ take advantage of its cross-page table capabilities rather than recreating
 them unnecessarily.
 
 
-======================================================================
-33. NUMBERED LISTS
-======================================================================
+## 33. NUMBERED LISTS
 
 Preserve parent-child relationships.
 
@@ -1200,9 +1136,7 @@ If item 3 continues onto the next PDF page, it remains the SAME list item.
 Do not restart the list simply because page number changed.
 
 
-======================================================================
-34. FOOTNOTES
-======================================================================
+## 34. FOOTNOTES
 
 Do not automatically discard footnotes.
 
@@ -1215,9 +1149,7 @@ During extraction, include relevant footnotes in surrounding context.
 Do not merge footnote wording into the policy sentence.
 
 
-======================================================================
-35. HEADINGS
-======================================================================
+## 35. HEADINGS
 
 Headings generally aren't policy passages themselves, but they provide
 important context.
@@ -1246,9 +1178,7 @@ Do not inject heading words into extracted source text unless they literally
 belong to the selected source passage.
 
 
-======================================================================
-36. SEARCH AI EMBEDDINGS
-======================================================================
+## 36. SEARCH AI EMBEDDINGS
 
 Continue generating embeddings for logical chunks.
 
@@ -1275,9 +1205,7 @@ At minimum:
 Do not design the index as vector-only retrieval.
 
 
-======================================================================
-37. SEPARATE EXTRACTION INDEX FROM POLICY INDEX IF APPROPRIATE
-======================================================================
+## 37. SEPARATE EXTRACTION INDEX FROM POLICY INDEX IF APPROPRIATE
 
 Strongly consider two logical indexes or two entity layers.
 
@@ -1316,9 +1244,7 @@ POLICY INDEX
 Do not overwrite source chunks with generated policy representations.
 
 
-======================================================================
-38. DOCUMENT VERSIONING
-======================================================================
+## 38. DOCUMENT VERSIONING
 
 Never overwrite policy provenance when a new version of a document arrives.
 
@@ -1342,9 +1268,7 @@ This later enables:
     unchanged policy
 
 
-======================================================================
-39. CONTENT HASHES
-======================================================================
+## 39. CONTENT HASHES
 
 Generate deterministic hashes for:
 
@@ -1364,9 +1288,7 @@ This allows the system to prove when source content is unchanged and avoid
 unnecessary reprocessing.
 
 
-======================================================================
-40. COVERAGE CONTROL
-======================================================================
+## 40. COVERAGE CONTROL
 
 After extraction, the system must be able to prove that every region of the
 document was considered.
@@ -1385,9 +1307,7 @@ Maintain processing records such as:
 Do not mark extraction complete if chunks were silently omitted.
 
 
-======================================================================
-41. RETRY BEHAVIOR
-======================================================================
+## 41. RETRY BEHAVIOR
 
 If processing of a window fails:
 
@@ -1410,9 +1330,7 @@ Document extraction succeeds only after:
 or an explicit failure state is returned.
 
 
-======================================================================
-42. DEDUPLICATION AFTER OVERLAP
-======================================================================
+## 42. DEDUPLICATION AFTER OVERLAP
 
 Overlap will intentionally cause some policies to be seen more than once.
 
@@ -1429,9 +1347,7 @@ Deduplicate based on source identity:
 Two identical sentences in different source locations must remain distinct.
 
 
-======================================================================
-43. POLICY EXTRACTION OUTPUT
-======================================================================
+## 43. POLICY EXTRACTION OUTPUT
 
 The LLM should return:
 
@@ -1457,9 +1373,7 @@ knows them.
 The application should attach authoritative provenance whenever possible.
 
 
-======================================================================
-44. PREFER APPLICATION-GENERATED METADATA
-======================================================================
+## 44. PREFER APPLICATION-GENERATED METADATA
 
 Do not ask the LLM to infer:
 
@@ -1484,9 +1398,7 @@ The application handles:
     where did it come from?
 
 
-======================================================================
-45. POLICY EXTRACTION SHOULD NOT DEPEND ON EMBEDDING SIMILARITY
-======================================================================
+## 45. POLICY EXTRACTION SHOULD NOT DEPEND ON EMBEDDING SIMILARITY
 
 For the initial extraction workflow:
 
@@ -1507,9 +1419,7 @@ Therefore:
     FULL DOCUMENT SCAN is mandatory.
 
 
-======================================================================
-46. CONTRADICTION ANALYSIS IS DIFFERENT
-======================================================================
+## 46. CONTRADICTION ANALYSIS IS DIFFERENT
 
 After policies have already been extracted, embeddings ARE useful.
 
@@ -1527,9 +1437,7 @@ This reduces N² comparison costs.
 Do not confuse this optimization with the initial extraction stage.
 
 
-======================================================================
-47. QUALITY TEST: CROSS-PAGE POLICIES
-======================================================================
+## 47. QUALITY TEST: CROSS-PAGE POLICIES
 
 Create automated tests specifically for page boundaries.
 
@@ -1556,9 +1464,7 @@ No words added.
 No words missing.
 
 
-======================================================================
-48. QUALITY TEST: EXCEPTION ON NEXT PAGE
-======================================================================
+## 48. QUALITY TEST: EXCEPTION ON NEXT PAGE
 
 Page 20:
 
@@ -1576,9 +1482,7 @@ Both passages must reach the same policy extraction context window.
 The extractor must not see page 20 in isolation.
 
 
-======================================================================
-49. QUALITY TEST: LIST ACROSS PAGES
-======================================================================
+## 49. QUALITY TEST: LIST ACROSS PAGES
 
 Page 31:
 
@@ -1603,9 +1507,7 @@ The logical list must remain:
 without LLM reconstruction.
 
 
-======================================================================
-50. QUALITY TEST: TABLE ACROSS PAGES
-======================================================================
+## 50. QUALITY TEST: TABLE ACROSS PAGES
 
 Create a test approval matrix where:
 
@@ -1624,9 +1526,7 @@ linked continuation.
 No row may lose its header context.
 
 
-======================================================================
-51. QUALITY TEST: EXACT SOURCE VALIDATION
-======================================================================
+## 51. QUALITY TEST: EXACT SOURCE VALIDATION
 
 Introduce text such as:
 
@@ -1645,9 +1545,7 @@ Semantic equivalence is irrelevant.
 The returned policy text changed.
 
 
-======================================================================
-52. QUALITY TEST: EXHAUSTIVE COVERAGE
-======================================================================
+## 52. QUALITY TEST: EXHAUSTIVE COVERAGE
 
 Create a synthetic 100-page policy PDF.
 
@@ -1665,9 +1563,7 @@ All five must be found.
 The implementation must NOT rely on top-K retrieval.
 
 
-======================================================================
-53. QUALITY TEST: DETERMINISM
-======================================================================
+## 53. QUALITY TEST: DETERMINISM
 
 Run the exact same document through the extraction pipeline repeatedly.
 
@@ -1684,9 +1580,7 @@ the set of source policy passages should remain materially identical.
 Compare using source spans rather than generated IDs alone.
 
 
-======================================================================
-54. IMPORTANT IMPLEMENTATION CONSTRAINT
-======================================================================
+## 54. IMPORTANT IMPLEMENTATION CONSTRAINT
 
 DO NOT solve page continuation by increasing chunk size to something huge.
 
@@ -1708,9 +1602,7 @@ not:
     put the entire 200-page PDF into one prompt.
 
 
-======================================================================
-55. ARCHITECTURAL INVARIANTS
-======================================================================
+## 55. ARCHITECTURAL INVARIANTS
 
 The implementation is NOT complete unless all of these invariants hold:
 
@@ -1767,9 +1659,7 @@ Embedding retrieval is never used as a substitute for complete document
 enumeration during policy extraction.
 
 
-======================================================================
-56. IMPLEMENTATION PRIORITY
-======================================================================
+## 56. IMPLEMENTATION PRIORITY
 
 When modifying the existing codebase, proceed in this order:
 
@@ -1794,9 +1684,7 @@ When modifying the existing codebase, proceed in this order:
 19. Only then optimize performance.
 
 
-======================================================================
-57. DO NOT MAKE BLIND REWRITES
-======================================================================
+## 57. DO NOT MAKE BLIND REWRITES
 
 Before changing code:
 
@@ -1831,9 +1719,7 @@ If the existing Azure AI Search pipeline already preserves structural
 information, extend it instead of replacing it.
 
 
-======================================================================
-58. SMALL BUG / ARCHITECTURAL PROBLEM RULE
-======================================================================
+## 58. SMALL BUG / ARCHITECTURAL PROBLEM RULE
 
 If you encounter an issue that appears small, such as:
 
@@ -1856,9 +1742,7 @@ If YES:
 fix the architecture rather than special-casing the example.
 
 
-======================================================================
-59. FINAL DESIGN PRINCIPLE
-======================================================================
+## 59. FINAL DESIGN PRINCIPLE
 
 SEARCH CHUNKS ARE NOT THE SOURCE OF TRUTH.
 
