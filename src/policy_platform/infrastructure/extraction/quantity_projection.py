@@ -9,8 +9,23 @@ threshold captured was of the second shape and none of the first, so the
 proportional compiler returned None on every record and the deterministic route
 came out empty while the quantities sat in the records, correctly extracted.
 
-This module reads that second shape. It compiles a comparison between a fact
-named after the rule's own subject and the literal value the document stated.
+This module reads that second shape. It compiles a comparison between the
+quantity the sentence measures and the literal value the document stated.
+
+WHAT THE COMPARISON IS ABOUT
+
+A compiled condition asserts two things: that the document stated a test, and
+what the test is *about*. The second is as easy to get wrong as the first and
+harder to notice. Naming the compared fact after the sentence's grammatical
+subject reads "part-time employees <= 24" out of a sentence that capped weekly
+hours -- an assertion about a headcount that the document never made, attached
+to a rule that now looks computable and will be computed.
+
+So the operand is what the number counts, never whom the rule governs. The
+subject is kept as the measured thing's qualifier, because two limits sharing a
+unit are different limits and an operand named for the unit alone would collapse
+them into one fact that answers both. Where the document never says what the
+number counts, nothing is compiled: a bare magnitude cannot be bound to a case.
 
 WHAT IT REFUSES, AND WHY THAT IS THE IMPORTANT HALF
 
@@ -83,6 +98,10 @@ class QuantityRefusal(str, Enum):
     #: A proportion with nothing to take it of: "50%". The base is what the
     #: percentage applies to, and without it there is no second operand.
     NO_BASE = "proportion_has_no_stated_base"
+    #: A number with no statement of what it counts: "at least 12". The relation
+    #: is there and the value is there, but nothing says twelve of what, so there
+    #: is no quantity for a case to supply and no operand to compare.
+    NO_UNIT = "quantity_states_nothing_counted"
 
 
 #: Comparison vocabulary, most specific first. Order is load-bearing: "no more
@@ -188,6 +207,35 @@ def _unit_from(phrase: str, value_text: str) -> str:
     tail = _TRAILING_COMPARATIVE_RE.sub(" ", tail)
     words = [w for w in re.split(r"[^\w%]+", tail) if w]
     return " ".join(words).strip()
+
+
+def _measured_quantity_name(subject: str, counted: str) -> str:
+    """Name the quantity the comparison is about.
+
+    `counted` is the document's own words for what the number counts; `subject`
+    is what the sentence says the count belongs to. The name carries both, with
+    the counted thing last so the operand always ends in the dimension a case
+    engine must supply.
+
+    Both parts earn their place. Without `counted` the operand is a population
+    and the comparison is nonsense. Without `subject` every limit measured in
+    the same unit collapses onto one fact -- a notice period and a leave
+    allowance both become `days`, and a case supplying one answers both.
+
+    Where the subject already ends in the counted words the repetition is
+    dropped, so a sentence that names its own measurement does not produce
+    `review-period-months-months`.
+    """
+
+    subject_slug = _slugify(subject)
+    counted_slug = _slugify(counted)
+    if not counted_slug:
+        return ""
+    if not subject_slug:
+        return counted_slug
+    if subject_slug == counted_slug or subject_slug.endswith(f"-{counted_slug}"):
+        return subject_slug
+    return f"{subject_slug}-{counted_slug}"
 
 
 @dataclass(frozen=True)
@@ -319,15 +367,27 @@ def project_stated_quantity(
             quantity_text=threshold, refusal=QuantityRefusal.NO_COMPARISON
         )
 
-    fact_name = _slugify(subject)
-    if not fact_name:
-        return None
-
     value = values[0]
     value_text = _NUMBER_RE.search(threshold)
-    unit = (rule.unit or "").strip() or _unit_from(
-        threshold, value_text.group(0) if value_text else ""
-    )
+
+    # What the number counts, in the document's own words. The threshold phrase
+    # is read in preference to the model's `unit` field because it keeps the
+    # qualifier that says what the count is taken over -- "hours per week" is a
+    # different quantity from "hours", and an operand that dropped "per week"
+    # would invite a case to supply a total.
+    counted = _unit_from(threshold, value_text.group(0) if value_text else "")
+    unit = counted or (rule.unit or "").strip()
+    if not unit:
+        return QuantityProjection(
+            quantity_text=threshold, refusal=QuantityRefusal.NO_UNIT
+        )
+
+    fact_name = _measured_quantity_name(subject, unit)
+    if not fact_name:
+        return QuantityProjection(
+            quantity_text=threshold, refusal=QuantityRefusal.NO_UNIT
+        )
+
     return QuantityProjection(
         quantity_text=threshold,
         condition=FactComparisonCondition(

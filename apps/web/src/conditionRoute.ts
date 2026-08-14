@@ -85,6 +85,12 @@ export const CONDITION_ROUTE: Record<string, ConditionRoute> = {
       "The source states its quantity in a form this platform does not yet read as a number. The figure is in the record and in the source; only the compiler fell short, so a judge settles a case by reading it.",
     color: "blue",
   },
+  quantity_states_nothing_counted: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states a figure and a comparison but not what the figure counts, so there is no quantity a case could supply and nothing to compare it against. Naming the unit would mean choosing one the document did not, so this record travels as words and a judge reads them.",
+    color: "blue",
+  },
   proportion_has_no_stated_base: {
     route: DETERMINISTIC_LABEL.no,
     reason:

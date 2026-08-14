@@ -683,6 +683,7 @@ CONDITION_PROVENANCE_CODES: Final[tuple[str, ...]] = (
     "quantity_states_no_comparison",
     "quantity_not_read_as_number",
     "proportion_has_no_stated_base",
+    "quantity_states_nothing_counted",
 )
 
 
