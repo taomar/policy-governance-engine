@@ -13,6 +13,110 @@ Policy extraction itself is performed by a separate strict-verbatim
 policy-passage extraction prompt.
 
 
+---
+
+## STATUS — added 2026-08-14, not part of the original instruction
+
+**This document predates the code. It is still normative and still cited, but
+it is not a description of the system as built.** Part of it was never
+implemented, and one part of it should stay that way. Read it together with
+[`docs/failures/designed-pipeline-and-running-pipeline.md`](../failures/designed-pipeline-and-running-pipeline.md),
+which records where the designed pipeline and the running one diverge.
+
+Provenance: the file arrived in commit `7093f3b` and no line below this section
+has been edited since. The code cites it as normative —
+`infrastructure/ingestion/document_ingestion.py` line 3 names this file by
+path, and `contracts/canonical_document.py` cites eleven of its sections. The
+original wording is preserved deliberately: it is the record of what was asked
+for, not a description to be kept current.
+
+### Implemented
+
+Sections 6–13, 19, 26, 28–30, 35, 38, 39, 43–44, and the boundary tests of
+sections 47–53.
+
+* The canonical model of section 7 is `contracts/canonical_document.py`. The
+  two representations of section 6 are `CanonicalPage.raw_text` and
+  `CanonicalElement`.
+* Cross-page reconstruction (sections 8–10) is
+  `infrastructure/ingestion/document_ingestion.py`, which records every join as
+  a named transformation — `cross_page_join`, `line_break_hyphen_join`.
+* The verbatim guarantee of section 26 is enforced by `verify_verbatim`
+  (`infrastructure/extraction/passage_extractor.py` line 215). Section 51's own
+  test case — `non-Saudi` offered against a source reading `non- Saudi` — is
+  rejected, as that section requires.
+* Section 3's requirement is met: extraction enumerates a document rather than
+  retrieving the top *k*. See **Overtaken** below for the mechanism.
+
+### Built, but not reached by the running pipeline
+
+The context-window architecture of sections 22–24 and the coverage proof of
+section 40 are both implemented — `contracts/reading_plan.py` — and neither
+reaches the extraction model. Section 22 is therefore unmet in effect while its
+implementation is complete and tested. The evidence is in the failures record
+cited above and is not repeated here.
+
+### Never built
+
+* **Sections 4 and 32 — lists and tables spanning pages.** A table continuing
+  across a page break is not reassembled into one logical table. The converter
+  emits each page's grid separately, so a body row on a continuation page has
+  no header row to resolve against.
+* **Section 16 — overlap between extraction windows.** Windows are strictly
+  disjoint (`infrastructure/extraction/ai_extraction.py` lines 120–134), so a
+  condition ending one window and its consequence beginning the next are never
+  presented together. Section 42's deduplication requirement is dormant only
+  because of this, and becomes live the moment overlap exists.
+* **Section 41 — retry.** A window whose processing fails is recorded as a skip
+  and the run still reports `completed`
+  (`infrastructure/extraction/ai_extraction.py` line 1061). There is no retry in
+  the path.
+* **Section 14 — configurable chunk size.** `_MAX_CHARS_PER_BATCH` is a module
+  constant, not a setting.
+* **Sections 31, 33, 34 — table cell position, list nesting, footnote anchors.**
+  Present on the canonical contract, dropped at the persistence boundary, so
+  they never reach extraction.
+
+### Overtaken — designed, never built, and not to be built
+
+**Sections 18–21, and the ordering fields of section 36.** These specify an
+Azure AI Search retrieval layer: `chunk_order`, `previous_chunk_id`,
+`next_chunk_id`, `parent_element_ids`, `first_page`, `last_page`, and
+extraction driven by a filtered, ordered query over the index. None of those
+fields is written (`infrastructure/search/indexing.py`), and
+`infrastructure/search/search_client.py` line 3 records that the client never
+creates or alters index schemas.
+
+**Do not implement them.** Their purpose was section 3's requirement — visit
+every region of a document rather than retrieve the most similar *k* — and that
+requirement is already met by a better mechanism: clauses are enumerated from
+PostgreSQL in `Clause.sequence` order
+(`infrastructure/extraction/ai_extraction.py` line 563), a total order the
+index would otherwise have had to reconstruct. **The requirement stands; this
+way of meeting it has been overtaken.** Sections 3, 21 and 45 remain in force,
+and are satisfied.
+
+Of section 36, what is built: embeddings are generated, and `document_id` is
+filterable. What is not: the ordering fields above.
+
+### Stated limitation — INVARIANT 7
+
+INVARIANT 7 requires every extraction to be validated against canonical source
+text. `verify_verbatim` is called against the *rendered batch* that was sent to
+the model (`infrastructure/extraction/passage_extractor.py` lines 389 and 410),
+not against `CanonicalPage.raw_text`. That proves the model copied rather than
+composed. It does not prove the stored clause matches the PDF, so a document
+whose text was captured wrongly upstream can pass verbatim verification against
+its own corrupted store.
+
+This limit is known and deliberately still open. Closing it means first deciding
+what verification means once canonical text has been legitimately transformed:
+section 30 permits hyphen-joining, while section 51 requires a repaired hyphen
+to *fail* an exact comparison — so a single exact match against raw page text
+cannot serve both.
+
+---
+
 ## 1. OBJECTIVE
 
 Implement a document ingestion and retrieval architecture for policy documents
