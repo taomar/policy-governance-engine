@@ -20,6 +20,7 @@ import {
 } from "../api";
 import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
 import { projectRowClauses, routeClauses } from "../projectRegisterRow";
+import { reviewWorkByDocument, reviewWorkReason } from "../projectRegisterGroups";
 
 const { Title, Text } = Typography;
 
@@ -203,6 +204,9 @@ export function Dashboard({
   };
 
   const pending = summary?.pendingCandidateCount;
+  // The queue scoped to the documents it is actually spread across, so the
+  // headline count above has somewhere to send a reviewer.
+  const reviewWork = reviewWorkByDocument(readiness.map(({ insight }) => insight));
   const liveRecords = summary?.liveCandidateCount;
   const directRoute = summary?.directRouteCount;
   const readingRoute = summary?.readingRouteCount;
@@ -289,6 +293,21 @@ export function Dashboard({
             <Text type="secondary">
               Inspect the source, condition, outcome, and exceptions before approving anything for publication.
             </Text>
+            {reviewWork.length > 0 && (
+              /* The count above spans the portfolio, and nobody reviews a
+               * portfolio. This says which document to open, ordered by
+               * recorded high-severity findings and then by how much is
+               * waiting -- both signals the system already holds, rather than
+               * a filter vocabulary invented for this panel. */
+              <ul className="dashboard-queue-scope">
+                {reviewWork.map((item) => (
+                  <li key={item.documentHash ?? item.label}>
+                    <strong>{item.label}</strong>
+                    <small>{reviewWorkReason(item)}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <div className="dashboard-pressure-strip" aria-label="Portfolio assurance status">
             {pressure.map((item) => (

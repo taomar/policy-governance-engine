@@ -130,3 +130,56 @@ export function groupSubtitle(group: DocumentGroup<GroupableProject>): string {
   }
   return parts.join(" · ");
 }
+
+/**
+ * Where the review work actually is, scoped to documents.
+ *
+ * The dashboard headline summed pending candidates across the whole portfolio.
+ * Nobody reviews several thousand of anything, and an aggregate over every
+ * document answers no question a reviewer has: they need to know which
+ * document to open.
+ *
+ * Ordering is by high-severity findings first, then by volume. Both are
+ * reasons the system already holds rather than a filter vocabulary invented
+ * here -- severity is what the quality run recorded, and volume is the size of
+ * the decision still outstanding. A document with findings against it is where
+ * a reviewer's attention buys the most, so it sorts first even when a larger
+ * queue sits elsewhere.
+ */
+export interface ReviewWorkItem {
+  documentHash: string | null;
+  label: string;
+  pending: number;
+  highFindings: number;
+}
+
+export interface ReviewWorkInput extends GroupableProject {
+  review_pending: number;
+  latest_quality_high: number | null;
+}
+
+export function reviewWorkByDocument(
+  projects: readonly ReviewWorkInput[],
+): ReviewWorkItem[] {
+  return groupProjectsByDocument(projects)
+    .map((group) => ({
+      documentHash: group.documentHash,
+      label: group.label,
+      pending: group.projects.reduce((total, p) => total + (p.review_pending ?? 0), 0),
+      highFindings: group.projects.reduce((total, p) => total + (p.latest_quality_high ?? 0), 0),
+    }))
+    // A document with nothing waiting is not part of the queue. It is not
+    // hidden -- it is simply not work, and listing it would dilute the thing
+    // this panel exists to point at.
+    .filter((item) => item.pending > 0)
+    .sort((a, b) => b.highFindings - a.highFindings || b.pending - a.pending || a.label.localeCompare(b.label));
+}
+
+/** Why this document is where it is in the queue, in the reader's words. */
+export function reviewWorkReason(item: ReviewWorkItem): string {
+  const waiting = `${item.pending} awaiting a decision`;
+  if (item.highFindings > 0) {
+    return `${waiting} · ${item.highFindings} high-severity finding${item.highFindings === 1 ? "" : "s"} recorded`;
+  }
+  return waiting;
+}

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   groupProjectsByDocument,
+  reviewWorkByDocument,
+  reviewWorkReason,
+  type ReviewWorkInput,
   groupSubtitle,
   NO_DOCUMENT_LABEL,
   type GroupableProject,
@@ -185,5 +188,95 @@ describe("groupSubtitle", () => {
       ),
     );
     expect(groupSubtitle(group)).not.toMatch(forbidden);
+  });
+});
+
+describe("reviewWorkByDocument", () => {
+  function workItem(over: Partial<ReviewWorkInput> & { key: string }): ReviewWorkInput {
+    return {
+      document_content_hash: null,
+      document_title: null,
+      run_count: 1,
+      review_pending: 0,
+      latest_quality_high: null,
+      ...over,
+    };
+  }
+
+  it("scopes the queue to documents rather than summing the portfolio", () => {
+    const work = reviewWorkByDocument([
+      workItem({ key: "a", document_content_hash: "x", document_title: "Alpha", review_pending: 100 }),
+      workItem({ key: "b", document_content_hash: "x", document_title: "Alpha", review_pending: 50 }),
+      workItem({ key: "c", document_content_hash: "y", document_title: "Bravo", review_pending: 20 }),
+    ]);
+    expect(work.map((w) => [w.label, w.pending])).toEqual([
+      ["Alpha", 150],
+      ["Bravo", 20],
+    ]);
+  });
+
+  it("puts recorded findings ahead of raw volume", () => {
+    // Severity is a reason to act; a bigger pile is not. Both are signals the
+    // system already records, so neither is a vocabulary invented here.
+    const work = reviewWorkByDocument([
+      workItem({ key: "big", document_content_hash: "x", document_title: "Large", review_pending: 900 }),
+      workItem({ key: "risky", document_content_hash: "y", document_title: "Flagged", review_pending: 10, latest_quality_high: 3 }),
+    ]);
+    expect(work.map((w) => w.label)).toEqual(["Flagged", "Large"]);
+  });
+
+  it("leaves out documents with nothing waiting", () => {
+    const work = reviewWorkByDocument([
+      workItem({ key: "done", document_content_hash: "x", document_title: "Cleared", review_pending: 0 }),
+      workItem({ key: "open", document_content_hash: "y", document_title: "Open", review_pending: 4 }),
+    ]);
+    expect(work.map((w) => w.label)).toEqual(["Open"]);
+  });
+
+  // CONTROL: an empty queue is empty, not a crash and not a phantom row.
+  it("CONTROL: reports nothing when no work is waiting", () => {
+    expect(reviewWorkByDocument([])).toEqual([]);
+    expect(
+      reviewWorkByDocument([workItem({ key: "a", document_content_hash: "x", document_title: "D" })]),
+    ).toEqual([]);
+  });
+
+  // CONTROL: the total must survive scoping. Splitting an aggregate into parts
+  // that do not add back up would be a new populated-but-wrong defect.
+  it("CONTROL: conserves the total it scopes", () => {
+    const inputs = Array.from({ length: 40 }, (_, i) =>
+      workItem({
+        key: `k${i}`,
+        document_content_hash: `h${i % 7}`,
+        document_title: `Doc ${i % 7}`,
+        review_pending: i,
+      }),
+    );
+    const expected = inputs.reduce((t, i) => t + i.review_pending, 0);
+    const scoped = reviewWorkByDocument(inputs).reduce((t, i) => t + i.pending, 0);
+    expect(scoped).toBe(expected);
+  });
+});
+
+describe("reviewWorkReason", () => {
+  it("states what is waiting and why it is first", () => {
+    expect(
+      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, highFindings: 3 }),
+    ).toBe("12 awaiting a decision · 3 high-severity findings recorded");
+  });
+
+  it("says only what it knows when nothing was flagged", () => {
+    expect(
+      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, highFindings: 0 }),
+    ).toBe("12 awaiting a decision");
+  });
+
+  it("never grades the routing of the work waiting", () => {
+    // A queue describes outstanding decisions. Records decided by reading are
+    // taking a route, not failing one, and the queue must not imply otherwise.
+    const forbidden = /not executable|unusable|deficien|shortfall|failed to|incomplete|only \d+%/i;
+    for (const high of [0, 5]) {
+      expect(reviewWorkReason({ documentHash: "x", label: "D", pending: 9, highFindings: high })).not.toMatch(forbidden);
+    }
   });
 });
