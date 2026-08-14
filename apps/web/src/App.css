@@ -10899,3 +10899,45 @@
   font-size: 12px;
   color: var(--text-tertiary, #8c8c8c);
 }
+
+/* The passage a run of rules came from.
+   A band above the rules rather than a container around them: each rule stays
+   individually reviewable and individually routed, and a policy of one rule --
+   which most are -- is an ordinary passage rather than a container holding one
+   thing. Set flush against the first rule so the association reads as
+   "these belong to that" without a card boundary implying the rules are
+   collapsed inside it. */
+.policy-passage-header {
+  margin: 18px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--app-accent-muted, #d9d9d9);
+  background: var(--app-surface-subtle, #fafafa);
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.candidate-item:first-child .policy-passage-header {
+  margin-top: 0;
+}
+
+.policy-passage-header__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.policy-passage-header__summary,
+.policy-passage-header__partial,
+.policy-passage-header__source {
+  font-size: 12px;
+}
+
+/* The source's own attribution, kept quiet: evidence a reviewer can check
+   without it competing with the rules themselves. */
+.policy-passage-header__source {
+  font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  opacity: 0.65;
+}

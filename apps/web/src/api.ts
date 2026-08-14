@@ -928,6 +928,48 @@ export interface CandidateRuleFilters {
   include_superseded?: boolean;
 }
 
+/** Scoping accepted by `GET /policy-sets/{key}/policies`. Deliberately a subset
+ *  of CandidateRuleFilters: the assembling view is a rearrangement of one
+ *  population, so it takes the filters that choose a population and not those
+ *  that choose rows within it. */
+export interface PolicyAssemblyFilters {
+  document_id?: string;
+  document_version_id?: string;
+  extraction_run_id?: string;
+}
+
+/** One rule as it appears inside its policy.
+ *
+ *  Carries only what the assembling view needs to arrange and label; the rest
+ *  of the rule comes from `listCandidateRules`, which is the same population
+ *  under a different arrangement. `rule_id` is the join. */
+export interface AssembledPolicyRule {
+  rule_id: string;
+  title: string;
+  /** This rule's own route. A policy can hold rules taking different routes,
+   *  so this is per rule and never summarised away. */
+  evaluation_mode: string;
+}
+
+/** One passage of the source, carrying every rule stated in it.
+ *
+ *  A policy holding one rule is the ordinary case and is built exactly like a
+ *  policy holding nine -- there is no separate shape for it. */
+export interface AssembledPolicy {
+  /** Grouping key: the document element, stable across extraction runs. */
+  key: string;
+  /** Full attribution, verbatim. Differs from `key` when rules cite several
+   *  elements, in which case the policy is anchored to the first. */
+  source_elements: string;
+  page: number | null;
+  rule_count: number;
+  /** Summary of the routes its rules take: every rule computable, every rule
+   *  read, or both present. A summary for the header only -- it never replaces
+   *  the per-rule mode above. */
+  route: string;
+  rules: AssembledPolicyRule[];
+}
+
 export interface CandidateRuleReviewRequest {
   decision: "approve" | "reject";
   reviewer: string;
@@ -2549,6 +2591,30 @@ export const api = {
 
   reviewFacets: (key: string) =>
     request<ReviewFacets>(`/api/policy-sets/${encodeURIComponent(key)}/review-facets`),
+
+  /**
+   * The same rules as `listCandidateRules`, arranged under the passage that
+   * stated them.
+   *
+   * A paragraph is one policy stating one or more rules. The flat list is what
+   * a reviewer edits; this is what a reviewer reads, and without it a single
+   * sentence imposing three obligations appears as three unrelated cards.
+   *
+   * Grouping is the server's, not this client's. Deriving it here as well would
+   * be a second definition of the same relationship, and the two would drift.
+   * The rule ids returned index into the ids from `listCandidateRules`, so a
+   * caller holding both needs no further fetch.
+   */
+  listPolicies: (key: string, filters?: PolicyAssemblyFilters) => {
+    const params = new URLSearchParams();
+    if (filters?.document_id) params.set("document_id", filters.document_id);
+    if (filters?.document_version_id) params.set("document_version_id", filters.document_version_id);
+    if (filters?.extraction_run_id) params.set("extraction_run_id", filters.extraction_run_id);
+    const qs = params.toString();
+    return request<AssembledPolicy[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/policies${qs ? `?${qs}` : ""}`
+    );
+  },
 
   reviewCandidateRule: (key: string, candidateId: string, body: CandidateRuleReviewRequest) =>
     request<CandidateRule>(

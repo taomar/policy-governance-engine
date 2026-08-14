@@ -44,6 +44,7 @@ import {
   api,
   PolicyPlatformApiError,
   type ApprovedPolicyVersion,
+  type AssembledPolicy,
   type CandidateRule,
   type CanonicalRule,
   type PolicySet,
@@ -63,6 +64,10 @@ import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
 import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
+import {
+  indexPoliciesByRule,
+  policyBands,
+} from "../policyGrouping";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
 import { FamilyReviewConfirm } from "./FamilyReviewConfirm";
 import {
@@ -77,6 +82,7 @@ import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
+import { PolicyPassageHeader } from "./PolicyPassageHeader";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
@@ -116,6 +122,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
   const [candidates, setCandidates] = useState<CandidateRule[]>([]);
+  /** The same rules arranged under the passage that stated them. Fetched
+   *  alongside the flat list and joined to it by rule id. */
+  const [policies, setPolicies] = useState<AssembledPolicy[]>([]);
   const [previousUnderReview, setPreviousUnderReview] = useState<CandidateRule | null>(null);
   const [previousTab, setPreviousTab] = useState("overview");
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
@@ -231,15 +240,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setLoading(true);
     try {
       const status = statusFilter === "all" ? undefined : statusFilter;
-      const list = await api.listCandidateRules(selectedKey, status, {
+      const scope = {
         document_id: documentFilter || undefined,
         extraction_run_id: runFilter || undefined,
-        delta_status: deltaFilter === "all" ? undefined : deltaFilter,
-        // Opening a historical run means asking for rules a later run retired,
-        // so those rows have to be included or the run would look empty.
-        include_superseded: Boolean(runFilter),
-      });
+      };
+      // The flat list is what a reviewer edits; the assembly says which rules
+      // came from the same passage. One population, two arrangements, fetched
+      // together so the rule ids in the second index into the first.
+      //
+      // The assembly is not required for the queue to work. If it is
+      // unavailable the rows still render, ungrouped, rather than the whole
+      // surface failing over an arrangement.
+      const [list, assembled] = await Promise.all([
+        api.listCandidateRules(selectedKey, status, {
+          ...scope,
+          delta_status: deltaFilter === "all" ? undefined : deltaFilter,
+          // Opening a historical run means asking for rules a later run retired,
+          // so those rows have to be included or the run would look empty.
+          include_superseded: Boolean(runFilter),
+        }),
+        api.listPolicies(selectedKey, scope).catch(() => [] as AssembledPolicy[]),
+      ]);
       setCandidates(list);
+      setPolicies(assembled);
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
@@ -473,6 +496,23 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         clusterMap
       ),
     [filteredCandidates, clusterMap]
+  );
+
+  // Which rules the source stated in the same passage. The server decides this;
+  // the map below is an index into its answer, not a second opinion on it.
+  const policyIndex = useMemo(() => indexPoliciesByRule(policies), [policies]);
+
+  // Banded over the visible page rather than the whole filtered list, so every
+  // page carries the passage its rules belong to. A policy split by the page
+  // boundary still reports the split, because continuation is read from the
+  // policy's own rule order and not from what happens to be on screen.
+  const policyBandInfo = useMemo(
+    () =>
+      policyBands(
+        pagedCandidates.map((c) => c.rule.rule_id),
+        policyIndex
+      ),
+    [pagedCandidates, policyIndex]
   );
 
   const bandedFamilyCount = useMemo(() => {
@@ -1437,8 +1477,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         const editability = candidateEditability(candidate.review_status);
                         const cluster = clusterMap.get(candidate.rule.rule_id);
                         const band = bandInfo.get(candidate.rule.rule_id);
+                        const policyBand = policyBandInfo.get(candidate.rule.rule_id);
                         return (
                           <div key={candidate.id} className="candidate-item">
+                            {policyBand?.isStart && <PolicyPassageHeader band={policyBand} />}
                             {cluster && band?.isStart && (
                               <FamilyCompositeHeader
                                 cluster={cluster}
