@@ -89,6 +89,41 @@ class PolicySetResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+INGESTION_STATUS_OK = "ok"
+INGESTION_STATUS_WARNING = "warning"
+INGESTION_STATUS_ERROR = "error"
+INGESTION_STATUS_UNRECORDED = "unrecorded"
+
+
+def ingestion_status_of(diagnostics: list | None, error: str | None) -> str:
+    """Summarise how a document version's ingestion went, from stored facts only.
+
+    Derived at the response boundary rather than stored, deliberately. A stored
+    summary is a second copy of a fact that can drift from the diagnostics it
+    summarises; deriving it means there is one source of truth and no field to
+    fall out of sync. (The run-status case went the other way for a reason that
+    does not apply here: `status == "completed"` was ALREADY load-bearing as a
+    trust predicate, so a new stored value made an existing query correct by
+    construction. Nothing yet queries document ingestion health, so there is no
+    wrong predicate to repair -- only a reader to inform.)
+
+    `UNRECORDED` is not `OK`. A version ingested before diagnostics were
+    persisted has NULL in both columns, and the honest thing to say about it is
+    that nobody knows, not that it was clean. Collapsing the two would recreate
+    the defect these columns exist to close, one layer up.
+    """
+    if error:
+        return INGESTION_STATUS_ERROR
+    if diagnostics is None:
+        return INGESTION_STATUS_UNRECORDED
+    severities = {str(d.get("severity", "")).lower() for d in diagnostics if isinstance(d, dict)}
+    if INGESTION_STATUS_ERROR in severities:
+        return INGESTION_STATUS_ERROR
+    if INGESTION_STATUS_WARNING in severities:
+        return INGESTION_STATUS_WARNING
+    return INGESTION_STATUS_OK
+
+
 class DocumentVersionResponse(BaseModel):
     id: str
     version_number: int
@@ -96,6 +131,14 @@ class DocumentVersionResponse(BaseModel):
     storage_path: str
     mime_type: str
     created_at: datetime
+    #: Problems observed while ingesting THIS version, verbatim from storage.
+    #: Codes, not prose -- how to word them for a reader is the UI's decision.
+    ingestion_diagnostics: list[dict] = Field(default_factory=list)
+    #: Present when clause extraction raised; the upload still succeeded.
+    ingestion_error: str | None = None
+    #: Derived by `ingestion_status_of`; see that function for why it is not
+    #: stored. Lets a list view mark a flawed version without reading details.
+    ingestion_status: str = INGESTION_STATUS_UNRECORDED
 
 
 class SourceDocumentResponse(BaseModel):

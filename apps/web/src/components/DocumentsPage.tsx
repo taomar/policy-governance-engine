@@ -12,6 +12,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
@@ -24,6 +25,7 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { aiApi, api, PolicyPlatformApiError, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { uploadOutcome, uploadWaitState } from "../uploadFeedback";
+import { ingestionOutcome } from "../ingestionOutcome";
 import ExtractionInsightDrawer from "./ExtractionInsightDrawer";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import ExtractionRunHistory from "./ExtractionRunHistory";
@@ -34,6 +36,18 @@ const { Dragger } = Upload;
 function formatBytes(hash: string): string {
   return hash.slice(0, 12) + "…";
 }
+
+/** The ingestion fields the register reads off each version.
+ *
+ * Declared here rather than on `DocumentVersion` in `api.ts` only because that
+ * file is held by another workstream this session. It is the same shape the
+ * endpoint returns and belongs on the shared interface; fold it in when free.
+ */
+type VersionIngestion = {
+  ingestion_status?: string | null;
+  ingestion_error?: string | null;
+  ingestion_diagnostics?: { code?: string; severity?: string; detail?: string }[] | null;
+};
 
 interface DocumentsPageProps {
   onNavigate?: (page: string) => void;
@@ -348,6 +362,44 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                       title: "Uploaded",
                       dataIndex: "created_at",
                       render: (c: string) => new Date(c).toLocaleString(),
+                    },
+                    {
+                      // A version that did not read cleanly must not look like
+                      // one that did. This sits in the register itself, beside
+                      // the hash and the date, because the reviewer choosing
+                      // which document to trust is looking at this list.
+                      title: "Ingestion",
+                      key: "ingestion",
+                      render: (_: unknown, v) => {
+                        const ing = v as unknown as VersionIngestion;
+                        const outcome = ingestionOutcome(ing.ingestion_status);
+                        const details = [
+                          ...(ing.ingestion_error ? [ing.ingestion_error] : []),
+                          ...(ing.ingestion_diagnostics ?? []).map((d) =>
+                            [d.code, d.detail].filter(Boolean).join(": "),
+                          ),
+                        ].filter(Boolean);
+                        return (
+                          <Tooltip
+                            title={
+                              <span>
+                                {outcome.hint}
+                                {details.length > 0 && (
+                                  <>
+                                    <br />
+                                    <br />
+                                    {details.map((d, i) => (
+                                      <div key={i}>{d}</div>
+                                    ))}
+                                  </>
+                                )}
+                              </span>
+                            }
+                          >
+                            <Tag color={outcome.color}>{outcome.label}</Tag>
+                          </Tooltip>
+                        );
+                      },
                     },
                     {
                       title: "",

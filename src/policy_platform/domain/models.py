@@ -185,6 +185,26 @@ class DocumentVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(150), default="application/octet-stream", nullable=False)
 
+    # How this version's bytes resolved into clauses, kept with the version
+    # because it is a property of THIS ingestion of THIS version and never
+    # revised afterwards -- the same lifetime and the same cardinality as the
+    # row it sits on. Spec section 55 INVARIANT 9: failures cannot silently
+    # reduce document coverage. Before these columns the diagnostics existed
+    # only in the upload HTTP response, so a document whose source did not
+    # fully resolve was indistinguishable from a clean one to every reader
+    # except whoever happened to perform the upload.
+    #
+    # Entries are `IngestionDiagnostic` dumps (code / severity / page / detail).
+    # `code` is the stable identifier; wording for a reader is the UI's job.
+    # NULL means "this version predates the columns", empty list means "ingested
+    # and nothing to report" -- those are different facts and must stay so.
+    ingestion_diagnostics_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Set when clause extraction raised. The upload deliberately does not fail
+    # (a reviewer should be able to see a flawed document and judge it), so this
+    # is the only durable trace that a stored version has no clauses because
+    # reading it stopped rather than because it had nothing to say.
+    ingestion_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     document: Mapped["SourceDocument"] = relationship(back_populates="versions")
     clauses: Mapped[list["Clause"]] = relationship(back_populates="document_version")
 

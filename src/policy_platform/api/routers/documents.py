@@ -19,7 +19,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from policy_platform.api.schemas import AssignDocumentRequest, ClauseResponse, SourceDocumentResponse
+from policy_platform.api.schemas import (
+    AssignDocumentRequest,
+    ClauseResponse,
+    SourceDocumentResponse,
+    ingestion_status_of,
+)
 from policy_platform.domain.models import DocumentVersion, SourceDocument
 from policy_platform.infrastructure.ingestion import document_extraction
 from policy_platform.infrastructure.persistence.db import get_session
@@ -50,6 +55,15 @@ def _to_response(document: SourceDocument) -> SourceDocumentResponse:
                 "storage_path": v.storage_path,
                 "mime_type": v.mime_type,
                 "created_at": v.created_at,
+                # Carried on every list of versions, not behind a detail
+                # fetch. A reviewer deciding which document to trust is
+                # looking at the list, and a problem that only appears
+                # once you already suspect one is not a warning.
+                "ingestion_diagnostics": v.ingestion_diagnostics_json or [],
+                "ingestion_error": v.ingestion_error,
+                "ingestion_status": ingestion_status_of(
+                    v.ingestion_diagnostics_json, v.ingestion_error
+                ),
             }
             for v in document.versions
         ],
@@ -189,6 +203,19 @@ async def upload_document(
         logger.warning("clause extraction failed for %s: %s", storage_path, exc)
         clauses = []
 
+    # Persist what we just learned about this ingestion, in the same
+    # transaction as the version and its clauses. Until this existed the
+    # diagnostics reached exactly one person -- whoever ran the upload -- and
+    # were unrecoverable afterwards, so no reviewer or auditor could later
+    # discover that a document's source did not fully resolve. Committing the
+    # version and dropping the reason it is thin is the storage-layer form of
+    # the thing spec section 55 invariant 9 forbids.
+    #
+    # `[]` and `None` are kept distinct on purpose: an empty list means this
+    # ingestion ran and had nothing to report, NULL means nothing was recorded.
+    doc_version.ingestion_diagnostics_json = ingestion_diagnostics
+    doc_version.ingestion_error = extraction_error
+
     await session.commit()
 
     indexed_count = 0
@@ -212,6 +239,10 @@ async def upload_document(
         "clauses_indexed": indexed_count,
         "extraction_error": extraction_error,
         "ingestion_diagnostics": ingestion_diagnostics,
+        # Same derivation the list view uses, so the sentence the uploader sees
+        # and the marker a reviewer sees later cannot disagree about the same
+        # ingestion.
+        "ingestion_status": ingestion_status_of(ingestion_diagnostics, extraction_error),
     }
 
 
