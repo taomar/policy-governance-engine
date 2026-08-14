@@ -15,6 +15,7 @@ Start with the [User guide](user-guide.md) to see the product, or
 | [Architecture](architecture.md) | Components, boundaries, and trust model |
 | [The running path](running-path.md) | What this build actually executes, step by step, named by symbol |
 | [Extraction run coverage](extraction-run-coverage.md) | What a finished run promises, and what it does not |
+| [Repair passes](repair-passes.md) | Design decision, not yet built: acting on findings rather than only reporting them |
 | [Relationships](relationships.md) | How rules are linked, and what is deliberately not claimed |
 | [Docling](docling.md) | Document conversion and graph discovery |
 | [AI assistance](ai-assistance.md) | Extraction, grounding, and validation |
