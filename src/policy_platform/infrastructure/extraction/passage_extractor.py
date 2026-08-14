@@ -37,7 +37,10 @@ from functools import lru_cache
 from pydantic import ValidationError
 
 from policy_platform.contracts.passage import PassageExtraction, PassageSource, PolicyPassage
-from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.ai.openai_client import (
+    AzureOpenAIClient,
+    AzureOpenAITransientError,
+)
 from policy_platform.infrastructure.prompt_assets import load_prompt
 from policy_platform.infrastructure.settings import Settings
 
@@ -377,29 +380,36 @@ class PassageExtractorAgent:
         if not source_text.strip():
             raise PassageExtractionError("cannot extract passages from empty source text")
 
-        raw = await self._client.chat(
-            [
-                {"role": "system", "content": load_passage_prompt()},
-                {
-                    "role": "user",
-                    "content": (
-                        f"DOCUMENT_ID: {document_id or 'unknown'}\n"
-                        f"DOCUMENT_NAME: {document_name or 'unknown'}\n\n"
-                        "SOURCE DOCUMENT TEXT:\n"
-                        f"{source_text}"
-                    ),
-                },
-            ],
-            deployment=self._settings.azure_openai_deployment,
-            json_mode=True,
-            # Stage 1 copies rather than restructures, so its output is bounded
-            # by the size of the input: at worst it returns the whole batch
-            # plus per-passage metadata. Still generous, because the client
-            # raises on truncated JSON and losing a batch costs a retry.
-            max_tokens=16000,
-            timeout=300.0,
-            reasoning_effort=PASSAGE_REASONING_EFFORT,
-        )
+        try:
+            raw = await self._client.chat(
+                [
+                    {"role": "system", "content": load_passage_prompt()},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"DOCUMENT_ID: {document_id or 'unknown'}\n"
+                            f"DOCUMENT_NAME: {document_name or 'unknown'}\n\n"
+                            "SOURCE DOCUMENT TEXT:\n"
+                            f"{source_text}"
+                        ),
+                    },
+                ],
+                deployment=self._settings.azure_openai_deployment,
+                json_mode=True,
+                # Stage 1 copies rather than restructures, so its output is bounded
+                # by the size of the input: at worst it returns the whole batch
+                # plus per-passage metadata. Still generous, because the client
+                # raises on truncated JSON and losing a batch costs a retry.
+                max_tokens=16000,
+                timeout=300.0,
+                reasoning_effort=PASSAGE_REASONING_EFFORT,
+            )
+        except AzureOpenAITransientError as exc:
+            # Reported as this agent's own failure so the caller skips the batch
+            # instead of losing the run. See the matching note in the formulator.
+            raise PassageExtractionError(
+                f"passage extractor was unreachable: {exc}"
+            ) from exc
 
         extraction = parse_passages(raw)
 

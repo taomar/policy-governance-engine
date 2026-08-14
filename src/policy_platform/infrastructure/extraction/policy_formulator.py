@@ -47,7 +47,10 @@ from policy_platform.contracts.formulation import (
     DmnProjection,
     PolicyFormulation,
 )
-from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.ai.openai_client import (
+    AzureOpenAIClient,
+    AzureOpenAITransientError,
+)
 from policy_platform.infrastructure.prompt_assets import load_prompt
 from policy_platform.infrastructure.settings import Settings
 
@@ -455,23 +458,33 @@ class PolicyFormulatorAgent:
         if not source_text.strip():
             raise PolicyFormulationError("cannot formulate empty source text")
 
-        raw = await self._client.chat(
-            [
-                {"role": "system", "content": load_formulator_prompt()},
-                {"role": "user", "content": self._build_user_message(source_text)},
-            ],
-            deployment=self._settings.azure_openai_deployment,
-            json_mode=True,
-            # Sized against observed density: a 1,525-char batch of a definitions
-            # section produced 13 canonical policies + 13 DMN decisions. Dense
-            # legal text scales roughly linearly, so a 4,000-char batch can emit
-            # ~35 records across both blocks. 32k leaves room for that plus the
-            # hidden reasoning pass; the client now raises on truncated JSON
-            # rather than letting a half-object reach the parser.
-            max_tokens=32000,
-            timeout=420.0,
-            reasoning_effort=FORMULATOR_REASONING_EFFORT,
-        )
+        try:
+            raw = await self._client.chat(
+                [
+                    {"role": "system", "content": load_formulator_prompt()},
+                    {"role": "user", "content": self._build_user_message(source_text)},
+                ],
+                deployment=self._settings.azure_openai_deployment,
+                json_mode=True,
+                # Sized against observed density: a 1,525-char batch of a definitions
+                # section produced 13 canonical policies + 13 DMN decisions. Dense
+                # legal text scales roughly linearly, so a 4,000-char batch can emit
+                # ~35 records across both blocks. 32k leaves room for that plus the
+                # hidden reasoning pass; the client now raises on truncated JSON
+                # rather than letting a half-object reach the parser.
+                max_tokens=32000,
+                timeout=420.0,
+                reasoning_effort=FORMULATOR_REASONING_EFFORT,
+            )
+        except AzureOpenAITransientError as exc:
+            # The client already tried again and gave up. Reported as this
+            # agent's own failure so the caller's per-batch handling applies:
+            # a run is tens of these calls over tens of minutes, and one
+            # unreachable endpoint must cost the batch it happened on, not
+            # every batch that already succeeded.
+            raise PolicyFormulationError(
+                f"formulator agent was unreachable: {exc}"
+            ) from exc
         formulation = parse_formulation(raw)
         logger.info(
             "formulated %d canonical policies / %d DMN decisions from %d chars",

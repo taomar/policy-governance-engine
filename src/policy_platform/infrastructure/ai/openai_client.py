@@ -13,15 +13,118 @@ Two deployments are used deliberately for different jobs:
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
+
 import httpx
 
 from policy_platform.infrastructure.settings import Settings, get_settings
 
+logger = logging.getLogger(__name__)
+
 _EMBEDDINGS_API_VERSION = "2024-02-01"
+
+#: Statuses where the request was well-formed and the service could not serve it
+#: this time. Retrying is the right response: 408 and 504 are the service saying
+#: it ran out of time, 429 is it asking us to slow down, and 500/502/503 are it
+#: being unwell. Everything else in the 4xx range is a defect in what we sent —
+#: a bad body, an expired key, a deployment that does not exist — and retrying
+#: those burns the budget while hiding the error that would have explained it.
+_RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+
+#: Four attempts, so a stall costs seconds rather than a whole run, and a truly
+#: dead endpoint is still declared dead quickly instead of being retried into a
+#: hang. With the backoff below the worst case adds well under a minute.
+_MAX_ATTEMPTS = 4
+_BACKOFF_BASE_SECONDS = 2.0
+_BACKOFF_CAP_SECONDS = 20.0
 
 
 class AzureOpenAIError(RuntimeError):
     """Raised when a call to Azure OpenAI fails or the resource isn't configured."""
+
+
+class AzureOpenAITransientError(AzureOpenAIError):
+    """A call failed for a reason that went away or might have.
+
+    Separate from `AzureOpenAIError` so a caller running a long loop can tell
+    "this batch is bad" from "the network hiccuped". The first should skip the
+    batch; the second should not cost the caller the batches it already did.
+    """
+
+
+def _retry_delay(attempt: int, retry_after: str | None) -> float:
+    """Seconds to wait before attempt `attempt` (1-based, so the first wait is 0).
+
+    Exponential, capped, and jittered. Jitter matters because batches in one run
+    fail for the same reason at the same moment; retrying them all on the same
+    schedule reproduces the pile-up that caused the failure.
+    """
+
+    if retry_after:
+        try:
+            # The service asked for a specific wait. Honouring it is both more
+            # polite and more likely to succeed than our own guess.
+            return min(float(retry_after), _BACKOFF_CAP_SECONDS)
+        except ValueError:
+            pass  # A date-formatted Retry-After; fall through to our own backoff.
+    ceiling = min(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), _BACKOFF_CAP_SECONDS)
+    return random.uniform(0, ceiling)
+
+
+async def _post_with_retry(
+    url: str,
+    *,
+    headers: dict,
+    body: dict,
+    timeout: float,
+    label: str,
+) -> httpx.Response:
+    """POST, trying again when the failure is one that might not recur.
+
+    A chat completion is a request and a response, so a retry produces a fresh
+    answer rather than a second copy of anything. Nothing is written to our
+    database until a response comes back and is parsed, and a response that
+    never arrived is never parsed, so at most one reply per call reaches the
+    caller no matter how many attempts it took. Retrying cannot duplicate a
+    record. It can cost the vendor a second inference — that is the price of
+    not throwing away the caller's work, and it is the cheaper of the two.
+    """
+
+    last_error: Exception | None = None
+    retry_after: str | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            delay = _retry_delay(attempt - 1, retry_after)
+            logger.warning(
+                "%s failed (attempt %d of %d): %s — retrying in %.1fs",
+                label, attempt - 1, _MAX_ATTEMPTS, last_error, delay,
+            )
+            await asyncio.sleep(delay)
+        retry_after = None
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, headers=headers, json=body)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            # The reply never arrived. Whether the service did the work is
+            # unknowable from here, and it does not matter: nothing downstream
+            # has seen anything, so asking again is safe.
+            last_error = exc
+            continue
+
+        if resp.status_code in _RETRYABLE_STATUSES:
+            last_error = AzureOpenAITransientError(
+                f"{label} failed ({resp.status_code}): {resp.text[:300]}"
+            )
+            retry_after = resp.headers.get("Retry-After")
+            continue
+
+        return resp
+
+    raise AzureOpenAITransientError(
+        f"{label} failed after {_MAX_ATTEMPTS} attempts: {last_error}"
+    ) from last_error
 
 
 class AzureOpenAIClient:
@@ -106,8 +209,13 @@ class AzureOpenAIClient:
             # catch AzureOpenAIError and retry without it.
             body["reasoning_effort"] = reasoning_effort
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, headers={"api-key": settings.azure_openai_api_key}, json=body)
+        resp = await _post_with_retry(
+            url,
+            headers={"api-key": settings.azure_openai_api_key},
+            body=body,
+            timeout=timeout,
+            label="Azure OpenAI chat call",
+        )
         if resp.status_code >= 400:
             raise AzureOpenAIError(f"Azure OpenAI chat call failed ({resp.status_code}): {resp.text[:500]}")
         data = resp.json()
@@ -152,10 +260,13 @@ class AzureOpenAIClient:
             f"{settings.azure_openai_endpoint.rstrip('/')}/openai/deployments/"
             f"{deployment_name}/embeddings?api-version={_EMBEDDINGS_API_VERSION}"
         )
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                url, headers={"api-key": settings.azure_openai_api_key}, json={"input": texts}
-            )
+        resp = await _post_with_retry(
+            url,
+            headers={"api-key": settings.azure_openai_api_key},
+            body={"input": texts},
+            timeout=60.0,
+            label="Azure OpenAI embeddings call",
+        )
         if resp.status_code >= 400:
             raise AzureOpenAIError(f"Azure OpenAI embeddings call failed ({resp.status_code}): {resp.text[:500]}")
         data = resp.json()
