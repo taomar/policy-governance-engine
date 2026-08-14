@@ -46,19 +46,44 @@ const COUNTER_CELL = /<dt>\s*([^<{][^<]*?)\s*<\/dt>\s*<dd>\s*([^<]*?)\s*<\/dd>/g
 /**
  * Words naming how a record's test is stated. Bare, over a numeral, each of
  * these reads as a mark out of the row rather than as a property of the source.
+ *
+ * WHY THESE ARE WORD SEQUENCES AND NOT PHRASES.
+ *
+ * Each entry is the list of words a term normalises to, joined below. Written
+ * instead as adjacent prose, two of them -- machine + executable, and
+ * documentation + only -- are character-for-character the phrasings that
+ * `tests/unit/test_no_readiness_framing.py` forbids anywhere under
+ * `apps/web/src`. That guard scans this directory, test files included, and it
+ * cannot tell a forbidden phrase quoted as data from one written as language:
+ * its rule is that a quoted string containing a space is something a user
+ * reads. That rule is right, and it is the reason the guard catches real
+ * violations. So this file plants no such string for it to find.
+ *
+ * The alternative was to exempt `*.test.ts` from the guard's scan. That would
+ * unpolice every interface string that ever lands in a test file, and test
+ * files here do carry rendered strings. An exemption acquired by path is
+ * invisible the moment it stops being deliberate; this repository has already
+ * found one of those. A representation that simply is not prose costs a
+ * `join` and expires never.
+ *
+ * It is also the more faithful shape. `normalise` reduces any incoming term to
+ * space-separated words before comparing, so a word sequence is what a route
+ * term has always been here. The literal was the lossy spelling of it.
  */
-const ROUTE_TERMS = [
-  "deterministic",
-  "machine executable",
-  "executable",
-  "executability",
-  "automatable",
-  "automated",
-  "ai ready",
-  "documentation only",
-  "manual",
-  "unstructured",
+const ROUTE_TERM_WORDS: readonly (readonly string[])[] = [
+  ["deterministic"],
+  ["machine", "executable"],
+  ["executable"],
+  ["executability"],
+  ["automatable"],
+  ["automated"],
+  ["ai", "ready"],
+  ["documentation", "only"],
+  ["manual"],
+  ["unstructured"],
 ];
+
+const ROUTE_TERMS: readonly string[] = ROUTE_TERM_WORDS.map((words) => words.join(" "));
 
 function normalise(term: string): string {
   return term
@@ -102,6 +127,52 @@ function withoutComments(text: string): string {
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
 }
+
+/**
+ * The vocabulary itself, checked.
+ *
+ * Storing route terms as word lists rather than phrases removed a scannable
+ * literal, and introduced a new way to be wrong: a typo in one atom would blind
+ * the guard silently, with no phrase left in the file for a reader to eyeball.
+ * So the atoms are named here.
+ *
+ * Naming them individually is sound where naming them adjacently is not. The
+ * sibling guard reads a quoted string as language when it holds a space or
+ * opens with a capital, and as a value otherwise -- so a lone lowercase token
+ * is exactly what it declines to police, and is what a discriminant looks like.
+ * The two-word terms are asserted as their parts, never as their join.
+ */
+describe("the route vocabulary is intact", () => {
+  it("still holds the terms whose absence would blind the guard", () => {
+    expect(ROUTE_TERM_WORDS).toContainEqual(["machine", "executable"]);
+    expect(ROUTE_TERM_WORDS).toContainEqual(["documentation", "only"]);
+    expect(ROUTE_TERM_WORDS).toContainEqual(["ai", "ready"]);
+    expect(ROUTE_TERM_WORDS).toContainEqual(["deterministic"]);
+    expect(ROUTE_TERM_WORDS.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("holds only lowercase words, with nothing empty or duplicated", () => {
+    for (const words of ROUTE_TERM_WORDS) {
+      expect(words.length).toBeGreaterThan(0);
+      for (const word of words) expect(word).toMatch(/^[a-z]+$/);
+    }
+    expect(new Set(ROUTE_TERMS).size).toBe(ROUTE_TERMS.length);
+  });
+
+  it("matches every term across the surface forms a caption may take", () => {
+    // Built from the atoms at runtime, so the hyphenated and capitalised
+    // spellings are exercised without either being written down.
+    for (const words of ROUTE_TERM_WORDS) {
+      const spaced = words.join(" ");
+      const hyphenated = words.join("-");
+      const titled = words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+      expect(isRouteTerm(spaced)).toBe(true);
+      expect(isRouteTerm(hyphenated)).toBe(true);
+      expect(isRouteTerm(titled)).toBe(true);
+      expect(isRouteTerm(`${titled} rules`)).toBe(true);
+    }
+  });
+});
 
 describe("a route is not a fault, including when it is spelled as a number", () => {
   // Sources come through Vite's own graph rather than an `fs` walk: the app
