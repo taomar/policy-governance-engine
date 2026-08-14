@@ -146,6 +146,70 @@ Closing it means running extraction again.
 
 ---
 
+## A failed run can leave the reviewer with less than they started with
+
+This is not about coverage status, and coverage status does not fix it. It is
+recorded here because it is the other way a run can end badly, and because the
+two are easy to confuse.
+
+Two decisions in `extract_candidate_rules`
+(`infrastructure/extraction/ai_extraction.py`) are each individually correct and
+each individually reasoned in a comment:
+
+1. **Results are persisted and committed per batch, not once at the end.** The
+   comment gives the reason: these runs take tens of model calls over tens of
+   minutes, so an all-or-nothing transaction would discard every completed batch
+   on a late failure and leave reviewers unable to tell progress from failure.
+
+2. **The previous run's unreviewed candidates are superseded on the first batch
+   that produces output**, in the same transaction as that batch's inserts. The
+   comment gives the reason: the queue should never hold two runs at once, and
+   should never lose the old set without gaining a new one.
+
+Both hold. Neither is wrong. Read together they say: *the old set is discarded
+once the first batch succeeds, and each later batch is kept as it lands.*
+
+So a run that supersedes at batch 1 and fails at batch 3 of 20 leaves the
+reviewer holding two batches where they previously held a complete set. The
+guarantee in the second comment — never lose the old set without gaining a new
+one — is true at the instant it executes and stops being true immediately after,
+because "the new set" was one batch of twenty and nothing re-establishes the
+old one.
+
+### What changed and what did not
+
+Retries closed one route into this. `infrastructure/ai/openai_client.py`
+retries on `_RETRYABLE_STATUSES` and distinguishes `AzureOpenAITransientError`
+from `AzureOpenAIError` precisely so a long loop can tell "this batch is bad"
+from "the network hiccuped" — the first should skip the batch, the second
+should not cost the caller the batches it already did. A stall that previously
+ended the run now usually does not.
+
+Deliberately not retried: anything else in the 4xx range. The client's comment
+states why, and it is the right call — a bad body, an expired key or a missing
+deployment is a defect in what was sent, and retrying it burns budget while
+hiding the error that would have explained the failure. Retrying a malformed
+request fails four times as slowly and reports the same thing.
+
+**The interaction itself still exists.** Only the timeout path into it was
+closed. A run that fails for a non-retryable reason after superseding still
+leaves the reviewer with fewer records than before it started.
+
+### Why this is left standing
+
+Both fixes available are worse than the behaviour:
+
+- Deferring the supersede until the run completes reintroduces the two-runs-at-
+  once state the comment rules out, and holds it for tens of minutes.
+- Restoring the old set on failure means un-superseding records the reviewer
+  may already have acted on in the interval.
+
+The composition is the defect, and neither decision is the one to change. What
+was missing was anyone knowing about it, which is what this section is for.
+
+
+---
+
 ## The attribution rule
 
 Stated once, because everything above is an instance of it:
