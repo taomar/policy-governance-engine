@@ -137,6 +137,18 @@ class CandidateRuleRepository:
         return candidate
 
 
+#: A run that reached the end of its work having read everything it was given.
+RUN_COMPLETED = "completed"
+
+#: A run that reached the end of its work having passed over some of it. It
+#: finished, and what it produced is real; it just is not a whole reading of the
+#: document. Callers asking "did this see everything?" must not fold it in with
+#: RUN_COMPLETED. Kept as a separate status value rather than a flag beside the
+#: status precisely so that the existing readers of `status` cannot answer that
+#: question wrongly by default.
+RUN_COMPLETED_WITH_GAPS = "completed_with_gaps"
+
+
 class ExtractionRunRepository:
     """Access to real (non-manual) AI extraction attempts."""
 
@@ -163,8 +175,32 @@ class ExtractionRunRepository:
         await self._session.flush()
         return run
 
-    async def mark_completed(self, run: ExtractionRun) -> ExtractionRun:
-        run.status = "completed"
+    async def mark_completed(
+        self, run: ExtractionRun, *, coverage_complete: bool = True
+    ) -> ExtractionRun:
+        """Close a run that reached the end of its work.
+
+        ``coverage_complete`` is False when the run passed over material it was
+        handed — a batch that errored, a passage that could not be formulated.
+        That run finished, but it did not read the whole document, and it is
+        recorded under a status that says so.
+
+        This distinction is load-bearing, not cosmetic. ``status == "completed"``
+        is the test for "trustworthy enough to diff against" when a later run
+        picks its baseline, and the comment at that query says a partial run must
+        not be chosen because "comparing against that partial set would report
+        every rule it never reached as brand new". A run that skipped material is
+        partial in exactly that sense, so folding it in with the whole readings
+        makes the delta lie in both directions: rules the baseline never reached
+        surface as new, and rules the current run never reached surface as "no
+        longer found" — a claim about the document made on the strength of how
+        much of it we managed to read.
+
+        The shortfall is in the extraction, never in the policy: material passed
+        over is material this system did not read, not material the document
+        failed to state.
+        """
+        run.status = RUN_COMPLETED if coverage_complete else RUN_COMPLETED_WITH_GAPS
         run.completed_at = datetime.now(timezone.utc)
         await self._session.flush()
         return run

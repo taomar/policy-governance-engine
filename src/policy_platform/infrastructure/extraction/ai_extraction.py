@@ -1027,7 +1027,11 @@ async def extract_candidate_rules(
             delta_removed=delta_counts.get("removed", 0),
         )
 
-        await run_repo.mark_completed(run)
+        # `skipped` is the ledger every skip point appends to. Deriving coverage
+        # from it here — rather than from a separate flag each site has to
+        # remember to set — means a skip point added later is counted whether or
+        # not its author thought about the run's status.
+        await run_repo.mark_completed(run, coverage_complete=not skipped)
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
         await run_repo.mark_failed(run, error_message=str(exc))
@@ -1058,6 +1062,23 @@ async def extract_candidate_rules(
         if delta_counts.get("removed"):
             parts.append(f"{delta_counts['removed']} no longer found")
         summary = f"Done — {', '.join(parts)} since the previous extraction."
+    if skipped:
+        # Every sentence built above describes the delta, and the delta is
+        # computed only over what was actually read. Left alone, a partial
+        # reading reports itself in the same words as a whole one — including
+        # "no longer found", which reads as a statement about the document when
+        # it is really a statement about how much of the document we reached.
+        # Say the shortfall out loud, and attribute it to this extraction.
+        summary = (
+            f"{summary} {len(skipped)} item(s) were passed over, so this run did not read the "
+            "whole document."
+        )
+    # The durable status on the run carries this distinction (see
+    # ExtractionRunRepository.mark_completed). The in-flight progress record
+    # cannot: its status is typed as "running" | "completed" | "failed" in
+    # apps/web/src/api.ts, which belongs to another workstream, so widening it
+    # here would emit a value the client does not know. The shortfall therefore
+    # travels in `stage`, which is free text already shown to the reader.
     extraction_progress.finish(progress_key, status="completed", stage=summary)
     return {
         "extraction_run_id": str(run.id),
