@@ -21,6 +21,7 @@ remains below constrains whether the build is safe to rely on.
 | Documents are stored on the local filesystem | Uploads are written beside the API process. | Durability and backup are the operator's responsibility. |
 | Indexing is best-effort | Clause indexing catches search failures, logs a warning and returns `0` so upload still succeeds. | A document can exist in PostgreSQL and be absent from the grounding index. |
 | Model output is validated after generation | Calls request JSON and Pydantic validates the result, rather than constraining generation to a schema. | Invalid output causes a retry or an explicit failure before anything is persisted. |
+| The verbatim check is anchored to the batch, not the page | `verify_verbatim` compares a passage against the text the agent was shown, which is built from stored clauses. | It proves the model copied. It cannot detect text that ingestion stored wrongly, because both sides of the comparison come from the same stored clauses. See [What the verbatim check proves](ai-assistance.md#what-the-verbatim-check-proves). |
 | AI behavior is not verified against live services | Tests isolate the AI boundary; none call Azure OpenAI or Azure AI Search. | Retrieval relevance, index freshness and model behavior need validation in a real environment. |
 
 ## Deliberate scope
@@ -48,7 +49,7 @@ These are choices, not gaps. They are recorded so nobody re-derives them.
 | Ownership and RACI | Metadata only. Contacts are not validated and do not drive routing, notification or publish gates. |
 | Exceptions | Requests have a stored lifecycle; no notification or external approval integration. |
 | Exports | JSON, JSONL and CSV point-in-time downloads. No subscription or scheduled delivery. |
-| Index maintenance | No freshness check, repair job or full re-index workflow, so results can go stale after re-extraction. |
+| Index maintenance | Each indexing write reconciles that document version's entries against the store, so re-extraction no longer leaves orphans searchable. There is still no freshness check, repair job or full re-index workflow independent of a write. |
 
 ## Test coverage boundaries
 

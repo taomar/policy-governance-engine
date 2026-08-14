@@ -55,12 +55,14 @@ flowchart LR
 Conversion turns the document into offset-anchored elements — see
 [Docling](docling.md).
 
-Stage 1 copies policy-bearing text. `verify_verbatim()` rejects passages that are
-not present in the canonical source.
+Stage 1 copies policy-bearing text. `verify_verbatim()` rejects passages the
+model did not copy.
+[What the verbatim check proves](#what-the-verbatim-check-proves) states what
+that does and does not establish.
 
 Stage 2 produces canonical and DMN-shaped rule data. Deterministic mapping derives
-identifiers, conditions, effects, and executability. Unsupported FEEL expressions
-produce no condition rather than a guessed condition.
+identifiers, conditions, effects, and the route each record travels. Unsupported
+FEEL expressions produce no condition rather than a guessed condition.
 
 Linking ties each rule to the others the *document* places it with — a table row
 to its table, a subsection to the rule it qualifies. Only relationships the
@@ -73,15 +75,47 @@ A rule compiles to an executable condition only when the project's
 not compile is still a complete policy record: it is routed `ai_ready` and
 decided by a judge reading it.
 
+### What the verbatim check proves
+
+`verify_verbatim` (`infrastructure/extraction/passage_extractor.py`) compares a
+returned passage against the `source_text` its agent was handed. On the running
+path that argument is the string built by `_render_batch`
+(`infrastructure/extraction/ai_extraction.py`), which is assembled from the
+`Clause.text` already stored for the batch.
+
+So the check establishes one thing exactly: **the model copied rather than
+composed.** A passage that is not a substring of what the agent was shown is
+discarded, and a passage that points at a real clause but transcribes it
+imperfectly is repaired from the clause text by `resolve_span` rather than lost.
+
+It does not establish that the stored text matches the source document. Both
+sides of the comparison descend from the same stored clauses, so if ingestion
+stored a clause wrongly, the agent copies the wrong text faithfully and the
+check passes. This is a real limitation and it has been observed: a fidelity
+figure read clean over text that had been stored in the order its glyphs were
+painted rather than the order they are read. Anchoring the comparison to the
+canonical page instead would close the gap, and `_canonical_from_clauses`
+(`api/routers/extraction.py`) rebuilds pages with `raw_text=""`, so there is
+nothing there to anchor against today.
+
+The two checks are independent, and only the second is missing:
+
+| Question | Answered by |
+|---|---|
+| Did the model copy rather than compose? | `verify_verbatim`, on the running path |
+| Does the stored text match the source document? | Nothing on the running path |
+
 ### When a rule does not compile
 
 A rule whose projection is `enrichment_required`, `ambiguous` or
-`not_directly_mappable` has no executable condition. The formulator still
+`not_directly_mappable` carries no compiled condition. The formulator still
 records what the source *stated* in its semantic projection, and the review UI
-shows that in XACML terms — labelled **not executable**, and never written into
-the rule's condition. A statement whose subject is the document itself ("This
-template is provided as a tool…") is tagged `document_guidance` and made
-non-enforcing, but kept for a reviewer to decide.
+shows that in XACML terms. The record is labelled **Decided by reading**, with
+one sentence naming what the source did and what follows from it; the wording
+per provenance code lives in `conditionRoute.ts`. Nothing the formulator could
+not compile is written into the rule's condition. A statement whose subject is
+the document itself ("This template is provided as a tool…") is tagged
+`document_guidance` and made non-enforcing, but kept for a reviewer to decide.
 
 ## AI capabilities
 
@@ -161,7 +195,13 @@ classifies the relationship inside a bounded group.
 
 ## Limitations
 
-- Search indexing is best-effort and has no scheduled reconciliation.
+- Search indexing is best-effort. Every write reconciles that document version's
+  entries against the store (`infrastructure/search/reconciliation.py`), so an
+  entry orphaned by re-extraction stops being searchable; there is no scheduled
+  sweep independent of a write.
+- The verbatim check proves the model copied, not that the stored text matches
+  the source.
+  See [What the verbatim check proves](#what-the-verbatim-check-proves).
 - Ask AI retrieval is scoped to all platform documents, not per user.
 - Retrieval uses fixed result counts and no semantic reranker.
 - Most AI paths do not use Search; they are grounded in database records.
