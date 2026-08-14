@@ -280,3 +280,166 @@ def test_a_definition_is_never_turned_into_a_denial():
 
     assert rule is not None
     assert rule.effect.type is not EffectType.DENY
+
+
+# --------------------------------------------------------------------------
+# The negation written into the subject
+#
+# The third slot, and the one that hid longest, because a negatively
+# quantified subject leaves both other slots looking positive: "No one should
+# use profanity" has the affirmative modal "should" and the affirmative
+# predicate "use". A guard reading only those two saw an ordinary obligation.
+#
+# Every case below is taken verbatim from RUN-83257A81, a 45-page staff
+# handbook, where four records reached the reviewer stating the inverse of
+# their source — among them `require_action("use profanity")`.
+# --------------------------------------------------------------------------
+
+
+#: (subject, modality, predicate, object) as the formulator recorded them.
+_NEGATED_SUBJECTS = [
+    ("No one", "should", "use", "profanity"),
+    ("No one", "should", "show", "disrespect"),
+    ("No one", "should", "engage in", "any activity that could harm the reputation"),
+    ("no concessions or consideration", "shall", "be given", "for records of previous service"),
+    ("No candidate", "shall", "be hired", "for a position"),
+    ("No students", "will", "be employed", None),
+    ("Neither party", "may", "terminate", "the agreement"),
+    ("None of the staff", "will", "receive", "an exemption"),
+    ("Nobody", "shall", "enter", "the restricted area"),
+]
+
+
+@pytest.mark.parametrize("subject,modality,predicate,obj", _NEGATED_SUBJECTS)
+def test_a_negation_in_the_subject_denies(subject, modality, predicate, obj):
+    """A negative quantifier negates the proposition, not just the noun."""
+
+    rule = _effect(
+        CanonicalRuleType.RECOMMENDATION,
+        modality,
+        subject=subject,
+        predicate=predicate,
+        object=obj,
+    )
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.DENY, (
+        f"{subject!r} {modality} {predicate} projected as "
+        f"{rule.effect.type.value}({rule.effect.action!r}) — the inverse of the source"
+    )
+
+
+#: Subjects that merely begin with the same letters, or state a bound. None is
+#: a negation, and reading any of them as one would invert a live rule — the
+#: defect above arrived at from the opposite direction.
+_INNOCENT_SUBJECTS = [
+    "No-fault termination",
+    "Normal working hours",
+    "Notice periods",
+    "Nothing-to-declare channels",
+    "Northern campus staff",
+    "no less than three members",
+    "no later than the first working day",
+    "the employee",
+    "all its employees",
+]
+
+
+@pytest.mark.parametrize("subject", _INNOCENT_SUBJECTS)
+def test_a_subject_that_merely_looks_negative_is_left_alone(subject):
+    """The control. A guard matching "no" as a prefix would fail every one."""
+
+    from policy_platform.infrastructure.extraction.formulation_mapping import (
+        has_negative_subject,
+    )
+
+    assert has_negative_subject(subject) is False
+
+
+def test_a_negated_subject_is_shared_with_the_projection_too():
+    """One definition of a negation, across all three slots and both readers.
+
+    Uses a `conditional_outcome`, taken from AI-d36d4bd5b1 ("no concessions or
+    consideration shall be given for records of previous service"), because a
+    `recommendation` deliberately projects no XACML effect at all — it is not a
+    XACML Rule, so it could not demonstrate agreement between the two readers.
+    """
+
+    from policy_platform.infrastructure.extraction.formulation_mapping import states_a_negation
+
+    fields = dict(
+        subject="no concessions or consideration",
+        predicate="be given",
+        object="for records of previous service",
+    )
+
+    assert states_a_negation(_rule(CanonicalRuleType.CONDITIONAL_OUTCOME, "shall", **fields)) is True
+
+    view = _view(CanonicalRuleType.CONDITIONAL_OUTCOME, "shall", **fields)
+    assert view is not None
+    assert view.xacml_projection.effect is RuleEffect.DENY
+
+
+# --------------------------------------------------------------------------
+# The negation written twice
+# --------------------------------------------------------------------------
+
+
+def test_a_denial_does_not_negate_an_already_negated_action():
+    """`deny(refrain from X)` reads as *X is required*.
+
+    Taken from AI-dd2f1b1d53: "expects all its employees ... to refrain from
+    any illegal, dishonest, or unethical conduct" is a prohibition, and it was
+    typed as one — but the action slot kept the abstaining verb, so the effect
+    negated a phrase that had already negated itself. The polarity has to be
+    carried exactly once.
+    """
+
+    rule = _effect(
+        CanonicalRuleType.PROHIBITION,
+        "expects",
+        subject="all its employees",
+        predicate="refrain from",
+        object="any illegal, dishonest, or unethical conduct",
+    )
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.DENY
+    assert rule.effect.action == "any illegal, dishonest, or unethical conduct"
+
+
+def test_a_requirement_to_refrain_keeps_its_words():
+    """The control. `require_action(refrain from X)` is already correct.
+
+    Only a denial doubles the negation. Stripping the wrapper here would turn
+    a faithful record into an instruction to do the thing the source asks
+    employees to avoid.
+    """
+
+    rule = _effect(
+        CanonicalRuleType.RECOMMENDATION,
+        "should",
+        subject="employees",
+        predicate="refrain themselves from",
+        object="loose talks",
+    )
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.REQUIRE_ACTION
+    assert rule.effect.action == "refrain themselves from loose talks"
+
+
+def test_an_ordinary_denial_keeps_its_action_intact():
+    """The other control: a denial whose action does not negate is untouched."""
+
+    rule = _effect(
+        CanonicalRuleType.PROHIBITION,
+        "may",
+        subject="No employee or applicant",
+        predicate="falsify",
+        object="any application or record",
+    )
+
+    assert rule is not None
+    assert rule.effect.type is EffectType.DENY
+    assert rule.effect.action == "falsify any application or record"

@@ -1071,6 +1071,44 @@ _COMPARATIVE_NO_RE = re.compile(
     r"^\s*no\s+(?:less|more|fewer|greater|later|earlier|sooner)\b", re.IGNORECASE
 )
 
+#: A negative quantifier in *subject* position negates the whole proposition.
+#:
+#: English marks this on a closed class of function words: the determiners
+#: `no`/`neither` and the pronouns `none`/`nobody`/`nothing`. Nothing else is
+#: matched, and nothing here is a content word, so this cannot quietly grow
+#: into a topic classifier the way a list of nouns would.
+#:
+#: It is matched because both other slots can be positive while the sentence
+#: forbids. "No one should use profanity" carries `modality="should"` and
+#: `predicate="use"` — neither negative — so a projection reading only those
+#: two emitted `require_action("use profanity")`, an instruction to do the
+#: thing the sentence prohibits. Measured on a live 45-page extraction this
+#: shape produced four such records, including "no concessions or
+#: consideration shall be given for records of previous service" projected as
+#: an instruction to give them.
+#:
+#: The determiners require a following space, and the pronouns require not to
+#: be followed by a word character or hyphen, so a hyphenated compound whose
+#: first word spells one is not read as a negation: "No-fault termination
+#: applies to..." and "Nothing-to-declare channels are..." both have positive
+#: subjects.
+_NEGATIVE_SUBJECT_RE = re.compile(
+    r"^\s*(?:no|neither)\s+|^\s*(?:none|nobody|nothing)(?![\w-])",
+    re.IGNORECASE,
+)
+
+#: Verb-phrase heads that carry a negation *inside* the action text.
+#:
+#: Used for exactly one purpose — recognising a negation the effect already
+#: carries, so it is not applied twice — and never to decide whether a
+#: sentence is negative. `states_a_negation` owns that question and does not
+#: consult this list.
+_NEGATED_ACTION_RE = re.compile(
+    r"^\s*(?:refrain(?:\s+\w+)?\s+from|abstain(?:\s+\w+)?\s+from|desist\s+from"
+    r"|cease\s+from|not|never)\b\s*",
+    re.IGNORECASE,
+)
+
 
 def is_negative_modality(modality: str | None) -> bool:
     """True when the source's modal word forbids rather than requires."""
@@ -1078,25 +1116,57 @@ def is_negative_modality(modality: str | None) -> bool:
     return bool(_NEGATIVE_MODALITY_RE.match(modality or ""))
 
 
+def has_negative_subject(subject: str | None) -> bool:
+    """True when the grammatical subject is negatively quantified.
+
+    "No employee may falsify..." and "no concessions shall be given" state
+    their negation here and nowhere else. A comparative is excluded for the
+    same reason it is in the predicate: "no fewer than three members shall
+    attend" sets a floor and obliges; it does not forbid.
+    """
+
+    text = (subject or "").strip()
+    if not text:
+        return False
+    if _COMPARATIVE_NO_RE.match(text):
+        return False
+    return bool(_NEGATIVE_SUBJECT_RE.match(text))
+
+
+def action_states_a_negation(action: str | None) -> bool:
+    """True when the action text negates on its own, before any effect applies."""
+
+    return bool(_NEGATED_ACTION_RE.match((action or "").strip()))
+
+
 def states_a_negation(rule: CanonicalPolicyRule | None) -> bool:
     """True when the sentence forbids, wherever it wrote the negation.
 
-    Source text puts it in either slot and means the same thing: "shall not
-    exceed 10% of the base" and "not exceeding 5% of the base" are both bounds.
-    Reading only `modality` classified the first as a prohibition and the
-    second as an obligation, so two sentences of identical force were badged
-    "Prohibits" and "Requires" in the same list — and the second told a
-    decision point to carry out the thing the document limits.
+    Source text puts it in any of three slots and means the same thing:
+    "shall not exceed 10% of the base", "not exceeding 5% of the base" and
+    "no increase exceeds 5% of the base" are all bounds. Reading only
+    `modality` classified the first as a prohibition and the second as an
+    obligation, so two sentences of identical force were badged "Prohibits"
+    and "Requires" in the same list — and the second told a decision point to
+    carry out the thing the document limits.
 
-    A comparative "no" is excluded. "no less than three months" sets a floor
-    and obliges; it does not forbid, and reading its "no" as a prohibition
-    would invert a requirement into a ban. Measured over the corpus, the rule
-    change flips exactly one record and it is the one written "not exceeding".
+    The subject was the last slot to be read and the most dangerous to miss,
+    because a negatively quantified subject leaves both other slots looking
+    positive. "No one should use profanity" has a positive modal and a
+    positive predicate; nothing short of reading the subject sees the
+    prohibition, and the record that resulted told its reader to use
+    profanity.
+
+    A comparative "no" is excluded in either slot. "no less than three months"
+    sets a floor and obliges; it does not forbid, and reading its "no" as a
+    prohibition would invert a requirement into a ban.
     """
 
     if rule is None:
         return False
     if is_negative_modality(rule.modality):
+        return True
+    if has_negative_subject(rule.subject):
         return True
     predicate = (rule.predicate or "").strip()
     if _COMPARATIVE_NO_RE.match(predicate):
@@ -1393,6 +1463,42 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     return " ".join(" ".join(parts).split())
 
 
+def _effect_action_for(policy: CanonicalPolicy, effect_type: EffectType) -> str:
+    """The action text, with the rule's polarity carried exactly once.
+
+    `_effect_action` reports what the sentence says. This decides how it should
+    read once the effect has been chosen, which is the only place both facts
+    are known.
+    """
+
+    action = _effect_action(policy)
+    if effect_type is EffectType.DENY:
+        return _deny_action(action)
+    return action
+
+
+def _deny_action(action: str) -> str:
+    """The conduct a DENY effect forbids, with the negation carried once.
+
+    `deny` already negates. An action that negates again states the inverse of
+    the rule: `deny("refrain from any illegal, dishonest, or unethical
+    conduct")` reads as *misconduct is required*, which is the worst shape this
+    system can emit because it is confidently the opposite of the source.
+
+    Policy prose reaches it whenever an obligation to abstain is typed as a
+    prohibition — "expects all its employees ... to refrain from any illegal,
+    dishonest, or unethical conduct" is a prohibition, and the conduct, not the
+    abstaining, is what the effect must name.
+
+    Only the leading wrapper is removed, so the source's own words for the
+    conduct itself survive verbatim, and an action that is nothing but the
+    wrapper is left alone rather than emptied.
+    """
+
+    stripped = _NEGATED_ACTION_RE.sub("", action or "", count=1).strip()
+    return stripped or action
+
+
 #: Provenance codes whose stored condition tree *understates* the source.
 #:
 #: In each of these the tree ends up empty — reading as "always applies" —
@@ -1610,6 +1716,42 @@ def _group_labels(formulation: PolicyFormulation) -> dict[int, str]:
     return labels
 
 
+#: What kind of event a skip records. Written at every skip site so the
+#: distinction is structural rather than something a later reader has to
+#: recover by pattern-matching prose.
+#:
+#: The ledger conflated two unrelated events until this existed, and both
+#: readings of it were wrong in opposite directions. A run that lost a whole
+#: batch — roughly fifteen clauses, some pages of the document — reported
+#: `status="completed"` and a skip count indistinguishable from a run that
+#: read everything and declined ten boilerplate sentences. Deriving coverage
+#: from the bare count then produced the inverse error: a clean 45-page run
+#: with ten non-normative sentences announced that it "did not read the whole
+#: document", which is false and trains a reviewer to ignore the warning.
+#:
+#: Only `BATCH_UNREAD` is a coverage fact. The other two are recall facts: the
+#: content was read, and something was decided about it.
+SKIP_BATCH_UNREAD = "batch_unread"
+SKIP_DISCARDED = "discarded"
+SKIP_NOT_EXTRACTED = "not_extracted"
+
+#: The kinds that mean part of the document was never read. Coverage is derived
+#: from this set, so a skip site added later is counted correctly by declaring
+#: its kind rather than by remembering to update a flag elsewhere.
+COVERAGE_AFFECTING_SKIPS = frozenset({SKIP_BATCH_UNREAD})
+
+
+def skip_breaks_coverage(skip: dict) -> bool:
+    """True when this skip means content was never read.
+
+    Defaults to treating an untagged skip as coverage-affecting: a skip site
+    that predates this vocabulary, or one added without a kind, should raise
+    the alarm rather than be silently counted as harmless.
+    """
+
+    return skip.get("kind", SKIP_BATCH_UNREAD) in COVERAGE_AFFECTING_SKIPS
+
+
 def formulation_to_candidate_rules(
     formulation: PolicyFormulation,
     *,
@@ -1670,7 +1812,11 @@ def formulation_to_candidate_rules(
         canonical_rule = policy.rule
         if canonical_rule is None:
             skipped.append(
-                {"item": policy.source_text[:200], "reason": "canonical policy carried no rule"}
+                {
+                    "item": policy.source_text[:200],
+                    "reason": "canonical policy carried no rule",
+                    "kind": SKIP_DISCARDED,
+                }
             )
             continue
         if canonical_rule.rule_type in _SKIPPED_RULE_TYPES:
@@ -1678,6 +1824,7 @@ def formulation_to_candidate_rules(
                 {
                     "item": policy.source_text[:200],
                     "reason": f"rule_type '{canonical_rule.rule_type.value}' carries no policy rule",
+                    "kind": SKIP_NOT_EXTRACTED,
                 }
             )
             continue
@@ -1688,6 +1835,7 @@ def formulation_to_candidate_rules(
                 {
                     "item": policy.source_text[:200],
                     "reason": f"no platform mapping for rule_type '{canonical_rule.rule_type.value}'",
+                    "kind": SKIP_DISCARDED,
                 }
             )
             continue
@@ -1820,7 +1968,7 @@ def formulation_to_candidate_rules(
                 fact_model=rule_facts,
                 attributes=attributes_for(canonical_rule, rule_facts),
                 condition_provenance=provenance,
-                effect=Effect(type=effect_type, action=_effect_action(policy)),
+                effect=Effect(type=effect_type, action=_effect_action_for(policy, effect_type)),
                 required_facts=required_facts,
                 exceptions=_exceptions_for(canonical_rule),
                 effective_from=date.today(),

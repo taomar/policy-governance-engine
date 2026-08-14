@@ -27,10 +27,15 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from policy_platform.contracts.formulation import CanonicalPolicy
+from policy_platform.contracts.policy import Effect, EffectType
 from policy_platform.infrastructure.extraction.evaluability import (
     Evaluability,
     EvaluabilityAssessment,
     assess_policy,
+)
+from policy_platform.infrastructure.extraction.formulation_mapping import (
+    action_states_a_negation,
+    states_a_negation,
 )
 from policy_platform.infrastructure.extraction.policy_parties import PartyProvenance, PartyRole
 
@@ -497,6 +502,84 @@ _CHECKS = (
 )
 
 
+#: Effects that tell a reader to do something or that something is permitted.
+#: A negated sentence must never produce one of these.
+_COMMANDING_EFFECTS = frozenset({EffectType.REQUIRE_ACTION, EffectType.ALLOW})
+
+
+def check_polarity_survives_projection(
+    policy: CanonicalPolicy, effect: Effect | None
+) -> list[LogicFinding]:
+    """The effect must carry the sentence's polarity exactly once.
+
+    This is the only check here that reads *both* sides. Every other one judges
+    the canonical record against the source; polarity is not a property of
+    either alone but a relation between the sentence and the effect derived
+    from it, so nothing that holds one of them can see it go wrong.
+
+    `decomposition_malformed` is the check that was expected to catch this and
+    cannot: it reports `Evaluability.MALFORMED`, which is a statement about the
+    *shape* of the canonical record — an empty subject, a dangling reference, a
+    mis-split "may may also be eligible". A record whose negation was dropped in
+    projection is perfectly well-formed. Measured on a live 45-page extraction,
+    five records carried an inverted or doubled effect and
+    `decomposition_malformed` flagged none of them.
+
+    Two directions, both blocking, because both state the inverse of the source:
+
+    - *lost*: the sentence forbids and the effect commands or permits.
+      "No one should use profanity" projected as
+      `require_action("use profanity")`.
+    - *doubled*: the effect denies and the action negates again.
+      `deny("refrain from any illegal, dishonest, or unethical conduct")` reads
+      as an instruction to commit misconduct.
+
+    It reads the stored effect rather than recomputing one, so it reports on
+    records already in the database. A check that re-derived the effect from the
+    same code the projection uses would agree with it by construction and could
+    only ever be silent.
+    """
+
+    rule = getattr(policy, "rule", None)
+    if effect is None or rule is None:
+        return []
+
+    source_excerpt = (policy.source_text or "")[:400]
+    action = (effect.action or "").strip()
+
+    if states_a_negation(rule) and effect.type in _COMMANDING_EFFECTS:
+        return [
+            LogicFinding(
+                code="polarity_lost_in_projection",
+                severity=LogicFindingSeverity.BLOCKING,
+                claim=action,
+                source_excerpt=source_excerpt,
+                detail=(
+                    "the sentence forbids this, but the effect "
+                    f"'{effect.type.value}' commands or permits it — the record "
+                    "states the opposite of the source"
+                ),
+            )
+        ]
+
+    if effect.type is EffectType.DENY and action_states_a_negation(action):
+        return [
+            LogicFinding(
+                code="polarity_doubled_in_projection",
+                severity=LogicFindingSeverity.BLOCKING,
+                claim=action,
+                source_excerpt=source_excerpt,
+                detail=(
+                    "the effect denies an action that is itself negated, so the "
+                    "two negations cancel and the record requires what the "
+                    "source forbids"
+                ),
+            )
+        ]
+
+    return []
+
+
 class LogicVerdict(BaseModel):
     """The result of judging one rule's formed logic."""
 
@@ -513,8 +596,13 @@ class LogicVerdict(BaseModel):
         return not self.blocking
 
 
-def judge_logic(policy: CanonicalPolicy | None) -> LogicVerdict:
-    """Form the logic, then judge it against the sentence it came from."""
+def judge_logic(policy: CanonicalPolicy | None, effect: Effect | None = None) -> LogicVerdict:
+    """Form the logic, then judge it against the sentence it came from.
+
+    `effect` is optional so existing callers asking only about a formulation
+    keep working. Pass it wherever the projected effect exists: the polarity
+    cross-check is the one judgement here that cannot be made without it.
+    """
 
     if policy is None:
         return LogicVerdict()
@@ -529,4 +617,5 @@ def judge_logic(policy: CanonicalPolicy | None) -> LogicVerdict:
         findings.extend(quotation_check(assessment, source_text, inherited))
     for check in _CHECKS:
         findings.extend(check(assessment, source_text))
+    findings.extend(check_polarity_survives_projection(policy, effect))
     return LogicVerdict(findings=findings)

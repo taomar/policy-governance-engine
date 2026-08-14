@@ -20,12 +20,14 @@ from policy_platform.infrastructure.extraction.evaluability import (
     ReferencedAttribute,
     assess_policy,
 )
+from policy_platform.contracts.policy import Effect, EffectType
 from policy_platform.infrastructure.quality.logic_faithfulness import (
     LogicFindingSeverity,
     check_attributes_are_quoted,
     check_authority_is_a_delegation,
     check_discretion_names_who,
     check_parties_are_quoted,
+    check_polarity_survives_projection,
     judge_logic,
 )
 from policy_platform.infrastructure.extraction.policy_parties import (
@@ -333,3 +335,95 @@ class TestQuotationIsNotOverlap:
             ],
         )
         assert check_attributes_are_quoted(assessment, _INFLATION_TEXT) == []
+
+
+class TestPolarityCrossCheck:
+    """The check that reads both sides.
+
+    `decomposition_malformed` was expected to catch a dropped negation and
+    structurally cannot: it reports `Evaluability.MALFORMED`, a statement about
+    the shape of the canonical record alone. A record whose negation was lost in
+    projection is perfectly well-formed — subject, modality and predicate all
+    present and all quotable. On RUN-83257A81 five records carried an inverted
+    or doubled effect and `decomposition_malformed` flagged none of them.
+
+    These cases are the live records, with the effects they actually had.
+    """
+
+    @staticmethod
+    def _policy(subject: str, modality: str, predicate: str, obj: str | None = None):
+        return CanonicalPolicy(
+            source_text="No one should use profanity or show disrespect.",
+            rule=CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.RECOMMENDATION,
+                subject=subject,
+                modality=modality,
+                predicate=predicate,
+                object=obj,
+            ),
+        )
+
+    def test_a_negated_sentence_commanding_its_own_conduct_blocks(self) -> None:
+        """AI-9b3671e47c as stored: require_action("use profanity")."""
+
+        policy = self._policy("No one", "should", "use", "profanity")
+        effect = Effect(type=EffectType.REQUIRE_ACTION, action="use profanity")
+
+        findings = check_polarity_survives_projection(policy, effect)
+
+        assert [f.code for f in findings] == ["polarity_lost_in_projection"]
+        assert findings[0].severity is LogicFindingSeverity.BLOCKING
+
+    def test_a_denial_of_a_negated_action_blocks(self) -> None:
+        """AI-dd2f1b1d53 as stored: deny("refrain from ... conduct")."""
+
+        policy = self._policy("all its employees", "expects", "refrain from", "misconduct")
+        effect = Effect(type=EffectType.DENY, action="refrain from any unethical conduct")
+
+        findings = check_polarity_survives_projection(policy, effect)
+
+        assert [f.code for f in findings] == ["polarity_doubled_in_projection"]
+        assert findings[0].severity is LogicFindingSeverity.BLOCKING
+
+    def test_a_negated_sentence_denying_its_conduct_is_silent(self) -> None:
+        """The corrected shape. The whole point is that this one passes."""
+
+        policy = self._policy("No one", "should", "use", "profanity")
+        effect = Effect(type=EffectType.DENY, action="use profanity")
+
+        assert check_polarity_survives_projection(policy, effect) == []
+
+    def test_a_requirement_to_refrain_is_silent(self) -> None:
+        """require_action(refrain from X) carries the negation exactly once."""
+
+        policy = self._policy("employees", "should", "refrain themselves from", "loose talks")
+        effect = Effect(type=EffectType.REQUIRE_ACTION, action="refrain themselves from loose talks")
+
+        assert check_polarity_survives_projection(policy, effect) == []
+
+    def test_an_ordinary_positive_rule_is_silent(self) -> None:
+        """The control. A check that fired on everything would pass the rest."""
+
+        policy = self._policy("the employee", "shall", "submit", "the form")
+        effect = Effect(type=EffectType.REQUIRE_ACTION, action="submit the form")
+
+        assert check_polarity_survives_projection(policy, effect) == []
+
+    def test_no_effect_asserts_nothing(self) -> None:
+        """Callers without a projected effect must not be told it is wrong."""
+
+        policy = self._policy("No one", "should", "use", "profanity")
+
+        assert check_polarity_survives_projection(policy, None) == []
+        assert judge_logic(policy, None).passed is True
+
+    def test_judge_logic_surfaces_it_when_given_the_effect(self) -> None:
+        """The wiring, not just the predicate."""
+
+        policy = self._policy("No one", "should", "use", "profanity")
+        effect = Effect(type=EffectType.REQUIRE_ACTION, action="use profanity")
+
+        verdict = judge_logic(policy, effect)
+
+        assert "polarity_lost_in_projection" in [f.code for f in verdict.blocking]
+        assert verdict.passed is False
