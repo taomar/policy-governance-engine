@@ -20,7 +20,7 @@ generated description as authoritative — this page only orients you. The
 description is generated from the same Pydantic contracts the evaluator consumes,
 so it cannot drift from the implementation.
 
-The current surface is **81 paths / 92 operations** across 12 tags.
+The current surface is **81 paths / 93 operations** across 12 tags.
 
 ## Endpoint groups
 
@@ -28,7 +28,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 
 | Tag | Prefix | Operations | What it covers |
 |---|---|---|---|
-| `policy-sets` | `/api/policy-sets` | 22 | Projects (policy sets): create, list, update, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version export, active version, and aggregate limits (list/create/update/delete/propose/preview/eligibility). |
+| `policy-sets` | `/api/policy-sets` | 23 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version export, active version, and aggregate limits (list/create/update/delete/propose/preview/eligibility). |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue: draft, list, facets, edit, review, request-changes, override, bulk-review, export — plus `GET /api/policy-sets/{key}/policies`, the same rules grouped under the passage that stated them, and `POST /api/policy-sets/{key}/publish`. |
 | `ai` | `/api/ai` | 24 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation, compare, quality (published + candidates, each split into a POST that evaluates and a GET that reads the last result, plus history), policy-set summary, correlation runs/findings/dispositions, change explanation. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
@@ -61,6 +61,18 @@ All routes are prefixed with `/api`, except `GET /health`.
   authentication.
 - **Append-only resources.** Evaluations, policy-test runs and audit events are
   read-only once written; published versions are never edited in place.
+- **Deleting a project is the one destructive operation.**
+  `DELETE /api/policy-sets/{key}` removes the project and everything scoped to
+  it — documents, clauses, extraction runs, candidate rules, published versions,
+  quality runs, notes and search-index entries. It requires `actor` and
+  `confirm={key}`: echoing the name is the cheapest guard that a mistyped URL
+  cannot satisfy by accident. It returns a body rather than `204`, because
+  someone who has just removed hundreds of extracted rules should be told what
+  went. The audit trail is deliberately **kept** — a `policy_set.deleted` event
+  records that the project existed and who removed it, since erasing that is the
+  opposite of governance. The `search_index` field reads `clean`, `skipped` or
+  `orphaned` rather than a count, because the index is a separate service and a
+  failure to clean it must be reported rather than hidden.
 
 ## Common sequences
 
