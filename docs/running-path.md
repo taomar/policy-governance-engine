@@ -260,6 +260,18 @@ that **this page notices**, so the claim cannot rot into a confident falsehood
 while everyone reads it and believes it.
 
 What the test cannot check is whether a step was *added* to the running path and
-left out of this page. Nothing detects an omission, which is why this page is
-written from the call path rather than from memory, and should be re-derived the
-same way when it is next revised.
+left out of this page. Nothing detects an omission, and that asymmetry is worth
+stating rather than hiding: every check above asks "does what is written still
+resolve", none asks "is what is written complete". It is the same asymmetry that
+let the original divergence hide.
+
+The inverse direction was built and measured before being rejected as a guard.
+`scripts/running_path_closure.py` computes the call closure from the two entry
+points and reports modules on it that this page does not name. At module
+granularity roughly four findings in five are genuine — but no mechanical rule
+separates a capability that belongs on a page of steps from a helper that does
+not, and a build-failing check at that precision is disabled within a week. A
+suppressed alarm would be worse than this stated gap.
+
+So it ships as a script a person runs when revising this page, which is also the
+answer to "re-derived how?" above. Run it, read what it names, and decide.
