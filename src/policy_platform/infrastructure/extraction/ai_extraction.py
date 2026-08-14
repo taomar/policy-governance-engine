@@ -67,7 +67,9 @@ from policy_platform.infrastructure.extraction.formulation_mapping import (
     SKIP_DISCARDED,
     SKIP_NOT_EXTRACTED,
     formulation_to_candidate_rules,
+    record_skip,
     skip_breaks_coverage,
+    skip_counts,
 )
 from policy_platform.infrastructure.ingestion import source_structure
 from policy_platform.infrastructure.ingestion.canonical_rebuild import (
@@ -651,7 +653,8 @@ async def extract_candidate_rules(
     as before this parameter existed.
 
     Returns a summary dict: {extraction_run_id, created: [candidate ids],
-    skipped: [{item, reason, kind}], coverage: {...}, superseded, delta}.
+    skipped: [{item, reason, kind, identity, occurrences}], coverage: {...},
+    superseded, delta}.
 
     `skipped` mixes two unrelated events and `kind` is what tells them apart:
     `batch_unread` means content was never read and the document is not
@@ -659,6 +662,12 @@ async def extract_candidate_rules(
     decided about it. `coverage` reports that split directly, because
     `status="completed"` says only that the run finished — never that it read
     the whole document.
+
+    `skipped` holds one entry per declined *passage*, not per rejection event:
+    the model can return the same sentence as two canonical policies and decline
+    both, which is one passage the reviewer needs to look at. `occurrences`
+    carries the event count so nothing is hidden. A passage declined for two
+    different reasons stays two entries — those are two facts about it.
 
     Raises ValueError for not-found policy set/document/clauses (caller maps to HTTP 404/409).
     """
@@ -797,23 +806,29 @@ async def extract_candidate_rules(
                     clause_order=clause_order,
                 )
             except PassageExtractionError as exc:
-                skipped.append(
-                    {
-                        "item": batch_ref,
-                        "reason": f"passage extractor failed for this batch: {exc}",
-                        "kind": SKIP_BATCH_UNREAD,
-                    }
+                record_skip(
+                    skipped,
+                    item=batch_ref,
+                    reason=f"passage extractor failed for this batch: {exc}",
+                    kind=SKIP_BATCH_UNREAD,
+                    identity=f"batch:{batch_ref}",
                 )
                 extraction_progress.advance(progress_key, skipped=1)
                 continue
 
             for bad in fabricated:
-                skipped.append(
-                    {
-                        "item": bad.source.clause_ref or batch_ref,
-                        "reason": "passage discarded: not a verbatim substring of the source",
-                        "kind": SKIP_DISCARDED,
-                    }
+                # Identified by the clause it claimed to come from. Where it
+                # named none there is nothing to be the same as, so it is left
+                # unidentified and counted on its own rather than merged with
+                # the other unattributed passages of this batch.
+                record_skip(
+                    skipped,
+                    item=bad.source.clause_ref or batch_ref,
+                    reason="passage discarded: not a verbatim substring of the source",
+                    kind=SKIP_DISCARDED,
+                    identity=(
+                        f"clauses:{bad.source.clause_ref}" if bad.source.clause_ref else None
+                    ),
                 )
             extraction_progress.advance(progress_key, skipped=len(fabricated))
 
@@ -870,12 +885,12 @@ async def extract_candidate_rules(
             try:
                 formulation = await formulator.formulate(_render_passages(passages))
             except PolicyFormulationError as exc:
-                skipped.append(
-                    {
-                        "item": batch_ref,
-                        "reason": f"formulator agent failed for this batch: {exc}",
-                        "kind": SKIP_BATCH_UNREAD,
-                    }
+                record_skip(
+                    skipped,
+                    item=batch_ref,
+                    reason=f"formulator agent failed for this batch: {exc}",
+                    kind=SKIP_BATCH_UNREAD,
+                    identity=f"batch:{batch_ref}",
                 )
                 extraction_progress.advance(progress_key, skipped=1)
                 continue
@@ -905,7 +920,20 @@ async def extract_candidate_rules(
                 source_note="; ".join(c.clause_ref for c in cited),
             )
             drafted.extend(rules)
-            skipped.extend(batch_skipped)
+            # Merged rather than extended: the ledger's "one entry per declined
+            # passage" invariant belongs to the ledger, not to a single batch.
+            # Extending would let the same passage appear twice if two batches
+            # ever declined it, which is the defect this fixes reappearing at
+            # the seam.
+            for entry in batch_skipped:
+                record_skip(
+                    skipped,
+                    item=entry["item"],
+                    reason=entry["reason"],
+                    kind=entry["kind"],
+                    identity=entry.get("identity"),
+                    occurrences=entry.get("occurrences", 1),
+                )
             extraction_progress.advance(progress_key, drafted=len(rules), skipped=len(batch_skipped))
 
             # Persist and commit per batch rather than once at the end. These
@@ -1284,10 +1312,15 @@ async def extract_candidate_rules(
         # reading it as though it did is what let a run that lost batches look
         # identical to one that lost nothing.
         "coverage": {
+            # Counted in passages, not in rejection events. The ledger holds one
+            # entry per declined passage (see `record_skip`), so a sentence the
+            # model returned twice is one decline here — which is what is true of
+            # the document. `occurrences` on the entry keeps the event count for
+            # anyone diagnosing the model's output; `skip_counts` deliberately
+            # does not sum it, because how many times something was rejected is
+            # a fact about the run, not about the policy.
             "complete": not [s for s in skipped if skip_breaks_coverage(s)],
-            "batches_unread": len([s for s in skipped if s.get("kind") == SKIP_BATCH_UNREAD]),
-            "passages_discarded": len([s for s in skipped if s.get("kind") == SKIP_DISCARDED]),
-            "read_not_extracted": len([s for s in skipped if s.get("kind") == SKIP_NOT_EXTRACTED]),
+            **skip_counts(skipped),
         },
         "superseded": superseded,
         "delta": delta_counts,

@@ -1795,6 +1795,125 @@ def skip_breaks_coverage(skip: dict) -> bool:
     return skip.get("kind", SKIP_BATCH_UNREAD) in COVERAGE_AFFECTING_SKIPS
 
 
+#: Marks an entry whose subject could not be identified. Entries carrying it are
+#: never merged with anything, including each other.
+_UNIDENTIFIED = "unidentified:"
+
+
+def record_skip(
+    ledger: list[dict],
+    *,
+    item: str,
+    reason: str,
+    kind: str,
+    identity: str | None = None,
+    occurrences: int = 1,
+) -> None:
+    """Record that `item` was skipped, once per subject rather than per event.
+
+    The ledger answers "what did this run decline", and a reviewer reads its
+    length as a count of the document. It was appended to per *rejection*, so a
+    passage the model emitted twice — the same sentence returned as two
+    canonical policies, both non-normative — was declined once and recorded
+    twice. Every number derived from the ledger inherited that: the run summary,
+    the coverage block, and the reviewer surface all say `len(...)`.
+
+    Repeats are merged only when the subject, the kind and the reason are all
+    the same, and the merged entry carries `occurrences` so no event is hidden.
+    A subject declined for two *different* reasons stays two entries: those are
+    two distinct facts about it, and collapsing them would lose one.
+
+    `identity` is what decides sameness, and it is deliberately not the text.
+    `item` is truncated for display, so two different passages sharing an
+    opening would collide; and a document may state one obligation twice in two
+    places, which is two passages, not one. Callers pass the source reference
+    they already hold, so the two occurrences stay separate exactly as the
+    document has them.
+
+    Without an identity nothing is merged. An unidentified entry gets a unique
+    key, so the failure mode of not knowing what was skipped is a count that is
+    too high rather than a decline that vanishes -- the same asymmetry that
+    makes an untagged skip count against coverage.
+    """
+
+    key = identity if identity and not identity.startswith(_UNIDENTIFIED) else None
+    if key is None:
+        key = f"{_UNIDENTIFIED}{len(ledger)}"
+        merge = False
+    else:
+        merge = True
+    if merge:
+        for entry in ledger:
+            if (
+                entry.get("identity") == key
+                and entry.get("kind") == kind
+                and entry.get("reason") == reason
+            ):
+                entry["occurrences"] = entry.get("occurrences", 1) + occurrences
+                return
+    ledger.append(
+        {
+            "item": item,
+            "reason": reason,
+            "kind": kind,
+            "identity": key,
+            "occurrences": occurrences,
+        }
+    )
+
+
+def skip_counts(ledger: list[dict]) -> dict[str, int]:
+    """The counts a reviewer reads, in passages rather than rejection events.
+
+    Lives beside `record_skip` because it is the other half of one contract: the
+    ledger holds one entry per declined passage, so a count of it is a count of
+    the document. Summing `occurrences` here would reintroduce the defect the
+    ledger exists to prevent -- it answers how many times the model rejected
+    something, which is a fact about the run, not about the policy.
+
+    Read through this rather than by taking `len()` at each surface, so that the
+    unit is decided once and every caller inherits it.
+    """
+
+    return {
+        "batches_unread": len([s for s in ledger if s.get("kind") == SKIP_BATCH_UNREAD]),
+        "passages_discarded": len([s for s in ledger if s.get("kind") == SKIP_DISCARDED]),
+        "read_not_extracted": len([s for s in ledger if s.get("kind") == SKIP_NOT_EXTRACTED]),
+    }
+
+
+def _skip_identity(
+    source_text: str,
+    passages: list | None,
+    passage_clause_refs: list[list[str]] | None,
+) -> str | None:
+    """The source clause(s) a declined policy came from, or None if unknown.
+
+    Uses the same passage matching that scopes a kept rule's evidence, so a
+    declined passage is identified exactly as an accepted one is -- the ledger
+    and the record cannot disagree about where something came from.
+
+    Returns None rather than falling back to the text when the refs cannot be
+    resolved. A hash of `source_text` would look like an identity and behave
+    like one right up to the case it gets wrong: a document that states the same
+    sentence in two places would have its two declines merged into one, which is
+    the very error this function exists to avoid making in the other direction.
+    """
+
+    if not passages or not passage_clause_refs:
+        return None
+    refs: list[str] = []
+    for passage_index in _passage_matches_for_policy(source_text, passages):
+        if passage_index >= len(passage_clause_refs):
+            continue
+        for ref in passage_clause_refs[passage_index]:
+            if ref not in refs:
+                refs.append(ref)
+    if not refs:
+        return None
+    return "clauses:" + ",".join(sorted(refs))
+
+
 def formulation_to_candidate_rules(
     formulation: PolicyFormulation,
     *,
@@ -1852,34 +1971,38 @@ def formulation_to_candidate_rules(
     default_evidence = evidence or []
 
     for index, policy in enumerate(formulation.canonical_policies):
+        # Which source clause(s) this policy came from. Resolved once and used
+        # as the ledger's identity below, so a passage the model returned twice
+        # is one declined passage rather than two.
+        skip_identity = _skip_identity(policy.source_text, passages, passage_clause_refs)
         canonical_rule = policy.rule
         if canonical_rule is None:
-            skipped.append(
-                {
-                    "item": policy.source_text[:200],
-                    "reason": "canonical policy carried no rule",
-                    "kind": SKIP_DISCARDED,
-                }
+            record_skip(
+                skipped,
+                item=policy.source_text[:200],
+                reason="canonical policy carried no rule",
+                kind=SKIP_DISCARDED,
+                identity=skip_identity,
             )
             continue
         if canonical_rule.rule_type in _SKIPPED_RULE_TYPES:
-            skipped.append(
-                {
-                    "item": policy.source_text[:200],
-                    "reason": f"rule_type '{canonical_rule.rule_type.value}' carries no policy rule",
-                    "kind": SKIP_NOT_EXTRACTED,
-                }
+            record_skip(
+                skipped,
+                item=policy.source_text[:200],
+                reason=f"rule_type '{canonical_rule.rule_type.value}' carries no policy rule",
+                kind=SKIP_NOT_EXTRACTED,
+                identity=skip_identity,
             )
             continue
 
         mapped = _RULE_TYPE_MAP.get(canonical_rule.rule_type)
         if mapped is None:
-            skipped.append(
-                {
-                    "item": policy.source_text[:200],
-                    "reason": f"no platform mapping for rule_type '{canonical_rule.rule_type.value}'",
-                    "kind": SKIP_DISCARDED,
-                }
+            record_skip(
+                skipped,
+                item=policy.source_text[:200],
+                reason=f"no platform mapping for rule_type '{canonical_rule.rule_type.value}'",
+                kind=SKIP_DISCARDED,
+                identity=skip_identity,
             )
             continue
         rule_type, effect_type = mapped

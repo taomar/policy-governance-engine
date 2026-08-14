@@ -80,16 +80,42 @@ def extraction_module() -> ast.Module:
 
 
 def _append_targets(tree: ast.Module) -> dict[str, int]:
-    """Every `name.append(...)` in the module, counted by `name`."""
+    """Every write to a list-valued name in the module, counted by name.
+
+    Counts two shapes, because a ledger is written to in two ways:
+
+      `name.append(...)`   — a bare list
+      `record_skip(name,)` — the skip ledger, which records one entry per
+                             declined passage rather than per rejection event
+                             and so cannot be a plain append
+
+    Counting only `.append` would read the second shape as zero writes and
+    report a derived `coverage_complete` as constant, which is what this guard
+    exists to catch — so it would fail on a correct implementation and, worse,
+    could be silenced by weakening the assertion rather than by teaching it the
+    call. The intent is unchanged: coverage must be derived from the list the
+    skip sites actually write to.
+    """
     counts: dict[str, int] = {}
     for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        target: str | None = None
         if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
+            isinstance(node.func, ast.Attribute)
             and node.func.attr == "append"
             and isinstance(node.func.value, ast.Name)
         ):
-            counts[node.func.value.id] = counts.get(node.func.value.id, 0) + 1
+            target = node.func.value.id
+        elif (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "record_skip"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+        ):
+            target = node.args[0].id
+        if target is not None:
+            counts[target] = counts.get(target, 0) + 1
     return counts
 
 
