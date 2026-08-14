@@ -6,6 +6,7 @@ import {
   ExperimentOutlined,
   FileTextOutlined,
   PlusOutlined,
+  ReloadOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
   WarningOutlined,
@@ -17,6 +18,7 @@ import {
   type ProjectPortfolioInsight,
 } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
+import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
 import { routeCell } from "../projectRegisterRow";
 import { groupProjectsByDocument, groupSubtitle } from "../projectRegisterGroups";
 import { qualityScopeLabel } from "../qualityTrend";
@@ -80,6 +82,10 @@ export function ProjectsPage({
   const [stats, setStats] = useState<Record<string, ProjectPortfolioInsight>>({});
   const [selected, setSelected] = useState<PolicySet | null>(null);
   const [loading, setLoading] = useState(false);
+  // Whether we have an answer about the project list at all. `policySets` being
+  // empty cannot carry this: an empty array means both "there are no projects"
+  // and "we never found out", and those must show a reader different things.
+  const [listState, setListState] = useState<LoadState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -91,19 +97,20 @@ export function ProjectsPage({
     try {
       const sets = await api.listPolicySets();
       setPolicySets(sets);
+      setListState("ready");
       try {
         const portfolio = await api.getProjectPortfolioSummary();
         setStats(Object.fromEntries(portfolio.map((insight) => [insight.key, insight])));
       } catch (caught) {
         setStats({});
-        setError(
-          `Projects loaded, but operational insights are unavailable: ${
-            caught instanceof PolicyPlatformApiError ? caught.detail : String(caught)
-          }`,
-        );
+        setError(`Projects loaded, but operational insights are unavailable: ${describeApiFailure(caught)}`);
       }
     } catch (e) {
-      setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      // We did not get an answer, so we do not have one. Leaving `policySets`
+      // at [] while rendering the "no projects yet" prompt told a reader with
+      // nine projects that they had none, and invited them to create a tenth.
+      setListState("unavailable");
+      setError(describeApiFailure(e));
     } finally {
       setLoading(false);
     }
@@ -180,14 +187,19 @@ export function ProjectsPage({
     (acc, ps) => {
       const current = stats[ps.key];
       acc.published += current?.active_rule_count ?? 0;
-      acc.executable += current?.machine_executable_count ?? 0;
       acc.regression += current?.regression_test_count ?? 0;
       acc.pending += current?.review_pending ?? 0;
       acc.highFindings += current?.latest_quality_high ?? 0;
+      // Route counts, each summed from what the records carry. Neither is
+      // derived from the other or from the total -- see `projectRegisterRow`.
+      acc.live += current?.live_candidate_count ?? 0;
+      acc.direct += current?.candidate_direct_count ?? 0;
+      acc.reading += current?.candidate_reading_count ?? 0;
       return acc;
     },
-    { published: 0, executable: 0, regression: 0, pending: 0, highFindings: 0 },
+    { published: 0, regression: 0, pending: 0, highFindings: 0, live: 0, direct: 0, reading: 0 },
   );
+  const totalRoutes = routeCell(totals.live, totals.direct, totals.reading);
 
   return (
     <div className="projects-page">
@@ -197,7 +209,9 @@ export function ProjectsPage({
           <Text type="secondary">Source documents, review work, and published policy versions by project.</Text>
         </div>
         <div className="projects-page-actions">
-          <Text type="secondary">{policySets.length} projects</Text>
+          <Text type="secondary">
+            {listState === "unavailable" ? `${UNKNOWN_COUNT} projects` : `${policySets.length} projects`}
+          </Text>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             New project
           </Button>
@@ -217,8 +231,17 @@ export function ProjectsPage({
             <dd>{totals.published}</dd>
           </div>
           <div>
-            <dt>Deterministic</dt>
-            <dd>{totals.executable}</dd>
+            {/* Was `<dt>Deterministic</dt><dd>0</dd>`. A route name sitting bare
+                over a numeral, in a row of counters, reads as a score: in this
+                company "Deterministic 0" is a nought out of six. How a source
+                states its own test is the source's property, not a mark this
+                system earns against it, and most policy prose states it in
+                words. The wording comes from `routeCell`, the same function the
+                dashboard tile and each register row use, so the three cannot
+                drift into describing one fact three ways. */}
+            <dt>Decision routes</dt>
+            <dd>{totalRoutes.headline}</dd>
+            <small>{totalRoutes.detail}</small>
           </div>
           <div>
             <dt>Regression guards</dt>
@@ -235,9 +258,28 @@ export function ProjectsPage({
         </dl>
       )}
 
-      {loading ? (
+      {loading || listState === "loading" ? (
         <div className="project-register-loading">
           <Text type="secondary">Loading project register…</Text>
+        </div>
+      ) : listState === "unavailable" ? (
+        <div className="project-register-empty">
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <span className="project-register-empty-copy">
+                <Text>Project register unavailable.</Text>
+                <Text type="secondary">
+                  Your projects have not been loaded, so this list is not showing them. Nothing has been lost — try
+                  again once the server responds.
+                </Text>
+              </span>
+            }
+          >
+            <Button icon={<ReloadOutlined />} onClick={() => void refreshList()}>
+              Try again
+            </Button>
+          </Empty>
         </div>
       ) : policySets.length === 0 ? (
         <div className="project-register-empty">

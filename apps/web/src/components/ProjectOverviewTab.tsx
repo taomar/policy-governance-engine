@@ -14,6 +14,7 @@ import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicySet
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
+import { routeCell } from "../projectRegisterRow";
 
 const { Text } = Typography;
 
@@ -23,7 +24,13 @@ interface Stats {
   versionCount: number;
   pendingCandidateCount: number;
   approvedCandidateCount: number;
-  executableRuleCount: number;
+  /* Both routes are counted from what each rule actually carries. Neither is
+   * derived by subtracting the other from the total: a rule recording no mode
+   * belongs to neither, and folding it into "decided by reading" would assert a
+   * routing decision the data does not contain. See `projectRegisterRow`. */
+  directRouteCount: number;
+  readingRouteCount: number;
+  liveRuleCount: number;
   sourceGroundedRuleCount: number;
 }
 
@@ -70,7 +77,9 @@ export function ProjectOverviewTab({
             ["candidate", "changes_requested"].includes(candidate.review_status),
           ).length,
           approvedCandidateCount: candidates.filter((candidate) => candidate.review_status === "approved").length,
-          executableRuleCount: activeRules.filter((rule) => rule.machine_executable).length,
+          directRouteCount: activeRules.filter((rule) => rule.evaluation_mode === "deterministic").length,
+          readingRouteCount: activeRules.filter((rule) => rule.evaluation_mode === "ai_ready").length,
+          liveRuleCount: activeRules.length,
           sourceGroundedRuleCount: activeRules.filter((rule) => rule.evidence.length > 0).length,
         });
       } catch (e) {
@@ -108,6 +117,13 @@ export function ProjectOverviewTab({
   const sourceCoverage = liveRuleCount
     ? Math.round(((stats?.sourceGroundedRuleCount ?? 0) / liveRuleCount) * 100)
     : 0;
+  // Routes stated in the same words as the dashboard tile and the register, from
+  // the one module that owns that wording.
+  const routeSummary = routeCell(
+    stats?.liveRuleCount ?? 0,
+    stats?.directRouteCount ?? 0,
+    stats?.readingRouteCount ?? 0,
+  );
   const steps = [
     {
       key: "documents",
@@ -202,9 +218,17 @@ export function ProjectOverviewTab({
                     <dd>{liveRuleCount}</dd>
                   </div>
                   <div>
-                    <dt>Deterministic</dt>
-                    <dd>{stats.executableRuleCount}</dd>
-                    <small>{liveRuleCount - stats.executableRuleCount} decided by reading</small>
+                    {/* Was `<dt>Deterministic</dt><dd>N</dd>` with the other
+                        route derived by subtraction. A bare route name over a
+                        numeral reads as a score — "Deterministic 0" is a nought
+                        out of ten — and how a source states its own test is the
+                        source's property, not a mark this system earns against
+                        it. Both routes are counted independently and named as
+                        routes. Same wording as the dashboard tile and the
+                        register, from one place, so they cannot drift. */}
+                    <dt>Decision routes</dt>
+                    <dd>{routeSummary.headline}</dd>
+                    <small>{routeSummary.detail}</small>
                   </div>
                   <div className={sourceCoverage === 100 ? "is-success" : "is-warning"}>
                     <dt>Source-grounded</dt>
@@ -226,9 +250,13 @@ export function ProjectOverviewTab({
                     <CheckCircleOutlined />
                     <span>
                       <strong>
-                        {liveRuleCount - stats.executableRuleCount} polic
-                        {liveRuleCount - stats.executableRuleCount === 1 ? "y is" : "ies are"} decided
-                        by reading
+                        {/* Counted from what the rules record, not derived by
+                            subtracting the other route from the total. The
+                            subtraction filed every rule with no recorded mode
+                            under "decided by reading" and stated a routing
+                            decision the data does not carry. */}
+                        {stats.readingRouteCount} polic
+                        {stats.readingRouteCount === 1 ? "y is" : "ies are"} decided by reading
                       </strong>
                       <small>
                         The source states their test in words rather than as a comparison, so a
