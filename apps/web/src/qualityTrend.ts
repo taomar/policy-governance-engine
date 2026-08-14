@@ -100,3 +100,29 @@ export const NO_TREND_EXPLANATION: Record<NoTrendReason, string> = {
     "suite changes what can be found at all, so it starts a new baseline rather " +
     "than reading as policy improvement or regression.",
 };
+
+/**
+ * What population a quality evaluation was carried out on.
+ *
+ * The register used to show published-scope results only, so on a portfolio
+ * where nothing has been published it reported "Not evaluated" over the top of
+ * real stored findings. Both scopes now reach the surface, which means the
+ * surface has to say which one it is showing: candidate records and a published
+ * package are different populations, and a finding count that silently switched
+ * between them would be the same defect as drawing a trend across them.
+ *
+ * Backend emits the code, this map owns the words. Scope is a plain column
+ * (`quality_runs.scope`, documented at `domain/models.py` as "published" |
+ * "candidates"), so a code added later would arrive here unmapped: it degrades
+ * to a phrase that admits the gap rather than printing a raw identifier at a
+ * reviewer or rendering nothing so the field looks absent.
+ */
+export const QUALITY_SCOPE_LABELS: Record<string, string> = {
+  candidates: "candidate records",
+  published: "the published package",
+};
+
+export function qualityScopeLabel(scope: string | null | undefined): string {
+  if (!scope) return "an unrecorded scope";
+  return QUALITY_SCOPE_LABELS[scope] ?? "a scope this view does not recognise";
+}

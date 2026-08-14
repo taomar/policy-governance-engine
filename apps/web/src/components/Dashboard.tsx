@@ -217,7 +217,11 @@ export function Dashboard({
     {
       label: "High findings",
       value: summary?.highFindingCount,
-      detail: "latest active-version checks",
+      // Was "latest active-version checks", which described a population the
+      // register was not in fact reading: the query admitted published-scope
+      // runs only, so on an unpublished portfolio it reported nothing while
+      // real findings sat stored against the candidate generation.
+      detail: "latest quality checks",
       icon: <WarningOutlined />,
       tone: summary?.highFindingCount ? "risk" : "neutral",
     },

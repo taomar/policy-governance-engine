@@ -145,15 +145,26 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                 latest_quality AS (
                   SELECT DISTINCT ON (policy_set_id)
                     qr.policy_set_id,
+                    qr.scope,
+                    qr.rule_count,
                     qr.high_count,
                     qr.medium_count,
                     qr.low_count,
                     qr.run_at
                   FROM quality_runs qr
-                  JOIN active_versions av
+                  LEFT JOIN active_versions av
                     ON av.policy_set_id = qr.policy_set_id
-                   AND av.version_number = qr.version_number
-                  WHERE qr.scope = 'published'
+                  -- Published-scope results still have to belong to the version
+                  -- that is actually live, or an evaluation of a superseded
+                  -- package would be reported as the current one.
+                  --
+                  -- Every other scope is admitted. This filter used to read
+                  -- `WHERE qr.scope = 'published'`, which discarded every quality
+                  -- run that exists on a portfolio where nothing has been
+                  -- published: the checks ran, found real problems, stored them,
+                  -- and the register said "Not evaluated" over the top of them.
+                  WHERE qr.scope <> 'published'
+                     OR (av.id IS NOT NULL AND av.version_number = qr.version_number)
                   ORDER BY qr.policy_set_id, qr.run_at DESC
                 )
                 SELECT
@@ -212,7 +223,13 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                   lq.high_count AS latest_quality_high,
                   lq.medium_count AS latest_quality_medium,
                   lq.low_count AS latest_quality_low,
-                  lq.run_at AS latest_quality_at
+                  lq.run_at AS latest_quality_at,
+                  -- What that evaluation was about. A code, not a sentence: the
+                  -- surface decides how to say "this describes the candidate
+                  -- generation" versus "this describes the published package",
+                  -- and the two must not be conflated now that both can appear.
+                  lq.scope AS latest_quality_scope,
+                  lq.rule_count AS latest_quality_rule_count
                 FROM policy_sets ps
                 LEFT JOIN active_versions av ON av.policy_set_id = ps.id
                 LEFT JOIN latest_quality lq ON lq.policy_set_id = ps.id

@@ -18,6 +18,7 @@ import {
 } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { routeCell } from "../projectRegisterRow";
+import { qualityScopeLabel } from "../qualityTrend";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
 const { Title, Text } = Typography;
@@ -313,7 +314,7 @@ export function ProjectsPage({
                     <small>{route ? route.detail : "Loading routes"}</small>
                   </span>
                 </span>
-                <span className="project-register-insight" title="Latest published-version quality evaluation">
+                <span className="project-register-insight" title="Latest quality evaluation, on whichever population was checked most recently">
                   <SafetyCertificateOutlined />
                   <span>
                     <strong className={s && (s.latest_quality_high ?? 0) > 0 ? "is-risk" : undefined}>
@@ -323,7 +324,9 @@ export function ProjectsPage({
                     </strong>
                     <small>
                       {s?.latest_quality_at
-                        ? `Checked ${new Date(s.latest_quality_at).toLocaleDateString()}`
+                        ? `${qualityScopeLabel(s.latest_quality_scope)}${
+                            s.latest_quality_rule_count ? `, ${s.latest_quality_rule_count} checked` : ""
+                          } · ${new Date(s.latest_quality_at).toLocaleDateString()}`
                         : "Run Quality to establish a baseline"}
                     </small>
                   </span>

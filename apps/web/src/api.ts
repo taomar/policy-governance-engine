@@ -89,6 +89,14 @@ export interface ProjectPortfolioInsight {
   latest_quality_medium: number | null;
   latest_quality_low: number | null;
   latest_quality_at: string | null;
+  /** Which population the latest quality evaluation covered — `candidates` or
+   *  `published`. Carried because the register now surfaces whichever ran most
+   *  recently, and a finding count that silently switched population would be
+   *  reporting two different things under one label. */
+  latest_quality_scope: string | null;
+  /** How many rules that evaluation covered, so a finding count can be read
+   *  against the size of what was checked. */
+  latest_quality_rule_count: number | null;
 }
 
 export interface TrustedConfigResponse {

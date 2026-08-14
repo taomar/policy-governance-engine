@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   NO_TREND_EXPLANATION,
   NO_TREND_LABEL,
+  QUALITY_SCOPE_LABELS,
   measuredTheSameWay,
+  qualityScopeLabel,
   trendAgainstPrior,
   type ComparableRun,
 } from "./qualityTrend";
@@ -135,6 +137,69 @@ describe("what the reader is told instead of a delta", () => {
       expect(explanation.trim().length).toBeGreaterThan(40);
       // Whatever it says, it must not surface the internal key.
       expect(label).not.toContain(reason);
+    }
+  });
+});
+
+/**
+ * That a scope code reaches a reviewer as words, whatever the code turns out
+ * to be.
+ *
+ * This is asserted by calling the function rather than by reading its source.
+ * A first version of this check lived in the Python guard and inspected the
+ * returned expression textually; a leak written as `?? `scope ${scope}`` did
+ * not match its pattern, so the check passed while the identifier reached the
+ * surface. Behaviour cannot be evaded by restatement, and the two failure
+ * modes here are both silent ones a reviewer would never report: an internal
+ * code shown as though it were English, or an empty string where the
+ * explanation belongs.
+ *
+ * The companion guard `tests/unit/test_quality_scopes_have_wording.py`
+ * enumerates the codes that exist today from the model definition and requires
+ * each to be mapped. Between them: every current code has words, and any
+ * future one degrades into words instead of into an identifier or a blank.
+ */
+describe("qualityScopeLabel", () => {
+  it("words every scope it knows", () => {
+    for (const [code, label] of Object.entries(QUALITY_SCOPE_LABELS)) {
+      expect(qualityScopeLabel(code)).toBe(label);
+      // Not `not.toContain(code)`: a first draft asserted that and failed on
+      // `published` -> "the published package", where the code happens to be
+      // an ordinary English word and belongs in its own label. Echoing the
+      // identifier is the defect, not sharing a word with it.
+      expect(label).not.toBe(code);
+      expect(label).not.toMatch(/_/);
+    }
+  });
+
+  // CONTROL: the map is not empty, so the loop above is not passing vacuously.
+  it("has scopes to word at all", () => {
+    expect(Object.keys(QUALITY_SCOPE_LABELS).length).toBeGreaterThan(0);
+  });
+
+  it("never renders an unrecognised code as the code itself", () => {
+    const future = "provisional_snapshot";
+    const rendered = qualityScopeLabel(future);
+    expect(rendered).not.toContain(future);
+    expect(rendered.trim().length).toBeGreaterThan(0);
+  });
+
+  it("says something rather than nothing when no scope was recorded", () => {
+    for (const absent of [null, undefined, ""]) {
+      const rendered = qualityScopeLabel(absent);
+      expect(rendered.trim().length).toBeGreaterThan(0);
+      expect(rendered).not.toContain("undefined");
+      expect(rendered).not.toContain("null");
+    }
+  });
+
+  it("describes a population without grading it", () => {
+    // A scope names which records were checked. It is not a verdict on them,
+    // and wording that implied one would put a judgement on the surface that
+    // the data does not carry.
+    const forbidden = /incomplete|insufficient|only|merely|not yet|failed|unfinished/i;
+    for (const label of Object.values(QUALITY_SCOPE_LABELS)) {
+      expect(label).not.toMatch(forbidden);
     }
   });
 });
