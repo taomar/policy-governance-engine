@@ -174,8 +174,16 @@ which are the expensive part.
 ## What is reachable but read-only
 
 These endpoints run in production and are correct. None of them feeds
-extraction. The distinction matters because a capability that is displayed looks
-identical, from the interface, to one that is used.
+extraction.
+
+This is worth a name, because it is not dead code and it is much harder to see
+than dead code would be. Something unused is easy to find: nothing calls it.
+These are **built, reached, rendered, and never consulted by the thing they were
+built for.** A reader looking at the interface sees a reading plan and a coverage
+report and reasonably concludes that extraction reads the plan. A reader looking
+at the code sees a function with live callers. Only someone tracing which calls
+lead to a model finds out otherwise. Displayed and used are indistinguishable
+from the outside.
 
 | Endpoint | Router symbol | Reads |
 |---|---|---|
@@ -213,9 +221,9 @@ Stated because each is a live property of the path above, not a historical note.
 **A failing batch costs coverage, and the run says so.** A batch whose agent
 fails is appended to `skipped` and the run continues. `mark_completed` is called
 with `coverage_complete=not skipped`, so a run that passed over material is
-closed as `completed_with_gaps` rather than `completed`. That distinction is
-load-bearing: the completed status is used as a trustworthiness predicate when
-a later run is compared against this one.
+closed as `completed_with_gaps` rather than `completed`. See
+[Extraction run coverage](extraction-run-coverage.md) for why that distinction
+is load-bearing.
 
 **Superseding fires before the run can fail.** Step 12 runs on the first batch
 that yields rules; steps 14 to 24 run at the end. A run that supersedes and then
