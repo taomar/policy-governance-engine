@@ -684,6 +684,19 @@ CONDITION_PROVENANCE_CODES: Final[tuple[str, ...]] = (
     "quantity_not_read_as_number",
     "proportion_has_no_stated_base",
     "quantity_states_nothing_counted",
+    # A quantity that compiled and was not adopted, because the formulator
+    # grouped this rule with others into one decision. The comparison is sound
+    # about its own sentence and silent about the sentences it was grouped with,
+    # so a condition built from it would state part of a provision as though it
+    # were the whole. Distinct from the refusals above: nothing was missing from
+    # the source, and what the record declines to claim is the scope.
+    "stated_quantity_is_one_clause_of_a_provision",
+    # A quantity that compiled out of a table row flattened into a line. The
+    # table stated part of its meaning in position — which column a value sits
+    # under, which row label it shares — and flattening drops that. A comparison
+    # read from the line is true of one cell and silent about the axis the table
+    # was built on, so it is not adopted however the decision was grouped.
+    "stated_quantity_comes_from_a_table_row",
 )
 
 

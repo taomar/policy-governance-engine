@@ -19,6 +19,11 @@ The distinction this pins down:
 * a quantity that compiled but was not adopted is NOT reported as derived,
   because the record's condition did not come from it and saying so would
   describe a derivation that is not there.
+
+Which decisions displace an adoption is settled in
+`test_a_quantity_is_adopted_only_where_it_is_the_whole_test`: a decision covering
+this rule alone states no competing test, and one covering several rules means
+the sentence is a clause of something wider.
 """
 from __future__ import annotations
 
@@ -106,18 +111,47 @@ def _states_a_compilable_comparison() -> CanonicalPolicy:
     )
 
 
-def test_a_declared_decision_still_owns_the_tree():
+def test_a_grouped_decision_still_owns_the_tree():
     """Diagnosing must not become adopting.
 
-    The compiler can read this sentence, but another component already declared
-    a decision for it. The condition is not this compiler's to write, and the
+    The compiler can read this sentence, but the formulator grouped it with
+    another rule into one decision, so a condition built from this sentence
+    alone would state part of a provision as though it were the whole. The
     record must not claim a derivation it does not carry.
+
+    This asserted merely that *a* decision was declared until measurement showed
+    what the declared ones contain: across 2,941 in stored output, none carried
+    a decision table and none was executable. Deferring to all of them withheld
+    every compiled comparison in favour of nothing. What discriminates is
+    whether the decision covers this rule alone.
     """
+
+    rules, _ = formulation_to_candidate_rules(
+        PolicyFormulation(
+            canonical_policies=[
+                _states_a_compilable_comparison(),
+                _states_a_compilable_comparison(),
+            ],
+            dmn_projection=DmnProjection(decisions=[DmnDecision(source_rule_indexes=[0, 1])]),
+        ),
+        policy_set_id="test-set",
+        extraction_run_id="test-run",
+        deployment_name="test",
+        prompt_version="test",
+        parser_version="test",
+    )
+
+    assert rules[0].condition_provenance.code != "derived_from_stated_quantity"
+    assert not rules[0].machine_executable
+
+
+def test_a_decision_covering_this_rule_alone_leaves_the_sentence_as_the_statement():
+    """The other half. A refusal status displaces no test, because it states none."""
 
     rule = _rules_for(_states_a_compilable_comparison(), with_decision=True)[0]
 
-    assert rule.condition_provenance.code != "derived_from_stated_quantity"
-    assert not rule.machine_executable
+    assert rule.condition_provenance.code == "derived_from_stated_quantity"
+    assert rule.machine_executable
 
 
 def test_with_nothing_declared_the_same_sentence_still_compiles():

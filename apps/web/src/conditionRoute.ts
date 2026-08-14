@@ -91,6 +91,18 @@ export const CONDITION_ROUTE: Record<string, ConditionRoute> = {
       "The source states a figure and a comparison but not what the figure counts, so there is no quantity a case could supply and nothing to compare it against. Naming the unit would mean choosing one the document did not, so this record travels as words and a judge reads them.",
     color: "blue",
   },
+  stated_quantity_is_one_clause_of_a_provision: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states a comparison here, and it states it as one clause of a provision covering several rules together. A test built from this clause alone would hold for this clause and say nothing about the rest, so the record keeps the whole provision in words and a judge reads it as one. The clause's own quantity is shown alongside, so the grouping can be checked.",
+    color: "blue",
+  },
+  stated_quantity_comes_from_a_table_row: {
+    route: DETERMINISTIC_LABEL.no,
+    reason:
+      "The source states this comparison inside a table, where the column a figure sits under and the row label beside it carry part of what it means. The row reaches this record as one line of text, so those distinctions are no longer marked and a test built from the line would hold for one cell while staying silent about the rest. The table is read whole by a judge. The figure found in the line is shown alongside.",
+    color: "blue",
+  },
   proportion_has_no_stated_base: {
     route: DETERMINISTIC_LABEL.no,
     reason:

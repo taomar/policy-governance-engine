@@ -932,12 +932,81 @@ def condition_from_stated_bound(
     return None
 
 
+#: The separator `document_ingestion` writes between a table row's cells when it
+#: flattens the row into one line of text. Declared here so the reader of the
+#: marker and its writer are pinned together by a test rather than by memory.
+_ROW_CELL_SEPARATOR = " | "
+
+
+def states_a_flattened_row(policy: CanonicalPolicy) -> bool:
+    """True when this rule's source text is a table row flattened into a line.
+
+    A second, independent reason a compiled comparison must not be adopted, and
+    it is needed because the first one is not sufficient.
+
+    `decision_names_more_than` reports how the formulator *grouped* the rules.
+    Measured on stored output, the same source sentence was grouped in one run
+    and left ungrouped in another, so grouping detects the hazard only when the
+    formulator happened to see it. The hazard itself does not depend on that.
+
+    A table states part of its meaning in position: which column a value sits
+    under, and which row it shares with a label. Flattening a row into one line
+    joins the cells with a separator and drops the column identity, so the text
+    the compiler reads carries a quantity from one cell and consequences from
+    several others with nothing left to say which applied when. A comparison
+    read out of it is true of its own cell and silent about the axis the table
+    was built on — a partial condition wearing the appearance of a complete one.
+
+    The marker is this platform's own, not any document's: the `table_cell_join`
+    transformation in `document_ingestion` is the single place a row becomes a
+    line, and `test_a_flattened_row_is_recognised_from_the_join_that_makes_one`
+    pins the two together so the separator cannot drift apart from its reader.
+    """
+
+    return _ROW_CELL_SEPARATOR in (policy.source_text or "")
+
+
+def decision_names_more_than(decisions: "list[DmnDecision]", index: int) -> bool:
+    """True when a decision covering rule `index` also covers other rules.
+
+    The formulator's own statement that these sentences are clauses of one
+    provision, decided together. `DmnDecision.source_rule_indexes` is documented
+    as permitting exactly that — "several canonical rules may legitimately
+    collapse into one decision" — so the signal is structural rather than
+    inferred from wording, and it is available on every decision.
+
+    It is the discriminator for adopting a comparison read out of a single
+    sentence. Where a decision names this rule alone, the sentence is the only
+    place the test is stated and reading it adds nothing that was not there.
+    Where it names others, the sentence is one clause: its comparison is
+    accurate about itself and silent about everything it was grouped with.
+
+    Measured on stored output, that silence has teeth. A graduated schedule —
+    bands of a quantity crossed with occurrence counts, a different consequence
+    in each pairing — arrives as several canonical rules under one decision. Each
+    band's sentence compiles cleanly. Adopting one would produce a rule that
+    fires for its band and says nothing about the occurrence count, applying a
+    single consequence where the source assigns several.
+
+    The failure a partial condition causes is worse than an uncompiled one
+    because it does not present as a failure: nothing asks the reader the
+    document assumed.
+    """
+
+    return any(
+        any(other != index for other in (decision.source_rule_indexes or []))
+        for decision in decisions
+    )
+
+
 def condition_provenance(
     policy: CanonicalPolicy,
     derived: object | None,
     outcome: "ConditionDerivation | None" = None,
     from_stated_bound: bool = False,
     quantity: "QuantityProjection | None" = None,
+    quantity_covers_one_clause: bool = False,
+    quantity_from_flattened_row: bool = False,
 ) -> ConditionProvenance:
     """Explain *why* a rule's condition tree looks the way it does.
 
@@ -965,6 +1034,14 @@ def condition_provenance(
     executable, but a reviewer checks them differently — the second is checked
     against one sentence — so collapsing them would hide which check applies.
 
+    `quantity_covers_one_clause` marks a sixth: the sentence stated a complete
+    comparison and it was not adopted, because the formulator grouped this rule
+    with others into one decision and a condition built from this sentence alone
+    would not carry the provision whole. That is a rule decided by reading, and
+    the code says which reading is required rather than reporting an absence
+    that is not there — the comparison exists, and it is the scope of it that
+    the record declines to claim.
+
     Returns a code and nothing else. Each case used to carry a sentence saying
     what a reviewer should do next; that is workflow guidance rather than a
     property of the policy, and it does not belong in a record whose consumer
@@ -981,6 +1058,16 @@ def condition_provenance(
         return ConditionProvenance(code="derived_from_stated_bound")
 
     if quantity is not None and quantity.compiled:
+        if quantity_from_flattened_row:
+            return ConditionProvenance(
+                code="stated_quantity_comes_from_a_table_row",
+                unprojected_quantity=quantity.quantity_text,
+            )
+        if quantity_covers_one_clause:
+            return ConditionProvenance(
+                code="stated_quantity_is_one_clause_of_a_provision",
+                unprojected_quantity=quantity.quantity_text,
+            )
         return ConditionProvenance(code="derived_from_stated_quantity")
 
     if outcome is not None and outcome.platform_limited:
@@ -2111,19 +2198,33 @@ def formulation_to_candidate_rules(
         #
         #   - a refusal is reported whatever declared, because explaining an
         #     empty tree invents nothing and the tree really is empty;
-        #   - a compiled condition is adopted only where nothing else declared
-        #     one, exactly as before.
+        #   - a compiled condition is adopted only where the sentence is the
+        #     whole of what was stated.
         #
-        # A quantity that compiled but was not adopted is discarded rather than
-        # passed on. It would otherwise be reported as `derived_from_stated_quantity`
-        # — a derivation the record does not contain, claimed on the strength of
-        # a compiler whose output was thrown away.
+        # "Whatever else declared" was `not decisions` here too, and measurement
+        # showed it to be the same unconditional switch one layer along. Across
+        # 2,941 declared decisions in stored output, none carried a decision
+        # table and none was executable: every one is a prose restatement with a
+        # refusal status. Deferring to them as deliberate abstentions was sound
+        # reasoning about a shape that does not occur, and it withheld every
+        # compiled comparison in favour of nothing.
+        #
+        # What does discriminate is whether the decision names this rule alone.
+        # A decision covering several rules is the formulator grouping them into
+        # one provision, and a condition built from one of their sentences is
+        # accurate about that sentence and silent about its siblings — a partial
+        # condition wearing the appearance of a complete one. Those route by
+        # reading, and say which quantity they declined to adopt.
         quantity = None
+        covers_one_clause = False
+        from_flattened_row = False
         if stated_bound is None:
             quantity = project_stated_quantity(canonical_rule)
             if quantity is not None and quantity.condition is not None:
-                if decisions:
-                    quantity = None
+                if states_a_flattened_row(policy):
+                    from_flattened_row = True
+                elif decision_names_more_than(decisions, index):
+                    covers_one_clause = True
                 else:
                     condition = quantity.condition
                     required_facts = list(quantity.facts)
@@ -2138,6 +2239,8 @@ def formulation_to_candidate_rules(
             blocking,
             from_stated_bound=stated_bound is not None,
             quantity=quantity,
+            quantity_covers_one_clause=covers_one_clause,
+            quantity_from_flattened_row=from_flattened_row,
         )
 
         # The facts this policy names, and the attribute table that pairs each
