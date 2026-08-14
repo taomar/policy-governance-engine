@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from policy_platform.contracts.policy import CanonicalRule  # noqa: E402
+from policy_platform.infrastructure.quality import ai_quality  # noqa: E402
 from policy_platform.infrastructure.quality.ai_quality import (  # noqa: E402
     _deterministic_findings,
 )
@@ -121,10 +122,28 @@ def fingerprint() -> str:
 
 
 def instrument_id() -> str:
+    """What scored these records, in terms that can be checked.
+
+    The commit is a locator, not an identity: an uncommitted edit to a detector
+    leaves the hash unchanged while changing what the suite finds, so two runs
+    could claim the same instrument and not share one. That is the exact defect
+    the methodology version exists to prevent, so the harness reports the
+    derived version too and a dirty tree is stated rather than hidden.
+    """
     out = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     )
-    return out.stdout.strip() or "unknown"
+    commit = out.stdout.strip() or "unknown"
+
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+    )
+    if dirty.stdout.strip():
+        commit += " (tree dirty)"
+
+    return f"{commit}, method {ai_quality.QUALITY_METHODOLOGY_VERSION}"
 
 
 def clause_totals(key: str) -> tuple[int, int]:
