@@ -158,6 +158,16 @@ def _numbers_in(phrase: str) -> list[float]:
     return values
 
 
+#: A comparative that trails the number rather than preceding it ("30 days or
+#: less"). It states the comparison, so it is read as one -- but it is not part
+#: of what the number counts, and leaving it in produced a unit of "minutes or
+#: less". A unit is a noun; a consumer matching on it would never find that.
+_TRAILING_COMPARATIVE_RE = re.compile(
+    r"\b(?:or\s+(?:less|fewer|more|greater|longer|shorter))\b.*$",
+    re.IGNORECASE,
+)
+
+
 def _unit_from(phrase: str, value_text: str) -> str:
     """The document's own words for what the number counts.
 
@@ -165,10 +175,17 @@ def _unit_from(phrase: str, value_text: str) -> str:
     canonical vocabulary: "calendar days" and "working days" are different
     things, and a table that flattened them would silently change what a rule
     means.
+
+    A trailing comparative is dropped, because it states the comparison rather
+    than the thing counted and the comparison is already carried by the
+    operator. Nothing else is removed: qualifiers like "per week" or "within a
+    contract year" stay, since they say what the count is taken over and a unit
+    without them means something different.
     """
 
     tail = phrase.split(value_text, 1)[-1] if value_text in phrase else ""
     tail = _BRACKETED_RE.sub(" ", tail)
+    tail = _TRAILING_COMPARATIVE_RE.sub(" ", tail)
     words = [w for w in re.split(r"[^\w%]+", tail) if w]
     return " ".join(words).strip()
 
@@ -200,15 +217,47 @@ def stated_comparison(*sources: str | None) -> ConditionOperator | None:
     Sources are tried in order so a caller controls precedence. Nothing is
     inferred: a phrase with no comparative returns None, which is what stops a
     magnitude from being promoted into a limit.
+
+    Position is load-bearing, and reading it wrong inverts rules rather than
+    losing them. "more than fifteen (15) consecutive days within a contract
+    year" contains two comparatives: "more than", which governs the fifteen,
+    and "within", which governs the contract year and says nothing about the
+    quantity at all. Matching anywhere in the phrase let the second win and
+    compiled a termination threshold of *more than* fifteen days as *at most*
+    fifteen -- a rule that then fires on precisely the people it should
+    exempt, while looking perfectly computable.
+
+    So the comparative is read from the text that precedes the number, and
+    where several do, the one ending nearest it wins: that is the one attached
+    to the quantity. Ties on the ending position are broken by length, which
+    is what keeps "not more than" from being read as the "more than" inside
+    it. Where nothing precedes the number, the text after it is read, because
+    "30 days or less" states its comparison on the right.
     """
 
     for source in sources:
         text = (source or "").strip()
         if not text:
             continue
+
+        number = _NUMBER_RE.search(text)
+        boundary = number.start() if number else len(text)
+
+        before: list[tuple[int, int, ConditionOperator]] = []
+        after: list[tuple[int, int, ConditionOperator]] = []
         for pattern, operator in _COMPARISONS:
-            if pattern.search(text):
-                return operator
+            for match in pattern.finditer(text):
+                if match.end() <= boundary:
+                    before.append((match.end(), len(match.group(0)), operator))
+                elif match.start() >= boundary:
+                    after.append((-match.start(), len(match.group(0)), operator))
+
+        # Nearest to the number wins; longer match breaks a tie at the same
+        # position, so the compound negated form is preferred over the bare
+        # comparative nested inside it.
+        candidates = before or after
+        if candidates:
+            return max(candidates)[2]
     return None
 
 

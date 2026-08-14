@@ -211,3 +211,63 @@ def test_the_threshold_wins_over_the_predicate() -> None:
 
 def test_stated_comparison_infers_nothing_from_silence() -> None:
     assert stated_comparison("", None, "a plain phrase") is None
+
+
+@pytest.mark.parametrize(
+    ("threshold", "operator"),
+    [
+        # A trailing phrase that carries its own comparative governing
+        # something other than the number: an accounting period, a scope, a
+        # deadline for an unrelated step.
+        ("more than 15 units within a stated period", ConditionOperator.GREATER_THAN),
+        ("more than 30 units within a stated period", ConditionOperator.GREATER_THAN),
+        ("at least 10 units within a stated period", ConditionOperator.GREATER_THAN_OR_EQUAL),
+        ("less than 20 units over a stated period", ConditionOperator.LESS_THAN),
+    ],
+)
+def test_a_comparative_governing_something_else_does_not_win(
+    threshold, operator
+) -> None:
+    """The comparative attached to the number is the one that governs it.
+
+    "within" is a genuine cap phrase -- "within 30 units" means at most 30 --
+    but in "more than 15 units within a stated period" it governs the period,
+    not the fifteen. Reading it as the comparison inverts the rule: a
+    threshold the source sets as a floor compiles as a ceiling, and the result
+    fires on exactly the cases the source exempts while looking computable.
+
+    Losing a rule is recoverable. Inverting one is not, because nothing
+    downstream can tell an inverted condition from an intended one.
+    """
+
+    projection = project_stated_quantity(rule(threshold=threshold))
+
+    assert projection is not None
+    assert projection.compiled
+    assert projection.condition.operator is operator
+
+
+def test_a_comparison_stated_after_the_number_is_still_read() -> None:
+    projection = project_stated_quantity(rule(threshold="30 units or less"))
+
+    assert projection is not None
+    assert projection.compiled
+    assert projection.condition.operator is ConditionOperator.LESS_THAN_OR_EQUAL
+
+
+def test_a_trailing_comparative_is_not_part_of_the_unit() -> None:
+    """A unit is what the number counts, and "or less" counts nothing."""
+
+    projection = project_stated_quantity(rule(threshold="30 units or less"))
+
+    assert projection is not None
+    assert projection.facts[0].unit == "units"
+
+
+def test_a_qualifier_stays_in_the_unit() -> None:
+    """"per week" changes what the count is taken over, so it is not noise."""
+
+    projection = project_stated_quantity(rule(threshold="not more than 24 units per week"))
+
+    assert projection is not None
+    assert projection.facts[0].unit == "units per week"
