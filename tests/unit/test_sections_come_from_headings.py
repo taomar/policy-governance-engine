@@ -233,3 +233,248 @@ class TestSectionsComeFromHeadingsNotFurniture:
             "no record is filed under an enumerated heading, so numbered sections "
             "exist in the document but not on its records"
         )
+
+def _begins_mid_sentence(text: str) -> bool:
+    """Whether the first cased character is lowercase.
+
+    Defined here rather than imported so the claim below is expressed in terms
+    of the document, not of the implementation that satisfies it. Read from
+    Unicode character properties, so a script without case answers False and
+    contributes nothing rather than a wrong answer.
+    """
+
+    for char in text.strip():
+        if char.isupper():
+            return False
+        if char.islower():
+            return True
+    return False
+
+
+class TestAHeadingIsNeverAContinuation:
+    """A heading begins something, so it is never the tail of what precedes it.
+
+    This guards the opposite failure to the two above: over-promotion. Where a
+    paragraph line is typed `heading`, the damage compounds rather than staying
+    local. Blocks are broken at a heading and never merged across one, so the
+    sentence is cut and the halves can never be rejoined; and a heading carries
+    no section, because a heading *is* a section rather than being *in* one. The
+    tail therefore loses both the clause that gave its references an antecedent
+    and the heading it sat under, and arrives at review as a fragment that reads
+    as meaningless.
+
+    Whether a line is a heading is decided by whether the document sets it
+    apart, which it can do by size, by space or by case. All three are read from
+    page geometry and Unicode character properties, so the claims below hold for
+    any script: in one that marks no case, the case signal simply abstains and
+    the others decide.
+
+    Both directions are asserted. A rule that demotes every short line would
+    pass a test that only contains orphans, so genuine headings that happen to
+    follow an unterminated line are asserted to survive.
+
+    The document read here is a different witness from the one used above,
+    chosen because it exhibits the structure under test: it mixes two co-equal
+    text sizes, which is the condition under which a size-based classifier
+    promotes body lines. A document that never produces an orphan cannot show
+    that orphans are handled, and asserting the claim against one would pass
+    without exercising anything.
+    """
+
+    @pytest.fixture(scope="class")
+    def document(self):
+        candidates = sorted(
+            (_PAGINATED_PDF.parent).glob("*AIS_Employee_Handbook*.pdf")
+        )
+        if not candidates:
+            pytest.skip("no mixed-size document available to exercise the claim")
+        source = candidates[0]
+        return ingest_document(str(source), source.name)
+
+    def test_a_sentence_tail_set_like_its_paragraph_is_not_a_heading(self) -> None:
+        """The mechanism: no size change, no extra space, no case change."""
+
+        lines = [
+            _line("A member of staff who is absent on that day must", 100.0),
+            _line("notify the department in writing.", 114.0),
+        ]
+        kinds = di._classify_lines(lines, 12.0)
+        assert kinds[1] == "paragraph", (
+            f"expected the tail of a sentence to be a paragraph, got {kinds[1]!r}; "
+            "a line set exactly like the line it continues is not a heading"
+        )
+
+    def test_a_heading_set_larger_survives_an_unterminated_predecessor(self) -> None:
+        """The control against over-reach, in the direction this fix risks.
+
+        A predecessor without terminal punctuation is weak evidence on its own —
+        headings routinely follow other headings, captions and table cells. A
+        line the document sets larger is a heading whatever precedes it.
+        """
+
+        lines = [
+            _line("A table cell with no closing punctuation", 100.0, size=12.0),
+            _line("Leave And Absence", 130.0, size=16.0),
+        ]
+        kinds = di._classify_lines(lines, 12.0)
+        assert kinds[1] == "heading", (
+            f"expected a line set larger than its predecessor to stay a heading, "
+            f"got {kinds[1]!r}; demoting it loses a real section"
+        )
+
+    def test_a_heading_set_apart_by_space_survives(self) -> None:
+        """Space is the second way a document sets a heading apart."""
+
+        tight = [
+            _line("An opening line with no closing punctuation", 100.0, size=12.0),
+            _line("Another line of the same paragraph", 114.0, size=12.0),
+            _line("A Heading After A Paragraph Break", 128.0, size=12.0),
+        ]
+        assert di._classify_lines(tight, 10.0)[2] == "paragraph"
+
+        spaced = [
+            _line("An opening line with no closing punctuation", 100.0, size=12.0),
+            _line("Another line of the same paragraph", 114.0, size=12.0),
+            _line("A Heading After A Paragraph Break", 190.0, size=12.0),
+        ]
+        kinds = di._classify_lines(spaced, 10.0)
+        assert kinds[2] == "heading", (
+            f"expected a line separated by more than the running leading to stay a "
+            f"heading, got {kinds[2]!r}; the same words differing only in the white "
+            "space above them must classify differently"
+        )
+
+    def test_a_heading_set_apart_by_case_survives_at_body_size(self) -> None:
+        """Case is the third, and the only one left for a marker at body size.
+
+        A section marker set at body size and tight against the line above it is
+        still a heading if it is the only capitalised thing on the page.
+        """
+
+        lines = [
+            _line("Holiday entitlement 13", 100.0),
+            _line("SECTION 2", 114.0),
+        ]
+        kinds = di._classify_lines(lines, 12.0)
+        assert kinds[1] == "heading", (
+            f"expected an all-capital marker to stay a heading, got {kinds[1]!r}; "
+            "case is the only signal left once size and space are unavailable"
+        )
+
+    def test_no_heading_is_a_full_width_line_of_prose(self, document) -> None:
+        """The product-level claim, asserted over a real document.
+
+        A line that begins mid-sentence and runs the full width of the column is
+        prose, whatever size it is set in. Both halves are needed: a short line
+        beginning lowercase may be the second line of a heading that wrapped,
+        which is a different thing and is left alone. Both are read from Unicode
+        character properties and page geometry, so a script without case
+        contributes nothing here rather than a wrong answer.
+        """
+
+        headings = [el for el in document.elements if el.element_type == "heading"]
+        assert headings, "no heading was examined, so this asserts nothing"
+
+        prose_typed_as_headings = [
+            el.text.strip()[:70]
+            for el in headings
+            if _begins_mid_sentence(el.text) and len(el.text.strip()) > 70
+        ]
+        assert not prose_typed_as_headings, (
+            f"{len(prose_typed_as_headings)} of {len(headings)} headings are "
+            "full-width lines that begin mid-sentence, so each is the tail of a "
+            f"paragraph the classifier cut in half: {prose_typed_as_headings[:2]}"
+        )
+
+    def test_a_wrapped_heading_keeps_its_second_line(self) -> None:
+        """The control in the direction this rule most easily over-reaches.
+
+        A heading that runs onto a second line leaves that line carrying none of
+        the three signals: same size, same leading, and it begins mid-phrase.
+        Demoting it merges a real heading into the body and a section
+        disappears. What distinguishes it from a paragraph tail is that it stops
+        short of the measure — a heading does not fill the column.
+        """
+
+        lines = [
+            _line("Occupational Health", 100.0, size=12.0),
+            di._Line(
+                text="and Safety Regulations",
+                top=114.0,
+                bottom=126.0,
+                x0=56.0,
+                x1=180.0,
+                size=12.0,
+                page=0,
+            ),
+            di._Line(
+                text="The regulation sets out the duties owed by every employer to",
+                top=140.0,
+                bottom=152.0,
+                x0=56.0,
+                x1=500.0,
+                size=10.0,
+                page=0,
+            ),
+        ]
+        kinds = di._classify_lines(lines, 10.0)
+        assert kinds[1] == "heading", (
+            f"expected the second line of a wrapped heading to stay a heading, got "
+            f"{kinds[1]!r}; demoting it merges the heading into the body and the "
+            "section it names disappears"
+        )
+
+    def test_a_full_width_tail_is_demoted_even_after_a_heading(self) -> None:
+        """The same shape, but running the full measure, is prose.
+
+        This is the pair to the test above: identical signals except width, so a
+        pass on both shows the width is doing the work rather than something
+        incidental to the wording.
+        """
+
+        lines = [
+            _line("Occupational Health", 100.0, size=12.0),
+            di._Line(
+                text="and safety obligations apply to every employer in the sector",
+                top=114.0,
+                bottom=126.0,
+                x0=56.0,
+                x1=500.0,
+                size=12.0,
+                page=0,
+            ),
+            di._Line(
+                text="The regulation sets out the duties owed by every employer to",
+                top=128.0,
+                bottom=140.0,
+                x0=56.0,
+                x1=500.0,
+                size=12.0,
+                page=0,
+            ),
+        ]
+        kinds = di._classify_lines(lines, 10.0)
+        assert kinds[1] == "paragraph", (
+            f"expected a full-width line beginning mid-sentence to be a paragraph, "
+            f"got {kinds[1]!r}; a line that fills the measure is prose whatever "
+            "precedes it"
+        )
+
+    def test_the_fixture_still_exercises_the_claim(self, document) -> None:
+        """Absence of evidence and evidence of absence must not render alike.
+
+        Every assertion above is satisfied vacuously by a document with no
+        headings and no prose. Asserting the volume examined is what makes a
+        pass mean the claim held rather than that nothing was looked at.
+        """
+
+        headings = [el for el in document.elements if el.element_type == "heading"]
+        prose = [el for el in document.elements if el.element_type == "paragraph"]
+        assert len(headings) > 10, (
+            f"only {len(headings)} headings in the fixture; the claims above would "
+            "pass without exercising anything"
+        )
+        assert len(prose) > 10, (
+            f"only {len(prose)} paragraphs in the fixture; a document with no prose "
+            "cannot produce an orphaned sentence tail to catch"
+        )

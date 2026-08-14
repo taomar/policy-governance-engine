@@ -1020,6 +1020,73 @@ def _classify_line(line: _Line, body_size: float) -> ElementType:
     return "paragraph"
 
 
+def _fills_the_measure(line: _Line, lines: list[_Line]) -> bool:
+    """Whether a line runs as wide as the running text around it.
+
+    A heading is set narrower than the body it introduces — it stops where its
+    words stop, while a line of prose runs to the edge of the column and wraps.
+    Comparing against the widest running text on the same page keeps the
+    yardstick local, so a document with two columns or two text sizes is judged
+    against its own measure rather than an assumed one.
+    """
+
+    widths = sorted(
+        candidate.x1 - candidate.x0
+        for candidate in lines
+        if candidate.text.strip() and not candidate.is_boilerplate
+    )
+    if not widths:
+        return False
+    measure = widths[int(len(widths) * 0.9)] if len(widths) > 1 else widths[0]
+    if measure <= 0:
+        return False
+    return (line.x1 - line.x0) >= measure * 0.9
+
+
+def _is_uppercase_throughout(text: str) -> bool:
+    """Whether every cased character is uppercase, and there is at least one.
+
+    Case is the third way a document can set a line apart, alongside size and
+    space, and it is the one that survives when the other two are unavailable —
+    a section marker set at body size, tight against the line above it, is still
+    marked as a heading by being the only capitalised thing on the page.
+
+    Judged from Unicode character properties, so a script that does not
+    distinguish case answers False and the decision falls to the other signals,
+    rather than to an assumption about which alphabet is in use.
+    """
+
+    saw_a_cased_character = False
+    for char in text:
+        if char.islower():
+            return False
+        if char.isupper():
+            saw_a_cased_character = True
+    return saw_a_cased_character
+
+
+def _starts_lowercase(text: str) -> bool:
+    """Whether the first cased character is a lowercase one.
+
+    Read from Unicode character properties rather than an alphabet, so it
+    carries no assumption about which script it is looking at. A line opening
+    with a bracket, quotation mark, digit or dash is judged on the first cased
+    letter that follows, because the opening mark is not itself evidence either
+    way.
+
+    In a script with no case distinction the answer is always False, which is
+    the honest one: such a script simply does not mark a continuation this way,
+    and the decision falls to the other signals rather than to a guess.
+    """
+
+    for char in text.strip():
+        if char.isupper():
+            return False
+        if char.islower():
+            return True
+    return False
+
+
 def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
     """Classify a page's lines, then demote headings the next line contradicts.
 
@@ -1081,6 +1148,14 @@ def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
         if following is not None and lines[index].size >= following.size + 0.6:
             kinds[index] = "heading"
 
+    # Demote headings that the next line contradicts.
+    #
+    # The snapshot is taken first because the pass after this one needs to know
+    # which lines were heading-like on their own typography, not which ones
+    # survived this pass. A heading that wraps loses its first line here — the
+    # second line begins lowercase, so the first is demoted — and without the
+    # snapshot the wrapped pair is indistinguishable from a sentence tail.
+    kinds_before_next_line_demotion = list(kinds)
     for index, kind in enumerate(kinds):
         if kind != "heading":
             continue
@@ -1101,6 +1176,85 @@ def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
         first = nxt[:1]
         if first.islower() or first in "([":
             kinds[index] = "paragraph"
+
+    # Demote headings that are really the tail of the line before them.
+    #
+    # This runs after the forward-looking pass above, not before it, because it
+    # reads the settled type of the preceding line. Run first, it would see
+    # lines that pass is about to demote and mistake a run of misclassified
+    # paragraph lines for a heading that wrapped.
+    #
+    # The pass above asks whether the *next* line contradicts a heading. Nothing
+    # asked whether the heading contradicts the line *before* it, and that
+    # asymmetry had no justification: a heading begins something, so it is never
+    # itself a continuation. Where the classifier types an orphaned tail as a
+    # heading the damage compounds, because `_build_blocks` breaks a block at a
+    # heading and `_continues_previous` will not merge across one — so the
+    # sentence is cut, the halves can never be rejoined, and the tail carries no
+    # section, since a heading is a section rather than being in one. A clause
+    # then arrives at extraction without the words that gave its references an
+    # antecedent.
+    #
+    # The test is whether the document sets the line apart, which it can do
+    # three ways: by size, by space, or by case. A genuine heading is set larger
+    # than what precedes it, separated from it by more than the running leading,
+    # or cased distinctly from the running text — often more than one at once. A
+    # line that continues the sentence above it is set apart by none of them.
+    # All three are read from the page's own geometry and from Unicode
+    # character properties, so nothing here depends on vocabulary, script or
+    # layout — and in a script that marks neither case nor a sentence end this
+    # way, the rule simply declines to fire rather than guessing.
+    leading = _typical_leading(lines)
+    for index, kind in enumerate(kinds):
+        if kind != "heading":
+            continue
+        previous_index = next(
+            (
+                candidate
+                for candidate in range(index - 1, -1, -1)
+                if lines[candidate].text.strip() and not lines[candidate].is_boilerplate
+            ),
+            None,
+        )
+        if previous_index is None:
+            continue
+        previous_line = lines[previous_index]
+        # A heading that runs onto a second line is a heading that wrapped, not
+        # an orphan: the line it continues did the setting apart on its behalf,
+        # so the second line carries none of the three signals itself. Repairing
+        # that is not this rule's job — demoting it merges a real heading into
+        # the body and a section disappears.
+        #
+        # Two things must hold for a line to be read that way, and both are
+        # relational rather than absolute. It must not close a sentence, because
+        # a heading does not end in a full stop. And it must not fill the
+        # measure: a heading is set narrower than the running text, so a line
+        # that runs the full column width is prose regardless of what precedes
+        # it. Width is used rather than character count because a character
+        # count means different things in different scripts, while the width of
+        # the text block does not.
+        wrapped_from_a_heading = (
+            kinds_before_next_line_demotion[previous_index] == "heading"
+            and _ends_open(lines[index].text)
+            and not _fills_the_measure(lines[index], lines)
+        )
+        if wrapped_from_a_heading:
+            continue
+        looks_like_a_continuation = _starts_lowercase(lines[index].text) or _ends_open(
+            previous_line.text
+        )
+        if not looks_like_a_continuation:
+            continue
+        set_apart_by_size = lines[index].size >= previous_line.size + 0.6
+        gap = lines[index].top - previous_line.bottom
+        set_apart_by_space = leading > 0 and gap > leading * 1.6
+        set_apart_by_case = _is_uppercase_throughout(
+            lines[index].text
+        ) and not _is_uppercase_throughout(previous_line.text)
+        if set_apart_by_size or set_apart_by_space or set_apart_by_case:
+            continue
+        kinds[index] = "paragraph"
+
     return kinds
 
 
