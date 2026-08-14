@@ -112,8 +112,31 @@ async def build_review_facets(session: AsyncSession, policy_set: PolicySet) -> d
 
     # A rule is "no longer found" when a later run retired it and nothing in
     # that later run claimed it as a continuation.
+    #
+    # "Later run" has to mean the run that produced what the reader is looking
+    # at, not merely some run that came after. A set extracted four times holds
+    # four generations of retired rules, and the earlier three were retired by
+    # runs that have since been retired themselves -- they answer "what did run
+    # two drop", which is a question about history, not about the current state.
+    # Returning all of them put rules from three generations into one panel and
+    # is what a reviewer sees as old runs mixing together.
+    #
+    # A retiring run is the current one exactly when it still has rules of its
+    # own standing in this set. That is derived rather than assumed, so it stays
+    # correct for a set holding several documents: each document's latest run
+    # has current rules, so each document contributes its own last generation
+    # and no document contributes two.
+    current_runs = select(CandidateRule.extraction_run_id).where(
+        CandidateRule.policy_set_id == policy_set.id,
+        CandidateRule.superseded_at.is_(None),
+    )
+    # Scoped to this set. A continuation is claimed by a rule in the same set;
+    # an unscoped subquery let any other set's baseline reference suppress a row
+    # here, which hid removals rather than showing stale ones -- the quieter
+    # direction of the same mistake, and wrong for the same reason.
     claimed = select(CandidateRule.baseline_candidate_id).where(
-        CandidateRule.baseline_candidate_id.is_not(None)
+        CandidateRule.policy_set_id == policy_set.id,
+        CandidateRule.baseline_candidate_id.is_not(None),
     )
     removed_rows = (
         await session.execute(
@@ -122,6 +145,7 @@ async def build_review_facets(session: AsyncSession, policy_set: PolicySet) -> d
             .where(
                 CandidateRule.policy_set_id == policy_set.id,
                 CandidateRule.superseded_at.is_not(None),
+                CandidateRule.superseded_by_run_id.in_(current_runs),
                 CandidateRule.id.not_in(claimed),
             )
             .order_by(CandidateRule.superseded_at.desc())
