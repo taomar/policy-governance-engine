@@ -85,6 +85,14 @@ export interface ProjectPortfolioInsight {
   machine_executable_count: number;
   test_count: number;
   regression_test_count: number;
+  /** The bytes of the document this set governs. Two projects sharing it are
+   *  two extractions of one document, which is what the register groups on --
+   *  titles carry each run's annotation and cannot serve. */
+  document_content_hash: string | null;
+  /** The title this document was first given, before any re-run renamed it. */
+  document_title: string | null;
+  /** Extraction runs reaching this set through its document versions. */
+  run_count: number | null;
   latest_quality_high: number | null;
   latest_quality_medium: number | null;
   latest_quality_low: number | null;

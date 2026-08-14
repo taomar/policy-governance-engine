@@ -10827,3 +10827,37 @@
 .inspector-pane > .executability-badge {
   margin-bottom: 4px;
 }
+
+/* Group header for the project register.
+ *
+ * The register lists a project per extraction because re-running a document
+ * had to mean making a new project. These headers put those rows back under
+ * the document they ran against, so a reviewer reads two documents rather
+ * than nine unrelated-looking entries.
+ *
+ * Deliberately quiet: it is a divider that carries a name, not a control and
+ * not a status. Nothing here should compete with the rows beneath it. */
+.project-register-group {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 18px 20px 8px;
+  border-top: 1px solid var(--border-subtle, #ececec);
+}
+.project-register-group:first-of-type {
+  border-top: none;
+}
+.project-register-group .anticon {
+  color: var(--text-tertiary, #8c8c8c);
+  font-size: 13px;
+  align-self: center;
+}
+.project-register-group strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.project-register-group small {
+  color: var(--text-tertiary, #8c8c8c);
+  font-size: 12px;
+}

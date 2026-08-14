@@ -169,6 +169,31 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                 )
                 SELECT
                   ps.key,
+                  -- What document this set governs, by its bytes.
+                  --
+                  -- The register grew a row per extraction because the product
+                  -- has no run-within-a-project, so re-running meant making a
+                  -- new set. Grouping needs an identity for "the same
+                  -- document", and titles cannot supply one: they carry the
+                  -- run's own annotation, so one file appears as "AIS Employee
+                  -- Handbook", "AIS Handbook v3" and so on. The content hash is
+                  -- the file itself and is the only identity here that does not
+                  -- depend on what somebody typed.
+                  (SELECT dv.content_hash FROM source_documents d
+                     JOIN document_versions dv ON dv.document_id = d.id
+                    WHERE d.policy_set_id = ps.id
+                    ORDER BY dv.version_number DESC
+                    LIMIT 1) AS document_content_hash,
+                  (SELECT d.title FROM source_documents d
+                    WHERE d.policy_set_id = ps.id
+                    ORDER BY d.created_at ASC
+                    LIMIT 1) AS document_title,
+                  -- Runs reach a set through the document version they ran on;
+                  -- extraction_runs carries no policy_set_id of its own.
+                  (SELECT count(*) FROM extraction_runs er
+                     JOIN document_versions dv2 ON dv2.id = er.document_version_id
+                     JOIN source_documents d2 ON d2.id = dv2.document_id
+                    WHERE d2.policy_set_id = ps.id) AS run_count,
                   (SELECT count(*) FROM source_documents d
                     WHERE d.policy_set_id = ps.id) AS document_count,
                   (SELECT count(*) FROM candidate_rules c

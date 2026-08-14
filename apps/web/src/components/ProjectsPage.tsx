@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Alert, AutoComplete, Button, Empty, Form, Input, Modal, Select, Tag, Typography } from "antd";
 import {
   CheckCircleOutlined,
@@ -18,6 +18,7 @@ import {
 } from "../api";
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { routeCell } from "../projectRegisterRow";
+import { groupProjectsByDocument, groupSubtitle } from "../projectRegisterGroups";
 import { qualityScopeLabel } from "../qualityTrend";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
@@ -264,7 +265,22 @@ export function ProjectsPage({
             <span>Review</span>
             <span />
           </div>
-          {policySets.map((ps) => {
+          {groupProjectsByDocument(
+            policySets.map((ps) => ({
+              key: ps.key,
+              document_content_hash: stats[ps.key]?.document_content_hash ?? null,
+              document_title: stats[ps.key]?.document_title ?? null,
+              run_count: stats[ps.key]?.run_count ?? null,
+              ps,
+            })),
+          ).map((group) => (
+            <Fragment key={group.documentHash ?? "__no_document__"}>
+              <div className="project-register-group">
+                <FileTextOutlined aria-hidden="true" />
+                <strong>{group.label}</strong>
+                <small>{groupSubtitle(group)}</small>
+              </div>
+              {group.projects.map(({ ps }) => {
             const s = stats[ps.key];
             const route = s
               ? routeCell(s.live_candidate_count, s.candidate_direct_count, s.candidate_reading_count)
@@ -352,7 +368,9 @@ export function ProjectsPage({
                 <RightOutlined className="project-register-open" aria-hidden="true" />
               </button>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </div>
       )}
 
