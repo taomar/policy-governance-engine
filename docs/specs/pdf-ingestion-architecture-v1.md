@@ -30,6 +30,36 @@ path, and `contracts/canonical_document.py` cites eleven of its sections. The
 original wording is preserved deliberately: it is the record of what was asked
 for, not a description to be kept current.
 
+### The prompt this document refers to
+
+The preamble above refers to "a separate strict-verbatim policy-passage
+extraction prompt". It lives at
+`src/policy_platform/infrastructure/prompts/passage_extractor_v1.md` and is
+loaded from disk by `infrastructure/extraction/passage_extractor.py`, so a
+revision to it is a visible file change rather than a diff buried in Python.
+That is the only copy that runs.
+
+A second copy sat in `docs/specs/verbatim-passage-extractor-v1.md` until
+2026-08-14, when it was deleted. Its name said v1 and its version number agreed
+with the running one, but it was **an old intermediate state of v1** — which is
+worse than being out of date openly, because both signals said it was current.
+It had missed both revisions the runtime asset received: commit `0069b40`,
+which added the rule excluding a document's statements about its own
+enactment, approval, effective date and supersession, and commit `5846393`,
+which removed currency-specific wording. It stood 32 lines and 1,760 bytes
+behind. A reader building from it would have produced a system that extracts
+the document-control metadata the running system deliberately rejects.
+
+The general form, which is why this is recorded here rather than in a note of
+its own: **a prompt copied into documentation is a source artefact wearing the
+wrong clothes, and it drifts faster than code because nothing imports it.** The
+domain-neutrality guard scans `src/` and the prompt directory, not `docs/`, so
+the stale copy kept wording the runtime prompt had already had removed and no
+test could see it. Nothing that is never loaded can fail loudly.
+`tests/unit/test_a_runtime_asset_has_one_home.py` now holds the rule that
+closes the class: a file the code loads at runtime has exactly one copy, and it
+lives where the code loads it from.
+
 ### Implemented
 
 Sections 6–13, 19, 26, 28–30, 35, 38, 39, 43–44, and the boundary tests of

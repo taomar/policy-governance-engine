@@ -85,6 +85,13 @@ _EXPECTED_ABSENT: dict[str, str] = {
     ".venv-graph/": "git-ignored virtual environment",
     # Owned by an upstream package or an external document, not by this repo.
     "docling_graph/templategen/snippets.py": "a module inside the docling-graph dependency",
+    # Deleted on purpose, and named so the deletion stays legible. The ingestion
+    # spec's status header records that this was a stale duplicate of the
+    # runtime prompt at prompts/passage_extractor_v1.md, 32 lines behind it.
+    "docs/specs/verbatim-passage-extractor-v1.md": (
+        "deleted 2026-08-14 as a drifted copy of a runtime prompt; the reference "
+        "is the subject of the record of its removal"
+    ),
 }
 
 
