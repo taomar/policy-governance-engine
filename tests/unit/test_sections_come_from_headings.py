@@ -28,6 +28,7 @@ of it that would not be asserted of any paginated document.
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -233,6 +234,292 @@ class TestSectionsComeFromHeadingsNotFurniture:
             "no record is filed under an enumerated heading, so numbered sections "
             "exist in the document but not on its records"
         )
+
+def _wrapping(text: str, top: float, size: float, page: int = 0) -> di._Line:
+    """A line of running text: it reaches the right-hand edge of the measure."""
+
+    return di._Line(
+        text=text, top=top, bottom=top + size, x0=56.0, x1=500.0, size=size, page=page
+    )
+
+
+def _short(text: str, top: float, size: float, page: int = 0) -> di._Line:
+    """A line that stops where its words stop, as a heading does."""
+
+    return di._Line(
+        text=text, top=top, bottom=top + size, x0=56.0, x1=180.0, size=size, page=page
+    )
+
+
+class TestTheBodyIsABandNotAPoint:
+    """A document need not set its running text in one size.
+
+    Asking such a document for a single typical size forces a wrong answer. A
+    bilingual document sets each language in its own face and the two are
+    co-equal — neither is a heading in the other's terms — but a modal can only
+    name one of them. Every line of the other class then measures as "set larger
+    than the body" and is read as structure, which is how a document comes to be
+    half headings.
+
+    The claim these tests make is that the yardstick spans the running text
+    rather than picking one class of it, and — the direction this most easily
+    over-reaches — that a class of *headings* never joins the band however many
+    of them the document contains.
+    """
+
+    def test_two_co_equal_text_classes_are_both_body(self) -> None:
+        lines = [_wrapping(f"first class line {i}", i * 14.0, 10.0) for i in range(40)]
+        lines += [
+            _wrapping(f"second class line {i}", 600.0 + i * 16.0, 12.0)
+            for i in range(40)
+        ]
+        lines += [_short("A Heading", 1400.0, 20.0)]
+
+        smallest, largest = di._body_size_band(lines)
+
+        assert (smallest, largest) == (10.0, 12.0), (
+            f"expected the band to span both text classes as [10.0, 12.0], got "
+            f"[{smallest}, {largest}]; a band that names one class reads every "
+            "line of the other as a heading"
+        )
+
+    def test_one_text_class_yields_a_band_of_zero_width(self) -> None:
+        """The ordinary document must be unaffected by any of this."""
+
+        lines = [_wrapping(f"body line {i}", i * 14.0, 10.0) for i in range(60)]
+        lines += [_short(f"Heading {i}", 900.0 + i * 20.0, 16.0) for i in range(6)]
+
+        smallest, largest = di._body_size_band(lines)
+
+        assert smallest == largest == 10.0, (
+            f"expected a single text class to give the modal size as a point, got "
+            f"[{smallest}, {largest}]"
+        )
+
+    def test_a_class_of_headings_never_joins_the_band(self) -> None:
+        """The over-reach control, and the reason frequency alone is not enough.
+
+        Here the larger size is *more* frequent than a tenth of the document, so
+        a rule that admitted classes on frequency would let it in — and the band
+        would then stretch over the document's own headings and stop recognising
+        them. What keeps it out is that its lines do not wrap: running text
+        reaches the edge of the measure and continues, where a heading stops
+        where its words stop.
+        """
+
+        lines = [_wrapping(f"body line {i}", i * 14.0, 10.0) for i in range(60)]
+        lines += [_short(f"Heading {i}", 900.0 + i * 20.0, 14.0) for i in range(30)]
+
+        smallest, largest = di._body_size_band(lines)
+
+        assert largest == 10.0, (
+            f"expected the heading class at 14.0 to stay outside the band, got "
+            f"[{smallest}, {largest}]; a band that swallows a heading class "
+            "leaves the document unable to recognise its own structure"
+        )
+
+    def test_a_class_that_does_not_wrap_is_excluded_however_frequent(self) -> None:
+        """The same claim stated without the word 'heading' anywhere in it."""
+
+        lines = [_wrapping(f"body line {i}", i * 14.0, 10.0) for i in range(50)]
+        lines += [_short(f"caption {i}", 800.0 + i * 12.0, 8.0) for i in range(50)]
+
+        smallest, largest = di._body_size_band(lines)
+
+        assert smallest == largest == 10.0, (
+            f"expected a non-wrapping class to be excluded whatever its share, "
+            f"got [{smallest}, {largest}]"
+        )
+
+    def test_an_empty_document_does_not_raise(self) -> None:
+        assert di._body_size_band([]) == (0.0, 0.0)
+
+
+def _running_text_classes(lines: list[di._Line]) -> set[float]:
+    """The sizes a document sets running text in, derived here from geometry.
+
+    Computed in the test rather than imported so the claim below is stated in
+    the document's terms and not in the implementation's. A size counts as
+    running text when it carries a real share of the lines and those lines wrap
+    — reaching the edge of the measure and continuing — which is what separates
+    prose from a label without knowing anything about the words.
+    """
+
+    live = [line for line in lines if line.text.strip()]
+    if not live:
+        return set()
+    widths = sorted(line.x1 - line.x0 for line in live)
+    measure = widths[min(int(len(widths) * 0.9), len(widths) - 1)]
+    if measure <= 0:
+        return set()
+
+    totals: Counter[float] = Counter(round(line.size, 1) for line in live)
+    wrapping: Counter[float] = Counter(
+        round(line.size, 1)
+        for line in live
+        if (line.x1 - line.x0) >= measure * 0.9
+    )
+    return {
+        size
+        for size, count in totals.items()
+        if count >= len(live) * 0.1 and wrapping[size] >= count * 0.15
+    }
+
+
+class TestRunningTextIsNotReadAsStructure:
+    """The claim above, made against a document rather than a construction.
+
+    Font metrics cannot be synthesised convincingly, so the mechanism tests
+    above are built by hand and this one reads a real file. It asserts nothing
+    true only of that file: the claim is that whatever sizes a document sets its
+    running text in, no one of them is read as structure.
+    """
+
+    @pytest.fixture(scope="class")
+    def lines(self) -> list[di._Line]:
+        candidates = sorted(_PAGINATED_PDF.parent.glob("*AIS_Employee_Handbook*.pdf"))
+        if not candidates:
+            pytest.skip("no multi-class fixture available")
+        collected: list[di._Line] = []
+        with di.pdfplumber.open(candidates[0]) as pdf:
+            for index, page in enumerate(pdf.pages, start=1):
+                collected.extend(di._read_page(page, index)[0])
+        return collected
+
+    def test_the_fixture_sets_running_text_in_more_than_one_size(
+        self, lines: list[di._Line]
+    ) -> None:
+        """Absence of evidence and evidence of absence must not render alike.
+
+        The claim below is vacuous on a document with one text class, and one
+        text class is the common case. So the fixture is asked to prove it can
+        exercise the claim before the claim is made.
+        """
+
+        classes = _running_text_classes(lines)
+
+        assert len(classes) > 1, (
+            f"the fixture sets running text in {sorted(classes)}, a single class, "
+            "so it cannot exercise the claim that a document may have several; "
+            "the test below would pass without testing anything"
+        )
+
+    def test_no_class_of_running_text_is_predominantly_headings(
+        self, lines: list[di._Line]
+    ) -> None:
+        """A size the document writes prose in is not a size it labels with.
+
+        The threshold is a majority rather than a tuned figure: whatever else is
+        true of a class the document sets running text in, it cannot be mostly
+        labels.
+        """
+
+        classes = _running_text_classes(lines)
+        smallest, largest = di._body_size_band(lines)
+
+        by_page: dict[int, list[di._Line]] = {}
+        for line in lines:
+            by_page.setdefault(line.page, []).append(line)
+
+        headings: Counter[float] = Counter()
+        totals: Counter[float] = Counter()
+        for page_lines in by_page.values():
+            kinds = di._classify_lines(
+                page_lines, largest, smallest_body_size=smallest
+            )
+            for line, kind in zip(page_lines, kinds):
+                size = round(line.size, 1)
+                if not line.text.strip() or size not in classes:
+                    continue
+                totals[size] += 1
+                if kind == "heading":
+                    headings[size] += 1
+
+        assert totals, "no running text was examined, so nothing was asserted"
+
+        overtaken = {
+            size: f"{headings[size]} of {totals[size]}"
+            for size in sorted(totals)
+            if headings[size] * 2 > totals[size]
+        }
+        assert not overtaken, (
+            f"these running-text sizes are mostly typed as headings: {overtaken}. "
+            "A whole class of the document's prose is being read as structure, "
+            "which is what a single typical size does to a document that sets "
+            "text in more than one"
+        )
+
+
+_SENTENCE_END = (".", "!", "?", "\u061f", "\u3002")
+
+
+def _available_documents() -> list[Path]:
+    """Every document on disk this file can reach, without naming any of them.
+
+    The claim below is a property of ingestion, not of a chosen file, so it is
+    asked of whatever is present. Adding a document to the corpus extends the
+    guard; none of them is a target.
+    """
+
+    roots = [
+        _PAGINATED_PDF.parent,
+        Path(__file__).resolve().parents[2] / "samples" / "source-documents",
+    ]
+    found: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            found.extend(sorted(root.glob("*.pdf")))
+    return found
+
+
+@lru_cache(maxsize=None)
+def _ingest_once(path: str) -> object:
+    """Ingest a document at most once per session; ingestion is not cheap."""
+
+    return di.ingest_document(path, Path(path).name)
+
+
+class TestASentenceIsNotAHeading:
+    """A heading names what follows it. A sentence says something itself.
+
+    This is the harm the yardstick does where it can be seen from outside the
+    module. A document that sets running text in two sizes has no single typical
+    size, and against the smaller of them every line of the larger reads as
+    set-larger-than-usual — so whole sentences are filed as headings. They then
+    become the section every following record is attributed to, and a reader is
+    shown a sentence in place of the heading it sat under.
+
+    The signal is structural, not lexical: the document itself terminates the
+    line. A label that ends in an abbreviation would be reported here, which is
+    a stated limit rather than a hidden one; across the corpus none does.
+    """
+
+    @pytest.mark.parametrize(
+        "document_path", _available_documents(), ids=lambda p: p.stem[:40]
+    )
+    def test_no_heading_is_a_finished_sentence(self, document_path: Path) -> None:
+        document = _ingest_once(str(document_path))
+
+        headings = [
+            element.text.strip()
+            for element in document.elements
+            if element.element_type == "heading" and element.text.strip()
+        ]
+        if not headings:
+            pytest.skip("no headings were found, so nothing is asserted")
+
+        offenders = [text for text in headings if text.endswith(_SENTENCE_END)]
+
+        assert not offenders, (
+            f"{len(offenders)} of {len(headings)} headings are finished "
+            f"sentences, for example {offenders[0][:90]!r}. Prose has been read "
+            "as structure, and each of these becomes the section that the "
+            "records after it are filed under"
+        )
+
+
+
+
 
 def _begins_mid_sentence(text: str) -> bool:
     """Whether the first cased character is lowercase.

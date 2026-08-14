@@ -236,7 +236,6 @@ def ingest_pdf(storage_path: str | Path, document_id: str = "") -> CanonicalDocu
     diagnostics: list[IngestionDiagnostic] = []
     pages: list[CanonicalPage] = []
     page_blocks: list[list[_Block]] = []
-    all_sizes: Counter[float] = Counter()
     raw_pages: list[tuple[int, list[_Line], list[_Block]]] = []
 
     try:
@@ -261,11 +260,11 @@ def ingest_pdf(storage_path: str | Path, document_id: str = "") -> CanonicalDocu
                 )
                 lines, tables, page_diagnostics = [], [], []
             diagnostics.extend(page_diagnostics)
-            for line in lines:
-                all_sizes[round(line.size, 1)] += 1
             raw_pages.append((page_index, lines, tables))
 
-    body_size = _modal_body_size(all_sizes)
+    smallest_body_size, body_size = _body_size_band(
+        [line for _, lines, _ in raw_pages for line in lines]
+    )
     boilerplate = _detect_boilerplate([lines for _, lines, _ in raw_pages])
 
     for page_index, lines, table_blocks in raw_pages:
@@ -290,7 +289,11 @@ def ingest_pdf(storage_path: str | Path, document_id: str = "") -> CanonicalDocu
                 ),
             )
         )
-        page_blocks.append(_build_blocks(lines, table_blocks, body_size))
+        page_blocks.append(
+            _build_blocks(
+                lines, table_blocks, body_size, smallest_body_size=smallest_body_size
+            )
+        )
 
     elements = _assemble_elements(page_blocks)
 
@@ -851,6 +854,93 @@ def _modal_body_size(sizes: Counter[float]) -> float:
     return sizes.most_common(1)[0][0]
 
 
+# The width at which a line counts as running the full column, and the share of
+# a size's lines that must do so before it counts as running text. Both are read
+# off the document rather than assumed, so a narrow column and a wide one are
+# judged by their own measure.
+_MEASURE_PERCENTILE = 0.9
+_FILLS_THE_MEASURE_RATIO = 0.9
+
+# What it takes for a font size to count as one of the document's text classes:
+# it must carry a real share of the lines, and those lines must wrap.
+_BODY_CLASS_MIN_SHARE = 0.1
+_BODY_CLASS_MIN_WRAP = 0.15
+
+
+def _column_measure(lines: list[_Line]) -> float:
+    """How wide the running text runs, taken from the lines themselves."""
+
+    widths = sorted(
+        line.x1 - line.x0
+        for line in lines
+        if line.text.strip() and not line.is_boilerplate
+    )
+    if not widths:
+        return 0.0
+    return widths[min(int(len(widths) * _MEASURE_PERCENTILE), len(widths) - 1)]
+
+
+def _body_size_band(lines: list[_Line]) -> tuple[float, float]:
+    """The range of sizes a document sets its running text in.
+
+    A document need not have one typical size. A bilingual document sets each
+    language in its own face and the two are co-equal — neither is a heading in
+    the other's terms. Asking such a document for a single modal size forces a
+    wrong answer: the modal describes one class and slanders the other, and
+    every line of the larger class then measures as "set larger than the body"
+    and is read as a heading. On the handbook this leaves 459 of 940 lines
+    satisfying the heading test before any other evidence is weighed.
+
+    So the body is taken as a band rather than a point. Sizes above it are
+    structural, sizes below it are furniture, and a size inside it is body text
+    whichever class it belongs to.
+
+    A size joins the band on two structural tests, and it needs both:
+
+    - it carries a real share of the document's lines, and
+    - the lines set in it *wrap* — they run the full column measure and continue
+      on the next line.
+
+    Frequency alone is not enough, because a document that is mostly headings
+    would nominate one and the band would swallow its own structure. Wrapping is
+    what makes a class running text: prose runs to the edge of the column, while
+    a heading stops where its words stop. Neither test knows anything about
+    which alphabet is in use, how the document is numbered, or what it is about.
+
+    A document with a single text class yields a band of zero width and behaves
+    exactly as the modal did, so the ordinary case is unchanged. If no size
+    passes both tests — a very short document, or one with no running text at
+    all — the modal is used, which is the answer given today.
+    """
+
+    live = [line for line in lines if line.text.strip()]
+    if not live:
+        return 0.0, 0.0
+
+    counts: Counter[float] = Counter(round(line.size, 1) for line in live)
+    modal = _modal_body_size(counts)
+
+    measure = _column_measure(live)
+    if measure <= 0:
+        return modal, modal
+
+    wrapping: Counter[float] = Counter(
+        round(line.size, 1)
+        for line in live
+        if (line.x1 - line.x0) >= measure * _FILLS_THE_MEASURE_RATIO
+    )
+
+    band = [
+        size
+        for size, count in counts.items()
+        if count >= len(live) * _BODY_CLASS_MIN_SHARE
+        and wrapping[size] >= count * _BODY_CLASS_MIN_WRAP
+    ]
+    if not band:
+        return modal, modal
+    return min(band), max(band)
+
+
 def _normalize_line(text: str) -> str:
     return _DIGIT_RE.sub("#", " ".join(text.strip().split())).lower()
 
@@ -955,10 +1045,29 @@ def _detect_boilerplate(page_lines: list[list[_Line]]) -> set[str]:
 _SENTENCE_END = (".", "!", "?", "؟", "。")
 
 
-def _classify_line(line: _Line, body_size: float) -> ElementType:
+def _classify_line(
+    line: _Line, body_size: float, *, smallest_body_size: float | None = None
+) -> ElementType:
+    """Classify one line against the band of sizes the document sets text in.
+
+    `body_size` is the top of that band and `smallest_body_size` the bottom.
+    They differ only in a document with more than one text class; when the
+    bottom is not given the band collapses to a point and this behaves exactly
+    as a single modal size did.
+
+    The two ends answer different questions, which is why one number cannot
+    serve both. "Is this set larger than the body?" has to be asked against the
+    largest text class, or the larger of two co-equal classes reads as a heading
+    on every line. "Is this set smaller than the body?" has to be asked against
+    the smallest, or the smaller of those two classes reads as furniture and is
+    barred from carrying a heading at all.
+    """
+
     stripped = line.text.strip()
     if not stripped:
         return "other"
+
+    body_floor = body_size if smallest_body_size is None else smallest_body_size
 
     # Font size is strong, direct evidence of a structural heading, so it is
     # weighed before the weaker signals rather than after them.
@@ -984,7 +1093,15 @@ def _classify_line(line: _Line, body_size: float) -> ElementType:
         # what the line introduces.
         return "list_item"
 
-    if larger_font and len(stripped) <= 200:
+    # Size is strong evidence of a heading, but it is not the only evidence, and
+    # the weaker text-pattern rule below already refuses a line the document has
+    # terminated as a sentence. Asking the same question here is not a second
+    # rule; it is the same rule applied consistently. A heading names what
+    # follows it and stops where its words stop, so a finished sentence is prose
+    # however it is set — a bullet drawn a few points larger than its paragraph,
+    # a pull quote, an emphasised warning. Left unasked, each of these becomes
+    # the section that every record printed after it is filed under.
+    if larger_font and len(stripped) <= 200 and not stripped.endswith(_SENTENCE_END):
         return "heading"
 
     # The text-pattern fallback ("ALL CAPS", "Article 12", "7.2.1 ...") is much
@@ -1013,7 +1130,7 @@ def _classify_line(line: _Line, body_size: float) -> ElementType:
     # the margin this rule demotes genuine section headings that happen to be
     # set at body size and distinguished by weight or spacing instead — which is
     # over-suppression, and costs real sections rather than false ones.
-    smaller_font = body_size > 0 and line.size < body_size - 0.6
+    smaller_font = body_floor > 0 and line.size < body_floor - 0.6
     if not smaller_font and len(stripped) <= 90 and not stripped.endswith(_SENTENCE_END):
         if stripped.isupper() or _PROVISION_HEADING_RE.match(stripped):
             return "heading"
@@ -1030,17 +1147,10 @@ def _fills_the_measure(line: _Line, lines: list[_Line]) -> bool:
     against its own measure rather than an assumed one.
     """
 
-    widths = sorted(
-        candidate.x1 - candidate.x0
-        for candidate in lines
-        if candidate.text.strip() and not candidate.is_boilerplate
-    )
-    if not widths:
-        return False
-    measure = widths[int(len(widths) * 0.9)] if len(widths) > 1 else widths[0]
+    measure = _column_measure(lines)
     if measure <= 0:
         return False
-    return (line.x1 - line.x0) >= measure * 0.9
+    return (line.x1 - line.x0) >= measure * _FILLS_THE_MEASURE_RATIO
 
 
 def _is_uppercase_throughout(text: str) -> bool:
@@ -1087,7 +1197,9 @@ def _starts_lowercase(text: str) -> bool:
     return False
 
 
-def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
+def _classify_lines(
+    lines: list[_Line], body_size: float, *, smallest_body_size: float | None = None
+) -> list[ElementType]:
     """Classify a page's lines, then demote headings the next line contradicts.
 
     `_classify_line` sees one line at a time, and the font-size rule inside it
@@ -1116,7 +1228,10 @@ def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
     from extraction entirely.
     """
 
-    kinds = [_classify_line(line, body_size) for line in lines]
+    kinds = [
+        _classify_line(line, body_size, smallest_body_size=smallest_body_size)
+        for line in lines
+    ]
 
     # Promote enumerated lines that the document sets above the content they
     # introduce. A document that numbers its sections produces lines carrying a
@@ -1258,7 +1373,13 @@ def _classify_lines(lines: list[_Line], body_size: float) -> list[ElementType]:
     return kinds
 
 
-def _build_blocks(lines: list[_Line], table_blocks: list[_Block], body_size: float) -> list[_Block]:
+def _build_blocks(
+    lines: list[_Line],
+    table_blocks: list[_Block],
+    body_size: float,
+    *,
+    smallest_body_size: float | None = None,
+) -> list[_Block]:
     """Group a page's lines into logical blocks, then interleave table rows.
 
     Blocks break on: a heading, the start of a new list item, entering or
@@ -1274,7 +1395,7 @@ def _build_blocks(lines: list[_Line], table_blocks: list[_Block], body_size: flo
     leading = _typical_leading(lines)
     # Classified for the whole page up front, so a heading can be demoted by the
     # line that follows it — see `_classify_lines`.
-    kinds = _classify_lines(lines, body_size)
+    kinds = _classify_lines(lines, body_size, smallest_body_size=smallest_body_size)
 
     for index, line in enumerate(lines):
         if line.is_boilerplate or not line.text.strip():
