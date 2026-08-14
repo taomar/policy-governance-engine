@@ -16,21 +16,49 @@ export interface ApiError {
 export class PolicyPlatformApiError extends Error implements ApiError {
   status: number;
   detail: string;
-  constructor(status: number, detail: string) {
-    super(detail);
+  constructor(status: number, detail: string, options?: { cause?: unknown }) {
+    super(detail, options);
     this.status = status;
     this.detail = detail;
   }
 }
 
+/**
+ * Status used when no HTTP response happened at all — the request never reached
+ * a server. It is deliberately not a real status code: a caller needs to tell
+ * "the server answered, and the answer was no" from "we could not ask", and
+ * those two lead to different things being shown to a reader.
+ */
+export const API_UNREACHABLE_STATUS = 0;
+
+/**
+ * `fetch` rejects with a bare `TypeError: Failed to fetch` when the server is
+ * down, the connection drops, or CORS refuses the request. That is an internal
+ * exception name and it was reaching policy reviewers verbatim. Converting it
+ * here, at the one seam every request passes through, means no calling page has
+ * to know what a TypeError is.
+ */
+function unreachable(cause: unknown): PolicyPlatformApiError {
+  return new PolicyPlatformApiError(
+    API_UNREACHABLE_STATUS,
+    "Cannot reach the policy platform server. It may be restarting, or the connection was interrupted.",
+    { cause },
+  );
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (cause) {
+    throw unreachable(cause);
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -1835,7 +1863,12 @@ function filenameFromContentDisposition(header: string | null, fallback: string)
 }
 
 async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}${path}`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`);
+  } catch (cause) {
+    throw unreachable(cause);
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -2546,10 +2579,16 @@ export const api = {
     form.append("file", file);
     const params = new URLSearchParams({ title, owner });
     if (policySetKey) params.set("policy_set_key", policySetKey);
-    const res = await fetch(`${API_BASE_URL}/api/documents/upload?${params.toString()}`, {
-      method: "POST",
-      body: form,
-    });
+    const res = await (async () => {
+      try {
+        return await fetch(`${API_BASE_URL}/api/documents/upload?${params.toString()}`, {
+          method: "POST",
+          body: form,
+        });
+      } catch (cause) {
+        throw unreachable(cause);
+      }
+    })();
     if (!res.ok) {
       let detail = res.statusText;
       try {
