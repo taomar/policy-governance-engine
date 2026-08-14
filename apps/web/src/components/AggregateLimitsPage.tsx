@@ -78,18 +78,46 @@ const { Title, Text, Paragraph } = Typography;
  * publication rather than living only in this UI.
  */
 
-const BLOCKER_COPY: Record<string, { label: string; detail: string }> = {
+/**
+ * How loudly to say a blocker.
+ *
+ * The tone lives beside the label because the two have to agree. "Decided by
+ * reading" names the route a rule takes, not a fault in it, and a warning
+ * colour next to those words tells the reader the opposite of the sentence
+ * they are reading. "No numeric fact declared" is a different kind of
+ * statement — it is about what this cap can be built from, and a caution is
+ * what it is.
+ */
+type BlockerTone = "neutral" | "caution";
+
+/** antd tag colour per tone. `undefined` is antd's own neutral tag. */
+const TONE_COLOR: Record<BlockerTone, string | undefined> = {
+  neutral: undefined,
+  caution: "orange",
+};
+
+const BLOCKER_COPY: Record<string, { label: string; detail: string; tone: BlockerTone }> = {
   not_machine_executable: {
     label: "Decided by reading",
+    tone: "neutral",
     detail:
       "The evaluator returns NOT_APPLICABLE for this rule before it reads the scope or condition, so the rule can never reach SATISFIED — and only a SATISFIED rule contributes to a cap.",
   },
   no_numeric_fact: {
     label: "No numeric fact declared",
+    tone: "caution",
     detail:
       "The rule declares no fact with a numeric type, so there is no value for the evaluator to add up. Any amount fact chosen for it would be invented, and an unrecognised fact is counted as zero without warning.",
   },
 };
+
+/**
+ * A code we have no wording for is shown neutrally. We cannot read wording we
+ * do not have, so we do not raise an alarm about it either.
+ */
+function blockerTone(code: string): BlockerTone {
+  return BLOCKER_COPY[code]?.tone ?? "neutral";
+}
 
 type Verdict = PreviewAggregateLimitResponse["verdict"];
 
@@ -407,7 +435,7 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
                       .filter(([, count]) => count > 0)
                       .map(([code, count]) => (
                         <Tooltip key={code} title={BLOCKER_COPY[code]?.detail}>
-                          <Tag color="orange" icon={<InfoCircleOutlined />}>
+                          <Tag color={TONE_COLOR[blockerTone(code)]} icon={<InfoCircleOutlined />}>
                             {count} × {BLOCKER_COPY[code]?.label ?? code}
                           </Tag>
                         </Tooltip>
@@ -493,7 +521,9 @@ export function AggregateLimitsPage({ policySetKey }: { policySetKey: string }) 
                             <Space size={[4, 4]} wrap>
                               {blockers.map((b) => (
                                 <Tooltip key={b} title={BLOCKER_COPY[b]?.detail}>
-                                  <Tag color="orange">{BLOCKER_COPY[b]?.label ?? b}</Tag>
+                                  <Tag color={TONE_COLOR[blockerTone(b)]}>
+                                    {BLOCKER_COPY[b]?.label ?? b}
+                                  </Tag>
                                 </Tooltip>
                               ))}
                             </Space>

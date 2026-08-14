@@ -164,7 +164,7 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
               </Tooltip>
             )}
             <Tag>Reasoning effort: {result.reasoning_effort}</Tag>
-            {result.testability_reason && <Tag color="gold">{DETERMINISTIC_LABEL.no}</Tag>}
+            {result.testability_reason && <Tag>{DETERMINISTIC_LABEL.no}</Tag>}
           </Space>
 
           <Paragraph>{result.explanation}</Paragraph>
