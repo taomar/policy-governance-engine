@@ -290,7 +290,7 @@ def dangling_referents(
         for value in (getattr(rule, name, None) for name in type(rule).model_fields)
         if isinstance(value, str)
     )
-    return unresolved_referents(fields, f"{source_text} {carried}")
+    return unresolved_referents(fields, f"{source_text} {carried}", source_text)
 
 
 def _predicate_repeats_modality(rule: CanonicalPolicyRule) -> bool:

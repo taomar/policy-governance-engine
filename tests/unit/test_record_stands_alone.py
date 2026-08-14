@@ -34,9 +34,11 @@ from policy_platform.infrastructure.extraction.decision_families import (
     decision_families,
     promoted_qualifiers,
 )
+from policy_platform.infrastructure.extraction import self_containment
 from policy_platform.infrastructure.extraction.evaluability import Evaluability, assess
 from policy_platform.infrastructure.extraction.self_containment import (
     _THE_DOCUMENT_ITSELF,
+    _carries_a_preceding_sentence,
     unresolved_referents,
 )
 from policy_platform.infrastructure.prompt_assets import PROMPTS_DIR
@@ -93,6 +95,28 @@ def _assert_split_scan_saw(records) -> None:
     )
 
 
+def _assert_the_split_saw(records) -> None:
+    """The verdict on a population holding one of each condition.
+
+    One record whose evidence is a single sentence, so its antecedent cannot be
+    inside it; one whose evidence carries the sentence before the pointer. A
+    check that reported them alike would put both under one category here, which
+    is exactly what this check did before the two were told apart.
+    """
+
+    findings = ai_quality._self_containment_findings(records)
+    by_category = {f["category"]: sorted(f["affected_rule_ids"]) for f in findings}
+
+    assert by_category == {
+        "record_does_not_stand_alone": ["R-LOST"],
+        "record_reference_is_opaque": ["R-KEPT"],
+    }, (
+        f"expected the cut that lost its antecedent and the cut that kept it to be "
+        f"reported as different findings; actual: {by_category} out of "
+        f"{len(records)} records examined"
+    )
+
+
 # --------------------------------------------------------------------------
 # A pointer that resolves inside the record, and one that does not.
 #
@@ -122,6 +146,32 @@ _DANGLES = _core(
     condition="before the end of that period",
 )
 _DANGLES_SENTENCE = "The applicant must submit the renewal form before the end of that period."
+
+# --------------------------------------------------------------------------
+# A pointer whose antecedent is inside the record under another form.
+#
+# "7:05 AM" is what "this time" points at, and the check tests resolution by
+# recurrence of the head noun, so this record is reported however well it was
+# cut. What separates it from the pair above is not the pointer but the cut:
+# its evidence carries the sentence that answers it.
+# --------------------------------------------------------------------------
+
+_KEPT = _core(
+    subject="the minutes",
+    modality="must",
+    predicate="be counted",
+    object="as tardiness",
+    condition="after this time",
+)
+_KEPT_SENTENCE = (
+    "The cut off point for late attendance is 7:05 AM. After this time, the "
+    "minutes will be counted as tardiness."
+)
+
+#: The resolving record with a neighbour in front of it, so that a record which
+#: meets the condition for the quieter finding and has nothing wrong with it
+#: still produces no finding at all.
+_RESOLVES_TWO_SENTENCES = f"A renewal notice states a notice period. {_RESOLVES_SENTENCE}"
 
 
 class TestAPointerIsOnlyADefectWhenItPointsOutward:
@@ -238,6 +288,106 @@ class TestAPointerAtTheDocumentIsNotADanglingOne:
             f"check still reads those as pointers at content and will report every such "
             f"record as a defect. Add them to _THE_DOCUMENT_ITSELF."
         )
+
+
+class TestACutThatKeptItsContextIsADifferentFinding:
+    """Two conditions with two remedies, told apart by one question.
+
+    The check resolves a pointer by literal recurrence of its head noun, so a
+    record can carry its own antecedent and still be reported: "7:05 AM" answers
+    "this time" and is not the token "time". That record's cut is not at fault.
+    A record whose evidence is a single sentence is a different matter — nothing
+    precedes the pointer, so the antecedent cannot be inside it at all.
+
+    Reported as one finding, repairing a cut moves a record from the first
+    condition to the second and the count does not change, which makes the
+    measure unable to register the improvement it exists to drive.
+    """
+
+    def test_a_single_sentence_cut_is_reported_as_an_extraction_defect(self) -> None:
+        findings = ai_quality._self_containment_findings(
+            [_record("R-LOST", _DANGLES_SENTENCE, _DANGLES)]
+        )
+
+        assert [f["category"] for f in findings] == ["record_does_not_stand_alone"]
+        assert findings[0]["severity"] == "high"
+
+    def test_a_cut_that_kept_the_preceding_sentence_is_not(self) -> None:
+        findings = ai_quality._self_containment_findings(
+            [_record("R-KEPT", _KEPT_SENTENCE, _KEPT)]
+        )
+
+        assert [f["category"] for f in findings] == ["record_reference_is_opaque"]
+        assert findings[0]["severity"] == "medium"
+        assert "this time" in findings[0]["finding"]
+
+    def test_the_two_conditions_are_reported_apart(self) -> None:
+        _assert_the_split_saw(
+            [
+                _record("R-LOST", _DANGLES_SENTENCE, _DANGLES),
+                _record("R-KEPT", _KEPT_SENTENCE, _KEPT),
+            ]
+        )
+
+    def test_a_blind_discriminator_is_caught_by_that_assertion(self, monkeypatch) -> None:
+        """Proof the assertion above can fail, and the before-state exactly.
+
+        Blinding the discriminator to always answer "nothing precedes it" is
+        precisely what this check did before the two conditions were separated:
+        every pointer reported as a lost antecedent, at one severity, under one
+        category. So this is both the blindness control and the demonstration
+        that the previous behaviour does not satisfy the assertion.
+        """
+
+        monkeypatch.setattr(
+            self_containment, "_carries_a_preceding_sentence", lambda _: False
+        )
+
+        with pytest.raises(AssertionError, match=r"record_does_not_stand_alone"):
+            _assert_the_split_saw(
+                [
+                    _record("R-LOST", _DANGLES_SENTENCE, _DANGLES),
+                    _record("R-KEPT", _KEPT_SENTENCE, _KEPT),
+                ]
+            )
+
+    def test_a_record_that_resolves_is_still_reported_under_neither(self) -> None:
+        """The split must not have invented a finding on healthy records.
+
+        The resolving fixture carries a second sentence, so it meets the
+        condition that routes to the quieter finding. It must still produce
+        nothing at all: the discriminator chooses between findings, it does not
+        create them.
+        """
+
+        assert _carries_a_preceding_sentence(_RESOLVES_TWO_SENTENCES)
+        assert (
+            ai_quality._self_containment_findings(
+                [_record("R-RESOLVES", _RESOLVES_TWO_SENTENCES, _RESOLVES)]
+            )
+            == []
+        )
+
+    def test_a_pointer_at_the_document_is_still_excluded_either_way(self) -> None:
+        """The earlier exclusion must not depend on the sentence count."""
+
+        for source in (_KEPT_SENTENCE, _DANGLES_SENTENCE):
+            assert not unresolved_referents(
+                {"subject": "this policy"}, "this policy applies", source
+            )
+
+    def test_an_abbreviation_does_not_pass_for_a_second_sentence(self) -> None:
+        """The discriminator decides which finding is raised, so it must not guess.
+
+        A full stop inside "No. 5" or "e.g." would otherwise route a genuine
+        single-sentence cut to the quieter finding, which is the one direction
+        of error that hides a defect.
+        """
+
+        assert not _carries_a_preceding_sentence("Form No. 5 must be filed on entry.")
+        assert not _carries_a_preceding_sentence("Carry a pass, e.g. the visitor card.")
+        assert not _carries_a_preceding_sentence(_DANGLES_SENTENCE)
+        assert _carries_a_preceding_sentence(_KEPT_SENTENCE)
 
 
 class TestEvaluabilityWillNotClaimARecordStandsAlone:

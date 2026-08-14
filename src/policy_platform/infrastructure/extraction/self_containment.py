@@ -39,6 +39,34 @@ Saturday/`that day` pair does. That asymmetry is deliberate and it points the
 right way: the check reports "this record gives a reader no anchor at all",
 which is a claim about the record and can be checked by eye in seconds.
 
+A CUT THAT LOST THE ANTECEDENT IS NOT ONE THAT KEPT IT
+------------------------------------------------------
+That asymmetry has a consequence, and until it was separated out the check
+reported two different conditions as one finding:
+
+1. *The antecedent is outside the record.* The passage this was cut from is a
+   single sentence, so nothing precedes the pointer in the record's own
+   evidence and no wording of it could resolve. The cut lost the context. This
+   is the extraction defect described above and the remedy is upstream.
+
+2. *The antecedent is inside the record but not named again.* The passage
+   carries a sentence before the pointer. "The cut off point for late
+   attendance is 7:05 AM. After this time, the minutes will be counted as
+   tardiness" is the canonical case: `7:05 AM` answers `this time` and is not
+   the token `time`. Nothing is wrong with the cut. The reference is opaque to
+   a test made of tokens, which is a statement about the test.
+
+Reporting them together makes the measure unable to register the improvement it
+exists to drive. Re-cutting a record to pull its antecedent in moves it from (1)
+to (2) — a real fix, correctly applied — and under a single finding the count
+does not move. That failure is silent, which makes it worse than over-reporting:
+a reviewer sees "unchanged" and concludes the fix did not work.
+
+What (2) does *not* claim is that the antecedent is present. It claims only that
+the record carries text before the pointer, so the reference may be answered by
+wording this check cannot match. Deciding that needs meaning rather than tokens
+and is deliberately not attempted here.
+
 A POINTER AT THE DOCUMENT IS NOT A DANGLING ONE
 -----------------------------------------------
 "This handbook" in a handbook does not stand in for a noun phrase established
@@ -207,9 +235,21 @@ class UnresolvedReferent:
     phrase: str
     #: The noun the pointer governs, or "" for a bare back-pointer.
     head: str
+    #: Whether the passage this record was cut from carries a sentence before
+    #: the pointer. False means the antecedent cannot be inside the record and
+    #: the cut is what lost it; True means the cut kept its context and the
+    #: pointer is merely not answered in the same words. Defaults to False so a
+    #: caller that supplies no source text gets the louder of the two findings,
+    #: never the quieter one.
+    source_carries_a_neighbour: bool = False
 
     def as_reason(self) -> str:
         opener = "opens with" if not self.head else "says"
+        if self.source_carries_a_neighbour:
+            return (
+                f"'{self.field}' {opener} {self.phrase!r}, which the record's own "
+                f"evidence does not name again in those words"
+            )
         return (
             f"'{self.field}' {opener} {self.phrase!r}, which points back at wording "
             f"this record does not contain"
@@ -311,8 +351,29 @@ def _points_at_the_document_itself(determiner: str, phrase_tokens: list[str]) ->
     return head in _THE_DOCUMENT_ITSELF
 
 
+#: A sentence boundary inside an extracted passage: terminal punctuation,
+#: whitespace, then the start of something new. Requiring a capital is what
+#: separates "7:05 AM. After this time" from "No. 5" and "e.g. the applicant",
+#: neither of which ends a sentence. It under-reports on scripts without case,
+#: which errs toward the louder finding rather than the quieter one.
+_SENTENCE_BREAK = re.compile("[.!?][\"')\\]]?\\s+(?=[\"'(\u201c]?[A-Z])")
+
+
+def _carries_a_preceding_sentence(source_text: str) -> bool:
+    """Whether the passage this record was cut from holds more than one sentence.
+
+    This is the whole discriminator between the two findings, and it is
+    deliberately a question about the *cut* rather than about the referent: a
+    record whose evidence is one sentence cannot contain the antecedent whatever
+    words it uses, and a record carrying a neighbour may well contain it. No
+    claim is made about which.
+    """
+
+    return bool(_SENTENCE_BREAK.search((source_text or "").strip()))
+
+
 def unresolved_referents(
-    fields: dict[str, str], record_text: str
+    fields: dict[str, str], record_text: str, source_text: str = ""
 ) -> list[UnresolvedReferent]:
     """Pointers in `fields` that `record_text` does not answer.
 
@@ -320,9 +381,16 @@ def unresolved_referents(
     reader has to understand to apply the rule. `record_text` is everything the
     record carries, because a referent answered anywhere in the record is
     answered.
+
+    `source_text` is the passage the record was cut from, and it decides which of
+    the two findings each pointer is — see "A CUT THAT LOST THE ANTECEDENT IS NOT
+    ONE THAT KEPT IT" above. Omitting it reports every pointer as a lost
+    antecedent, which is the conservative reading and the one this check made
+    before the two conditions were told apart.
     """
 
     available = [_stem(t) for t in _tokens(record_text)]
+    kept_a_neighbour = _carries_a_preceding_sentence(source_text)
     found: list[UnresolvedReferent] = []
     seen: set[tuple[str, str]] = set()
 
@@ -352,14 +420,28 @@ def unresolved_referents(
             if key in seen:
                 continue
             seen.add(key)
-            found.append(UnresolvedReferent(field=field, phrase=phrase, head=head))
+            found.append(
+                UnresolvedReferent(
+                    field=field,
+                    phrase=phrase,
+                    head=head,
+                    source_carries_a_neighbour=kept_a_neighbour,
+                )
+            )
 
         bare = _bare_backpointer_at_start(text)
         if bare:
             key = (field, bare.casefold())
             if key not in seen:
                 seen.add(key)
-                found.append(UnresolvedReferent(field=field, phrase=bare, head=""))
+                found.append(
+                    UnresolvedReferent(
+                        field=field,
+                        phrase=bare,
+                        head="",
+                        source_carries_a_neighbour=kept_a_neighbour,
+                    )
+                )
 
     return found
 

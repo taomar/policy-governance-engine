@@ -655,6 +655,15 @@ def _self_containment_findings(rules: list[CanonicalRule]) -> list[dict]:
     the extraction, and the remedy is to re-cut the record or link it to the
     neighbour that supplies the referent — never to paste the neighbour's words
     into it, which would put text in the record that the source does not carry.
+
+    That is one of two conditions the check can see, and only that one is an
+    extraction defect. Where the record's evidence already carries a sentence
+    before the pointer, the cut kept its context and the pointer is simply not
+    answered in the same words — "7:05 AM" for "this time". Reporting the two
+    together would leave the count unmoved when a cut is genuinely repaired,
+    because repairing it turns the first into the second rather than removing
+    it. They are emitted as separate findings at separate severities for that
+    reason: `self_containment` carries the argument in full.
     """
 
     findings: list[dict] = []
@@ -665,23 +674,47 @@ def _self_containment_findings(rules: list[CanonicalRule]) -> list[dict]:
         dangling = dangling_referents(core, _source_sentence(rule))
         if not dangling:
             continue
-        findings.append(
-            {
-                "severity": "high",
-                "category": "record_does_not_stand_alone",
-                "finding": (
-                    f"'{rule.title}' ({rule.rule_id}) was cut away from wording it depends "
-                    f"on: {'; '.join(item.as_reason() for item in dangling)}."
-                ),
-                "affected_rule_ids": [rule.rule_id],
-                "recommendation": (
-                    "Re-cut this record to include the wording it points at, or link it to "
-                    "the record that carries it. Do not copy the neighbour's words in: the "
-                    "record has to quote one passage of the source, not assemble one."
-                ),
-                "source": "deterministic",
-            }
-        )
+        lost = [item for item in dangling if not item.source_carries_a_neighbour]
+        opaque = [item for item in dangling if item.source_carries_a_neighbour]
+        if lost:
+            findings.append(
+                {
+                    "severity": "high",
+                    "category": "record_does_not_stand_alone",
+                    "finding": (
+                        f"'{rule.title}' ({rule.rule_id}) was cut away from wording it depends "
+                        f"on: {'; '.join(item.as_reason() for item in lost)}."
+                    ),
+                    "affected_rule_ids": [rule.rule_id],
+                    "recommendation": (
+                        "Re-cut this record to include the wording it points at, or link it to "
+                        "the record that carries it. Do not copy the neighbour's words in: the "
+                        "record has to quote one passage of the source, not assemble one."
+                    ),
+                    "source": "deterministic",
+                }
+            )
+        if opaque:
+            findings.append(
+                {
+                    "severity": "medium",
+                    "category": "record_reference_is_opaque",
+                    "finding": (
+                        f"'{rule.title}' ({rule.rule_id}) carries the sentence before its "
+                        f"pointer, so the referent is likely present in other words: "
+                        f"{'; '.join(item.as_reason() for item in opaque)}."
+                    ),
+                    "affected_rule_ids": [rule.rule_id],
+                    "recommendation": (
+                        "Read the record's own evidence before treating this as a defect. The "
+                        "cut is not at fault here — the antecedent is usually in it under "
+                        "another form, as '7:05 AM' answers 'this time' — so re-cutting has "
+                        "nothing to fix. Act only where the evidence genuinely does not answer "
+                        "the pointer."
+                    ),
+                    "source": "deterministic",
+                }
+            )
     return findings
 
 
