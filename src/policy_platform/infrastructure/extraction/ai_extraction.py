@@ -46,6 +46,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from policy_platform.contracts.passage import PolicyPassage
+from policy_platform.contracts.reading_plan import DividedProvision
+from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CandidateRelationship,
@@ -68,6 +70,9 @@ from policy_platform.infrastructure.extraction.formulation_mapping import (
     skip_breaks_coverage,
 )
 from policy_platform.infrastructure.ingestion import source_structure
+from policy_platform.infrastructure.ingestion.canonical_rebuild import (
+    canonical_from_clauses,
+)
 from policy_platform.infrastructure.extraction.continuation_adjudicator import (
     ClauseWindow,
     discover_continuations,
@@ -102,7 +107,6 @@ from policy_platform.infrastructure.persistence.repositories import (
     PolicySetRepository,
 )
 from policy_platform.infrastructure.settings import get_settings
-
 logger = logging.getLogger(__name__)
 
 #: Recorded on every drafted rule's `lineage`. Tracks BOTH prompts, because a
@@ -123,21 +127,141 @@ PARSER_VERSION = "formulation-mapping-v1"
 _MAX_CHARS_PER_BATCH = 4000
 
 
-def _batch_clauses(clauses: list[Clause]) -> list[list[Clause]]:
+def _provision_key(graph, element) -> tuple[str, ...]:
+    """The provision an element belongs to, as its chain of governing headings.
+
+    A heading is keyed to *itself* rather than to its parent, so it groups with
+    the material it introduces instead of with the section above it. Without
+    that, every heading would be the last element of the preceding provision --
+    which is exactly the cut this stage exists to stop, applied to the one
+    element whose whole purpose is to say what comes next.
+    """
+
+    path = graph.heading_path(element.element_id)
+    if element.element_type == "heading":
+        return tuple([*path, element.element_id])
+    return tuple(path)
+
+
+def _provisions(clauses: list[Clause], document_id: str) -> list[list[Clause]] | None:
+    """Group clauses into provisions, or None if the structure will not support it.
+
+    Returns runs in document order. Measured on every document stored here, a
+    provision key never reappears after a different one has intervened, so a run
+    is always contiguous and grouping never reorders a clause.
+
+    Returns None rather than raising when the graph cannot be built. Batching is
+    a resource decision, and a document whose structure defeats it is still
+    worth extracting by the plain character walk -- failing the whole run
+    because the *grouping* failed would trade a better reading for no reading.
+
+    The rebuild is a seam that already existed: it reconstructs the canonical
+    document from exactly the clause list this module already loads, which is
+    what keeps this a small change rather than a second parallel parse.
+    """
+
+    try:
+        document = canonical_from_clauses(document_id, clauses)
+        graph = build_structural_graph(document)
+    except Exception:  # noqa: BLE001 - see docstring; degrade, never fail the run
+        logger.warning("provision grouping unavailable; batching by character count", exc_info=True)
+        return None
+
+    by_order = {element.logical_order: element for element in document.elements}
+    runs: list[list[Clause]] = []
+    previous: tuple[str, ...] | None = None
+    for clause in clauses:
+        element = by_order.get(clause.sequence)
+        if element is None:
+            return None
+        key = _provision_key(graph, element)
+        if not runs or key != previous:
+            runs.append([])
+        runs[-1].append(clause)
+        previous = key
+    return runs
+
+
+def _pack(run: list[Clause], budget: int) -> list[list[Clause]]:
+    """Split one provision that does not fit, in document order."""
+
+    pieces: list[list[Clause]] = [[]]
+    used = 0
+    for clause in run:
+        size = len(clause.text) + 40
+        if pieces[-1] and used + size > budget:
+            pieces.append([])
+            used = 0
+        pieces[-1].append(clause)
+        used += size
+    return pieces
+
+
+def _batch_clauses(
+    clauses: list[Clause], document_id: str = ""
+) -> tuple[list[list[Clause]], list[DividedProvision]]:
+    """Pack clauses into batches that never split a provision.
+
+    The batch is a processing unit: it exists because a context window is
+    finite. It had also become a semantic one, because where it broke decided
+    what the model read together -- and it broke on a running character count,
+    which knows nothing about where a policy ends. A rule landed in one batch
+    and the sentence qualifying it in the next, and the model could only read
+    them as two unrelated statements.
+
+    So the walk is the same, but the atom is now the provision rather than the
+    clause. A provision is added whole or starts a new batch. Only a provision
+    that cannot fit alone is divided, and every division is returned so the run
+    can say it happened.
+
+    Every clause lands in exactly one batch, in document order, headings
+    included -- the grouping decides where batches *break*, never which clauses
+    are sent.
+    """
+
+    runs = _provisions(clauses, document_id)
+    if runs is None:
+        runs = [[clause] for clause in clauses]
+
     batches: list[list[Clause]] = []
+    divided: list[DividedProvision] = []
     current: list[Clause] = []
     current_len = 0
-    for clause in clauses:
-        clause_len = len(clause.text) + 40
-        if current and current_len + clause_len > _MAX_CHARS_PER_BATCH:
+
+    for run in runs:
+        run_len = sum(len(c.text) + 40 for c in run)
+        if run_len > _MAX_CHARS_PER_BATCH:
+            if current:
+                batches.append(current)
+                current = []
+                current_len = 0
+            pieces = _pack(run, _MAX_CHARS_PER_BATCH)
+            if len(pieces) > 1:
+                # The run's own heading is its first clause when it has one, and
+                # a heading carries no `section` of its own -- reading `section`
+                # blindly labels every division with an empty path.
+                head = run[0]
+                label = head.text if head.element_type == "heading" else (head.section or "")
+                divided.append(
+                    DividedProvision(
+                        heading_path=[label.strip()] if label.strip() else [],
+                        element_ids=[c.clause_ref for c in run],
+                        characters=run_len,
+                        unit_count=len(pieces),
+                    )
+                )
+            batches.extend(pieces)
+            continue
+        if current and current_len + run_len > _MAX_CHARS_PER_BATCH:
             batches.append(current)
             current = []
             current_len = 0
-        current.append(clause)
-        current_len += clause_len
+        current.extend(run)
+        current_len += run_len
+
     if current:
         batches.append(current)
-    return batches
+    return batches, divided
 
 
 def _page_label(clauses: list[Clause]) -> str:
@@ -616,7 +740,16 @@ async def extract_candidate_rules(
     # batching is deterministic and the clause list is already narrowed by
     # `max_clauses`, so the UI can show "batch 3 of 17" rather than an
     # open-ended spinner. See `extraction_progress` for why this is in-memory.
-    batches = _batch_clauses(clauses)
+    batches, divided_provisions = _batch_clauses(clauses, str(document_version_id))
+    if divided_provisions:
+        logger.info(
+            "%d provision(s) exceeded the batch budget and were read in pieces: %s",
+            len(divided_provisions),
+            "; ".join(
+                f"{d.characters} chars over {d.unit_count} batches"
+                for d in divided_provisions
+            ),
+        )
     progress_key = str(document_version_id)
     all_pages = sorted({c.page for c in clauses if c.page is not None})
     extraction_progress.start(
@@ -1117,6 +1250,23 @@ async def extract_candidate_rules(
                 "see the skip list to check that judgement."
             )
         summary = " ".join([summary, *notes])
+    if divided_provisions:
+        # Said outside the `skipped` block on purpose. A divided provision is
+        # not a skip: nothing was missed, and the run needs no repeating. It is
+        # the one thing this stage cannot do for the reader — a provision too
+        # large for any single batch had to be read in pieces, so a rule in the
+        # second piece was read without the sentence that qualifies it. That is
+        # a property of the document meeting a finite context window rather than
+        # a fault in the run, which is why it is reported and not counted as a
+        # shortfall.
+        summary = " ".join(
+            [
+                summary,
+                f"{len(divided_provisions)} provision(s) were too long for one batch "
+                "and were read in pieces; rules drawn from them may be missing "
+                "context that sits in an adjacent piece.",
+            ]
+        )
     # The durable status on the run carries this distinction (see
     # ExtractionRunRepository.mark_completed). The in-flight progress record
     # cannot: its status is typed as "running" | "completed" | "failed" in

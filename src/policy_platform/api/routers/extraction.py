@@ -28,6 +28,9 @@ from policy_platform.contracts.reading_plan import build_reading_plan
 from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.domain.models import Clause, DocumentVersion
 from policy_platform.infrastructure.ingestion import source_structure
+from policy_platform.infrastructure.ingestion.canonical_rebuild import (
+    canonical_from_clauses,
+)
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.persistence.extraction_stage_repository import (
     ExtractionStageRepository,
@@ -60,49 +63,13 @@ async def _load_clauses(session: AsyncSession, document_version_id: uuid.UUID) -
 def _canonical_from_clauses(document_id: str, clauses: list[Clause]):
     """Rebuild a canonical document from the persisted clauses.
 
-    Rebuilt rather than re-converted. Re-running Docling would take minutes and,
-    worse, could produce a *different* artifact from the one whose offsets are
-    already stored — so every span a reviewer is looking at would silently stop
-    referring to what produced it.
+    The implementation moved to ``infrastructure.ingestion.canonical_rebuild``
+    when a second caller appeared below the api layer. Kept as a name here so
+    this router's existing call sites read unchanged; there is one rebuild, not
+    two.
     """
 
-    from policy_platform.contracts.canonical_document import (
-        CanonicalDocument,
-        CanonicalElement,
-        CanonicalPage,
-        SourceFragment,
-    )
-
-    elements: list[CanonicalElement] = []
-    pages: dict[int, list[str]] = {}
-
-    for index, clause in enumerate(clauses):
-        fragments = [
-            SourceFragment(**{k: v for k, v in fragment.items() if k in
-                              {"page", "start_offset", "end_offset", "text"}})
-            for fragment in (clause.source_fragments or [])
-        ]
-        elements.append(
-            CanonicalElement(
-                element_id=clause.element_id or f"E{index:06d}",
-                element_type=clause.element_type or "paragraph",  # type: ignore[arg-type]
-                logical_order=clause.sequence,
-                text=clause.text,
-                section=clause.section,
-                source_fragments=fragments,
-            )
-        )
-        for fragment in fragments:
-            pages.setdefault(fragment.page, [])
-
-    return CanonicalDocument(
-        document_id=document_id,
-        page_count=len(pages) or 1,
-        pages=[CanonicalPage(page=page, raw_text="") for page in sorted(pages)] or
-        [CanonicalPage(page=1, raw_text="")],
-        elements=elements,
-        parser="persisted",
-    )
+    return canonical_from_clauses(document_id, clauses)
 
 
 @router.get("/{document_version_id}/canonical")
