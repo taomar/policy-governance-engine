@@ -1257,7 +1257,35 @@ def _join_overlap(left: Sequence[str], right: Sequence[str]) -> int:
     return 0
 
 
-def _join_without_repeat(parts: Iterable[str]) -> str:
+def _bare_words(text: str) -> list[str]:
+    """Text as case-folded words with punctuation discarded.
+
+    Used only to compare a composed run against the source. The fields are split
+    on whitespace and so carry the punctuation that sat against them, while the
+    same words in the source may be separated by a colon, comma or dash. Reading
+    both sides as bare words is what lets "Temporary Work: Work considered ..."
+    be recognised as writing "work" twice.
+    """
+
+    return re.findall(r"[\w']+", text.casefold())
+
+
+def _source_says_it_twice(source_words: Sequence[str], run: Sequence[str]) -> bool:
+    """Whether the source itself writes `run` twice in immediate succession.
+
+    This is the whole of the distinction between a stutter and a quotation. A
+    repetition that is also in the source is the document's own words and must
+    survive; a repetition that exists only in the composed string was added by
+    the join. No pattern over the composed text can tell those apart — the two
+    are identical as strings — so the question is only ever answerable by going
+    back to what the document said.
+    """
+
+    words = _bare_words(" ".join(run))
+    return bool(words) and _contains_run(source_words, words * 2)
+
+
+def _join_without_repeat(parts: Iterable[str], source_text: str) -> str:
     """Join phrases into one line without saying the same words twice running.
 
     The decomposition writes one sentence across four fields, and the fields are
@@ -1282,10 +1310,20 @@ def _join_without_repeat(parts: Iterable[str]) -> str:
     as repeated when the same word really was written twice. Substring matching
     would fuse unrelated fields whenever one happened to spell the other.
 
+    Neither rule fires against the source's own repetition. A definition writes
+    the defined term and then opens the definition with it — "Temporary Work:
+    Work considered by its nature to end within a limited period." — and the
+    subject and object are then two spans that genuinely abut on a shared word.
+    Eliding it would say the document repeated itself when it did not, fuse a
+    term into its own definition, and put a title in front of a reviewer that
+    the document does not contain. So before any run is removed, the source is
+    asked whether it writes that run twice; if it does, the run stays.
+
     Nothing is reordered and no word the source wrote is invented: the result is
     always a subsequence of the parts as given.
     """
 
+    source_words = _bare_words(source_text)
     line: list[str] = []
     folded: list[str] = []
     previous: list[str] = []
@@ -1294,9 +1332,11 @@ def _join_without_repeat(parts: Iterable[str]) -> str:
         if not words:
             continue
         lowered = [word.casefold() for word in words]
-        if _contains_run(previous, lowered):
+        if _contains_run(previous, lowered) and not _source_says_it_twice(source_words, lowered):
             continue
         shared = _join_overlap(folded, lowered)
+        if shared and _source_says_it_twice(source_words, lowered[:shared]):
+            shared = 0
         line.extend(words[shared:])
         folded.extend(lowered[shared:])
         previous = lowered
@@ -1319,7 +1359,7 @@ def _title_for(policy: CanonicalPolicy) -> str:
             parts = [p for p in (rule.subject, merged, rule.object) if p]
         else:
             parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
-    text = _join_without_repeat(parts) if parts else policy.source_text
+    text = _join_without_repeat(parts, policy.source_text) if parts else policy.source_text
     text = " ".join(text.split())
     return (text[:197] + "...") if len(text) > 200 else (text or "Untitled formulated rule")
 

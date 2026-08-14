@@ -14,6 +14,28 @@ composition stayed broken for every sentence nobody read. What is tested is the
 *shape*: overlapping spans, enumerated over a generated vocabulary, with the
 verdict being "does any composed title repeat a run of words immediately".
 
+CONTROLS. A guard that contains only offenders cannot tell you when it has
+started over-reaching, and this one did. Removing a repeat is a destructive
+edit, and some repeats are the document's own words: a definition writes the
+defined term and then opens the definition with it —
+
+    source="Temporary Work: Work considered by its nature to end ..."
+    subject="Temporary Work"   predicate=":"   object="Work considered ..."
+        -> "Temporary Work Work considered by its nature to end ..."
+
+— where "Work Work" is what the document says. Eliding it fuses a term into its
+own definition and puts a title in front of a reviewer that the source does not
+contain, which is a worse defect than the stutter it was cleaning up. So this
+file carries controls as well as offenders: titles that legitimately repeat and
+must survive, asserted by exact text. `test_named_offender_shapes_compose_cleanly`
+and `test_source_attested_repetition_survives` are two halves of one property
+and neither is meaningful alone.
+
+The distinction is not available from the composed string. "Smoking is not
+allowed is not allowed" and "Temporary Work Work considered ..." are the same
+shape; only the source tells them apart. Any check here that reasons about the
+title alone is therefore testing the wrong object.
+
 FLOOR PLACEMENT. The verdict here is an offender list, so the volume floor goes
 LAST. A generator that produced nothing would yield an empty offender list and
 pass vacuously, which makes the floor the only thing left to catch it — but a
@@ -21,6 +43,10 @@ floor asserted first would shadow a real offender, and the fails-before proof
 would then record a count failure as if it were the defect. (The opposite rule
 applies when a verdict is a set difference against what a scan found: there a
 blind scan accuses every item rather than none, so the floor must come first.)
+
+The control table is parametrised, and an empty parametrise list is collected
+without complaint, so it has a floor of its own in
+`test_the_control_table_is_not_empty`.
 
 The detector is itself checked, in both directions, by
 `test_the_detector_still_sees_a_repeat_and_does_not_imagine_one`.
@@ -77,10 +103,10 @@ def _repeated_run(text: str) -> str | None:
     return longest
 
 
-def _title(subject: str, modality: str, predicate: str, obj: str) -> str:
+def _title(subject: str, modality: str, predicate: str, obj: str, source: str) -> str:
     return _title_for(
         CanonicalPolicy(
-            source_text="(source sentence)",
+            source_text=source,
             rule=CanonicalPolicyRule(
                 rule_type=CanonicalRuleType.OBLIGATION,
                 subject=subject or None,
@@ -92,7 +118,7 @@ def _title(subject: str, modality: str, predicate: str, obj: str) -> str:
     )
 
 
-def _overlapping_decompositions() -> list[tuple[str, str, str, str]]:
+def _overlapping_decompositions() -> list[tuple[str, str, str, str, str]]:
     """Every way four spans of one sentence can overlap at their joins.
 
     Built by walking a window over a token sequence: the modality is a run, the
@@ -101,12 +127,19 @@ def _overlapping_decompositions() -> list[tuple[str, str, str, str]]:
     subject may close with the modality's opening words (the sentence's head
     repeated into the subject). No case names a document, a language or a
     grammatical construction.
+
+    The sentence those spans are cut from is returned with them. It says each
+    token once, which is the situation these shapes describe: the repetition is
+    in the composition and nowhere else. Passing a placeholder here instead
+    would let the composer's source check pass by never matching anything, and
+    the enumeration would then prove nothing about the code that actually runs.
     """
 
-    cases: list[tuple[str, str, str, str]] = []
+    cases: list[tuple[str, str, str, str, str]] = []
     for modality_len in range(1, 5):
         modality = _TOKENS[:modality_len]
         tail_tokens = _TOKENS[modality_len : modality_len + 2]
+        sentence = " ".join(("subj",) + tuple(modality) + tuple(tail_tokens))
         for predicate_start in range(0, modality_len):
             for predicate_len in range(1, modality_len - predicate_start + 1):
                 predicate = modality[predicate_start : predicate_start + predicate_len]
@@ -120,6 +153,7 @@ def _overlapping_decompositions() -> list[tuple[str, str, str, str]]:
                                 " ".join(modality),
                                 " ".join(predicate),
                                 " ".join(obj),
+                                sentence,
                             )
                         )
     return cases
@@ -145,9 +179,9 @@ def test_a_composed_title_never_says_the_same_words_twice_running() -> None:
 
     offenders: list[str] = []
     examined = 0
-    for subject, modality, predicate, obj in _overlapping_decompositions():
+    for subject, modality, predicate, obj, source in _overlapping_decompositions():
         examined += 1
-        title = _title(subject, modality, predicate, obj)
+        title = _title(subject, modality, predicate, obj, source)
         repeated = _repeated_run(title)
         if repeated is not None:
             offenders.append(
@@ -178,9 +212,9 @@ def test_the_title_only_ever_drops_words_it_has_already_said() -> None:
 
     offenders: list[str] = []
     examined = 0
-    for subject, modality, predicate, obj in _overlapping_decompositions():
+    for subject, modality, predicate, obj, source in _overlapping_decompositions():
         examined += 1
-        title = _title(subject, modality, predicate, obj)
+        title = _title(subject, modality, predicate, obj, source)
         available = f"{subject} {modality} {predicate} {obj}".split()
         remaining = list(available)
         for word in title.split():
@@ -200,26 +234,112 @@ def test_the_title_only_ever_drops_words_it_has_already_said() -> None:
 
 
 @pytest.mark.parametrize(
-    ("subject", "modality", "predicate", "obj"),
+    ("subject", "modality", "predicate", "obj", "source"),
     [
         # One phrase written into both verb fields, with nothing after it.
-        ("alpha", "beta gamma", "beta gamma", ""),
+        ("alpha", "beta gamma", "beta gamma", "", "alpha beta gamma"),
         # The predicate is the modality minus the word that carried the negation.
-        ("alpha", "beta gamma delta", "delta", ""),
+        ("alpha", "beta gamma delta", "delta", "", "alpha beta gamma delta"),
         # The object opens with the word the modality ended on.
-        ("alpha", "beta gamma", "beta", "gamma delta epsilon"),
+        ("alpha", "beta gamma", "beta", "gamma delta epsilon", "alpha beta gamma delta epsilon"),
         # Both at once: predicate inside the modality, object colliding with it.
-        ("alpha", "beta gamma delta", "beta gamma", "delta epsilon"),
+        ("alpha", "beta gamma delta", "beta gamma", "delta epsilon", "alpha beta gamma delta epsilon"),
+        # The object repeats the predicate outright, and the source says it once.
+        ("alpha", "beta", "gamma delta", "gamma delta", "alpha beta gamma delta"),
     ],
 )
-def test_named_overlap_shapes_compose_cleanly(
-    subject: str, modality: str, predicate: str, obj: str
+def test_named_offender_shapes_compose_cleanly(
+    subject: str, modality: str, predicate: str, obj: str, source: str
 ) -> None:
     """The distinct ways two spans can overlap, each stated once.
 
     These are shapes, not sentences: every token is meaningless, so a fix that
-    recognised particular English words would not satisfy them.
+    recognised particular English words would not satisfy them. Each source says
+    its tokens once, so every repetition below was added by the composition.
     """
 
-    title = _title(subject, modality, predicate, obj)
+    title = _title(subject, modality, predicate, obj, source)
     assert _repeated_run(title) is None, f"{title!r} repeats {_repeated_run(title)!r}"
+
+
+# Titles that repeat a run *because the source does*, with the text they must
+# produce. These are the other side of the guard above: the same shapes, the
+# same composed appearance, and the opposite correct answer — which is only
+# reachable by consulting the source. Asserted as exact strings, because the
+# property is not "does not stutter" but "says what the document says".
+_SOURCE_ATTESTED_REPETITIONS: list[tuple[str, str, str, str, str, str]] = [
+    # The shape that caught this guard over-reaching: a defined term, then a
+    # definition opening with the same word. Its own words, deliberately, so
+    # the case that was got wrong in the field is pinned in the file that got
+    # it wrong.
+    (
+        "Temporary Work",
+        "",
+        ":",
+        "Work considered by its nature to end within a limited period.",
+        "Temporary Work: Work considered by its nature to end within a limited period.",
+        "Temporary Work Work considered by its nature to end within a limited period.",
+    ),
+    # The same shape in meaningless tokens, so the rule cannot be satisfied by
+    # recognising anything about the sentence above.
+    (
+        "alpha beta",
+        "",
+        ":",
+        "beta gamma delta",
+        "alpha beta: beta gamma delta.",
+        "alpha beta beta gamma delta",
+    ),
+    # The repetition is separated in the source by punctuation the fields do
+    # not carry. Comparing raw words would miss it and the run would be cut.
+    (
+        "alpha beta",
+        "",
+        ":",
+        "beta gamma",
+        "alpha beta \u2014 beta gamma",
+        "alpha beta beta gamma",
+    ),
+    # A whole part the previous part already said, where the source also says
+    # it twice. Same fields as the last offender case above; only the source
+    # differs, and the answers are opposite.
+    (
+        "alpha",
+        "beta",
+        "gamma delta",
+        "gamma delta",
+        "alpha beta gamma delta gamma delta",
+        "alpha beta gamma delta gamma delta",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("subject", "modality", "predicate", "obj", "source", "expected"),
+    _SOURCE_ATTESTED_REPETITIONS,
+)
+def test_source_attested_repetition_survives(
+    subject: str, modality: str, predicate: str, obj: str, source: str, expected: str
+) -> None:
+    """A repetition the document wrote is the document's words, and stays.
+
+    Trimming it would fuse a term into its own definition and would put text in
+    front of a reviewer that the source does not contain. Between a title that
+    reads awkwardly and a title that misquotes, this project takes the first.
+    """
+
+    assert _title(subject, modality, predicate, obj, source) == expected
+
+
+def test_the_control_table_is_not_empty() -> None:
+    """An empty parametrise list is collected in silence and proves nothing.
+
+    The controls are the only thing standing between this file and a composer
+    that deletes repeats indiscriminately, so their disappearance has to be
+    louder than their absence would otherwise be.
+    """
+
+    assert len(_SOURCE_ATTESTED_REPETITIONS) >= 4, (
+        f"only {len(_SOURCE_ATTESTED_REPETITIONS)} control(s) left — this file is back to "
+        "testing offenders only, and can no longer detect over-reach"
+    )
