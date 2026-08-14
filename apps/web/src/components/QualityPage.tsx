@@ -34,6 +34,11 @@ import {
   type QualityRunSummary,
 } from "../api";
 import { EvaluationTargetBanner, useEvaluationTarget } from "./EvaluationTarget";
+import {
+  NO_TREND_EXPLANATION,
+  NO_TREND_LABEL,
+  trendAgainstPrior,
+} from "../qualityTrend";
 import { QualityFindingDrawer } from "./QualityFindingDrawer";
 import type { QualityRuleRecord } from "./QualityFindingDrawer";
 
@@ -471,15 +476,10 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                   // A trend is meaningful only when both runs used the same
                   // quality method. Prompt/schema upgrades change what can be
                   // discovered, so they establish a new baseline rather than
-                  // masquerading as policy improvement or regression.
-                  const prior = history
-                    .slice(idx + 1)
-                    .find(
-                      (candidate) =>
-                        candidate.scope === run.scope &&
-                        candidate.methodology_version === run.methodology_version,
-                    );
-                  const delta = prior ? run.finding_count - prior.finding_count : null;
+                  // masquerading as policy improvement or regression. The same
+                  // applies to whether a model was asked at all — see
+                  // `qualityTrend.ts` for what each disqualifier costs.
+                  const verdict = trendAgainstPrior(run, history.slice(idx + 1));
                   const isOpen = viewingRunId === run.id;
                   return (
                     <button
@@ -502,15 +502,23 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                         <Tag color="gold">{run.medium_count} med</Tag>
                         <Tag>{run.low_count} low</Tag>
                       </span>
-                      {delta === null ? (
-                        <Tag className="quality-history-delta">method baseline</Tag>
+                      {!verdict.comparable ? (
+                        <Tooltip title={NO_TREND_EXPLANATION[verdict.reason]}>
+                          <Tag className="quality-history-delta">
+                            {NO_TREND_LABEL[verdict.reason]}
+                          </Tag>
+                        </Tooltip>
                       ) : (
-                        <Tooltip title={`Previous comparable run had ${prior?.finding_count ?? 0} findings`}>
+                        <Tooltip title={`Previous comparable run had ${verdict.prior.finding_count} findings`}>
                           <Tag
                             className="quality-history-delta"
-                            color={delta < 0 ? "green" : delta > 0 ? "red" : undefined}
+                            color={
+                              verdict.delta < 0 ? "green" : verdict.delta > 0 ? "red" : undefined
+                            }
                           >
-                            {delta === 0 ? "no change" : `${delta > 0 ? "+" : ""}${delta}`}
+                            {verdict.delta === 0
+                              ? "no change"
+                              : `${verdict.delta > 0 ? "+" : ""}${verdict.delta}`}
                           </Tag>
                         </Tooltip>
                       )}
