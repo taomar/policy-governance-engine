@@ -1175,12 +1175,21 @@
 }
 
 .dashboard-priority {
-  min-height: 282px;
+  /* Was `min-height: 282px` with `justify-content: space-between` over three
+   * children, which reserved a fixed block of height and then pushed the
+   * content to its two ends. The gap in the middle was specified, not
+   * incidental: whatever the content, the panel held it apart to fill 282px.
+   *
+   * Now the height follows the content and the children stack from the top,
+   * so the panel is as tall as it has something to say. The `min-height` is
+   * kept only as a floor for the adjacent column and is well under what the
+   * content needs, so it no longer drives the layout. */
+  min-height: 0;
   padding: 20px 22px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 16px;
   background:
     linear-gradient(90deg, rgba(91, 77, 177, 0.06) 1px, transparent 1px) 0 0 / 32px 100%,
