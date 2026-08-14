@@ -57,6 +57,7 @@ from policy_platform.infrastructure.persistence.mappers import approved_policy_v
 from policy_platform.infrastructure.policy_tests.policy_test_execution import run_active_tests_for_version
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
 from policy_platform.infrastructure.persistence.review_facets import build_review_facets
+from policy_platform.infrastructure.assembly.policy_assembly import assemble
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     CandidateRuleRepository,
@@ -272,6 +273,61 @@ async def review_facets(key: str, session: AsyncSession = Depends(get_session)) 
         raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
 
     return await build_review_facets(session, policy_set)
+
+
+@router.get("/{key}/policies")
+async def list_policies(
+    key: str,
+    document_id: uuid.UUID | None = None,
+    document_version_id: uuid.UUID | None = None,
+    extraction_run_id: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """The review queue as policies rather than as loose rules.
+
+    A paragraph is one policy stating one or more rules. `/candidate-rules`
+    returns the rules, which is what a reviewer edits; this returns the same
+    rules arranged under the passage that stated them, which is what a reviewer
+    reads. Two calls, one population — the ids here index into the ids there,
+    so a client holding both needs no second fetch.
+
+    Derived here rather than stored, for the same reason `_with_successors` is:
+    a grouping is a fact about the set in view, and if the key turns out to
+    anchor a passage wrongly, the fix is to change the key rather than to
+    migrate every stored record.
+    """
+
+    policy_set_repo = PolicySetRepository(session)
+    policy_set = await policy_set_repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    candidate_repo = CandidateRuleRepository(session)
+    candidates = await candidate_repo.list_by_policy_set(
+        policy_set.id,
+        document_id=document_id,
+        document_version_id=document_version_id,
+        extraction_run_id=extraction_run_id,
+    )
+    policies = assemble([CanonicalRule.model_validate(c.payload_json) for c in candidates])
+    return [
+        {
+            "key": policy.key,
+            "source_elements": policy.source_elements,
+            "page": policy.page,
+            "rule_count": policy.rule_count,
+            "route": policy.route,
+            "rules": [
+                {
+                    "rule_id": rule.rule_id,
+                    "title": rule.title,
+                    "evaluation_mode": rule.evaluation_mode.value,
+                }
+                for rule in policy.rules
+            ],
+        }
+        for policy in policies
+    ]
 
 
 @router.get("/{key}/candidate-rules/export")
