@@ -438,6 +438,20 @@ _QUARANTINE: dict[str, str] = {
     "contracts/policy_document_graph.py::validate_candidates": "contract helper, no caller",
     "contracts/policy_document_graph.py::edge_labels": "contract helper, no caller",
     "contracts/reading_plan.py::find_cross_references": "contract helper, no caller",
+    # --- Added after this guard was written, which the docstring above says
+    # --- should not happen. Recorded as debt rather than disguised as tooling.
+    #
+    # The consolidation pass decides which records are redundant copies. It is
+    # invoked from `scripts/consolidate_duplicates.py`, which writes only when
+    # asked with `--apply` and can be reversed with `--undo`. Wiring it into
+    # extraction was deliberately not done in the same change: extraction runs
+    # are the measurement baselines this work is judged against, and a pass
+    # that removes records would alter a baseline while it was being recorded.
+    #
+    # This entry is removed by giving it a production caller, and the entry
+    # cannot be forgotten: `test_every_quarantine_entry_is_earned` fails the
+    # moment one exists.
+    "infrastructure/consolidation/duplicate_records.py::repeated_records": "consolidation pass entry point; run from tooling pending a decision to apply it during extraction",
 }
 
 
