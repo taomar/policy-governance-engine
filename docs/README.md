@@ -40,4 +40,19 @@ Start with the [User guide](user-guide.md) to see the product, or
 - [Frameworks](frameworks.md) — the technologies actually used
 - [Microsoft services](microsoft-technologies.md)
 - [Standards research](policy-standards-research.md) — the full survey, including what was evaluated and rejected
-- [Ingestion specifications](specs/) — Docling integration, PDF ingestion, verbatim passage extraction
+- [Ingestion specifications](specs/) — Docling integration and PDF ingestion
+
+## Failure reports
+
+Written after the fact, from the running system. These are records of what went
+wrong and why, not descriptions of how the platform works now — read them for
+the reasoning, and read the pages above for current behaviour.
+
+| Report | What it covers |
+|---|---|
+| [Index and current state](failures/README.md) | The corpus figures, and the two numbers that look contradictory and are both true |
+| [Designed pipeline and running pipeline](failures/designed-pipeline-and-running-pipeline.md) | Nine designed extraction stages, two reached, and why ten dead subsystems are one fact |
+| [Validators that could not fail](failures/validators-that-could-not-fail.md) | Four checks that shipped reporting success while structurally unable to report anything else |
+| [Duplicate detection](failures/duplicate-detection.md) | Three attempts at one check; the first merged two real rules, the second hid two real duplicates |
+| [Display overclaims](failures/display-overclaims.md) | Where the interface stated something the data did not |
+| [Execution and linkage](failures/execution-and-linkage.md) | Which linkage and evaluation blockers are fixable here and which need a customer's data model |

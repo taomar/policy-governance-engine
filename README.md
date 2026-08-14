@@ -227,6 +227,7 @@ See [Known limitations](docs/known-limitations.md) and the
 | [Testing](docs/testing.md) | Commands and coverage boundaries |
 | [Azure deployment](docs/azure-deployment.md) | Pending Container Apps deployment |
 | [Data model](docs/data-model.md) | Tables and lifecycle invariants |
+| [Failure reports](docs/failures/README.md) | What went wrong, measured from the running system, and what generalises |
 
 Ingestion specifications and the full standards survey remain under `docs/` as
 technical reference.
