@@ -79,6 +79,19 @@ _TARGETABLE = frozenset(
     {"paragraph", "list_item", "table_cell", "table_row", "other", "formula", "code"}
 )
 
+#: Characters of target text one unit may carry before a provision has to be
+#: read in pieces. A resource bound, and named as one: it says what fits, not
+#: what belongs together. The two were previously the same knob -- a count of
+#: four targets -- which meant a limit on the model's attention was silently
+#: deciding where a policy ended.
+#:
+#: Matched to `ai_extraction._MAX_CHARS_PER_BATCH`, which is sized against the
+#: prompt overhead and the response ceiling. Context elements are excluded from
+#: the measure for the same reason they are excluded from evidence: they are
+#: pulled in to interpret the targets, and their volume is a property of the
+#: document's structure rather than of this provision's size.
+_MAX_CHARS_PER_UNIT = 4000
+
 #: "Section 4.2", "clause 7", "paragraph 3.1(a)". Deliberately requires an
 #: explicit keyword: bare numbers appear constantly in policy text ("within 5
 #: days"), and treating them as references would pull unrelated material in.
@@ -133,37 +146,79 @@ class ContextUnit:
 
 
 @dataclass
+class DividedProvision:
+    """A provision that did not fit one unit and had to be read in pieces.
+
+    Recorded rather than silently accepted. A provision is the semantic unit --
+    a heading and the material it governs -- and dividing one means the model
+    reads a rule without part of what qualifies it. That is sometimes
+    unavoidable, because a context window is finite, but it is never
+    unremarkable, and an extraction that did it should say so.
+
+    ``characters`` is what forced the division, so a reader can tell a genuinely
+    enormous provision from a budget that was set too low. ``heading_path``
+    carries heading *text*, matching `ContextUnit.heading_path` rather than the
+    element ids `StructuralGraph.heading_path` returns -- the same field name in
+    the same module meaning two different things is a trap worth not setting.
+    """
+
+    heading_path: list[str]
+    element_ids: list[str]
+    characters: int
+    unit_count: int
+
+@dataclass
 class ReadingPlan:
     """The complete set of context units for one document.
 
     A plan is only useful if it is exhaustive: a unit-based reading that quietly
     omits a paragraph has the same effect as a parser that never extracted it.
     ``uncovered_target_ids`` makes that checkable rather than assumed.
+
+    ``divided_provisions`` is the same kind of claim about a different failure.
+    Exhaustiveness asks whether every element was read; this asks whether every
+    provision was read whole. A plan can be perfectly exhaustive and still have
+    cut a provision in half.
     """
 
     document_id: str
     units: list[ContextUnit] = field(default_factory=list)
     uncovered_target_ids: list[str] = field(default_factory=list)
+    divided_provisions: list[DividedProvision] = field(default_factory=list)
 
     @property
     def is_exhaustive(self) -> bool:
         return not self.uncovered_target_ids
+
+    @property
+    def reads_every_provision_whole(self) -> bool:
+        return not self.divided_provisions
 
 
 def build_reading_plan(
     document: CanonicalDocument,
     graph: StructuralGraph,
     *,
-    max_targets_per_unit: int = 4,
+    max_targets_per_unit: int | None = None,
+    max_chars_per_unit: int = _MAX_CHARS_PER_UNIT,
 ) -> ReadingPlan:
     """Group a document into graph-aware context units.
 
     Units are formed within a section, never across one: a section boundary is
     the document's own statement that the subject changed, and it is the only
-    boundary that is meaningful rather than arbitrary. ``max_targets_per_unit``
-    bounds unit size for models with limited context, and splits only *within* a
-    section so the bound never silently reintroduces the arbitrary cut this
-    module exists to remove.
+    boundary that is meaningful rather than arbitrary.
+
+    A provision is not divided because it is long. It is divided only when it
+    does not fit ``max_chars_per_unit``, and every division is recorded in
+    ``divided_provisions``. The distinction matters: the previous bound was a
+    count of targets, which measures nothing about whether a provision fits. Of
+    106 provisions it divided across the documents held here, 101 fitted the
+    character budget comfortably -- they were cut for no resource reason at all.
+    A count is not a capacity.
+
+    ``max_targets_per_unit`` overrides that with a hard count cap. It exists for
+    callers that need small units deliberately, and reports its divisions the
+    same way, so choosing it never makes the cutting invisible.
     """
 
     by_id = {element.element_id: element for element in document.elements}
@@ -172,9 +227,21 @@ def build_reading_plan(
 
     units: list[ContextUnit] = []
     covered: set[str] = set()
+    divided: list[DividedProvision] = []
 
     for group in _group_by_section(document, graph):
-        for chunk in _chunk(group, max_targets_per_unit):
+        pieces = _divide_provision(group, by_id, max_targets_per_unit, max_chars_per_unit)
+        if len(pieces) > 1:
+            heading_ids = graph.heading_path(group[0])
+            divided.append(
+                DividedProvision(
+                    heading_path=[by_id[h].text for h in heading_ids if h in by_id],
+                    element_ids=list(group),
+                    characters=_characters(group, by_id),
+                    unit_count=len(pieces),
+                )
+            )
+        for chunk in pieces:
             unit = _build_unit(
                 targets=chunk,
                 document=document,
@@ -192,6 +259,7 @@ def build_reading_plan(
         document_id=document.document_id,
         units=units,
         uncovered_target_ids=[eid for eid in targetable if eid not in covered],
+        divided_provisions=divided,
     )
 
 
@@ -227,8 +295,47 @@ def _group_by_section(
     return [g for g in groups if g]
 
 
-def _chunk(items: list[str], size: int) -> list[list[str]]:
-    return [items[i : i + size] for i in range(0, len(items), size)] or [[]]
+def _characters(element_ids: list[str], by_id: dict[str, CanonicalElement]) -> int:
+    return sum(len(by_id[eid].text) for eid in element_ids if eid in by_id)
+
+
+def _divide_provision(
+    items: list[str],
+    by_id: dict[str, CanonicalElement],
+    max_targets: int | None,
+    max_chars: int,
+) -> list[list[str]]:
+    """Return the pieces a provision must be read in -- one, unless it cannot be.
+
+    The default answer is `[items]`. A provision is the unit the document itself
+    defines, and nothing about its length makes it less of one.
+
+    When it genuinely will not fit, elements are packed in document order rather
+    than balanced across pieces, because reading order is what makes policy text
+    interpretable: an exception follows the rule it modifies, and a division
+    that reorders material to make the pieces even sizes breaks that for no
+    gain. An element longer than the whole budget is placed alone -- there is no
+    smaller unit to fall back to, and silently dropping it would be worse than
+    a unit that overruns.
+    """
+
+    if not items:
+        return [[]]
+    if max_targets is not None:
+        return [items[i : i + max_targets] for i in range(0, len(items), max_targets)]
+    if _characters(items, by_id) <= max_chars:
+        return [items]
+
+    pieces: list[list[str]] = [[]]
+    used = 0
+    for element_id in items:
+        size = len(by_id[element_id].text) if element_id in by_id else 0
+        if pieces[-1] and used + size > max_chars:
+            pieces.append([])
+            used = 0
+        pieces[-1].append(element_id)
+        used += size
+    return pieces
 
 
 def _definition_index(document: CanonicalDocument) -> dict[str, str]:

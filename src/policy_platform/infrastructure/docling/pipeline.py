@@ -204,6 +204,19 @@ def run_extraction(
         if not plan.is_exhaustive:
             record.status = "failed"
             record.detail += f", {len(plan.uncovered_target_ids)} uncovered"
+        if plan.divided_provisions:
+            # Reported, not failed. A provision too large for one unit is a
+            # property of the document meeting a finite context window, not a
+            # fault in the run -- the extraction is still worth having. What it
+            # must not do is happen quietly, because a rule read apart from its
+            # own qualifying text is exactly the failure this stage removes, and
+            # this is the one case where the stage cannot remove it.
+            largest = max(plan.divided_provisions, key=lambda d: d.characters)
+            record.detail += (
+                f", {len(plan.divided_provisions)} provision(s) divided"
+                f" (largest {largest.characters} chars"
+                f" across {largest.unit_count} units)"
+            )
 
     graph_run: GraphRunArtifact | None = None
     pointers: list[EvidencePointer] = []

@@ -17,6 +17,15 @@ Not `group_label`: that is a topical cluster the model names, so it can put two
 paragraphs together because they are both about leave. This has to answer a
 narrower question -- did these rules come from the same passage -- and only
 provenance can answer it.
+
+The boundary of the idea, worth stating so nobody later expects more of it:
+
+    Grouping makes a bad slice legible; it doesn't make it a good slice.
+
+Duplicates that read as four unrelated policies become visibly two-plus-two once
+grouped -- which is assembly doing its job. It does not repair the slice; it
+stops the slice from hiding. Repairing it belongs upstream, in how the document
+is segmented and how rules are formulated.
 """
 
 from __future__ import annotations
