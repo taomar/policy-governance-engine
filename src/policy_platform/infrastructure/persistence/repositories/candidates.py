@@ -176,25 +176,44 @@ class ExtractionRunRepository:
         return run
 
     async def mark_completed(
-        self, run: ExtractionRun, *, coverage_complete: bool = True
+        self,
+        run: ExtractionRun,
+        *,
+        coverage_complete: bool = True,
+        skipped: list[dict] | None = None,
     ) -> ExtractionRun:
         """Close a run that reached the end of its work.
 
-        ``coverage_complete`` is False when the run passed over material it was
-        handed — a batch that errored, a passage that could not be formulated.
-        That run finished, but it did not read the whole document, and it is
-        recorded under a status that says so.
+        ``skipped`` is the run's record of what it passed over, stored here
+        because this is the moment coverage is decided and because the list had
+        previously survived only as far as the HTTP response. A reviewer asking
+        what a run declined to extract needs somewhere to look; ``None`` leaves
+        the column NULL, meaning no record was kept rather than nothing was
+        skipped.
+
+        ``coverage_complete`` is False when the run never read material it was
+        handed — a batch that errored out before the extractor saw it. That run
+        finished, but it did not read the whole document, and it is recorded
+        under a status that says so.
+
+        It is deliberately *not* set for material the run read and declined. A
+        sentence judged non-normative, or a passage discarded for not quoting
+        its source, is a recall question and belongs in the skip list; the
+        document was still covered. Deriving this flag from the bare skip count
+        conflated the two and marked a clean 45-page run partial on the strength
+        of ten boilerplate sentences — which, by the paragraph below, then
+        disqualified it as a delta baseline.
 
         This distinction is load-bearing, not cosmetic. ``status == "completed"``
         is the test for "trustworthy enough to diff against" when a later run
         picks its baseline, and the comment at that query says a partial run must
         not be chosen because "comparing against that partial set would report
-        every rule it never reached as brand new". A run that skipped material is
-        partial in exactly that sense, so folding it in with the whole readings
-        makes the delta lie in both directions: rules the baseline never reached
-        surface as new, and rules the current run never reached surface as "no
-        longer found" — a claim about the document made on the strength of how
-        much of it we managed to read.
+        every rule it never reached as brand new". A run that never read part of
+        the document is partial in exactly that sense, so folding it in with the
+        whole readings makes the delta lie in both directions: rules the baseline
+        never reached surface as new, and rules the current run never reached
+        surface as "no longer found" — a claim about the document made on the
+        strength of how much of it we managed to read.
 
         The shortfall is in the extraction, never in the policy: material passed
         over is material this system did not read, not material the document
@@ -202,6 +221,8 @@ class ExtractionRunRepository:
         """
         run.status = RUN_COMPLETED if coverage_complete else RUN_COMPLETED_WITH_GAPS
         run.completed_at = datetime.now(timezone.utc)
+        if skipped is not None:
+            run.skipped_json = skipped
         await self._session.flush()
         return run
 

@@ -12,6 +12,7 @@ rather than silently no-op'ing, so the frontend can show a clear
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,6 +32,11 @@ from policy_platform.infrastructure.assistants import ai_scenario_engine
 from policy_platform.infrastructure.assistants import ai_summary
 from policy_platform.infrastructure.correlation import correlation_service
 from policy_platform.infrastructure.extraction import extraction_progress
+from policy_platform.infrastructure.extraction.formulation_mapping import (
+    SKIP_BATCH_UNREAD,
+    SKIP_DISCARDED,
+    SKIP_NOT_EXTRACTED,
+)
 from policy_platform.infrastructure.assistants import rule_change_explainer
 from policy_platform.domain.models import (
     CandidateRule,
@@ -191,6 +197,27 @@ async def extraction_progress_status(document_version_id: uuid.UUID) -> dict:
     return {"active": True, **record}
 
 
+def _run_coverage(run: ExtractionRun) -> dict | None:
+    """What this run passed over, split by whether the document was read.
+
+    Returns None when the run kept no record — every run predating the
+    `skipped_json` column. That is not the same as a run that skipped nothing,
+    and reporting zeroes for it would invent a coverage claim nobody made.
+    """
+    skipped = run.skipped_json
+    if skipped is None:
+        return None
+    by_kind = Counter(s.get("kind") or SKIP_BATCH_UNREAD for s in skipped)
+    unread = by_kind.get(SKIP_BATCH_UNREAD, 0)
+    return {
+        "complete": unread == 0,
+        "batches_unread": unread,
+        "passages_discarded": by_kind.get(SKIP_DISCARDED, 0),
+        "read_not_extracted": by_kind.get(SKIP_NOT_EXTRACTED, 0),
+        "skipped": skipped,
+    }
+
+
 @router.get("/documents/{document_version_id}/extraction-runs")
 async def list_extraction_runs(
     document_version_id: uuid.UUID, session: AsyncSession = Depends(get_session)
@@ -201,6 +228,15 @@ async def list_extraction_runs(
     and what re-running would do. Counts are derived from `candidate_rules`
     rather than stored on the run, so they stay true as rules are reviewed —
     a stored count would drift the moment somebody approved something.
+
+    `coverage` is here because this list is the only place a reviewer is told
+    how much of the document a run accounts for, and until now it said only how
+    much came out. A run reports `rules_total: 411` whether it read every page
+    or lost three, and material it declined to extract left no trace at all. The
+    two are separated: `batches_unread` is document the run never read;
+    `read_not_extracted` is sentences it read and judged to carry no rule. Only
+    the first is a coverage gap, but the second is where recall goes quietly,
+    so `skipped` carries the entries themselves rather than just a count.
     """
     runs = (
         await session.execute(
@@ -246,6 +282,7 @@ async def list_extraction_runs(
             "deployment_name": run.deployment_name,
             "rules_total": counts.get(run.id, 0),
             "rules_reviewed": reviewed.get(run.id, 0),
+            "coverage": _run_coverage(run),
             # The newest run that produced anything is the one whose rules are
             # actually in the queue; older runs' unreviewed rules were cleared.
             "is_current": run.id == next((r.id for r in runs if counts.get(r.id, 0) > 0), None),

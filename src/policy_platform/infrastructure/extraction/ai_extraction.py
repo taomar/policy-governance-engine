@@ -60,7 +60,13 @@ from policy_platform.domain.models import (
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.extraction import extraction_progress
 from policy_platform.infrastructure.projection import rule_delta
-from policy_platform.infrastructure.extraction.formulation_mapping import formulation_to_candidate_rules
+from policy_platform.infrastructure.extraction.formulation_mapping import (
+    SKIP_BATCH_UNREAD,
+    SKIP_DISCARDED,
+    SKIP_NOT_EXTRACTED,
+    formulation_to_candidate_rules,
+    skip_breaks_coverage,
+)
 from policy_platform.infrastructure.ingestion import source_structure
 from policy_platform.infrastructure.extraction.continuation_adjudicator import (
     ClauseWindow,
@@ -520,7 +526,16 @@ async def extract_candidate_rules(
     candidate rows exist. `None` (the default) processes every clause, exactly
     as before this parameter existed.
 
-    Returns a summary dict: {extraction_run_id, created: [candidate ids], skipped: [{item, reason}]}.
+    Returns a summary dict: {extraction_run_id, created: [candidate ids],
+    skipped: [{item, reason, kind}], coverage: {...}, superseded, delta}.
+
+    `skipped` mixes two unrelated events and `kind` is what tells them apart:
+    `batch_unread` means content was never read and the document is not
+    covered; `discarded` and `not_extracted` mean it was read and something was
+    decided about it. `coverage` reports that split directly, because
+    `status="completed"` says only that the run finished — never that it read
+    the whole document.
+
     Raises ValueError for not-found policy set/document/clauses (caller maps to HTTP 404/409).
     """
 
@@ -650,7 +665,11 @@ async def extract_candidate_rules(
                 )
             except PassageExtractionError as exc:
                 skipped.append(
-                    {"item": batch_ref, "reason": f"passage extractor failed for this batch: {exc}"}
+                    {
+                        "item": batch_ref,
+                        "reason": f"passage extractor failed for this batch: {exc}",
+                        "kind": SKIP_BATCH_UNREAD,
+                    }
                 )
                 extraction_progress.advance(progress_key, skipped=1)
                 continue
@@ -660,6 +679,7 @@ async def extract_candidate_rules(
                     {
                         "item": bad.source.clause_ref or batch_ref,
                         "reason": "passage discarded: not a verbatim substring of the source",
+                        "kind": SKIP_DISCARDED,
                     }
                 )
             extraction_progress.advance(progress_key, skipped=len(fabricated))
@@ -721,6 +741,7 @@ async def extract_candidate_rules(
                     {
                         "item": batch_ref,
                         "reason": f"formulator agent failed for this batch: {exc}",
+                        "kind": SKIP_BATCH_UNREAD,
                     }
                 )
                 extraction_progress.advance(progress_key, skipped=1)
@@ -1027,11 +1048,17 @@ async def extract_candidate_rules(
             delta_removed=delta_counts.get("removed", 0),
         )
 
-        # `skipped` is the ledger every skip point appends to. Deriving coverage
-        # from it here — rather than from a separate flag each site has to
-        # remember to set — means a skip point added later is counted whether or
-        # not its author thought about the run's status.
-        await run_repo.mark_completed(run, coverage_complete=not skipped)
+        # `skipped` is the ledger every skip point appends to, and its entries
+        # are not all the same kind of event. Only a batch that was never read
+        # is a coverage shortfall; a sentence read and judged non-normative is a
+        # recall fact, and counting it here announced a hole in a run that had
+        # none. Deriving from the declared kind — rather than from a separate
+        # flag each site has to remember to set — means a skip point added later
+        # is counted whether or not its author thought about the run's status,
+        # and `skip_breaks_coverage` treats an untagged skip as the alarming
+        # case rather than the harmless one.
+        unread = [s for s in skipped if skip_breaks_coverage(s)]
+        await run_repo.mark_completed(run, coverage_complete=not unread, skipped=skipped)
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
         await run_repo.mark_failed(run, error_message=str(exc))
@@ -1068,11 +1095,28 @@ async def extract_candidate_rules(
         # reading reports itself in the same words as a whole one — including
         # "no longer found", which reads as a statement about the document when
         # it is really a statement about how much of the document we reached.
-        # Say the shortfall out loud, and attribute it to this extraction.
-        summary = (
-            f"{summary} {len(skipped)} item(s) were passed over, so this run did not read the "
-            "whole document."
-        )
+        #
+        # The two kinds are said separately because they ask the reviewer for
+        # different things. An unread batch means the document was not covered
+        # and the run should be repeated. A sentence read and not extracted
+        # means coverage was complete and a judgement was made that the
+        # reviewer may want to check. Reporting them in one number told a clean
+        # run it had a hole in it, which is the fastest way to teach someone to
+        # ignore the warning.
+        unread_items = [s for s in skipped if skip_breaks_coverage(s)]
+        read_but_dropped = [s for s in skipped if not skip_breaks_coverage(s)]
+        notes = []
+        if unread_items:
+            notes.append(
+                f"{len(unread_items)} batch(es) could not be read, so this run did not "
+                "cover the whole document and should be repeated."
+            )
+        if read_but_dropped:
+            notes.append(
+                f"{len(read_but_dropped)} sentence(s) were read and not extracted; "
+                "see the skip list to check that judgement."
+            )
+        summary = " ".join([summary, *notes])
     # The durable status on the run carries this distinction (see
     # ExtractionRunRepository.mark_completed). The in-flight progress record
     # cannot: its status is typed as "running" | "completed" | "failed" in
@@ -1084,6 +1128,17 @@ async def extract_candidate_rules(
         "extraction_run_id": str(run.id),
         "created": created_ids,
         "skipped": skipped,
+        # Coverage as a fact, not as something a caller has to derive by
+        # grepping reason strings. `status="completed"` answers "did the run
+        # finish"; it has never answered "did the run read the document", and
+        # reading it as though it did is what let a run that lost batches look
+        # identical to one that lost nothing.
+        "coverage": {
+            "complete": not [s for s in skipped if skip_breaks_coverage(s)],
+            "batches_unread": len([s for s in skipped if s.get("kind") == SKIP_BATCH_UNREAD]),
+            "passages_discarded": len([s for s in skipped if s.get("kind") == SKIP_DISCARDED]),
+            "read_not_extracted": len([s for s in skipped if s.get("kind") == SKIP_NOT_EXTRACTED]),
+        },
         "superseded": superseded,
         "delta": delta_counts,
     }

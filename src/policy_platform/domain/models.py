@@ -234,6 +234,17 @@ class ExtractionRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skipped_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    """What this run passed over: [{item, reason, kind}].
+
+    Kept because a coverage review asks what was *not* extracted, and that
+    question had no answer once the extraction response was gone. `kind`
+    separates material never read from material read and declined; the two are
+    different facts about the document and only the first is a coverage gap.
+
+    NULL means no record was kept, which is weaker than an empty list. An empty
+    list asserts the run skipped nothing.
+    """
 
     candidate_rules: Mapped[list["CandidateRule"]] = relationship(
         back_populates="extraction_run",

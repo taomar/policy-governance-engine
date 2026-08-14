@@ -126,6 +126,43 @@ def _coverage_expression(tree: ast.Module) -> ast.expr:
     )
 
 
+def _assignments(tree: ast.Module) -> dict[str, set[str]]:
+    """For each assigned name, the names its value was built from."""
+    sources: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)}
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                sources.setdefault(target.id, set()).update(names)
+    return sources
+
+
+def _coverage_ledgers(tree: ast.Module) -> set[str]:
+    """Every name the coverage signal is built from, following derivations.
+
+    Resolved transitively rather than one hop, because the signal is legitimately
+    derived: coverage is not "were there skips" but "were any of them the kind
+    that means we never read the material", so the expression names a filtered
+    list and that list names the ledger. A one-hop reading calls that
+    indirection a broken derivation.
+
+    Following assignments makes this guard strictly harder to defeat, not
+    easier. A coverage signal laundered through any number of intermediate
+    variables still has to bottom out in the list the skip points append to, and
+    a signal that does not — a flag set by hand, a counter kept separately —
+    still fails, because nothing in its chain is ever appended to.
+    """
+    names = {n.id for n in ast.walk(_coverage_expression(tree)) if isinstance(n, ast.Name)}
+    sources = _assignments(tree)
+    seen: set[str] = set()
+    while names - seen:
+        seen |= names
+        names = names | {source for name in seen for source in sources.get(name, set())}
+    return seen
+
+
 # --------------------------------------------------------------------------
 # The distinction itself
 # --------------------------------------------------------------------------
@@ -172,8 +209,7 @@ def test_coverage_is_assumed_whole_only_when_stated() -> None:
 
 
 def test_completion_derives_coverage_from_the_skip_ledger(extraction_module: ast.Module) -> None:
-    expression = _coverage_expression(extraction_module)
-    referenced = {n.id for n in ast.walk(expression) if isinstance(n, ast.Name)}
+    referenced = _coverage_ledgers(extraction_module)
     assert referenced, (
         "coverage_complete is a constant expression. It has to be derived from the "
         "skips actually recorded, or it states the same thing on every run."
@@ -196,8 +232,7 @@ def test_the_skip_ledger_is_also_reported_to_the_caller(extraction_module: ast.M
     reported `skipped` list says something else.
     """
     call = _completion_call(extraction_module)
-    expression = _coverage_expression(extraction_module)
-    referenced = {n.id for n in ast.walk(expression) if isinstance(n, ast.Name)}
+    referenced = _coverage_ledgers(extraction_module)
     assert call is not None
 
     returned: set[str] = set()
@@ -236,7 +271,7 @@ def test_the_reader_is_told_when_a_reading_was_partial(extraction_module: ast.Mo
     distinction for the person watching the run.
     """
     expression = _coverage_expression(extraction_module)
-    ledgers = {n.id for n in ast.walk(expression) if isinstance(n, ast.Name)}
+    ledgers = _coverage_ledgers(extraction_module)
 
     finishes = [
         node
