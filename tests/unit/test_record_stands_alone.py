@@ -273,6 +273,32 @@ _OBLIGATION_TWO = _core(
     subject="the reviewer", modality="must", predicate="approve", object="the renewal form"
 )
 
+# A ladder: one obligation whose outcome is selected by the occasion. Each
+# fragment states which case it covers, so a reader can tell them apart and
+# decide each on its own. The source states it this way; the extraction did not
+# invent the shape.
+_LADDER_SENTENCE = (
+    "A breach draws a warning on the first occasion and suspension on the second."
+)
+_LADDER_RUNG_ONE = _core(
+    subject="a breach",
+    predicate="draws",
+    object="a warning",
+    condition="the first occasion",
+)
+_LADDER_RUNG_TWO = _core(
+    subject="a breach",
+    predicate="draws",
+    object="suspension",
+    condition="the second occasion",
+)
+
+# The same shape with the selector missing. Nothing says which outcome applies,
+# so the records are indistinguishable as stored.
+_UNSELECTED_SENTENCE = "A breach draws a warning and suspension."
+_UNSELECTED_ONE = _core(subject="a breach", predicate="draws", object="a warning")
+_UNSELECTED_TWO = _core(subject="a breach", predicate="draws", object="suspension")
+
 
 def _members(*pairs) -> list[FamilyMember]:
     return [
@@ -328,6 +354,58 @@ class TestOneDecisionPerRecord:
             )
             == []
         )
+
+
+class TestAnOutcomeSelectedByItsOccasionIsOneDecision:
+    """A ladder is the source's own shape, not a split of it.
+
+    Where the fragments differ in the outcome *and* in the circumstance that
+    selects it, each one says which case it covers. A reader can tell them
+    apart and decide each alone, so nothing was cut apart and there is nothing
+    to report. Reporting it would send a reviewer to undo the document.
+    """
+
+    def test_a_ladder_is_not_reported(self) -> None:
+        assert (
+            decision_families(
+                _members(
+                    ("R-ONE", _LADDER_SENTENCE, _LADDER_RUNG_ONE),
+                    ("R-TWO", _LADDER_SENTENCE, _LADDER_RUNG_TWO),
+                )
+            )
+            == []
+        )
+
+    def test_the_same_outcomes_without_a_selector_are_still_reported(self) -> None:
+        """Remove what distinguishes the rungs and the defect is back."""
+
+        families = decision_families(
+            _members(
+                ("R-ONE", _UNSELECTED_SENTENCE, _UNSELECTED_ONE),
+                ("R-TWO", _UNSELECTED_SENTENCE, _UNSELECTED_TWO),
+            )
+        )
+
+        assert len(families) == 1
+        assert families[0].varying == ("object",)
+
+    def test_one_outcome_over_several_occasions_is_still_reported(self) -> None:
+        """A selector alone does not excuse a split.
+
+        Same outcome, different occasions, is one obligation whose condition
+        should have carried both — the case this module was built for. Only a
+        selector that picks *between different outcomes* makes a ladder.
+        """
+
+        families = decision_families(
+            _members(
+                ("R-A", _ONE_SENTENCE, _FRAGMENT_A),
+                ("R-B", _ONE_SENTENCE, _FRAGMENT_B),
+            )
+        )
+
+        assert len(families) == 1
+        assert families[0].varying == ("temporal_constraint",)
 
 
 class TestTheSplitFindingSaysWhatWasCutApart:

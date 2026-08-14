@@ -31,8 +31,22 @@ WHAT THIS MODULE DELIBERATELY DOES NOT REPORT
 Fragments that are identical in every field are not a split — they are the same
 reading stored twice, which `_duplicate_extraction_findings` already reports and
 recommends a different remedy for. A family whose members share one
-decomposition is therefore left alone here. What remains is the case nothing
-else sees: one obligation, several fragments, each carrying a different piece.
+decomposition is therefore left alone here.
+
+Nor is a *ladder*: records whose outcome varies together with the case that
+selects it. "A breach draws a warning on the first occasion and suspension on
+the second" is one obligation the document states across two occasions, and a
+record per occasion is how the source states it. Each such record says which
+case it covers and what follows, so a reader can decide it alone — the whole
+requirement this module protects. Reporting a ladder would point a reviewer at
+the document rather than the extraction.
+
+The distinction is that both halves must vary. A varying outcome alone is the
+defect: several outcomes with nothing to say which applies. A varying selector
+alone is the same defect from the other side: one outcome cut across occasions
+that a single condition should have carried. What remains reported is the case
+nothing else sees: one obligation, several fragments, each carrying a piece and
+none of them saying when it is the piece that applies.
 
 NOT A MERGE
 -----------
@@ -80,6 +94,25 @@ _INSTANCE_FIELDS: tuple[str, ...] = (
     "unit",
     "currency",
 )
+
+#: Instance fields that say *which case a record covers*. They are what lets a
+#: reader hold two records of one obligation and tell which applies. Fields
+#: outside this set qualify an obligation without selecting between instances
+#: of it.
+_SELECTING_FIELDS: frozenset[str] = frozenset(
+    {
+        "trigger",
+        "condition",
+        "temporal_constraint",
+        "frequency",
+        "prerequisite",
+        "location",
+    }
+)
+
+#: The field that carries what the obligation lands on. A family varies its
+#: outcome when this differs.
+_OUTCOME_FIELD = "object"
 
 
 @dataclass(frozen=True)
@@ -160,6 +193,8 @@ def decision_families(members: Sequence[FamilyMember]) -> list[DecisionFamily]:
             # One reading stored more than once. A different defect with a
             # different remedy, and already reported.
             continue
+        if _is_a_ladder(varying):
+            continue
         families.append(
             DecisionFamily(
                 sentence=sentence,
@@ -168,6 +203,24 @@ def decision_families(members: Sequence[FamilyMember]) -> list[DecisionFamily]:
             )
         )
     return families
+
+
+def _is_a_ladder(varying: Sequence[str]) -> bool:
+    """Whether the members' outcomes are selected by the case each one covers.
+
+    Both halves are required. A varying outcome on its own is the defect this
+    module exists to report: several outcomes with nothing to say which
+    applies. A varying selector on its own is the other half of the same
+    defect: one outcome split across the occasions that should have been
+    carried together in a single condition.
+
+    Varying *together* is neither. Each record then states the case it covers
+    and the outcome that follows, which is a reader's whole requirement for
+    deciding it alone. The document states the obligation that way and the
+    extraction preserved it, so there is nothing here to send a reviewer to.
+    """
+
+    return _OUTCOME_FIELD in varying and any(name in _SELECTING_FIELDS for name in varying)
 
 
 def _varying_fields(group: Iterable[FamilyMember]) -> tuple[str, ...]:
