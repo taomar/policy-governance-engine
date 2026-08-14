@@ -7,7 +7,6 @@ import {
   type CanonicalElement,
   type CoverageDisposition,
   type CoverageResponse,
-  type ExtractionStagesResponse,
   type ReadingPlanResponse,
   type StructuralGraphResponse,
 } from "../api";
@@ -69,7 +68,6 @@ export default function ExtractionInsightDrawer({
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [plan, setPlan] = useState<ReadingPlanResponse | null>(null);
   const [structure, setStructure] = useState<StructuralGraphResponse | null>(null);
-  const [stages, setStages] = useState<ExtractionStagesResponse | null>(null);
   const [canonical, setCanonical] = useState<CanonicalDocumentElements | null>(null);
 
   const load = useCallback(async (versionId: string) => {
@@ -78,12 +76,11 @@ export default function ExtractionInsightDrawer({
     try {
       // Fetched together because the views are read as one answer: a coverage
       // number without the text it describes is not actionable.
-      const [coverageResult, planResult, structureResult, stagesResult, canonicalResult] =
+      const [coverageResult, planResult, structureResult, canonicalResult] =
         await Promise.all([
           extractionApi.getCoverage(versionId),
           extractionApi.getReadingPlan(versionId),
           extractionApi.getStructure(versionId),
-          extractionApi.getStages(versionId),
           // Every element, however many windows that takes. Asking for one
           // window and showing it as the document is what hid the last two
           // pages of a 27-page handbook — including its disciplinary schedule
@@ -93,7 +90,6 @@ export default function ExtractionInsightDrawer({
       setCoverage(coverageResult);
       setPlan(planResult);
       setStructure(structureResult);
-      setStages(stagesResult);
       setCanonical(canonicalResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load extraction detail");
@@ -160,35 +156,6 @@ export default function ExtractionInsightDrawer({
         ),
     },
     { title: "Why", dataIndex: "reason" },
-  ];
-
-  const stageColumns: ColumnsType<ExtractionStagesResponse["stages"][number]> = [
-    { title: "Stage", dataIndex: "stage_name", width: 240 },
-    {
-      title: "Status",
-      dataIndex: "status",
-      width: 110,
-      render: (value: string) => (
-        <Tag color={value === "ok" ? "green" : value === "skipped" ? "default" : "red"}>
-          {value}
-        </Tag>
-      ),
-    },
-    {
-      title: "Attempt",
-      dataIndex: "attempt",
-      width: 90,
-      // Shown because a stage that succeeded on its third attempt is a
-      // different operational story from one that succeeded first time.
-      render: (value: number) => (value > 1 ? <Tag color="orange">#{value}</Tag> : value),
-    },
-    {
-      title: "Seconds",
-      dataIndex: "duration_seconds",
-      width: 110,
-      render: (value: number | null) => (value == null ? "—" : value.toFixed(2)),
-    },
-    { title: "Detail", dataIndex: "detail" },
   ];
 
   const planColumns: ColumnsType<ReadingPlanResponse["units"][number]> = [
@@ -361,24 +328,6 @@ export default function ExtractionInsightDrawer({
                     columns={planColumns}
                     dataSource={plan?.units ?? []}
                     pagination={{ pageSize: 25 }}
-                  />
-                ),
-              },
-              {
-                key: "stages",
-                // The stages endpoint is not windowed and returns every run's
-                // stages, so the array is the whole set and its length is the
-                // authoritative count.
-                label: `Run stages (${stages?.stages.length ?? 0})`,
-                children: (stages?.stages.length ?? 0) === 0 ? (
-                  <Empty description="No recorded stages for this version" />
-                ) : (
-                  <Table
-                    size="small"
-                    rowKey={(record) => `${record.idempotency_key}-${record.stage_name}-${record.attempt}`}
-                    columns={stageColumns}
-                    dataSource={stages?.stages ?? []}
-                    pagination={false}
                   />
                 ),
               },

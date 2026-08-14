@@ -2242,23 +2242,6 @@ export interface CoverageResponse {
   elements: ElementCoverage[];
 }
 
-export interface ExtractionStageRecord {
-  idempotency_key: string;
-  stage_name: string;
-  sequence: number;
-  status: string;
-  attempt: number;
-  detail: string | null;
-  duration_seconds: number | null;
-  input_hash: string | null;
-  output_hash: string | null;
-}
-
-export interface ExtractionStagesResponse {
-  document_version_id: string;
-  stages: ExtractionStageRecord[];
-}
-
 /** Every canonical element of one version, assembled from as many windows as it took.
  *
  * Distinct from {@link CanonicalDocumentPage}, which is one window. The
@@ -2363,13 +2346,6 @@ export const extractionApi = {
   getCoverage: (documentVersionId: string) =>
     request<CoverageResponse>(
       `/api/extraction/${encodeURIComponent(documentVersionId)}/coverage`
-    ),
-
-  getStages: (documentVersionId: string, idempotencyKey?: string) =>
-    request<ExtractionStagesResponse>(
-      `/api/extraction/${encodeURIComponent(documentVersionId)}/stages${
-        idempotencyKey ? `?idempotency_key=${encodeURIComponent(idempotencyKey)}` : ""
-      }`
     ),
 };
 

@@ -118,8 +118,6 @@ const structureResponse = {
   edges: [],
 };
 
-const stagesResponse = { document_version_id: VERSION_ID, stages: [] };
-
 /** Every canonical URL the component asked for, in order. */
 let canonicalRequests: string[] = [];
 
@@ -164,7 +162,10 @@ beforeEach(() => {
       if (url.includes("/coverage")) return jsonResponse(coverageResponse);
       if (url.includes("/reading-plan")) return jsonResponse(readingPlanResponse);
       if (url.includes("/structure")) return jsonResponse(structureResponse);
-      if (url.includes("/stages")) return jsonResponse(stagesResponse);
+      // There is deliberately no route for the persisted-stage endpoint. The
+      // drawer no longer fetches it, and the throw below is what proves that:
+      // re-add the fetch without re-adding a route here and every test in this
+      // file fails by name.
       throw new Error(`unexpected request: ${url}`);
     })
   );

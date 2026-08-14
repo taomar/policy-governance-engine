@@ -374,7 +374,7 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/docling/pipeline.py::run_extraction": "structured converter; test call sites only",
     "infrastructure/docling/handoff.py::submit_package": "package submission path; no production caller",
     "infrastructure/docling/handoff.py::preview_handoff": "same path, preview half",
-    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.record": "stage write; table has migration, model, endpoint and UI tab, and no writer",
+    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.record": "stage write; table has migration, model and endpoint, and no writer -- the UI tab that read it was removed once the table was measured empty across every run",
     "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.latest_status": "same repository",
     "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.next_attempt": "same repository",
     "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.completed_stage_names": "same repository",
