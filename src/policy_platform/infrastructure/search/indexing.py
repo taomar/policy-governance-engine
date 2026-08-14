@@ -6,13 +6,20 @@ holds ~4760 unrelated documents under `policy_id = "POL-HW-001"` from another
 system sharing this Search resource. To guarantee we never collide with or
 misinterpret that data, every document we write uses our own
 `SourceDocument.id` (a UUID) as `policy_id` — which can never equal the
-string "POL-HW-001" — and every read (`search_scope.py`) restricts queries to
-the set of our own document IDs. We only ever write to `policy-authoring`;
-`policy-evidence` is left untouched (see docs/known-limitations.md).
+string "POL-HW-001" — and reads restrict queries to our own documents by
+passing `policy_ids` to `AzureSearchClient.vector_search`. Note that
+`policy_ids` is an optional argument, so that restriction holds for the call
+sites that pass it rather than by construction. We only ever write to
+`policy-authoring`; `policy-evidence` is left untouched (see
+docs/known-limitations.md).
 
 Indexing is deliberately best-effort: if Azure OpenAI/Search are unavailable
 or misconfigured, upload failures are logged and swallowed so a document
 upload never fails because of a downstream AI/search outage.
+
+Writing is also the point at which the index is reconciled with the store: see
+`reconciliation.py` for why the sweep lives here and not on the delete of the
+owning row.
 """
 from __future__ import annotations
 
@@ -90,6 +97,36 @@ async def index_clauses_best_effort(
             batch = docs[i : i + _BATCH_SIZE]
             await search_client.upload_documents(settings.azure_search_authoring_index, batch)
             indexed += len(batch)
+
+        # Reconcile after writing, so entries left behind by a superseded run of
+        # this same version stop being searchable. Deliberately separate from the
+        # upload's failure handling: a sweep that fails must not make a
+        # successful upload report zero.
+        try:
+            # Imported here, not at module scope: `reconciliation` imports the key
+            # format from this module, so a top-level import back would be a cycle.
+            from policy_platform.infrastructure.search.reconciliation import (
+                reconcile_version_index,
+            )
+
+            outcome = await reconcile_version_index(
+                search_client,
+                settings.azure_search_authoring_index,
+                document_version_id=document_version_id,
+                clause_ids=[str(c.id) for c in clauses],
+            )
+            if outcome.removed_count:
+                logger.info(
+                    "search index reconciled for version %s: %d entries examined, %d removed",
+                    document_version_id,
+                    outcome.examined,
+                    outcome.removed_count,
+                )
+        except Exception as exc:  # noqa: BLE001 - reconciling is best-effort too
+            logger.warning(
+                "search index reconcile failed for version %s: %s", document_version_id, exc
+            )
+
         return indexed
     except Exception as exc:  # noqa: BLE001 - indexing must never break the upload flow
         logger.warning("best-effort search indexing failed for document %s: %s", document_id, exc)

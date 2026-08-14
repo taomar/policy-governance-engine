@@ -321,8 +321,9 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/search/projection.py::verify_projection": "search projection surface",
     "infrastructure/search/projection.py::runtime_query_filter": "search projection surface",
     "infrastructure/search/projection.py::ProjectionVerification.failure_summary": "search projection surface",
-    "infrastructure/search/search_client.py::AzureSearchClient.find_ids_by_filter": "search client surface",
-    "infrastructure/search/search_client.py::AzureSearchClient.delete_documents": "search client surface",
+    # `find_ids_by_filter` and `delete_documents` left this list by being wired:
+    # `search/reconciliation.py` uses both to remove index entries whose clause
+    # the store no longer holds, and the write path calls it.
     # --- Repository operations with no production call site. ---
     "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.create": "repository operation, no caller",
     "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.list_all": "repository operation, no caller",
