@@ -1543,6 +1543,179 @@ def _join_without_repeat(parts: Iterable[str], source_text: str) -> str:
     return " ".join(line)
 
 
+#: Words allowed to stand between two verbs of one conjoined list. Deliberately
+#: only the two coordinators: anything else between them ("to", a second object,
+#: a preposition) means the verbs are not sharing one list and must not be
+#: treated as one predicate.
+_PREDICATE_CONNECTIVES = frozenset({"and", "or"})
+
+_SUBJECT_ARTICLES = ("the ", "a ", "an ")
+
+
+def _normalised_subject(subject: str) -> str:
+    """One party written two ways, to the extent that is decidable without meaning.
+
+    Case, one leading article and a possessive marker — and nothing further.
+    Measured on two handbooks this accounts for roughly 4% of records, so it is
+    worth doing and is not worth extending: crude plural stripping produces
+    `addres`, `busines`, `clas`, and deciding that "the supervisor" and "the line
+    manager" are one party needs to know what the words mean.
+
+    It deliberately does NOT merge "the employee's supervisor" with "the
+    supervisor". That looks like a miss and is load-bearing: on the one passage
+    that carries both shapes at once, merging them would pool five duties over
+    five objects together with three verbs over one object, and the pooled group
+    would then vary in object and be skipped — so a more aggressive normaliser
+    would trade a naming fix for the very shape this module is here to find.
+    """
+
+    text = " ".join(subject.split()).casefold()
+    for article in _SUBJECT_ARTICLES:
+        if text.startswith(article):
+            text = text[len(article) :]
+            break
+    return text.replace("'s ", " ").replace("\u2019s ", " ").strip()
+
+
+def _conjoined_predicate(predicates: list[str], source_text: str) -> str | None:
+    """The source's own words for several verbs written as one list, or `None`.
+
+    Returns a literal slice of `source_text` — never a composition. Where the
+    document wrote "read, understand, and comply with the policies" the three
+    predicates come back as the single run "read, understand, and comply with",
+    punctuation and coordinator included exactly as written.
+
+    The verbs are matched as whole-word runs, so "comply with" is looked for as
+    "comply with". An earlier attempt keyed on a head word instead and rejected
+    this very example, because the head of "comply with" is "with".
+
+    `None` means the conjoined form is not in the document. That is a refusal,
+    not a failure: composing "read, understand and comply with" when the source
+    wrote the three verbs in separate sentences would put words in front of a
+    reviewer that the document does not contain. The records are then left as
+    they are and the family is reported instead.
+    """
+
+    if len(predicates) < 2:
+        return None
+    tokens = [(m.group(0).casefold(), m.start(), m.end()) for m in re.finditer(r"[\w']+", source_text)]
+    if not tokens:
+        return None
+    words = [token[0] for token in tokens]
+    runs: dict[str, tuple[list[str], list[int]]] = {}
+    for predicate in predicates:
+        needle = _bare_words(predicate)
+        if not needle:
+            return None
+        starts = [
+            start
+            for start in range(len(words) - len(needle) + 1)
+            if words[start : start + len(needle)] == needle
+        ]
+        if not starts:
+            return None
+        runs[predicate] = (needle, starts)
+
+    # Chain the verbs from every place any one of them is written: the record
+    # order need not be the document's order, and a verb can appear elsewhere in
+    # the sentence for an unrelated reason.
+    for opener, (opening_words, opening_starts) in runs.items():
+        for start in opening_starts:
+            outstanding = set(runs) - {opener}
+            cursor = start + len(opening_words)
+            last = cursor - 1
+            while outstanding:
+                gap = cursor
+                while gap < len(tokens) and words[gap] in _PREDICATE_CONNECTIVES:
+                    gap += 1
+                following = next(
+                    (name for name in outstanding if gap in runs[name][1]),
+                    None,
+                )
+                if following is None:
+                    break
+                outstanding.discard(following)
+                cursor = gap + len(runs[following][0])
+                last = cursor - 1
+            if not outstanding:
+                return source_text[tokens[start][1] : tokens[last][2]]
+    return None
+
+
+def compound_predicate_merges(
+    policies: list[CanonicalPolicy],
+) -> tuple[dict[int, str], set[int]]:
+    """Find sets of records that are one rule the decomposition wrote as several.
+
+    "…it is essential for the staff members to read, understand, and comply with
+    the policies" arrives as three records differing only in predicate. A judge
+    reading that sentence makes ONE decision — did the staff member read,
+    understand and comply — so three records create three decisions where the
+    document made one, and a reviewer approves the same provision three times.
+
+    The discriminator is structural and needs no vocabulary: **conjoined verbs
+    over one object are one rule; conjoined verbs over different objects are
+    several.** The control for the second direction is a supervisor sentence
+    listing five verbs over five objects — discuss work rules, show the work
+    area, introduce key people, review the probationary report, make known the
+    safety regulations. Those are five genuine duties and collapsing them would
+    destroy five obligations while looking like an improvement in every count.
+
+    A family here must therefore agree on its source sentence, its subject once
+    named consistently, and **every** other field — object included. Requiring
+    every field rather than only the selecting ones is the stronger test on
+    purpose: where two records differ in a constraint or an assigner as well as
+    a predicate, merging would have to drop one field's words to keep the other,
+    and silently discarding what the document wrote is the same defect as
+    inventing what it did not. Those families are left alone and reported.
+
+    Returns `({survivor index: the source's conjoined wording}, {absorbed
+    indexes})`, both keyed to positions in `policies`. Indexes are preserved
+    rather than the list rebuilt because the caller reads DMN decisions and
+    group labels by position.
+    """
+
+    families: dict[tuple, list[int]] = {}
+    for index, policy in enumerate(policies):
+        rule = policy.rule
+        if rule is None or not policy.source_text:
+            continue
+        fields = rule.model_dump()
+        subject = fields.get("subject") or ""
+        if not subject.strip() or not (fields.get("object") or "").strip():
+            # An empty object cannot witness "one object". Records sharing a
+            # blank there were measurably a mix of genuine duties — punch in and
+            # punch out are two rules, not one — so the vacuous match is refused.
+            continue
+        if not (fields.get("predicate") or "").strip():
+            continue
+        rest = tuple(
+            sorted(
+                (name, str(value))
+                for name, value in fields.items()
+                if name not in {"predicate", "subject"}
+            )
+        )
+        families.setdefault((policy.source_text, _normalised_subject(subject), rest), []).append(index)
+
+    merged: dict[int, str] = {}
+    absorbed: set[int] = set()
+    for indexes in families.values():
+        if len(indexes) < 2:
+            continue
+        predicates = [(policies[i].rule.predicate or "").strip() for i in indexes]
+        if len({predicate.casefold() for predicate in predicates}) != len(predicates):
+            # Two records saying the same thing is a duplicate, which is a
+            # different question and must not be answered by merging.
+            continue
+        conjoined = _conjoined_predicate(predicates, policies[indexes[0]].source_text)
+        if conjoined is None:
+            continue
+        merged[indexes[0]] = conjoined
+        absorbed.update(indexes[1:])
+    return merged, absorbed
+
+
 def _title_for(policy: CanonicalPolicy) -> str:
     """A readable title from the canonical decomposition, falling back to source."""
 
@@ -2054,10 +2227,21 @@ def formulation_to_candidate_rules(
     rules: list[CanonicalRule] = []
     skipped: list[dict] = []
     group_labels = _group_labels(formulation)
+    # One rule the decomposition wrote as several: verbs conjoined over one
+    # object. Repaired here, at the point the records are first formed, rather
+    # than in a view — every downstream consumer otherwise inherits the split.
+    merged_predicates, absorbed_by_merge = compound_predicate_merges(
+        formulation.canonical_policies
+    )
     rule_ids_by_group: dict[str, list[str]] = {}
     default_evidence = evidence or []
 
     for index, policy in enumerate(formulation.canonical_policies):
+        if index in absorbed_by_merge:
+            # Not skipped: this policy's words survive in the conjoined
+            # predicate of the record it was folded into, so it is not a
+            # declined passage and must not be counted as one.
+            continue
         # Which source clause(s) this policy came from. Resolved once and used
         # as the ledger's identity below, so a passage the model returned twice
         # is one declined passage rather than two.
@@ -2072,6 +2256,10 @@ def formulation_to_candidate_rules(
                 identity=skip_identity,
             )
             continue
+        conjoined = merged_predicates.get(index)
+        if conjoined is not None:
+            canonical_rule = canonical_rule.model_copy(update={"predicate": conjoined})
+            policy = policy.model_copy(update={"rule": canonical_rule})
         if canonical_rule.rule_type in _SKIPPED_RULE_TYPES:
             record_skip(
                 skipped,
