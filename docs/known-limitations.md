@@ -87,6 +87,26 @@ inventory and commands.
   These counts are checked by `tests/unit/test_documented_sql_debt_is_current.py`,
   so the paragraph above cannot drift from the code without failing the suite.
 
+- **Stored rule fingerprints are written and never read.** `domain/models.py`
+  defines `content_fingerprint` and `anchor_fingerprint` on the candidate rule,
+  and explains in a comment why they are stored rather than computed on read:
+  the comparison is against runs that may be months old, and recomputing would
+  silently re-interpret history if the definition ever changed.
+
+  The columns are written at insert time in
+  `infrastructure/extraction/ai_extraction.py`. Nothing reads them. `diff_runs`
+  (`infrastructure/projection/rule_delta.py`) recomputes both sides from the
+  stored payloads, which is exactly the behaviour the comment gives a reason
+  against. The guarantee is described, the storage that would provide it is
+  paid for, and the consumer does not use it.
+
+  The code is left alone deliberately: recomputation is not currently wrong, and
+  changing which side of this contradiction wins is a decision about historical
+  comparability, not a cleanup. What is recorded here is that **the comment is
+  the more persuasive of the two and is the one that is false** — it states a
+  property, gives a reason, and reads as settled, while the behaviour it
+  describes lives in another module that a reader has no cause to open.
+
 ## Documentation gaps
 
 - **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is
