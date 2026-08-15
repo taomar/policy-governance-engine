@@ -32,8 +32,10 @@ import {
   candidateAnswersStatus,
   candidateIdsAnsweringRuleFilters,
   cardsAnsweringRuleFilters,
+  candidateAnswersStance,
   filterIsOff,
   policySelectionNote,
+  STANCE_LENSES,
 } from "./queueCardFilters";
 
 /** Neutral placeholders. Nothing here leans on the vocabulary of any document. */
@@ -285,6 +287,93 @@ describe("the queue does not ask the server to narrow rules within a policy", ()
     // the filter. It reads both tables instead.
     expect(source).toContain("REVIEW_STATUS_TABS");
     expect(source).toContain("DELTA_META");
+  });
+});
+
+describe("content is categorised by what a record does, never by what it is about", () => {
+  function ruleWithEffect(id: string, effectType: string | null): CandidateRule {
+    const c = candidate(id);
+    return {
+      ...c,
+      rule: {
+        ...c.rule,
+        effect:
+          effectType === null
+            ? ({} as CanonicalRule["effect"])
+            : ({ type: effectType, action: "act" } as CanonicalRule["effect"]),
+      },
+    };
+  }
+
+  it("treats the one effect that constrains nobody as supplying meaning", () => {
+    expect(candidateAnswersStance(ruleWithEffect("a", "informational"), "supplies-meaning")).toBe(
+      true,
+    );
+  });
+
+  it("treats every constraining effect as deciding", () => {
+    for (const effect of ["require_action", "deny", "allow"]) {
+      expect(candidateAnswersStance(ruleWithEffect("a", effect), "decides")).toBe(true);
+      expect(candidateAnswersStance(ruleWithEffect("a", effect), "supplies-meaning")).toBe(false);
+    }
+  });
+
+  it("puts an effect it has never met among the rules, not into the glossary", () => {
+    // The four effects in the schema today are not a closed set. A fifth must
+    // surface where a reviewer reads it and can question it, rather than
+    // disappearing into a lens that claims it defines something.
+    const unknown = ruleWithEffect("a", "escalate_to_committee");
+    expect(candidateAnswersStance(unknown, "supplies-meaning")).toBe(false);
+    expect(candidateAnswersStance(unknown, "decides")).toBe(true);
+  });
+
+  it("answers neither lens when no effect was recorded", () => {
+    // Absent is a fourth state, not a default to either side.
+    const silent = ruleWithEffect("a", null);
+    expect(candidateAnswersStance(silent, "supplies-meaning")).toBe(false);
+    expect(candidateAnswersStance(silent, "decides")).toBe(false);
+  });
+
+  it("still shows a record with no recorded effect when no lens is chosen", () => {
+    // It must not vanish from the queue merely because it answered no lens.
+    expect(candidateAnswersStance(ruleWithEffect("a", null), "all")).toBe(true);
+  });
+
+  it("does not read rule_type, which the corpus shows is the narrower test", () => {
+    // Measured live: informational is a strict superset of definition, also
+    // catching the calculation records that likewise decide nothing.
+    const calc = ruleWithEffect("a", "informational");
+    calc.rule.rule_type = "calculation";
+    expect(candidateAnswersStance(calc, "supplies-meaning")).toBe(true);
+  });
+
+  it("selects the policy whole, never the matching rules of it", () => {
+    const rules = [ruleWithEffect("r1", "informational"), ruleWithEffect("r2", "deny")];
+    const cards = buildPolicyCards([policyOf(["r1", "r2"])], rules);
+    const filters = { stance: "supplies-meaning" };
+    const chosen = cardsAnsweringRuleFilters(
+      cards,
+      filters,
+      candidateIdsAnsweringRuleFilters(rules, filters),
+    );
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0].rules).toHaveLength(2);
+  });
+
+  it("offers one lens over the queue rather than two lanes splitting it", () => {
+    // Measured across the whole live corpus, no policy in either document is
+    // made only of records that define, so a "rules" lane would hold every
+    // card and the split would earn nothing.
+    expect(STANCE_LENSES[0].value).toBe("all");
+    expect(STANCE_LENSES).toHaveLength(2);
+  });
+
+  it("names the lens without ranking either kind of record", () => {
+    for (const lens of STANCE_LENSES) {
+      for (const banned of ["just", "only", "merely", "trivial", "minor", "non-", "not a real"]) {
+        expect(lens.label.toLowerCase()).not.toContain(banned);
+      }
+    }
   });
 });
 

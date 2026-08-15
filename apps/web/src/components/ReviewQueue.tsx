@@ -92,6 +92,7 @@ import {
   cardsAnsweringRuleFilters,
   filterIsOff,
   policySelectionNote,
+  STANCE_LENSES,
 } from "../queueCardFilters";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
@@ -161,6 +162,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [documentFilter, setDocumentFilter] = useState<string>("");
   const [runFilter, setRunFilter] = useState<string>("");
   const [deltaFilter, setDeltaFilter] = useState<string>("all");
+  /** Which content lens the queue is under. See STANCE_LENSES for why this is
+   *  one lens over the whole queue rather than two lanes splitting it. */
+  const [stanceFilter, setStanceFilter] = useState<string>("all");
   const [facets, setFacets] = useState<ReviewFacets | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -377,13 +381,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, documentFilter, runFilter]);
 
-  // Narrowing by status or delta changes which cards are shown but not which
-  // are loaded, so it only has to return to the first page. The selection is
-  // kept: a reviewer who has a rule open and then narrows the queue has not
+  // Narrowing by status, delta or content changes which cards are shown but not
+  // which are loaded, so it only has to return to the first page. The selection
+  // is kept: a reviewer who has a rule open and then narrows the queue has not
   // asked to stop looking at it.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, deltaFilter]);
+  }, [statusFilter, deltaFilter, stanceFilter]);
 
   const requestPolicyHistory = useCallback(
     (provisionKey: string) => {
@@ -430,6 +434,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setDocumentFilter("");
     setRunFilter("");
     setDeltaFilter("all");
+    setStanceFilter("all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey]);
 
@@ -587,8 +592,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
    * choose which policies appear, never what a policy contains.
    */
   const ruleFilters = useMemo(
-    () => ({ status: statusFilter, delta: deltaFilter }),
-    [statusFilter, deltaFilter],
+    () => ({ status: statusFilter, delta: deltaFilter, stance: stanceFilter }),
+    [statusFilter, deltaFilter, stanceFilter],
   );
 
   /**
@@ -673,6 +678,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [allPolicyCards, searchText, matchedIds, ruleFilters, filterMatchedIds]
   );
 
+  /**
+   * How many policies each content lens would offer, under the filters already
+   * on.
+   *
+   * Computed rather than guessed, and computed against the other active filters
+   * rather than the whole set, so the number on the control is the number the
+   * reviewer gets when they press it. A count that means something else is the
+   * defect this screen has already been burned by twice.
+   */
+  const stanceLensCounts = useMemo(() => {
+    const searched = cardsAnsweringSearch(allPolicyCards, searchText, matchedIds);
+    const counts: Record<string, number> = {};
+    for (const lens of STANCE_LENSES) {
+      const filters = { status: statusFilter, delta: deltaFilter, stance: lens.value };
+      counts[lens.value] = cardsAnsweringRuleFilters(
+        searched,
+        filters,
+        candidateIdsAnsweringRuleFilters(placeable, filters),
+      ).length;
+    }
+    return counts;
+  }, [allPolicyCards, searchText, matchedIds, placeable, statusFilter, deltaFilter]);
+
   // Rules the assembly did not place — reachable when a historical run is open,
   // because the flat list then asks for superseded rows the assembly does not
   // return. Shown as unplaced rather than dressed up as passages of one rule.
@@ -716,8 +744,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     if (!filterIsOff(deltaFilter)) {
       labels.push(DELTA_META[deltaFilter]?.label ?? deltaFilter);
     }
+    if (!filterIsOff(stanceFilter)) {
+      labels.push(
+        STANCE_LENSES.find((l) => l.value === stanceFilter)?.label ?? stanceFilter,
+      );
+    }
     return labels;
-  }, [statusFilter, deltaFilter]);
+  }, [statusFilter, deltaFilter, stanceFilter]);
 
   // Only meaningful for the grouped queue: the ungrouped fallback lists rules,
   // so its count and the strip's count are already the same unit.
@@ -1934,6 +1967,32 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             </Space>
 
             {qualityError && <Alert type="warning" showIcon message={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
+
+            {grouped && stanceLensCounts[STANCE_LENSES[1].value] > 0 && (
+              <div
+                className="review-stance-lens"
+                role="group"
+                aria-label="Which policies to show"
+                data-testid="stance-lens"
+                style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
+              >
+                {STANCE_LENSES.map((lens) => {
+                  const active = (stanceFilter || "all") === lens.value;
+                  return (
+                    <Button
+                      key={lens.value}
+                      size="small"
+                      type={active ? "primary" : "default"}
+                      aria-pressed={active}
+                      data-lens={lens.value}
+                      onClick={() => setStanceFilter(lens.value)}
+                    >
+                      {lens.label} ({stanceLensCounts[lens.value] ?? 0})
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
 
             {selectionNote && (
               <Text
