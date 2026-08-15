@@ -91,7 +91,7 @@ logger = logging.getLogger(__name__)
 #: Which instruction produced a stored label. Bumped whenever the prompt or the
 #: validator changes, so a label generated under an older rule is recognisable
 #: as such rather than being assumed to satisfy the current one.
-PROMPT_VERSION = "topic-label-v1"
+PROMPT_VERSION = "topic-label-v2"
 
 #: Why no label is stored, when an attempt was made and produced none.
 #:
@@ -170,12 +170,30 @@ ASK_ATTEMPTS = 2#: How much of the passage the model reads. A budget, so one eno
 #: opening is what is kept.
 MAX_SOURCE_CHARS = 4000
 
+#: What the model is asked. The heading is sent with the text because a heading
+#: is part of what the document said about its own subject, and because it
+#: settles the language question below.
+#:
+#: WHICH LANGUAGE, WHEN A PASSAGE USES MORE THAN ONE. Some passages are written
+#: twice over, in two languages, and "the language of the text" then has no
+#: single answer. The rule chosen here is the language of the heading, and the
+#: reason is where the label is rendered: immediately above the heading, in the
+#: same block, meant to be taken in with it at a glance. A label in one script
+#: sitting on top of a heading in another is not one line explaining the next --
+#: it is two reading tasks where the reader had one, which is the opposite of
+#: what the label is for. The heading is itself part of the text sent, so this
+#: stays inside "the language of the source" rather than importing a preference
+#: from outside it.
+#:
+#: The instruction names no language and no script, and would read the same way
+#: for any pair of them.
 _SYSTEM_PROMPT = """You are given a heading and some text taken from a document, \
 exactly as the document wrote them.
 
 Reply with a short noun phrase naming the subject that text is about. At most \
 four words. Write it in the same language and the same script as the text you \
-were given.
+were given. If that text is written in more than one language, use the language \
+of the heading.
 
 Name the subject only. Do not say what the text requires, allows or forbids. Do \
 not include any number, amount, date, condition or outcome. Do not copy a \

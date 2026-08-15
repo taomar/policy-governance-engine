@@ -120,6 +120,59 @@ def test_the_generator_hands_over_at_least_one_label_it_did_not_write() -> None:
     assert any(isinstance(value, ast.Name | ast.Attribute) for value in values)
 
 
+def test_the_instruction_settles_which_language_without_naming_one() -> None:
+    """A passage written twice over, in two languages, has no single language.
+
+    The generator must therefore answer the question rather than leave it to
+    whichever language the model happened to read most of — an unstated rule is
+    one that changes between runs. But answering it must not smuggle in a
+    preference for a particular language or script, which would be building for
+    one corpus. So: the rule must be present, and it must be expressible without
+    naming any language, script, direction or writing system.
+    """
+
+    tree = _tree()
+    prompts = [
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id.endswith("_PROMPT")
+            for target in node.targets
+        )
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
+    assert prompts, "the module must state its instruction as a literal to be checkable"
+
+    settled = [p for p in prompts if "more than one language" in p.lower()]
+    assert settled, (
+        "the instruction must say which language wins when the text uses several, "
+        "or the answer varies run to run for the same passage"
+    )
+
+    # Whatever it says, it must say it about no language in particular. These are
+    # not a list of the languages this corpus happens to contain -- they are the
+    # words by which any instruction would have to name a specific one at all.
+    for prompt in prompts:
+        lowered = prompt.lower()
+        for naming in (
+            "english",
+            "arabic",
+            "latin",
+            "roman",
+            "right-to-left",
+            "left-to-right",
+            "rtl",
+            "ltr",
+            "translate",
+            "translation",
+        ):
+            assert naming not in lowered, (
+                f"the instruction must not name a language or script: {naming}"
+            )
+
+
 def test_the_instruction_names_no_subject_and_gives_no_example() -> None:
     """You cannot enumerate example subjects without saying you are about to.
 
