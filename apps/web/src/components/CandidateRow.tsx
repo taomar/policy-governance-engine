@@ -7,7 +7,6 @@ import {
   CrownOutlined,
   DownOutlined,
   ExclamationCircleOutlined,
-  ExportOutlined,
   ReadOutlined,
   RightOutlined,
 } from "@ant-design/icons";
@@ -24,6 +23,7 @@ import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { colorForCategory } from "../policyCategories";
 import { DirectionalText } from "./DirectionalText";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { RecordActionsMenu, type RecordActionHandlers } from "./RecordActionsMenu";
 import { DELTA_META } from "./ReviewFilterBar";
 
 interface CandidateRowProps {
@@ -57,6 +57,11 @@ interface CandidateRowProps {
   /** Take this rule to the larger surface. The row no longer needs it to be
    *  readable, so this is an explicit second choice rather than the way in. */
   onOpenFullRecord?: () => void;
+  /** What the queue can do to this rule beyond deciding it — editing it,
+   *  proposing a rewrite, overriding a decision, asking about it. Passed as
+   *  handlers rather than as flags: the row does not decide who may override,
+   *  and the queue does not decide what a menu looks like. */
+  recordActions?: RecordActionHandlers;
   onToggleSelect: () => void;
   onApprove?: () => void;
   onReject?: () => void;
@@ -97,6 +102,7 @@ export function CandidateRow({
   onSelectFamily,
   renderDetail,
   onOpenFullRecord,
+  recordActions,
   onToggleSelect,
   onApprove,
   onReject,
@@ -338,18 +344,17 @@ export function CandidateRow({
             </Tooltip>
           </>
         )}
-        {onOpenFullRecord && (
-          <Tooltip title="Open the full record — source passage, JSON forms, history and notes">
-            <Button
-              size="small"
-              type="text"
-              icon={<ExportOutlined />}
-              className="candidate-row-open-btn"
-              onClick={onOpenFullRecord}
-              aria-label={`Open the full record for ${rule.title}`}
-            />
-          </Tooltip>
-        )}
+        {/* Everything that is neither the decision nor the evidence: opening the
+            full record, editing, proposing a rewrite, overriding, copying the
+            id. One control, in the same place on a rule row and in a policy
+            header, so a reader learns where to look once. */}
+        <RecordActionsMenu
+          scope="rule"
+          recordId={rule.rule_id}
+          recordName={rule.title}
+          reviewStatuses={[candidate.review_status]}
+          on={{ ...recordActions, ...(onOpenFullRecord ? { "open-record": onOpenFullRecord } : {}) }}
+        />
         {expandable && (
           <Tooltip title={expanded ? "Close this rule's detail" : "Show this rule's detail here"}>
             <Button

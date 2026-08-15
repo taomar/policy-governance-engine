@@ -29,6 +29,7 @@ import { PolicyAskAiButton } from "./PolicyAskAiButton";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyLogicTable } from "./PolicyLogicTable";
+import { RecordActionsMenu, type RecordActionHandlers } from "./RecordActionsMenu";
 import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
@@ -101,6 +102,8 @@ export function PolicyDetailPanel({
   onApprove,
   onReject,
   policySetKey,
+  policyActions,
+  ruleActions,
   actions,
 }: {
   card: PolicyCard;
@@ -126,6 +129,12 @@ export function PolicyDetailPanel({
    *  is simply absent when nothing can say which set the question is about,
    *  rather than drawn and then failing when it is pressed. */
   policySetKey?: string;
+  /** What the host can do to this policy beyond deciding it. Handlers, not
+   *  flags: the panel does not decide who may do what, and the host does not
+   *  decide how a menu is drawn. Absent handlers simply produce fewer entries. */
+  policyActions?: RecordActionHandlers;
+  /** What the host can do to one of this policy's rules, given its id. */
+  ruleActions?: (ruleId: string) => RecordActionHandlers;
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
   actions?: React.ReactNode;
 }) {
@@ -278,6 +287,24 @@ export function PolicyDetailPanel({
               {assistive}
             </Space>
           )}
+          {/* Everything else this policy admits, in the same control and the
+              same place it takes on a rule row. It is never empty — a record
+              can always have its id copied — so it needs no guard. */}
+          <Space
+            size={4}
+            wrap
+            role="group"
+            aria-label="More for this policy"
+            className="policy-header-actions__group policy-header-actions__group--more"
+          >
+            <RecordActionsMenu
+              scope="policy"
+              recordId={card.policy.key}
+              recordName={title.text}
+              reviewStatuses={card.reviewStatuses}
+              on={policyActions}
+            />
+          </Space>
           {actions && (
             <Space
               size={4}
@@ -420,6 +447,13 @@ export function PolicyDetailPanel({
                                 >
                                   Details
                                 </Button>
+                                <RecordActionsMenu
+                                  scope="rule"
+                                  recordId={rule.rule_id}
+                                  recordName={canonical.title}
+                                  reviewStatuses={[rule.candidate.review_status]}
+                                  on={ruleActions?.(rule.rule_id)}
+                                />
                               </div>
                               <div
                                 className="policy-decision-line"

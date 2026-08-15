@@ -84,6 +84,7 @@ import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
+import type { RecordActionHandlers } from "./RecordActionsMenu";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
@@ -642,6 +643,40 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setInspectorTab("overview");
   };
 
+  /** What this queue can do to one rule, beyond deciding it.
+   *
+   *  Handed to the overflow menu as handlers rather than as flags. Two rules
+   *  are kept here deliberately:
+   *
+   *  - Whether the *record* admits an action is not decided here. The menu
+   *    reads that from the review status through the same `candidateEditability`
+   *    the server mirrors, so a candidate that cannot be edited shows no Edit
+   *    entry wherever it is drawn.
+   *  - Whether the *person* may act is decided here, because a role is a fact
+   *    about the reader and not about the record. A reviewer who is not a
+   *    manager is given no override handler at all, so the entry is absent
+   *    rather than present and refused. */
+  const ruleActionHandlers = (
+    candidate: CandidateRule,
+    openFullRecord: () => void,
+  ): RecordActionHandlers => ({
+    "open-record": openFullRecord,
+    "view-history": () => {
+      openFullRecord();
+      setInspectorTab("history");
+    },
+    "ask-ai": () => setAskTarget(candidate),
+    edit: () => setEditTarget(candidate),
+    "suggest-rewrite": () => setRewriteTarget(candidate),
+    ...(isManager
+      ? {
+          "request-changes": () => setManagerAction({ candidate, mode: "request-changes" }),
+          "override-reject": () => setManagerAction({ candidate, mode: "override-reject" }),
+          "override-approve": () => setManagerAction({ candidate, mode: "override-approve" }),
+        }
+      : {}),
+  });
+
   const selectCandidateRule = (rule: CanonicalRule) => {
     const candidate = filteredCandidates.find((item) => item.rule.rule_id === rule.rule_id);
     if (!candidate) return;
@@ -1182,6 +1217,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             : undefined
         }
         policySetKey={selectedKey}
+        ruleActions={(ruleId) => {
+          const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
+          if (!entry) return {};
+          return ruleActionHandlers(entry.candidate, () => openRuleWithinPolicy(ruleId));
+        }}
         actions={
           <>
             {isDesktop && (
@@ -1803,6 +1843,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                                 />
                               )}
                               onOpenFullRecord={() => openCandidate(candidate)}
+                              recordActions={ruleActionHandlers(candidate, () => openCandidate(candidate))}
                               onToggleSelect={() => toggleSelected(candidate.id)}
                               onSelectFamily={
                                 cluster && editability.canReview ? () => selectFamily(candidate.rule.rule_id) : undefined
