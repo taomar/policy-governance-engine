@@ -1,0 +1,111 @@
+/* Styles for the Ask AI dialog (AskAiModal) and its language control.
+ *
+ * These live beside the component rather than in App.css because App.css is
+ * edited by everyone at once, and a rule that only one dialog uses does not need
+ * to be in a file the whole app contends over. Deleting the component should
+ * delete its styling with it.
+ */
+
+/* The dialog's own heading row: subject on one side, the language of the
+   answers on the other. `padding-inline-end` leaves the close button its
+   corner. */
+.ask-rule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline-end: 24px;
+}
+
+.ask-rule-language {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #cbd5e1; /* rule-hairline-strong */
+  border-radius: 8px; /* rounded.md */
+  background: #f0eef8; /* indigo-wash */
+}
+
+.ask-rule-language__option {
+  display: inline-flex;
+  align-items: center;
+  min-width: 34px;
+  justify-content: center;
+  padding: 2px 9px;
+  border-radius: 6px; /* rounded.sm */
+  color: #5b4db1; /* indigo-ink */
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.ask-rule-language__option--on {
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(38 30 80 / 18%);
+}
+
+/* Present to the keyboard and to assistive technology, absent to the eye.
+   Not `display: none`, which would take it out of both. */
+.ask-rule-language__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* The focus ring has to be drawn by the label, since the control it belongs to
+   is the hidden input. */
+.ask-rule-language__option:has(.ask-rule-language__input:focus-visible) {
+  outline: 2px solid #5b4db1;
+  outline-offset: 1px;
+}
+
+/* The document's words and this app's words are two blocks, and the reader has
+   to be able to tell them apart before reading either. */
+.ask-rule-coverage {
+  margin-bottom: 12px;
+}
+
+.ask-rule-unquoted {
+  margin-bottom: 12px;
+}
+
+/* The quotation's boundary marker. The rule down the leading edge is the
+   blockquote convention, not decoration: it is what tells a reader at a glance
+   which words are the document's and which are this app's, and the brief makes
+   that boundary a requirement. `border-inline-start` rather than `border-left`
+   so it moves to the right-hand edge when the run is Arabic. */
+.ask-rule-quoted {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-inline-start: 3px solid #cbd5e1; /* rule-hairline-strong */
+  border-radius: 6px; /* rounded.sm */
+  background: #fff;
+}
+
+.ask-rule-quoted__heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b; /* ink-body */
+}
+
+.ask-rule-quoted__note {
+  margin: 2px 0 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.ask-rule-reflection__mark {
+  color: #5b4db1;
+}
+
+.ask-rule-sources {
+  margin-top: 8px;
+  font-size: 11.5px;
+}

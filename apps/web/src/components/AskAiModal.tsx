@@ -13,6 +13,8 @@ import { type AskInLanguageResponse } from "../askInLanguage";
 import { describeApiFailure } from "../loadState";
 import { AnswerLanguageToggle } from "./AnswerLanguageToggle";
 import { DirectionalText } from "./DirectionalText";
+// Covers `AnswerLanguageToggle` too, which is only ever reached through here.
+import "./askAiModal.css";
 
 const { Text, Paragraph } = Typography;
 
