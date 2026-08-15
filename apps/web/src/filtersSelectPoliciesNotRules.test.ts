@@ -350,6 +350,56 @@ describe("no filter asks what a record is about", () => {
     expect(chosen).toHaveLength(1);
     expect(chosen[0].rules).toHaveLength(2);
   });
+
+  it("hides nothing when the queue is first opened", () => {
+    // Landing on the queue shows everything. Every filter's initial value is
+    // the one that narrows nothing, so a reviewer never has to discover that
+    // records were withheld before they had asked anything.
+    expect(queueSource).toContain('useState<(typeof STATUS_FILTERS)[number]>("all")');
+    expect(queueSource).toContain('const [deltaFilter, setDeltaFilter] = useState<string>("all")');
+    expect(queueSource).toContain('const [documentFilter, setDocumentFilter] = useState<string>("")');
+    expect(queueSource).toContain('const [runFilter, setRunFilter] = useState<string>("")');
+    expect(queueSource).toContain('const [searchText, setSearchText] = useState("")');
+  });
+
+  it("remembers no filter between visits", () => {
+    // A lane the reviewer was last in is exactly the state that made records
+    // vanish without being asked to. Nothing here is persisted, so there is no
+    // remembered narrowing to restore.
+    for (const store of ["localStorage", "sessionStorage", "URLSearchParams"]) {
+      expect(queueSource).not.toContain(store);
+    }
+  });
+
+  it("builds every card from every candidate, never from the filtered set", () => {
+    // The single line that made a card a fragment. If buildPolicyCards is ever
+    // handed the filtered candidates again, every downstream guarantee here is
+    // void and no test below would notice.
+    expect(queueSource).toContain("buildPolicyCards(policies, placeable)");
+    expect(queueSource).not.toContain("buildPolicyCards(policies, filteredCandidates)");
+  });
+
+  it("no longer apologises for a card being short", () => {
+    // Nothing is hidden, so there is nothing to warn about. The count survives
+    // in the record and in the JSON pane; it is no longer prose competing with
+    // the evidence.
+    const panelSource = Object.values(
+      import.meta.glob("./components/PolicyDetailPanel.tsx", {
+        query: "?raw",
+        import: "default",
+        eager: true,
+      }) as Record<string, string>,
+    )[0];
+    expect(panelSource).not.toContain("{card.hiddenByFilter > 0 && (");
+    for (const apology of [
+      "outside the current filter",
+      "not on this card",
+      "more rules of this policy",
+    ]) {
+      expect(panelSource).not.toContain(apology);
+      expect(queueSource).not.toContain(apology);
+    }
+  });
 });
 
 describe("the note reconciling record counts with policy counts", () => {

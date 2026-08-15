@@ -583,30 +583,19 @@ export function PolicyDetailPanel({
                 })}
 
                 {/*
-                  This is no longer a filter footnote, and the count no longer
-                  has a filter among its causes: cards are assembled from every
-                  candidate and then selected whole, so narrowing the queue can
-                  no longer take a rule off a card. What is left is the policy's
-                  own declared rule_count exceeding the records we actually
-                  hold — a later run replaced a reading, or the record was not
-                  loaded. Both are real, and both mean this card is not all of
-                  the policy.
+                  There is no short-card notice here any more, and no filter
+                  that could cause one: cards are assembled from every candidate
+                  and then selected whole, so narrowing the queue cannot take a
+                  rule off a card. Every policy shown lists every rule it holds.
 
-                  So it stays, and it stays for the reason the fragment warning
-                  had to go: a card that is short must say so. Removing it would
-                  buy tidiness by making incomplete indistinguishable from
-                  whole, which is the one trade this screen may not make. It is
-                  dormant in practice — measured live, no card in either
-                  document renders it. The misleading part was only ever the
-                  field's name, which belongs to policyCards.ts.
+                  The count itself still exists on the card as `hiddenByFilter`
+                  and still reaches the JSON pane as `rules_hidden_by_filter`,
+                  so the one case that is not a filter — the policy's declared
+                  rule_count exceeding the records actually loaded — is still in
+                  the record a reviewer can read and export. It is not shown as
+                  prose because it was measured dormant across both documents,
+                  and a warning nobody can trigger competes with the evidence.
                 */}
-                {card.hiddenByFilter > 0 && (
-                  <Text type="secondary">
-                    {card.hiddenByFilter === 1
-                      ? "This policy states 1 more rule that is not on this card, and so is not in the JSON below. A rule is left off when a later extraction run replaced the reading of it, or when the record was not among those loaded here."
-                      : `This policy states ${card.hiddenByFilter} more rules that are not on this card, and so are not in the JSON below. A rule is left off when a later extraction run replaced the reading of it, or when the record was not among those loaded here.`}
-                  </Text>
-                )}
               </>
             ),
           },
