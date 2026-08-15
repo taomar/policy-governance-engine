@@ -3,14 +3,15 @@ import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
 import {
   passagePageLabel,
-  passageTitle,
+  passageQuotations,
   policyTitle,
   sharedRuleFacets,
 } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
-import { ruleDecisionSummary } from "../ruleDisplay";
+import { readPassage } from "../policyReading";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
+import { MarkedQuotation } from "./MarkedQuotation";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 
 const { Text } = Typography;
@@ -53,6 +54,24 @@ const { Text } = Typography;
  * on is stated once, on the policy; what differs between them is shown on the
  * rule it belongs to. So a badge beside a rule always carries information.
  *
+ * `[Requires]` beside `[Obligation]` went further than that: measured over 692
+ * rules, the effect is a function of the rule type in eight of the nine
+ * combinations that occur, so it was the same fact twice at lower resolution.
+ * It is shown only where the type is not.
+ *
+ * THE DOCUMENT'S WORDS ONCE, OURS ONCE
+ *
+ * A single-rule card printed one sentence three times — quoted, restated as the
+ * rule's title, and split again across `WHEN … → THEN …`. Now the passage is
+ * quoted once with the run each rule was drawn from marked in it, and the rule
+ * says only what the quotation does not: its statement, what narrows it, and
+ * its outcome where the statement does not already contain it (which, measured,
+ * it does for 86% of AIS rules and 91% of GMU's). Where a rule's statement is
+ * the marked sentence word for word, the row says so instead of setting the
+ * same words a second time. Nothing is elided and nothing moves behind a
+ * control: every word withheld from a row is on screen, marked, directly above
+ * it.
+ *
  * ROUTE IS PER RULE
  *
  * Route follows that same rule and no other: shared, it is stated once; mixed,
@@ -63,8 +82,18 @@ const { Text } = Typography;
  * IDENTIFIERS ARE NOT ON THE FACE
  *
  * `AI-acfa998ecd` never helped anyone judge whether a contract start date is
- * right. Rule id, revision and record id live in the detail panel, one click
- * away, where somebody chasing a specific record is already looking.
+ * right, and neither did `p9-E000074` or `rev 1`. Element id, rule id, revision
+ * and record id live in the detail panel, one click away, where somebody
+ * chasing a specific record is already looking.
+ *
+ * THE PASSAGE BOUNDARY WITHOUT A PASSAGE TITLE
+ *
+ * Each passage of the section is still its own block, quoting its own text
+ * once, with its rules beneath it. It no longer gets a title of its own: the
+ * card is named by the heading, and a passage's opening sentence promoted to a
+ * label was a third piece of prose competing with the two that matter. A table
+ * row lost a duplicate that way — its first cell was the block's name *and* was
+ * quoted again in the row below it, fifty times over on one AIS card.
  *
  * A SECTION OF ONE RULE IS AN ORDINARY CARD
  *
@@ -105,9 +134,13 @@ export function PolicyReviewCard({
   const title = policyTitle(card.policy, card.passages);
   const page = passagePageLabel(card.policy.page);
   const shared = sharedRuleFacets(card);
-  const sharedEffect = shared.effectType
-    ? card.rules[0]?.candidate.rule.effect
-    : undefined;
+  // Shown only when the rule-type badge is not. Measured across both documents,
+  // the effect is a function of the type in eight of the nine combinations
+  // present — `Requires` beside `Obligation` is the same fact twice, at lower
+  // resolution. Where the types differ and the effect does not, it is the only
+  // thing all the rules agree on and it stays.
+  const sharedEffect =
+    shared.effectType && !shared.ruleType ? card.rules[0]?.candidate.rule.effect : undefined;
   // The headings above this one. The innermost is the card's own title, so it
   // is not repeated in the trail.
   const trail = card.policy.heading_path.slice(0, -1);
@@ -258,71 +291,65 @@ export function PolicyReviewCard({
 
       {card.passages.map((block) => {
         const passageRules = block.rules.map((rule) => rule.candidate.rule);
-        const name = passageTitle(passageRules);
-        // The block's own words, once: its opening statement as the label and
-        // the remainder beneath. Together they are the passage, in its order,
-        // with nothing reworded and nothing dropped.
+        const reading = readPassage(passageQuotations(passageRules), passageRules, ordinal + 1);
+        ordinal += passageRules.length;
         return (
           <section
             key={block.passage.key}
             className="policy-card__passage-block"
             data-testid="policy-passage"
             data-passage={block.passage.key}
-            data-title-from={name.source}
           >
-            <div className="policy-card__passage-head">
-              {name.text ? (
-                <span className="policy-card__passage-title">
-                  <DirectionalText>{name.text}</DirectionalText>
-                </span>
-              ) : (
-                <Text type="secondary" className="policy-card__passage-absent">
-                  {/* Said rather than left blank: a passage whose text was not
-                      stored and a passage that says nothing are different. */}
-                  The source text for this passage was not stored with its rules.
-                </Text>
-              )}
-              <Tooltip title="The element of the source this passage was read from.">
-                <span className="policy-card__passage-source">{block.passage.key}</span>
-              </Tooltip>
-            </div>
-            {name.rest.map((quotation, index) => (
-              <p
-                key={`${index}-${quotation.slice(0, 32)}`}
-                className="policy-card__passage"
-                data-testid="policy-passage-quotation"
-              >
-                {/* One block per statement the passage makes. They were joined
-                    into a single string, which put two of the document's texts
-                    next to each other in an order it never wrote. */}
-                <DirectionalText>{quotation}</DirectionalText>
-              </p>
-            ))}
+            {reading.quotations.length > 0 ? (
+              reading.quotations.map((quotation, index) => (
+                <MarkedQuotation
+                  key={`${index}-${quotation.text.slice(0, 32)}`}
+                  text={quotation.text}
+                  marks={quotation.marks}
+                  className="policy-card__passage"
+                  testId="policy-passage-quotation"
+                />
+              ))
+            ) : (
+              <Text type="secondary" className="policy-card__passage-absent">
+                {/* Said rather than left blank: a passage whose text was not
+                    stored and a passage that says nothing are different. */}
+                The source text for this passage was not stored with its rules.
+              </Text>
+            )}
 
             <ol className="policy-card__rules">
-              {block.rules.map((rule) => {
-                const decision = ruleDecisionSummary(rule.candidate.rule);
+              {block.rules.map((rule, index) => {
+                const read = reading.rules[index];
                 const findings = findingsFor(rule.rule_id);
-                ordinal += 1;
                 return (
                   <li
                     key={rule.rule_id}
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
-                    value={ordinal}
+                    value={read.ordinal}
                   >
                     <span className="policy-card__rule-ordinal" aria-hidden>
-                      {ordinal}
+                      {read.ordinal}
                     </span>
                     <div className="policy-card__rule-body">
                       <div className="policy-card__rule-line">
-                        <span className="policy-card__rule-title">
-                          <DirectionalText>{rule.candidate.rule.title}</DirectionalText>
-                        </span>
+                        {read.statementIsMarkedWhole ? (
+                          // The words are on screen, marked, immediately above.
+                          // Printing them again is the third reading of one
+                          // sentence that this card was rebuilt to stop.
+                          <Text type="secondary" className="policy-card__rule-restated">
+                            This rule is the highlighted sentence above, word for word.
+                          </Text>
+                        ) : (
+                          <span className="policy-card__rule-title">
+                            <DirectionalText>{read.statement}</DirectionalText>
+                          </span>
+                        )}
                         {/* Only what this rule does not share with its
                             neighbours. A badge here means "unlike the others",
                             so it is worth the reviewer stopping to read. */}
-                        {!shared.effectType && (
+                        {!shared.effectType && shared.ruleType !== null && (
                           <PolicyEffectBadge effect={rule.candidate.rule.effect} size="small" />
                         )}
                         {!shared.ruleType && (
@@ -345,37 +372,55 @@ export function PolicyReviewCard({
                             {statusLabel(rule.candidate.review_status)}
                           </Tag>
                         )}
-                        {!shared.revision && (
-                          <span className="policy-card__rule-rev">
-                            rev {rule.candidate.rule.rule_revision}
-                          </span>
-                        )}
                         {findings > 0 && (
                           <Tooltip title={`${findings} quality finding(s) from the last check`}>
                             <Tag color="volcano">{findings}</Tag>
                           </Tooltip>
                         )}
                       </div>
-                      <div className="policy-decision-line" title={decision.text}>
-                        <span className="policy-decision-key">When</span>
-                        <span
-                          className={
-                            decision.conditionIsStatedOnly
-                              ? "policy-decision-value is-stated-only"
-                              : "policy-decision-value"
-                          }
-                          title={
-                            decision.conditionIsStatedOnly
-                              ? "The source states this test in words rather than as a comparison between named quantities, so a judge settles a case by reading it."
-                              : undefined
-                          }
-                        >
-                          {decision.condition}
-                        </span>
-                        <span className="policy-decision-arrow">→</span>
-                        <span className="policy-decision-key">Then</span>
-                        <span className="policy-decision-result">{decision.action}</span>
-                      </div>
+                      <p className="policy-card__rule-reading">
+                        {/*
+                          `when` is our word before the document's clause, and on
+                          17 of the 434 rules that state a test it reads badly --
+                          "when who are qualified for and interested in a posted
+                          position", because the source narrowed the rule with a
+                          relative clause rather than a temporal one. Measured on
+                          both documents: 3 on AIS, 14 on GMU, 3.9%.
+
+                          It is left as it reads. Every alternative either writes
+                          a word the document did not (a key chosen to fit the
+                          clause) or splits the surface in two, so a reviewer
+                          scanning a queue would meet the test under one shape on
+                          one row and another shape on the next. Awkward and the
+                          document's own beats fluent and ours -- and the reading
+                          stays true either way, which is the only thing a
+                          reviewer is checking.
+                        */}
+                        {read.condition === null ? (
+                          <span
+                            className="policy-card__reading-always"
+                            title="Nothing in this rule narrows when or to whom it applies. If the document does narrow it, that is missing and this is where to say so."
+                          >
+                            in every case
+                          </span>
+                        ) : (
+                          <>
+                            <span className="policy-card__reading-key">when</span>{" "}
+                            <span className="policy-card__reading-value">
+                              <DirectionalText>{read.condition}</DirectionalText>
+                            </span>
+                          </>
+                        )}
+                        {read.outcome && (
+                          <>
+                            {" "}
+                            <span className="policy-card__reading-key">then</span>{" "}
+                            <span className="policy-card__reading-value">
+                              <DirectionalText>{read.outcome}</DirectionalText>
+                            </span>
+                          </>
+                        )}
+                      </p>
                     </div>
                   </li>
                 );

@@ -11192,7 +11192,8 @@
 }
 
 /* The passage's own opening statement, quoted. Smaller than the policy title
-   above it, because it names a part and the title names the whole. */
+   above it, because it names a part and the title names the whole.
+   Kept for the detail panel; the review card no longer titles its passages. */
 .policy-card__passage-title {
   font-weight: 600;
   font-size: 13px;
@@ -11200,28 +11201,96 @@
   overflow-wrap: anywhere;
 }
 
-/* The element the passage was read from. On the face because it is what a
-   reviewer cites when they disagree with a boundary — unlike a record id,
-   which answers no question the card asks. */
+/* The element the passage was read from. Not on the review card — it answers no
+   question a reviewer is asking — but carried in the detail panel, which is
+   where someone chasing a specific record is already looking. */
 .policy-card__passage-source {
   font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 11px;
   opacity: 0.55;
 }
 
-/* The rest of the passage, under its own first statement. Together they are
-   the passage, in order, once. Rendered whole rather than clamped: collapsing
-   three cards into one must not collapse three obligations into one sentence,
-   and truncating the source is the same failure by a shorter route. */
+/* The source: the thing every other line on the card is checked against, so it
+   is drawn as evidence rather than as a note. Rendered whole rather than
+   clamped: collapsing three cards into one must not collapse three obligations
+   into one sentence, and truncating the source is the same failure by a shorter
+   route. */
 .policy-card__passage {
   margin: 0;
-  padding: 8px 12px;
-  border-inline-start: 3px solid var(--app-accent-muted, #d9d9d9);
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--app-accent-muted, #bfbfbf);
   background: var(--app-surface-subtle, #fafafa);
   border-radius: 0 6px 6px 0;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+/* The run of the source a rule was taken from.
+
+   Neutral by choice. A highlighter yellow reads as "attention here", and every
+   quotation on this screen would wear it — the mark says which words became
+   rule ②, not that anything is wrong with them or with the words beside them.
+
+   The rule number is drawn from the attribute rather than written into the
+   text, so selecting a quotation and copying it yields the document's sentence
+   with no ordinal spliced into it. */
+.policy-quote__taken {
+  background: var(--app-mark-surface, rgba(24, 100, 171, 0.09));
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.policy-quote__taken::after {
+  content: attr(data-rule);
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: super;
+  margin-inline-start: 2px;
+  opacity: 0.65;
+}
+
+/* What the rule says that its quotation does not: the test, and the outcome
+   where the statement has not already said it. Lower case and unkeyed — a
+   reviewer is reading, and `WHEN … → THEN …` is a syntax. */
+.policy-card__rule-reading {
+  margin: 0;
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.policy-card__reading-key {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+/* The condition or the outcome itself — the document's own words, carried into
+   a sentence. Declared rather than left to inherit so that the wrapping is a
+   stated intent: this text is long, and it wraps rather than being cut. A
+   reviewer is agreeing to the test a rule applies, and half a test read is
+   worse than none. */
+.policy-card__reading-value {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* The absence of a condition, said in words. It is a claim about the rule —
+   that nothing narrows it — and a reviewer checking completeness has to see it
+   made, so it is stated rather than left as an empty line. */
+.policy-card__reading-always {
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* A rule whose statement is the marked sentence, word for word. */
+.policy-card__rule-restated {
+  font-size: 12px;
+  font-style: italic;
 }
 
 .policy-card__rule-rev {
@@ -11246,12 +11315,15 @@
   gap: 8px;
 }
 
+/* Rules sit under the quotation they were read from, unboxed. The source is the
+   thing being checked against and carries the panel; giving the rules the same
+   surface made two blocks of equal weight and left a reviewer to work out which
+   was the document and which was ours. */
 .policy-card__rule {
   display: flex;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 4px 10px 4px 2px;
   border-radius: 6px;
-  background: var(--app-surface-subtle, #fafafa);
 }
 
 .policy-card__rule-ordinal {

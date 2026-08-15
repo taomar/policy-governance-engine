@@ -24,6 +24,14 @@ import { describe, expect, it } from "vitest";
  * something a click opens. Those are not policed here. The two surfaces a
  * decision is actually made on -- the review card and the detail panel -- are.
  *
+ * THE CARD'S PARTS CHANGED; THE VERDICT DID NOT. The card stopped drawing the
+ * `WHEN … → THEN …` grid and now writes the condition as a sentence, so it no
+ * longer wears `.policy-decision-line` at all. The guard follows it: the card is
+ * policed on the classes it renders today, the panel on the ones it still uses.
+ * Two lists, one rule -- text a reviewer decides from is shown whole. The
+ * passage's marks are policed too, because a clipped quotation would also cut
+ * the evidence of which words became which rule.
+ *
  * A `title` tooltip is not a defence. It is the rule behind a control: one hover
  * instead of one click, and invisible to anyone reading rather than pointing.
  *
@@ -128,8 +136,21 @@ const stylesheets = import.meta.glob("./App.css", {
 
 const APP_CSS = blocks(Object.values(stylesheets)[0] ?? "");
 
-/** The elements that carry a rule's condition and its outcome. */
+/** The elements that carry a rule's condition and its outcome in the panel. */
 const DECISION_PARTS = ["policy-decision-line", "policy-decision-value", "policy-decision-result"];
+
+/**
+ * The same, as the card now draws them. The card stopped wearing
+ * `.policy-decision-line` when the `WHEN … → THEN …` grid became a sentence: a
+ * reviewer reads `when an employee begins work on a different date` as prose,
+ * and prose that is clipped is worse than a clipped grid, not better. So the
+ * guard follows the classes rather than the old ones.
+ */
+const CARD_DECISION_PARTS = [
+  "policy-card__rule-reading",
+  "policy-card__reading-value",
+  "policy-card__reading-always",
+];
 
 /** The two surfaces a reviewer decides from, as the class chain above a rule. */
 const CARD = ["policy-card", "policy-card__rules", "policy-card__rule", "policy-card__rule-body"];
@@ -145,6 +166,7 @@ describe("the stylesheet guard is reading a stylesheet", () => {
     const named = new Set(APP_CSS.flatMap((b) => b.selectors));
     const mentions = (needle: string) => [...named].some((s) => s.includes(needle));
     for (const part of DECISION_PARTS) expect(mentions(part)).toBe(true);
+    for (const part of CARD_DECISION_PARTS) expect(mentions(part)).toBe(true);
     expect(mentions("policy-card__rule")).toBe(true);
     expect(mentions("policy-detail-rule")).toBe(true);
   });
@@ -167,11 +189,11 @@ describe("the stylesheet guard is reading a stylesheet", () => {
 });
 
 describe("nothing a reviewer approves is clipped", () => {
-  for (const [surface, scope] of [
-    ["the review card", CARD],
-    ["the detail panel", DETAIL],
+  for (const [surface, scope, parts] of [
+    ["the review card", CARD, CARD_DECISION_PARTS],
+    ["the detail panel", DETAIL, DECISION_PARTS],
   ] as const) {
-    for (const part of DECISION_PARTS) {
+    for (const part of parts) {
       it(`shows ${part} whole on ${surface}`, () => {
         expect(clippedBy(APP_CSS, part, scope)).toEqual([]);
       });
@@ -180,9 +202,11 @@ describe("nothing a reviewer approves is clipped", () => {
 
   it("shows the source passage whole on the review card", () => {
     // The passage is what the rules were read out of. Trimming it would leave a
-    // reviewer checking a rule against a quotation that had itself been cut.
-    expect(clippedBy(APP_CSS, "policy-card__passage-source", CARD)).toEqual([]);
+    // reviewer checking a rule against a quotation that had itself been cut --
+    // and the quotation now carries marks showing which of its words became
+    // which rule, so a cut would also cut the evidence of completeness.
     expect(clippedBy(APP_CSS, "policy-card__passage", CARD)).toEqual([]);
+    expect(clippedBy(APP_CSS, "policy-quote__taken", CARD)).toEqual([]);
   });
 
   it("shows a rule's own title whole on the review card", () => {

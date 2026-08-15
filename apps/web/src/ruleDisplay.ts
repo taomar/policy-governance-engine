@@ -211,10 +211,22 @@ export interface RuleDecisionSummary {
   truncated: boolean;
   /**
    * True when `condition` is the source's own wording rather than a compiled
-   * tree. The caller should mark it, because a stated-but-uncompiled condition
-   * is not something the deterministic engine will test.
+   * tree. Both are ordinary: a test the source states as a comparison between
+   * named quantities is evaluated, and a test it states in words is settled by
+   * a person reading it. Callers may distinguish the two; neither is a grade.
    */
   conditionIsStatedOnly: boolean;
+  /**
+   * Nothing in the record narrows when or to whom the rule applies, so
+   * `condition` is the placeholder "Always" rather than anything the document
+   * said.
+   *
+   * Said as a flag rather than left for a caller to recognise by comparing the
+   * string: 84 AIS rules and 174 GMU rules are in this state, and a surface
+   * that wants to phrase the absence its own way should not have to know what
+   * word this function chose.
+   */
+  unconditional: boolean;
 }
 
 /**
@@ -285,6 +297,7 @@ export function ruleDecisionSummary(rule: CanonicalRule, maxTerms = 3): RuleDeci
     text: `${condition} → ${action}`,
     truncated: cond.truncated,
     conditionIsStatedOnly: !cond.text && stated !== null,
+    unconditional: !cond.text && stated === null,
   };
 }
 
