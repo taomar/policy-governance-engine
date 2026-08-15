@@ -1,10 +1,13 @@
+import { useId, useState } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip } from "antd";
 import {
   CheckOutlined,
   CloseOutlined,
   ClusterOutlined,
   CrownOutlined,
+  DownOutlined,
   ExclamationCircleOutlined,
+  ExportOutlined,
   ReadOutlined,
   RightOutlined,
 } from "@ant-design/icons";
@@ -25,7 +28,10 @@ import { DELTA_META } from "./ReviewFilterBar";
 
 interface CandidateRowProps {
   candidate: CandidateRule;
-  expanded: boolean;
+  /** Whether the side panel is currently showing this rule. Presentation only:
+   *  it marks which row the larger surface is on, and says nothing about
+   *  whether this row's own detail is open. */
+  active: boolean;
   selected: boolean;
   /** Whether this candidate is in a reviewable state (shows the checkbox + quick actions). */
   selectable: boolean;
@@ -42,7 +48,15 @@ interface CandidateRowProps {
   /** Select every open sibling in this rule's family for bulk review. Absent
    *  when the row isn't selectable, so the chip stays purely informational. */
   onSelectFamily?: () => void;
-  onToggleExpand: () => void;
+  /** This rule's detail, built only when the row is actually open.
+   *
+   *  A function rather than an element on purpose: a page of rows would
+   *  otherwise construct every detail it is not showing, and the queue holds
+   *  dozens of rows each holding a rule. */
+  renderDetail?: () => React.ReactNode;
+  /** Take this rule to the larger surface. The row no longer needs it to be
+   *  readable, so this is an explicit second choice rather than the way in. */
+  onOpenFullRecord?: () => void;
   onToggleSelect: () => void;
   onApprove?: () => void;
   onReject?: () => void;
@@ -56,12 +70,22 @@ interface CandidateRowProps {
  * checkbox, status tag, quality-findings badge, and quick approve/reject
  * buttons that don't require expanding the row.
  *
- * `expanded` means "currently shown in the detail pane". The summary stays
- * complete so selecting a row never makes its list entry less useful.
+ * Opening a row used to mean leaving the queue: the click sent the rule to a
+ * separate surface, and coming back was a second click that returned the
+ * reviewer to a list they had to find their place in again. `expanded` was the
+ * name of that — it meant "currently shown in the detail pane" and expanded
+ * nothing. Now the row opens where it stands and the queue around it is
+ * untouched, which is the comparison a reviewer is actually making.
+ *
+ * The open state is the row's own, not the queue's, and that is deliberate:
+ * a state change here re-renders this row and nothing else, so opening one
+ * rule on a page of them costs one row's worth of work rather than the page's.
+ * It also means opening a row cannot disturb the queue's scroll, its filters
+ * or its selection, because it never reaches them.
  */
 export function CandidateRow({
   candidate,
-  expanded,
+  active,
   selected,
   selectable,
   findingsCount,
@@ -71,7 +95,8 @@ export function CandidateRow({
   clusterColor,
   band,
   onSelectFamily,
-  onToggleExpand,
+  renderDetail,
+  onOpenFullRecord,
   onToggleSelect,
   onApprove,
   onReject,
@@ -80,6 +105,14 @@ export function CandidateRow({
   const decision = ruleDecisionSummary(rule);
   const isBandStart = band?.isStart ?? true;
   const isBandEnd = band?.isEnd ?? true;
+
+  const [open, setOpen] = useState(false);
+  const detailId = `${useId()}-detail`;
+  const expandable = !!renderDetail;
+  const expanded = expandable && open;
+  const toggle = () => {
+    if (expandable) setOpen((prev) => !prev);
+  };
 
   // Same custom properties PolicyRow sets, so the family spine, node, resting
   // wash and hover tint all read identically in the queue and after publication.
@@ -94,22 +127,26 @@ export function CandidateRow({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      onToggleExpand();
+      toggle();
     }
   };
 
   return (
+    <>
     <div
       role="button"
       tabIndex={0}
-      aria-pressed={expanded}
-      className={`policy-row candidate-row${expanded ? " candidate-row--expanded policy-row-selected" : ""}${
+      aria-expanded={expandable ? expanded : undefined}
+      aria-controls={expanded ? detailId : undefined}
+      className={`policy-row candidate-row${expanded ? " candidate-row--expanded" : ""}${
+        active ? " policy-row-selected" : ""
+      }${
         cluster ? " policy-row--family" : ""
       }${cluster && isBandStart ? " policy-row--family-start" : ""}${
         cluster && isBandEnd ? " policy-row--family-end" : ""
       }`}
       style={clusterColor ? rowStyle : undefined}
-      onClick={onToggleExpand}
+      onClick={toggle}
       onKeyDown={handleKeyDown}
     >
       {cluster && (
@@ -301,17 +338,41 @@ export function CandidateRow({
             </Tooltip>
           </>
         )}
-        <Tooltip title={expanded ? "Viewing details" : "Open details"}>
-          <Button
-            size="small"
-            type="text"
-            icon={<RightOutlined />}
-            className="candidate-row-open-btn"
-            onClick={onToggleExpand}
-            aria-label={expanded ? `Viewing ${rule.title}` : `Open details for ${rule.title}`}
-          />
-        </Tooltip>
+        {onOpenFullRecord && (
+          <Tooltip title="Open the full record — source passage, JSON forms, history and notes">
+            <Button
+              size="small"
+              type="text"
+              icon={<ExportOutlined />}
+              className="candidate-row-open-btn"
+              onClick={onOpenFullRecord}
+              aria-label={`Open the full record for ${rule.title}`}
+            />
+          </Tooltip>
+        )}
+        {expandable && (
+          <Tooltip title={expanded ? "Close this rule's detail" : "Show this rule's detail here"}>
+            <Button
+              size="small"
+              type="text"
+              icon={expanded ? <DownOutlined /> : <RightOutlined />}
+              className="candidate-row-expand-btn"
+              onClick={toggle}
+              aria-expanded={expanded}
+              aria-controls={expanded ? detailId : undefined}
+              aria-label={
+                expanded ? `Close the detail for ${rule.title}` : `Show the detail for ${rule.title}`
+              }
+            />
+          </Tooltip>
+        )}
       </Space>
     </div>
+    {expanded && (
+      <div id={detailId} className="candidate-item-detail" role="region" aria-label={rule.title}>
+        {renderDetail?.()}
+      </div>
+    )}
+    </>
   );
 }

@@ -11141,6 +11141,10 @@
   color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
 }
 
+/* The generated subject name, above the document's trail and title.
+   Smaller and lighter than either, because it is an aid to finding the card
+   and never its name — and set apart from the heading beneath it so that the
+   document's words read as one uninterrupted block. */
 .policy-card__topic {
   display: flex;
   align-items: baseline;
@@ -11691,4 +11695,168 @@
   gap: 4px;
   padding: 18px 2px 6px;
   max-width: 62ch;
+}
+
+/* ---------------------------------------------------------------------------
+   One rule's detail, opened where the rule stands.
+
+   The reviewer used to leave the queue to read a rule and click back to return,
+   and the policy they were comparing it against went away while they were gone.
+   This is what they get instead: the row stays where it is, the rules above and
+   below it stay on screen, and the detail unfolds under it.
+
+   Nothing here clips. Every cell of the attribute table holds a run of the
+   source document, and a document's words are not a thing to abbreviate -- so
+   cells wrap, the table scrolls sideways rather than shrinking them, and
+   `nothingIsClipped` asserts that no rule in this block says otherwise.
+   --------------------------------------------------------------------------- */
+.rule-detail-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 2px 4px;
+  font-size: 13px;
+}
+
+.rule-detail-inline__block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-detail-inline__heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--app-text-muted, #6b7280);
+}
+
+.rule-detail-inline__prose {
+  margin: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.rule-detail-inline__quiet {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.rule-detail-inline__list {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.rule-detail-inline__attr-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Sideways, never smaller: shrinking a column to fit is how a verbatim
+   quotation stops being verbatim on a narrow panel. */
+.rule-detail-inline__attrs {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.rule-detail-inline__caption {
+  margin: 0 0 2px;
+  text-align: start;
+  font-size: 12px;
+  color: var(--app-text-muted, #6b7280);
+}
+
+.rule-detail-inline__attrs th,
+.rule-detail-inline__attrs td {
+  padding: 5px 8px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  vertical-align: top;
+  text-align: start;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.rule-detail-inline__attrs thead th {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--app-text-muted, #6b7280);
+  background: var(--app-surface-muted, #f6f7f9);
+}
+
+/* The attribute's own name is a word, so it gets room for a word. Left to size
+   itself the column collapsed to a single letter and printed "constraint" down
+   the page one character per line, which is the name still being shown and
+   still being unreadable. */
+.rule-detail-inline__attrs thead th:first-child,
+.rule-detail-inline__attrs tbody th {
+  width: 18%;
+  min-width: 8.5rem;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* The identifier a case supplies is also a word rather than a paragraph, and
+   it loses to the quotation beside it for the same reason. */
+.rule-detail-inline__attrs thead th:last-child,
+.rule-detail-inline__attrs tbody td:last-child {
+  width: 24%;
+  min-width: 9rem;
+}
+
+.rule-detail-inline__mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rule-detail-inline__datatype {
+  color: var(--app-text-muted, #6b7280);
+}
+
+.rule-detail-inline__ids {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.rule-detail-inline__id-row {
+  display: contents;
+}
+
+.rule-detail-inline__ids dt {
+  color: var(--app-text-muted, #6b7280);
+}
+
+.rule-detail-inline__ids dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rule-detail-inline__footer {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* The same detail inside the policy panel, under the rule it belongs to. */
+.policy-detail-rule__expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--app-border, #e5e7eb);
 }

@@ -95,6 +95,7 @@ export function PolicyDetailPanel({
   statusColor,
   statusLabel,
   onOpenRule,
+  ruleDetail,
   onApprove,
   onReject,
   actions,
@@ -102,8 +103,16 @@ export function PolicyDetailPanel({
   card: PolicyCard;
   statusColor: (status: string) => string;
   statusLabel: (status: string) => string;
-  /** Drill into one rule, replacing this panel's content with the inspector. */
-  onOpenRule: (ruleId: string) => void;
+  /** Take one rule to the larger surface, replacing this panel's content with
+   *  the inspector. Optional, and no longer the way to read a rule: the
+   *  reviewer used to have to leave the policy to see any of its detail and
+   *  click back to return, which cost them the passage they were comparing
+   *  against. `ruleDetail` opens it here instead. */
+  onOpenRule?: (ruleId: string) => void;
+  /** This rule's detail, shown in place under it when the reviewer opens it.
+   *  A function, so a policy of fourteen rules builds detail for the ones that
+   *  are open and not for the ones that are not. */
+  ruleDetail?: (ruleId: string) => React.ReactNode;
   onApprove?: () => void;
   onReject?: () => void;
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
@@ -330,17 +339,24 @@ export function PolicyDetailPanel({
                                     )
                                   }
                                   aria-expanded={expanded.has(rule.rule_id)}
+                                  aria-controls={
+                                    expanded.has(rule.rule_id)
+                                      ? `policy-rule-detail-${rule.rule_id}`
+                                      : undefined
+                                  }
                                   onClick={() => toggle(rule.rule_id)}
                                 >
                                   Details
                                 </Button>
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  onClick={() => onOpenRule(rule.rule_id)}
-                                >
-                                  Open rule
-                                </Button>
+                                {onOpenRule && (
+                                  <Button
+                                    size="small"
+                                    type="text"
+                                    onClick={() => onOpenRule(rule.rule_id)}
+                                  >
+                                    Open rule
+                                  </Button>
+                                )}
                               </div>
                               <div
                                 className="policy-decision-line"
@@ -372,6 +388,13 @@ export function PolicyDetailPanel({
                                 </div>
                               )}
                               {expanded.has(rule.rule_id) && (
+                                <div
+                                  id={`policy-rule-detail-${rule.rule_id}`}
+                                  className="policy-detail-rule__expanded"
+                                  role="region"
+                                  aria-label={canonical.title}
+                                >
+                                  {ruleDetail?.(rule.rule_id)}
                                 <dl
                                   className="policy-detail-rule__ids"
                                   data-testid="policy-rule-details"
@@ -404,6 +427,7 @@ export function PolicyDetailPanel({
                                     </dd>
                                   </div>
                                 </dl>
+                                </div>
                               )}
                             </li>
                           );

@@ -88,6 +88,7 @@ import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
+import { RuleDetailInline } from "./RuleDetailInline";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -1155,6 +1156,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         statusColor={(status) => STATUS_COLOR[status] ?? "default"}
         statusLabel={(status) => STATUS_LABEL[status] ?? status}
         onOpenRule={openRuleWithinPolicy}
+        ruleDetail={(ruleId) => {
+          const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
+          if (!entry) return null;
+          return (
+            <RuleDetailInline
+              candidate={entry.candidate}
+              onOpenFullRecord={() => openRuleWithinPolicy(ruleId)}
+            />
+          );
+        }}
         onApprove={
           openPolicyCard.reviewableIds.length > 0
             ? () => requestReview(openPolicyCard.reviewableIds, "approve")
@@ -1770,7 +1781,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                             )}
                             <CandidateRow
                               candidate={candidate}
-                              expanded={selectedCandidateId === candidate.id}
+                              active={selectedCandidateId === candidate.id}
                               selected={selectedIds.has(candidate.id)}
                               selectable={editability.canReview}
                               cluster={cluster}
@@ -1779,7 +1790,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               findingsCount={findings.length}
                               statusColor={STATUS_COLOR[candidate.review_status] ?? "default"}
                               statusLabel={STATUS_LABEL[candidate.review_status] ?? candidate.review_status}
-                              onToggleExpand={() => openCandidate(candidate)}
+                              renderDetail={() => (
+                                <RuleDetailInline
+                                  candidate={candidate}
+                                  onOpenFullRecord={() => openCandidate(candidate)}
+                                />
+                              )}
+                              onOpenFullRecord={() => openCandidate(candidate)}
                               onToggleSelect={() => toggleSelected(candidate.id)}
                               onSelectFamily={
                                 cluster && editability.canReview ? () => selectFamily(candidate.rule.rule_id) : undefined
