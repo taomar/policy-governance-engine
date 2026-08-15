@@ -587,3 +587,77 @@ a request on its own.
 is the cost of the duplicate and the reason to close it. When item 2 lands,
 `PoliciesTab.tsx` switches to `buildPolicyCards` and both duplicate files are
 deleted in one commit — I own that switch.
+
+## 15. Item 2 is now a smaller job than it was specified as
+
+**Nothing to route. This re-scopes item 2 downward; the owner should read it
+before starting.**
+
+Item 2 was specified when the two cards' prop surfaces differed by capability,
+not by copy — 14 props against 21. The extra seven on the published side were
+all there to carry the eight tabs, because on the published surface the tabs
+lived **inside the card** while on review they lived in `PolicyDetailPanel`:
+`tests`, `testing`, `history`, `onRequestHistory`, `extractionRuns`,
+`expandedRuleId`, `onToggleRule`. Merging the cards meant merging those too.
+
+`111740c` removes that reason. The published surface now opens
+`PolicyDetailPanel` when a policy is selected, so the tabs are in the panel on
+**both** surfaces and the card no longer needs to host them. The remaining
+divergence is smaller and mostly mechanical:
+
+- **`onSelectRule` takes a different argument on each side.** Review passes a
+  *draft row* id (`(recordId: string) => void`); published passes the rule
+  (`(rule: CanonicalRule) => void`), because a published rule has no draft row.
+  The merged component should pass the **card entry**, which holds both, and let
+  each caller take what it has. Do not resolve this by making one side look up
+  the other — that is a second opinion on grouping.
+- **`RuleDetailInline` cannot serve a published rule.** It takes
+  `candidate: CandidateRule`. The published inline detail uses
+  `RuleCard defaultExpanded hideNotes`. Either that prop widens to accept a
+  rule without a draft row, or the merged card keeps two detail renderers
+  chosen by whether the entry has a `candidate` — derived from the record,
+  which is the rule we work by.
+- **The statement button should be extracted, not duplicated a third time.**
+  `63d0328` gives the published card the same statement-as-button contract the
+  review card has. Two copies of it now exist. When the duplicate dies, lift it
+  into one piece rather than reconciling two — the badges, kebab and Ask AI must
+  stay outside it and the `aria-current` must stay on the row, and those are
+  exactly the details that drift when copied.
+
+### One structural characteristic worth a decision, in a file I do not own
+
+`App.css` line ~3626: `.review-workspace--desktop` is
+`height: clamp(560px, calc(100vh - 150px), 1400px)`, and the policies workspace
+is `calc(100vh - 214px)`. Neither list scrolls internally — `.policy-list-scroll`
+does not exist in the rendered DOM — so on both surfaces the card list flows down
+the page and the only scroller is `.app-content`.
+
+The consequence is real and the user reported it as something else: a reader who
+scrolls down to reach a rule has scrolled the panel off the top of the window, so
+the click answers them where they cannot see it, which is indistinguishable from
+the click doing nothing. That is very likely part of what "not clickable" meant.
+
+`111740c` handles it behaviourally on the published side — `revealPanel()` brings
+the panel back **only when it is genuinely outside the window**, via the exported
+`isOutsideWindow` predicate in `PoliciesTab.tsx`. The review side has the same
+structural characteristic and no such handling. Two options, and I have not taken
+either because both land outside my files:
+
+1. **Reuse the behaviour.** Import `isOutsideWindow` and call
+   `scrollIntoView({ block: "nearest" })` on selection in `ReviewQueue.tsx`.
+   Cheap, proven, and matches what already ships.
+2. **Fix the layout instead.** Give the card list its own scroll container so the
+   panel is never off-screen to begin with. Better, but it changes a layout two
+   surfaces share and should not be done as a side-effect of a selection fix.
+
+If (2) is chosen, the reveal call becomes dead and I will remove it.
+
+### Not a defect: what an unrecognised review status counts as
+
+`policyRecord` derives review progress from the shared `candidateEditability`
+map, where an unknown status is **not reviewable** and therefore counts as
+decided. That is right for `approved` and `published` and wrong-ish for a status
+nobody has taught the map about — a typo in a status string would quietly
+inflate "decided". Left as it is: the shape is depended on by other callers and
+changing it is out of this brief. Recording it so the next person to see it does
+not treat it as new.
