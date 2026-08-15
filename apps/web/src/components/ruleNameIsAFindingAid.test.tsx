@@ -155,3 +155,118 @@ describe("what it costs a page", () => {
     expect(ruleNames).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * A published version holds no draft row — there, the rule is the record — so it
+ * asks by the rule's own identifier instead. Both doors reach the same stored
+ * handle; only the way in differs, and the interface must not be able to tell.
+ *
+ * The danger the second door carries is that a canonical identifier records
+ * where a rule was found in its document, so the same one in two documents is
+ * two unrelated rules. Everything below exists to hold that apart.
+ */
+describe("a rule asked about by its own identifier", () => {
+  it("shows the handle stored for it, marked as ours like any other", async () => {
+    ruleNames.mockResolvedValue({
+      names: {},
+      names_by_rule_id: {
+        "p4-E000012": { text: "A handle", unavailable_code: null, generated: true },
+      },
+    });
+
+    render(<RuleName policySetKey="a-set" ruleId="p4-E000012" variant="block" />);
+
+    await waitFor(() => expect(screen.getByTestId("rule-name")).toBeTruthy());
+    expect(screen.getByTestId("rule-name").textContent).toMatch(/A handle/);
+    expect(screen.getByTestId("rule-name").textContent).toMatch(OURS);
+  });
+
+  it("says which set it is asking within, so it cannot be answered by another", async () => {
+    ruleNames.mockResolvedValue({ names: {} });
+
+    render(<RuleName policySetKey="a-set" ruleId="p4-E000012" />);
+
+    await waitFor(() => expect(ruleNames).toHaveBeenCalledTimes(1));
+    expect(ruleNames.mock.calls[0][1]).toEqual({
+      policySetKey: "a-set",
+      ruleIds: ["p4-E000012"],
+    });
+  });
+
+  it("asks each set separately when a page draws rules from more than one", async () => {
+    // Rolling several sets into one request would be the unscoped lookup this
+    // is arranged to prevent, in the client instead of the query.
+    ruleNames.mockResolvedValue({ names: {} });
+
+    render(
+      <>
+        <RuleName policySetKey="a-set" ruleId="p4-E000012" />
+        <RuleName policySetKey="another-set" ruleId="p4-E000012" />
+      </>,
+    );
+
+    await waitFor(() => expect(ruleNames).toHaveBeenCalledTimes(2));
+    const asked = ruleNames.mock.calls.map((call) => call[1].policySetKey).sort();
+    expect(asked).toEqual(["a-set", "another-set"]);
+  });
+
+  it("keeps one set's answer away from the same identifier in another", async () => {
+    // The failure this catches renders as a perfectly ordinary handle above a
+    // rule it was never written about, which nothing on screen would reveal.
+    ruleNames.mockImplementation((_ids: string[], byRuleId?: { policySetKey: string }) =>
+      Promise.resolve({
+        names: {},
+        names_by_rule_id:
+          byRuleId?.policySetKey === "a-set"
+            ? { "p4-E000012": { text: "Belongs here", unavailable_code: null, generated: true } }
+            : {},
+      }),
+    );
+
+    render(
+      <>
+        <RuleName policySetKey="a-set" ruleId="p4-E000012" variant="block" />
+        <RuleName policySetKey="another-set" ruleId="p4-E000012" variant="block" />
+      </>,
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId("rule-name")).toHaveLength(1));
+    expect(screen.getByTestId("rule-name").textContent).toMatch(/Belongs here/);
+  });
+
+  it("does not let a draft row id and a rule identifier answer each other", async () => {
+    // Both are strings, and one map keyed on the bare value would file one
+    // under the other's key the moment a document numbered a rule the way a
+    // draft row is numbered. Here they collide deliberately: the same string
+    // is a draft row id and a canonical rule id, and each must get its own.
+    ruleNames.mockResolvedValue({
+      names: { "shared-1": { text: "Asked by draft row", unavailable_code: null, generated: true } },
+      names_by_rule_id: {
+        "shared-1": { text: "Asked by identifier", unavailable_code: null, generated: true },
+      },
+    });
+
+    render(
+      <>
+        <RuleName candidateId="shared-1" variant="block" />
+        <RuleName policySetKey="a-set" ruleId="shared-1" variant="block" />
+      </>,
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId("rule-name")).toHaveLength(2));
+    expect(screen.getAllByTestId("rule-name").map((node) => node.textContent)).toEqual([
+      expect.stringMatching(/Asked by draft row/),
+      expect.stringMatching(/Asked by identifier/),
+    ]);
+  });
+
+  it("renders nothing at all when no handle has been generated for it", async () => {
+    // Unchanged from the draft-row door: a card is never blocked by naming.
+    ruleNames.mockResolvedValue({ names: {} });
+
+    const { container } = render(<RuleName policySetKey="a-set" ruleId="p4-E000012" />);
+
+    await waitFor(() => expect(ruleNames).toHaveBeenCalled());
+    expect(container.textContent).toBe("");
+  });
+});

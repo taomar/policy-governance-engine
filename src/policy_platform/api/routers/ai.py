@@ -254,10 +254,25 @@ class RuleNameRequest(BaseModel):
 
 
 class RuleNameLookupRequest(BaseModel):
-    """The rules a page is drawing, so their handles can be fetched at once."""
+    """The rules a page is drawing, so their handles can be fetched at once.
+
+    Two ways of naming a rule, because two surfaces hold different records of
+    it. The review queue holds draft rows and asks by their ids. A published
+    version holds no draft row at all — the rule is the record — so it asks by
+    the rule's own identifier instead. Both reach the same stored handle; only
+    the way in differs.
+    """
 
     #: Capped at the router's ceiling, so one request cannot ask for everything.
     candidate_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_LIST_LIMIT)
+    #: Canonical rule identifiers. Meaningful only within a policy set: a rule
+    #: id is derived from where the rule was found in its document, so two
+    #: documents can state the same one about entirely different rules.
+    rule_ids: list[str] = Field(default_factory=list, max_length=_MAX_LIST_LIMIT)
+    #: Which set the `rule_ids` belong to. Required with them, for the reason
+    #: above — an unscoped lookup could hand back another document's handle,
+    #: which is the one failure this feature must not have.
+    policy_set_key: str | None = None
 
 
 @router.post("/policy-sets/{key}/rule-names")
@@ -326,10 +341,41 @@ async def lookup_rule_names(
     handle is this app's commentary about a rule, so it is never served as part
     of one — that is what keeps it out of every export and every published
     version.
+
+    A published version is asked about by canonical rule id, because it holds no
+    draft row to ask about. That path is scoped to a policy set: a canonical id
+    records where a rule was found in its document, so unscoped it could name a
+    different rule in a different document. Asking with rule ids and no set is
+    refused rather than answered from whatever matched first.
+
+    The two doors answer in two maps rather than one. A draft row id and a
+    canonical rule id are both strings, and a single map keyed on the bare value
+    would let an answer to one question be read as the answer to the other — a
+    handle rendered above a rule it was never written about, which is the one
+    failure this feature must not have and the one nothing on screen reveals.
     """
 
     stored = await rule_name_lookup.names_for_rules(session, body.candidate_ids)
-    return {"names": {rule_id: name.as_payload() for rule_id, name in stored.items()}}
+    names = {rule_id: name.as_payload() for rule_id, name in stored.items()}
+    names_by_rule_id: dict[str, object] = {}
+
+    if body.rule_ids:
+        if not body.policy_set_key:
+            raise HTTPException(
+                status_code=422,
+                detail="rule_ids must be asked for within a policy set",
+            )
+        policy_set = await PolicySetRepository(session).get_by_key(body.policy_set_key)
+        if policy_set is None:
+            raise HTTPException(
+                status_code=404, detail=f"policy set '{body.policy_set_key}' not found"
+            )
+        by_rule_id = await rule_name_lookup.names_for_canonical_rules(
+            session, policy_set_id=policy_set.id, rule_ids=body.rule_ids
+        )
+        names_by_rule_id = {rule_id: name.as_payload() for rule_id, name in by_rule_id.items()}
+
+    return {"names": names, "names_by_rule_id": names_by_rule_id}
 
 
 @router.post("/provisions/{provision_id}/explain")

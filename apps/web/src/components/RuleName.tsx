@@ -72,9 +72,44 @@ const UNREACHABLE: RuleNameState = { status: "unreachable" };
  */
 const MAX_IDS_PER_REQUEST = 200;
 
+/**
+ * Which rule a handle is being asked about.
+ *
+ * Two ways of saying it, because two surfaces hold different records of the
+ * same rule. The review queue holds the draft row naming ran over and asks by
+ * its id. A published version holds no draft row — there, the rule *is* the
+ * record — so it asks by the rule's own identifier, within the set that gives
+ * that identifier its meaning. Neither is the primary; they are two doors to
+ * one stored handle.
+ */
+export type RuleNameSubject =
+  | { candidateId: string; policySetKey?: undefined; ruleId?: undefined }
+  | { candidateId?: undefined; policySetKey: string; ruleId: string };
+
+/**
+ * The key this page files a handle under.
+ *
+ * Namespaced so the two doors can never collide in the store: a draft row id
+ * and a canonical rule id are both strings, and a shared map keyed on the bare
+ * value would let one answer the other's question. The set is part of the key
+ * for the same reason it is part of the query — the same canonical id in two
+ * documents is two different rules.
+ */
+function subjectKey(subject: RuleNameSubject): string {
+  if (subject.candidateId) return `candidate:${subject.candidateId}`;
+  if (!subject.policySetKey || !subject.ruleId) return "";
+  return `rule:${subject.policySetKey}\u0000${subject.ruleId}`;
+}
+
+/** The reply is keyed by whichever identifier was asked with, so the answer is
+ *  filed back under the key that asked for it. */
+function replyKey(subject: RuleNameSubject): string {
+  return subject.candidateId ?? subject.ruleId ?? "";
+}
+
 const states = new Map<string, RuleNameState>();
 const listeners = new Set<() => void>();
-const pending = new Set<string>();
+const pending = new Map<string, RuleNameSubject>();
 let flushScheduled = false;
 
 function notify(): void {
@@ -88,8 +123,8 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-function stateOf(candidateId: string): RuleNameState {
-  return states.get(candidateId) ?? ABSENT;
+function stateOf(key: string): RuleNameState {
+  return states.get(key) ?? ABSENT;
 }
 
 function asState(record: StoredRuleName | undefined): RuleNameState {
@@ -103,18 +138,75 @@ function asState(record: StoredRuleName | undefined): RuleNameState {
   return { status: "declined", code: record.unavailable_code ?? "unrecorded" };
 }
 
+/**
+ * Ask for every rule now waiting, in as few requests as the doors allow.
+ *
+ * One request per door, and one per set within the identifier door, because a
+ * canonical identifier means nothing without a set. Each reply is applied only
+ * to the rules that request asked about — never merged into one map first. Two
+ * sets can state the same identifier about unrelated rules, so a merged map
+ * would hand one set's handle to the other's rule, and it would look entirely
+ * ordinary on screen.
+ */
 async function flush(): Promise<void> {
   while (pending.size > 0) {
-    const batch = [...pending].slice(0, MAX_IDS_PER_REQUEST);
-    for (const id of batch) pending.delete(id);
+    const batch = [...pending.entries()].slice(0, MAX_IDS_PER_REQUEST);
+    for (const [key] of batch) pending.delete(key);
+
+    type Ask = {
+      /** The waiting rules this request is for, and nobody else's. */
+      members: [string, RuleNameSubject][];
+      reply: Promise<Record<string, StoredRuleName | undefined>>;
+    };
+
+    const byDraftRow: [string, RuleNameSubject][] = [];
+    const bySet = new Map<string, [string, RuleNameSubject][]>();
+    for (const entry of batch) {
+      const subject = entry[1];
+      if (subject.candidateId) {
+        byDraftRow.push(entry);
+      } else if (subject.policySetKey && subject.ruleId) {
+        const held = bySet.get(subject.policySetKey);
+        if (held) held.push(entry);
+        else bySet.set(subject.policySetKey, [entry]);
+      }
+    }
+
+    const asks: Ask[] = [];
+    if (byDraftRow.length > 0) {
+      asks.push({
+        members: byDraftRow,
+        reply: aiApi
+          .ruleNames(byDraftRow.map(([, subject]) => subject.candidateId as string))
+          .then((result) => result.names ?? {}),
+      });
+    }
+    // A list of requests rather than a pair, so a page drawing three sets asks
+    // three times rather than silently answering two of them from the third.
+    for (const [policySetKey, members] of bySet) {
+      asks.push({
+        members,
+        reply: aiApi
+          .ruleNames([], {
+            policySetKey,
+            ruleIds: members.map(([, subject]) => subject.ruleId as string),
+          })
+          .then((result) => result.names_by_rule_id ?? {}),
+      });
+    }
+
     try {
-      const result = await aiApi.ruleNames(batch);
-      for (const id of batch) states.set(id, asState(result.names?.[id]));
+      const replies = await Promise.all(asks.map((ask) => ask.reply));
+      replies.forEach((reply, index) => {
+        for (const [key, subject] of asks[index].members) {
+          states.set(key, asState(reply[replyKey(subject)]));
+        }
+      });
     } catch {
       // The request did not land. That is a fact about the network and not
       // about these rules, so it is recorded as its own state rather than as
       // "there is no name" — a distinction a retry would need.
-      for (const id of batch) states.set(id, UNREACHABLE);
+      for (const [key] of batch) states.set(key, UNREACHABLE);
     }
     notify();
   }
@@ -130,12 +222,13 @@ function scheduleFlush(): void {
   });
 }
 
-/** Ask for one rule's name, once. A rule already known — in any of its four
- *  states — is not asked about again for the life of the page. */
-function askFor(candidateId: string): void {
-  if (!candidateId || states.has(candidateId)) return;
-  states.set(candidateId, LOADING);
-  pending.add(candidateId);
+/** Ask about one rule, once. A rule already known — in any of its four states
+ *  — is not asked about again for the life of the page. */
+function askFor(subject: RuleNameSubject): void {
+  const key = subjectKey(subject);
+  if (!key || states.has(key)) return;
+  states.set(key, LOADING);
+  pending.set(key, subject);
   scheduleFlush();
 }
 
@@ -152,30 +245,41 @@ export function forgetRuleNames(): void {
 }
 
 /** One rule's name state, subscribing the caller to changes in it. */
-export function useRuleName(candidateId: string): RuleNameState {
+export function useRuleName(subject: RuleNameSubject): RuleNameState {
+  const key = subjectKey(subject);
   const state = useSyncExternalStore(
     subscribe,
-    () => stateOf(candidateId),
+    () => stateOf(key),
     () => ABSENT,
   );
+  const { candidateId, policySetKey, ruleId } = subject;
   useEffect(() => {
-    askFor(candidateId);
-  }, [candidateId]);
+    // Rebuilt from the three primitives rather than closing over `subject`, so
+    // a caller passing a fresh object literal every render does not re-ask.
+    askFor(
+      candidateId
+        ? { candidateId }
+        : policySetKey && ruleId
+          ? { policySetKey, ruleId }
+          : { candidateId: "" },
+    );
+  }, [candidateId, policySetKey, ruleId]);
   return state;
 }
 
 export function RuleName({
   candidateId,
+  policySetKey,
+  ruleId,
   variant = "inline",
-}: {
-  /** The rule to name. The name is looked up by this and never passed in, so
-   *  that no rule object anywhere can be carrying one. */
-  candidateId: string;
+}: RuleNameSubject & {
   /** `inline` sits on the rule's own line; `block` stands above it. Both say
    *  the same words and both are marked as ours. */
   variant?: "inline" | "block";
 }): JSX.Element | null {
-  const state = useRuleName(candidateId);
+  const state = useRuleName(
+    (candidateId ? { candidateId } : { policySetKey, ruleId }) as RuleNameSubject,
+  );
   // Everything that is not a name renders nothing. A consumer can therefore
   // drop this in unconditionally and the surrounding layout never has to know
   // whether naming has been run.

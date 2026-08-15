@@ -1163,12 +1163,21 @@ export interface RuleName {
   generated_at: string | null;
 }
 
-/** Names for the rules that were asked about, keyed by candidate rule id.
+/** Names for the rules that were asked about, one map per way of asking.
  *
- *  A rule with no stored name is simply absent from the map, which is how "not
+ *  Two maps rather than one because a draft row id and a canonical rule id are
+ *  both strings. Merged, an answer to one question could be read as the answer
+ *  to the other — this app's words rendered above a rule they were never
+ *  written about, which nothing on screen would reveal.
+ *
+ *  A rule with no stored name is simply absent from its map, which is how "not
  *  asked yet" stays distinguishable from "asked, and nothing usable came back". */
 export interface RuleNameLookupResult {
+  /** Keyed by candidate rule id, for the surface that holds draft rows. */
   names: Record<string, RuleName>;
+  /** Keyed by canonical rule id, for a published version that holds none.
+   *  Meaningful only within the set that was asked about. */
+  names_by_rule_id?: Record<string, RuleName>;
 }
 
 /** What one rule-naming run did.
@@ -2272,10 +2281,21 @@ export const aiApi = {
    * to be found. Nothing is written, and a rule nobody has named yet is simply
    * missing from the reply rather than being invented on the spot.
    */
-  ruleNames: (candidateIds: string[]) =>
+  ruleNames: (
+    candidateIds: string[],
+    byRuleId?: { policySetKey: string; ruleIds: string[] },
+  ) =>
     request<RuleNameLookupResult>("/api/ai/rule-names/lookup", {
       method: "POST",
-      body: JSON.stringify({ candidate_ids: candidateIds }),
+      body: JSON.stringify({
+        candidate_ids: candidateIds,
+        // A published version holds no draft row to ask about, so it asks by
+        // the rule's own identifier. Scoped to a set, because that identifier
+        // records where a rule was found in its document and two documents can
+        // state the same one.
+        rule_ids: byRuleId?.ruleIds ?? [],
+        policy_set_key: byRuleId?.policySetKey ?? null,
+      }),
     }),
 
   /**
