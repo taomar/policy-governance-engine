@@ -39,6 +39,7 @@ from policy_platform.infrastructure.assembly.approved_provision_lookup import (
     approved_provision_groupings,
 )
 from policy_platform.infrastructure.assembly.policy_assembly import assemble
+from policy_platform.infrastructure.assembly.provision_history import policy_history
 from policy_platform.infrastructure.assembly.topic_label_lookup import labels_for_policy_set
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.projection.export import (
@@ -649,6 +650,63 @@ async def get_policy_version_policies(
             "rules": [_rule(rule) for rule in policy.rules],
         }
         for policy in policies
+    ]
+
+
+@router.get("/{key}/provisions/{provision_key}/history")
+async def get_provision_history(
+    key: str, provision_key: str, session: AsyncSession = Depends(get_session)
+) -> list[dict]:
+    """One policy, traced across every published version it appears in.
+
+    A policy is not a row that gets updated. `document_provisions.id` belongs to
+    a single document version and cannot follow it; `provision_key` can, because
+    publishing copies the key onto every rule and the same key recurs when the
+    same policy is published again. So this reads the sightings of a key rather
+    than the revisions of a record.
+
+    The oldest sighting is reported as `first_seen`, never as `added`. Rules
+    published before the provision link existed carry no key at all, so an
+    absence from an earlier version can mean the policy was not there *or* that
+    nothing recorded it as being there, and only the first of those would
+    justify calling it an addition.
+
+    Comparison runs between consecutive sightings of this key, which may be
+    several versions apart, rather than between adjacent versions of the set: a
+    policy absent from the version in between has not changed *in* that version,
+    and saying so would attribute movement to a version that never held it.
+
+    An empty list means the key has never been published. That is an answer, not
+    a 404 — a candidate policy has no publication history yet.
+    """
+    policy_set_repo = PolicySetRepository(session)
+    policy_set = await policy_set_repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    sightings = await policy_history(session, policy_set.id, provision_key)
+    return [
+        {
+            "version_id": sighting.version_id,
+            "version_number": sighting.version_number,
+            "is_active": sighting.is_active,
+            "approved_by": sighting.approved_by,
+            "approved_at": sighting.approved_at,
+            "heading_path": sighting.heading_path,
+            "change": sighting.change,
+            "rules": [
+                {
+                    "rule_id": rule.rule_id,
+                    "title": rule.title,
+                    "fingerprint": rule.fingerprint,
+                }
+                for rule in sighting.rules
+            ],
+            "rules_added": sighting.rules_added,
+            "rules_removed": sighting.rules_removed,
+            "rules_reworded": sighting.rules_reworded,
+        }
+        for sighting in sightings
     ]
 
 
