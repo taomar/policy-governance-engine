@@ -32,10 +32,8 @@ import {
   candidateAnswersStatus,
   candidateIdsAnsweringRuleFilters,
   cardsAnsweringRuleFilters,
-  candidateAnswersStance,
   filterIsOff,
   policySelectionNote,
-  STANCE_LENSES,
 } from "./queueCardFilters";
 
 /** Neutral placeholders. Nothing here leans on the vocabulary of any document. */
@@ -290,67 +288,60 @@ describe("the queue does not ask the server to narrow rules within a policy", ()
   });
 });
 
-describe("content is categorised by what a record does, never by what it is about", () => {
-  function ruleWithEffect(id: string, effectType: string | null): CandidateRule {
-    const c = candidate(id);
-    return {
-      ...c,
-      rule: {
-        ...c.rule,
-        effect:
-          effectType === null
-            ? ({} as CanonicalRule["effect"])
-            : ({ type: effectType, action: "act" } as CanonicalRule["effect"]),
-      },
-    };
-  }
+describe("no filter asks what a record is about", () => {
+  // The distinction between a record that constrains someone and one that
+  // supplies a meaning is sound, and is read from effect.type rather than from
+  // the words, so it needs no vocabulary. What the corpus refuted is asking it
+  // at this level: measured over four extraction runs, at most one policy per
+  // run is purely a glossary, because definitions sit inside real policies
+  // rather than forming their own. A lane here would hold one card, and could
+  // only be filled by carving rules back out of policies.
+  const filterSource = Object.values(
+    import.meta.glob("./queueCardFilters.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>,
+  )[0];
+  const queueSource = Object.values(
+    import.meta.glob("./components/ReviewQueue.tsx", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>,
+  )[0];
 
-  it("treats the one effect that constrains nobody as supplying meaning", () => {
-    expect(candidateAnswersStance(ruleWithEffect("a", "informational"), "supplies-meaning")).toBe(
-      true,
-    );
-  });
-
-  it("treats every constraining effect as deciding", () => {
-    for (const effect of ["require_action", "deny", "allow"]) {
-      expect(candidateAnswersStance(ruleWithEffect("a", effect), "decides")).toBe(true);
-      expect(candidateAnswersStance(ruleWithEffect("a", effect), "supplies-meaning")).toBe(false);
+  it("does not classify a record by its type or its topic", () => {
+    for (const reDerivation of ['rule_type === "definition"', 'rule_type == "definition"']) {
+      expect(filterSource).not.toContain(reDerivation);
+      expect(queueSource).not.toContain(reDerivation);
     }
   });
 
-  it("puts an effect it has never met among the rules, not into the glossary", () => {
-    // The four effects in the schema today are not a closed set. A fifth must
-    // surface where a reviewer reads it and can question it, rather than
-    // disappearing into a lens that claims it defines something.
-    const unknown = ruleWithEffect("a", "escalate_to_committee");
-    expect(candidateAnswersStance(unknown, "supplies-meaning")).toBe(false);
-    expect(candidateAnswersStance(unknown, "decides")).toBe(true);
+  it("does not read the effect vocabulary, so it cannot hold a second opinion", () => {
+    // recordStance is the one place that reads effect.type. A copy here would
+    // be the drift that produced two renderings of one record.
+    expect(filterSource).not.toContain('"informational"');
+    expect(filterSource).not.toContain("recordStance");
   });
 
-  it("answers neither lens when no effect was recorded", () => {
-    // Absent is a fourth state, not a default to either side.
-    const silent = ruleWithEffect("a", null);
-    expect(candidateAnswersStance(silent, "supplies-meaning")).toBe(false);
-    expect(candidateAnswersStance(silent, "decides")).toBe(false);
+  it("offers no content lane or lens over the queue", () => {
+    for (const gone of ["STANCE_LENSES", "stance-lens", "stanceFilter", "Glossary"]) {
+      expect(queueSource).not.toContain(gone);
+    }
   });
 
-  it("still shows a record with no recorded effect when no lens is chosen", () => {
-    // It must not vanish from the queue merely because it answered no lens.
-    expect(candidateAnswersStance(ruleWithEffect("a", null), "all")).toBe(true);
+  it("keeps the record of why the lane went, so it is not rebuilt", () => {
+    // The history is the point: the distinction was right and the level wrong,
+    // and the measurement that settled it must outlive whoever read it.
+    expect(filterSource).toContain("glossary-only");
+    expect(queueSource).toContain("WHY THERE IS NO CONTENT-KIND LANE HERE ANY MORE");
   });
 
-  it("does not read rule_type, which the corpus shows is the narrower test", () => {
-    // Measured live: informational is a strict superset of definition, also
-    // catching the calculation records that likewise decide nothing.
-    const calc = ruleWithEffect("a", "informational");
-    calc.rule.rule_type = "calculation";
-    expect(candidateAnswersStance(calc, "supplies-meaning")).toBe(true);
-  });
-
-  it("selects the policy whole, never the matching rules of it", () => {
-    const rules = [ruleWithEffect("r1", "informational"), ruleWithEffect("r2", "deny")];
+  it("passes only the two filters that are properties of a record", () => {
+    const rules = [candidate("r1"), candidate("r2")];
     const cards = buildPolicyCards([policyOf(["r1", "r2"])], rules);
-    const filters = { stance: "supplies-meaning" };
+    const filters = {};
     const chosen = cardsAnsweringRuleFilters(
       cards,
       filters,
@@ -358,22 +349,6 @@ describe("content is categorised by what a record does, never by what it is abou
     );
     expect(chosen).toHaveLength(1);
     expect(chosen[0].rules).toHaveLength(2);
-  });
-
-  it("offers one lens over the queue rather than two lanes splitting it", () => {
-    // Measured across the whole live corpus, no policy in either document is
-    // made only of records that define, so a "rules" lane would hold every
-    // card and the split would earn nothing.
-    expect(STANCE_LENSES[0].value).toBe("all");
-    expect(STANCE_LENSES).toHaveLength(2);
-  });
-
-  it("names the lens without ranking either kind of record", () => {
-    for (const lens of STANCE_LENSES) {
-      for (const banned of ["just", "only", "merely", "trivial", "minor", "non-", "not a real"]) {
-        expect(lens.label.toLowerCase()).not.toContain(banned);
-      }
-    }
   });
 });
 

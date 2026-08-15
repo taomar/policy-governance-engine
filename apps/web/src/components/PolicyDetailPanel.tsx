@@ -582,6 +582,24 @@ export function PolicyDetailPanel({
                   );
                 })}
 
+                {/*
+                  This is no longer a filter footnote, and the count no longer
+                  has a filter among its causes: cards are assembled from every
+                  candidate and then selected whole, so narrowing the queue can
+                  no longer take a rule off a card. What is left is the policy's
+                  own declared rule_count exceeding the records we actually
+                  hold — a later run replaced a reading, or the record was not
+                  loaded. Both are real, and both mean this card is not all of
+                  the policy.
+
+                  So it stays, and it stays for the reason the fragment warning
+                  had to go: a card that is short must say so. Removing it would
+                  buy tidiness by making incomplete indistinguishable from
+                  whole, which is the one trade this screen may not make. It is
+                  dormant in practice — measured live, no card in either
+                  document renders it. The misleading part was only ever the
+                  field's name, which belongs to policyCards.ts.
+                */}
                 {card.hiddenByFilter > 0 && (
                   <Text type="secondary">
                     {card.hiddenByFilter === 1
