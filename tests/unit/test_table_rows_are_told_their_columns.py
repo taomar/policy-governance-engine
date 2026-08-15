@@ -185,6 +185,7 @@ def test_the_rendered_line_does_not_claim_to_name_every_column(
 
     line = render_table_columns(_labels(columns))
     assert "include" in line
+    assert "not necessarily all of them" in line
 
 
 def test_nothing_here_pairs_a_label_to_a_value() -> None:

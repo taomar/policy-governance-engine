@@ -405,6 +405,38 @@ class TestHeaderRowIsEvidencedNotAssumed:
     def test_an_empty_grid_states_no_labels(self):
         assert ingestion._row_states_column_labels([]) == (False, "the grid has no rows")
 
+    def test_a_two_column_grid_cannot_evidence_which_way_its_labels_run(self):
+        """Form alone does not separate a header row from a key/value first row.
+
+        A grid two columns wide is symmetric under transposition: "the labels
+        run across the top" and "the keys run down the left side" draw the same
+        picture. Both grids below have a first row of two filled cells, each
+        short enough to be a label, neither recurring beneath -- every property
+        this test is allowed to look at. One opens with a header; the other
+        opens with an ordinary pair. Nothing in their shape says which.
+
+        Separating them needs a judgement about what the words mean, and the
+        contract of `_row_states_column_labels` is that it keys on cell form and
+        never on cell content. So the two verdicts must agree. If this test ever
+        fails, a content judgement has been introduced -- which is a decision to
+        take deliberately, in one language at a time, not a tidy-up.
+        """
+
+        labels_across_the_top = [
+            ["Abbreviation", "Meaning"],
+            ["ABC", "a phrase the abbreviation stands for"],
+            ["DEF", "another phrase it stands for"],
+        ]
+        keys_down_the_side = [
+            ["Reference", "a value recorded against the reference"],
+            ["Owner", "a value recorded against the owner"],
+            ["Status", "a value recorded against the status"],
+        ]
+
+        assert ingestion._row_states_column_labels(labels_across_the_top) == (
+            ingestion._row_states_column_labels(keys_down_the_side)
+        )
+
 
 class _StubRow:
     def __init__(self, top: float, cell_count: int):
