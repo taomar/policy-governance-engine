@@ -67,6 +67,7 @@ import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDi
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedCandidates, type PolicyCard } from "../policyCards";
 import { type LoadState, describeApiFailure } from "../loadState";
+import { qualityScanSummary } from "../qualityScanSummary";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
 import { FamilyReviewConfirm } from "./FamilyReviewConfirm";
 import {
@@ -187,6 +188,18 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [qualityFindings, setQualityFindings] = useState<Map<string, QualityFinding[]> | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityError, setQualityError] = useState<string | null>(null);
+  /**
+   * That the last scan failed, held apart from the message saying so.
+   *
+   * The message is shown in an Alert the reviewer can close, and closing it
+   * clears `qualityError`. When the summary strip read the error directly, a
+   * dismissed Alert took the failure with it and the strip went back to
+   * claiming no scan had ever been run — the reviewer had asked for one,
+   * watched it fail, closed the notice, and was then told it never happened.
+   * Dismissing a message may silence the message; it may not rewrite what
+   * took place.
+   */
+  const [qualityFailed, setQualityFailed] = useState(false);
 
   // Active-version rules — fetched to compute a pre-publish diff summary
   // (net-new / superseding / carried-forward-unchanged) before the manager commits.
@@ -307,6 +320,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   useEffect(() => {
     void loadCandidates();
     setQualityFindings(null); // stale once the policy set/filter changes — re-run on demand
+    setQualityFailed(false); // a failure belonged to the set that was scanned, not to this one
+    setQualityError(null);
     setSelectedCandidateId(null);
     setInspectorFullscreen(false);
     setPage(1);
@@ -347,6 +362,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const runQualityCheck = async () => {
     if (!selectedKey) return;
     setQualityError(null);
+    setQualityFailed(false);
     setQualityLoading(true);
     try {
       const report = await aiApi.getCandidateQuality(selectedKey);
@@ -359,8 +375,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         }
       }
       setQualityFindings(byRule);
+      setQualityFailed(false);
     } catch (e) {
-      setQualityError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      setQualityError(describeApiFailure(e));
+      setQualityFailed(true);
     } finally {
       setQualityLoading(false);
     }
@@ -1004,6 +1022,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const qualityFindingCount = qualityFindings
     ? Array.from(qualityFindings.values()).reduce((total, findings) => total + findings.length, 0)
     : null;
+  const qualityScan = qualityScanSummary({
+    loading: qualityLoading,
+    failed: qualityFailed,
+    count: qualityFindingCount,
+  });
   const reviewedCount =
     (statusCounts.approved ?? 0) + (statusCounts.rejected ?? 0) + (statusCounts.published ?? 0);
   const decisionProgress = totalCandidates ? Math.round((reviewedCount / totalCandidates) * 100) : 0;
@@ -1612,8 +1635,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               </div>
               <div>
                 <dt>Quality findings</dt>
-                <dd>{qualityFindingCount ?? "—"}</dd>
-                <small>{qualityFindingCount === null ? "Scan not run" : "Across loaded rules"}</small>
+                <dd>{qualityScan.display}</dd>
+                <small>{qualityScan.caption}</small>
               </div>
             </dl>
 
