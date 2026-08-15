@@ -32,6 +32,8 @@ import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, ty
 import { PolicyInspector } from "./PolicyInspector";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
 import type { PolicySightingView } from "./policyTabPanes";
+import { usePolicyTesting } from "./policyTesting";
+import { useActor } from "../ActorContext";
 import { RuleCard } from "./RuleCard";
 import { RecordActionsMenu } from "./RecordActionsMenu";
 import {
@@ -82,6 +84,7 @@ interface PoliciesTabProps {
 export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const screens = Grid.useBreakpoint();
   const isDesktop = !!screens.lg;
+  const { actor } = useActor();
 
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
   const [versionId, setVersionId] = useState<string>("");
@@ -115,6 +118,10 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  as "this set has no tests", which is a claim about coverage. */
   const [tests, setTests] = useState<PolicyTestListItem[] | null>(null);
   const [testsLoading, setTestsLoading] = useState(false);
+  /** Bumped whenever a test is written or run, to re-read the set's tests. A
+   *  counter rather than a manual re-fetch call so the loading effect stays the
+   *  single place that knows how tests are fetched. */
+  const [testsEpoch, setTestsEpoch] = useState(0);
   /** One policy's sightings, kept by provision key and fetched when its History
    *  tab is first opened. Keyed rather than held singly because several cards
    *  are on the page at once and each is a different policy. */
@@ -172,7 +179,24 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [policySetKey]);
+  }, [policySetKey, testsEpoch]);
+
+  /**
+   * The Tests tab's verbs, on a published policy.
+   *
+   * Offered here as well as on the review surface, and deliberately not gated
+   * on the record being sealed. Writing a test does not change the policy — it
+   * writes a question *about* the policy — and the version people are actually
+   * relying on is the one most worth asking questions about. Gating it would
+   * have meant a reviewer could only test a record while it was still a draft,
+   * which is the wrong way round.
+   */
+  const testing = usePolicyTesting({
+    policySetKey,
+    policyVersionId: versionId || null,
+    actor: actor.name,
+    onChanged: useCallback(() => setTestsEpoch((n) => n + 1), []),
+  });
 
   useEffect(() => {
     setError(null);
@@ -725,6 +749,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             onViewHistory={handleViewHistory}
                             tests={tests}
                             testsLoading={testsLoading}
+                            testing={testing}
                             history={historyByKey[card.policy.key] ?? null}
                             historyLoading={historyLoadingKeys.has(card.policy.key)}
                             onRequestHistory={requestHistory}

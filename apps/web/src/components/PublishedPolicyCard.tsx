@@ -29,6 +29,7 @@ import {
   PolicyTestsPane,
   publishedPolicyRecord,
   type PolicySightingView,
+  type PolicyTestingVerbs,
 } from "./policyTabPanes";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
@@ -89,6 +90,7 @@ export function PublishedPolicyCard({
   onViewHistory,
   tests,
   testsLoading,
+  testing,
   history,
   historyLoading,
   onRequestHistory,
@@ -119,6 +121,8 @@ export function PublishedPolicyCard({
    *  the same as none. */
   tests?: readonly PolicyTestListItem[] | null;
   testsLoading?: boolean;
+  /** Lets the Tests tab ask for scenarios and run them. Absent means it reports only. */
+  testing?: PolicyTestingVerbs;
   /** This policy's sightings across published versions, newest last. */
   history?: readonly PolicySightingView[] | null;
   historyLoading?: boolean;
@@ -502,7 +506,7 @@ export function PublishedPolicyCard({
           {
             key: "tests",
             label: "Tests",
-            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} />,
+            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} testing={testing} />,
           },
           {
             key: "history",

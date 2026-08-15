@@ -94,6 +94,7 @@ import {
   policySelectionNote,
 } from "../queueCardFilters";
 import { useActor } from "../ActorContext";
+import { usePolicyTesting } from "./policyTesting";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
@@ -414,17 +415,47 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [selectedKey],
   );
 
+  /**
+   * Re-read the set's tests.
+   *
+   * A failure leaves them unknown rather than empty: an empty list would tell
+   * the reviewer this set has no tests, which is a claim about coverage rather
+   * than an admission that the answer did not arrive.
+   *
+   * Separate from the set-switch effect so writing or running a test can
+   * re-read them without also resetting the reviewer's filters.
+   */
+  const reloadPolicySetTests = useCallback(async () => {
+    setPolicySetTestsLoading(true);
+    try {
+      setPolicySetTests(await policyTestApi.list(selectedKey));
+    } catch {
+      setPolicySetTests(null);
+    } finally {
+      setPolicySetTestsLoading(false);
+    }
+  }, [selectedKey]);
+
+  /**
+   * The Tests tab's verbs, on a candidate.
+   *
+   * Not gated on the policy being editable. Writing a test does not change the
+   * policy; it writes a question *about* it. The same verbs are offered on the
+   * published surface for the same reason, so there is no branch here to keep
+   * in step with one over there.
+   */
+  const policyTesting = usePolicyTesting({
+    policySetKey: selectedKey,
+    policyVersionId: null,
+    actor: actor.name,
+    onChanged: useCallback(() => {
+      void reloadPolicySetTests();
+    }, [reloadPolicySetTests]),
+  });
+
   useEffect(() => {
     void loadFacets();
-    // The set's tests, loaded once here so every policy's Tests tab reads the
-    // same answer. A failure leaves them unknown rather than empty: an empty
-    // list would tell the reviewer this set has no tests, which is a claim.
-    setPolicySetTestsLoading(true);
-    policyTestApi
-      .list(selectedKey)
-      .then(setPolicySetTests)
-      .catch(() => setPolicySetTests(null))
-      .finally(() => setPolicySetTestsLoading(false));
+    void reloadPolicySetTests();
     // Filters are scoped to the policy set; carrying a document or run selection
     // across a switch would silently filter the new set to nothing.
     setDocumentFilter("");
@@ -1449,6 +1480,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         policySetKey={selectedKey}
         tests={policySetTests}
         testsLoading={policySetTestsLoading}
+        testing={policyTesting}
         history={policyHistory[openPolicyCard.policy.key] ?? null}
         historyLoading={policyHistoryLoading.has(openPolicyCard.policy.key)}
         onRequestHistory={requestPolicyHistory}

@@ -24,7 +24,7 @@
  *    that is decided from the record's own status elsewhere.
  */
 
-import { Empty, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { AssembledPolicy, CanonicalRule, PolicyTestListItem } from "../api";
 import type { PolicyCard } from "../policyCards";
 import {
@@ -38,6 +38,7 @@ import {
 import type { PublishedPolicyCard } from "../publishedPolicyCards";
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
+import type { PolicyTesting } from "./policyTesting";
 import "./policyTabPanes.css";
 
 const { Text, Paragraph } = Typography;
@@ -350,6 +351,16 @@ export interface RuleTestRow {
   title: string;
   state: RuleTestState;
   tests: number;
+  /** The tests covering this rule, so a row can run its own without the pane
+   *  having to re-derive which ones they were. */
+  testIds: string[];
+  /** How many of them this app proposed and nobody has accepted yet.
+   *
+   *  Kept separate from `state` rather than folded into it. A proposed test is
+   *  not a fifth outcome of running — it has not run — it is a statement about
+   *  where the test came from, and a reviewer deciding whether to trust a green
+   *  row needs to know that the question it answers was written by this app. */
+  awaitingReview: number;
 }
 
 const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: string }> = {
@@ -413,21 +424,37 @@ export function policyTestRows(
       title: entry.rule.title,
       state,
       tests: covering.length,
+      testIds: covering.map((item) => item.test.id),
+      awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
     };
   });
 }
+
+/**
+ * What this pane can ask for. Absent means asking is not available here, and
+ * the pane then says so rather than rendering a control that does nothing.
+ */
+export type PolicyTestingVerbs = Pick<
+  PolicyTesting,
+  "generate" | "run" | "busy" | "working" | "error" | "dismissError"
+>;
 
 export function PolicyTestsPane({
   record,
   tests,
   loading,
+  testing,
 }: {
   record: PolicyRecordView;
   tests: readonly PolicyTestListItem[] | null;
   loading?: boolean;
+  testing?: PolicyTestingVerbs;
 }) {
   const rows = policyTestRows(record, tests ?? []);
   const covered = rows.filter((row) => row.state !== "untested").length;
+  const untestedRuleIds = rows.filter((row) => row.state === "untested").map((row) => row.ruleId);
+  const everyTestId = rows.flatMap((row) => row.testIds);
+  const awaitingReview = rows.reduce((total, row) => total + row.awaitingReview, 0);
 
   return (
     <div className="policy-pane">
@@ -438,6 +465,76 @@ export function PolicyTestsPane({
             ? "No test targets any rule of this policy. Nothing here has been checked — which is different from having been checked and passed."
             : `${share(covered, rows.length)} of this policy are covered by a test.`}
       </Paragraph>
+
+      {testing && rows.length > 0 ? (
+        <Space wrap size="small" style={{ marginBottom: 12 }} data-testid="policy-test-actions">
+          <Popconfirm
+            title="Write scenarios for these rules?"
+            description={
+              <div style={{ maxWidth: 320 }}>
+                This asks a model to read each rule and propose a scenario for it, which takes time
+                and costs model usage. What comes back is a proposal from this app, held for your
+                review, and it is not run until you run it.
+              </div>
+            }
+            okText="Write them"
+            cancelText="Not now"
+            onConfirm={() => {
+              void testing.generate(untestedRuleIds.length > 0 ? untestedRuleIds : rows.map((r) => r.ruleId));
+            }}
+            disabled={testing.working}
+          >
+            <Button size="small" type="primary" loading={testing.working} data-testid="policy-generate-tests">
+              {untestedRuleIds.length > 0
+                ? `Write scenarios for ${share(untestedRuleIds.length, rows.length)} with no test`
+                : "Write more scenarios"}
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title="Run every test of this policy?"
+            description={
+              <div style={{ maxWidth: 320 }}>
+                Each test is evaluated against the version on screen. This takes time and costs
+                model usage.
+              </div>
+            }
+            okText="Run them"
+            cancelText="Not now"
+            onConfirm={() => {
+              void testing.run(everyTestId);
+            }}
+            disabled={testing.working || everyTestId.length === 0}
+          >
+            <Button
+              size="small"
+              disabled={everyTestId.length === 0 || testing.working}
+              loading={testing.working}
+              data-testid="policy-run-tests"
+            >
+              Run {everyTestId.length === 0 ? "tests" : `all ${everyTestId.length}`}
+            </Button>
+          </Popconfirm>
+          {awaitingReview > 0 ? (
+            <Text type="secondary" data-testid="policy-tests-awaiting-review">
+              {awaitingReview} written by this app, waiting for you to accept or reject
+            </Text>
+          ) : null}
+        </Space>
+      ) : null}
+
+      {testing?.error ? (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          onClose={testing.dismissError}
+          message="That did not complete"
+          description={<DirectionalText>{testing.error}</DirectionalText>}
+          style={{ marginBottom: 12 }}
+          data-testid="policy-test-error"
+        />
+      ) : null}
+
       <Table<RuleTestRow>
         size="small"
         rowKey="ruleId"
@@ -449,7 +546,16 @@ export function PolicyTestsPane({
           {
             title: "Rule",
             dataIndex: "title",
-            render: (title: string) => <DirectionalText>{title}</DirectionalText>,
+            render: (title: string, row: RuleTestRow) => (
+              <Space direction="vertical" size={0}>
+                <DirectionalText>{title}</DirectionalText>
+                {row.awaitingReview > 0 ? (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ✦ {row.awaitingReview === row.tests ? "Written by this app" : `${row.awaitingReview} written by this app`}, awaiting review
+                  </Text>
+                ) : null}
+              </Space>
+            ),
           },
           {
             title: "Tests",
@@ -467,6 +573,43 @@ export function PolicyTestsPane({
               </Tooltip>
             ),
           },
+          ...(testing
+            ? [
+                {
+                  title: "",
+                  key: "act",
+                  width: 96,
+                  render: (_: unknown, row: RuleTestRow) =>
+                    row.testIds.length > 0 ? (
+                      <Button
+                        size="small"
+                        type="link"
+                        loading={row.testIds.some((id) => testing.busy.has(id))}
+                        disabled={testing.working}
+                        onClick={() => {
+                          void testing.run(row.testIds);
+                        }}
+                        data-testid={`run-rule-tests-${row.ruleId}`}
+                      >
+                        Run
+                      </Button>
+                    ) : (
+                      <Button
+                        size="small"
+                        type="link"
+                        loading={testing.busy.has(row.ruleId)}
+                        disabled={testing.working}
+                        onClick={() => {
+                          void testing.generate([row.ruleId]);
+                        }}
+                        data-testid={`generate-rule-test-${row.ruleId}`}
+                      >
+                        Write one
+                      </Button>
+                    ),
+                } as const,
+              ]
+            : []),
         ]}
       />
     </div>

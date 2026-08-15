@@ -42,6 +42,7 @@ import {
   PolicyTestsPane,
   candidatePolicyRecord,
   type PolicySightingView,
+  type PolicyTestingVerbs,
 } from "./policyTabPanes";
 import type { PolicyTestListItem } from "../api";
 import "./policyHeaderActions.css";
@@ -121,6 +122,7 @@ export function PolicyDetailPanel({
   actions,
   tests,
   testsLoading,
+  testing,
   history,
   historyLoading,
   onRequestHistory,
@@ -168,6 +170,8 @@ export function PolicyDetailPanel({
    *  is not the same as an empty list, which means the set has no tests. */
   tests?: readonly PolicyTestListItem[] | null;
   testsLoading?: boolean;
+  /** Lets the Tests tab ask for scenarios and run them. Absent means it reports only. */
+  testing?: PolicyTestingVerbs;
   /** This policy's published sightings, newest last. Supplied by the host,
    *  which knows whether the record has ever been published; a candidate that
    *  has not simply passes nothing and the tab says so. */
@@ -665,7 +669,7 @@ export function PolicyDetailPanel({
           {
             key: "tests",
             label: "Tests",
-            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} />,
+            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} testing={testing} />,
           },
           {
             key: "history",
