@@ -64,6 +64,28 @@ sets to match. It holds no list of tab names, so it cannot be edited into agreem
 with a half-finished change. **Adding a tab to one page and not the other now fails
 the build.** That is deliberate, and it applies to every owner below.
 
+**A second obligation, learned by clicking rather than reading.** The Tests tab's
+scenario generation calls `POST /policy-tests/policy-sets/{key}/validation-batches`,
+which is a *blind validation batch* and is therefore run by the deterministic
+engine. The server refuses any rule that is decided by reading, in those words.
+The pane now derives the offer from `rule.evaluation_mode` and offers a scenario
+only to rules the engine evaluates; a rule that states its test in words renders
+"Checked by reading" instead.
+
+**Anyone adding a control to a record surface should take this as the general
+rule.** An action offered on every record and refused by the server on one of the
+two routes teaches the reviewer, through the interaction, the same thing the copy
+guards keep out of the words. The route guards read strings; they cannot see a
+button. Derive the offer, and say what is true of the other route positively.
+
+The same endpoint also refuses when the policy set has **no active approved
+version** ("no active approved version to propose tests against"). That is a
+server product rule, surfaced verbatim, not worked around: it means scenario
+generation is reachable on a published set and not on one with nothing published
+yet. It is a second reason the test actions are offered on both surfaces rather
+than gated to candidates — the published surface is the one where the server
+permits them.
+
 ---
 
 ## 1. `policyCards.ts` — owner: `dev-rulename`
@@ -509,3 +531,59 @@ than to delete a distinction that is real.
 rule reached sideways. The moment it gates something a record or a handler
 already answers, it is the old flag under a new name.
 
+
+---
+
+# Addendum — item 14, from the Overview and Tests rebuild
+
+## 14. Nothing to route — recorded so it is not rediscovered
+
+Both items the user rejected are fixed in files I own, and neither needed a
+change from another owner. This section exists so the findings survive.
+
+### The Tests tab's server rules, discovered by exercising it
+
+`POST /api/policy-tests/policy-sets/{key}/validation-batches` refuses twice, and
+both refusals are correct product rules rather than defects:
+
+1. **Rules decided by reading.** "blind validation runs against the deterministic
+   engine; these selected rules are decided by reading, so the engine does not run
+   them". Handled by deriving the offer from `evaluation_mode` — see the
+   obligation added under *Where this stands*.
+2. **No active approved version.** "policy set '<key>' has no active approved
+   version to propose tests against". Surfaced verbatim; not pre-empted, because
+   pre-empting it means encoding a server rule client-side where it can drift.
+
+Neither figure from the live data is written into the product. The refusal text
+comes from the server each time.
+
+### What the provenance chain could not evidence, and therefore omits
+
+- **Sequence position in the document.** `source_elements` is an element key
+  (`p1-E000004`), not an ordinal. There is no honest conversion, so the Overview
+  shows the key and no position.
+- **Ingestion time.** `DocumentVersion.created_at` exists, but neither surface
+  loads `SourceDocument`, and `ReviewFacetRun` does not carry it. The tab shows
+  `version_label` and `content_hash` instead.
+
+Both are cheap to add **if** a caller loads the document record. Neither is worth
+a request on its own.
+
+### Two defects logged, not fixed, both another agent's finding
+
+- **An extraction defect the record-not-source design exposed.** The record says
+  `"You required to Received 3 doses"` where the quoted source says only
+  `"Received 3 doses"`. Still visible on the published AIS policy today; the
+  published surface renders it faithfully, which is how it was seen.
+- **A silent skip in the draft arm of `AskAboutRuleModal`.** It sends
+  `candidate.policy_set_id` — a UUID — as `policy_set_key`, which is matched
+  against the slug. It never resolves, so the approved-rules context block never
+  loads for a rule-scoped draft ask. Owner: `dev-asklang`.
+
+### Still blocked on item 2
+
+`PublishedPolicyCard.tsx` remains a component-level duplicate of
+`PolicyReviewCard.tsx`. Everything built since has been added to **both**, which
+is the cost of the duplicate and the reason to close it. When item 2 lands,
+`PoliciesTab.tsx` switches to `buildPolicyCards` and both duplicate files are
+deleted in one commit — I own that switch.
