@@ -45,11 +45,18 @@ beforeAll(() => {
 
 beforeEach(() => cleanup());
 
-function rule(id: string, title: string): CanonicalRule {
+/**
+ * `evaluation_mode` is explicit on every fixture rather than defaulted, because
+ * it is what decides whether this pane offers to write a scenario at all. A
+ * fixture that leaves it out is a fixture whose route this test did not choose,
+ * and the pane would then be exercised on a route by accident.
+ */
+function rule(id: string, title: string, mode: "deterministic" | "ai_ready" = "deterministic"): CanonicalRule {
   return {
     rule_id: id,
     title,
     effect: "allow",
+    evaluation_mode: mode,
     condition: { type: "all", all: [] },
     obligations: [],
     exceptions: [],
@@ -223,5 +230,116 @@ describe("a refusal reaches the reviewer in the server's own words", () => {
   it("says nothing at all when nothing was refused", () => {
     render(<PolicyTestsPane record={record([rule("a", "One")])} tests={[]} testing={verbs()} />);
     expect(screen.queryByTestId("policy-test-error")).toBeNull();
+  });
+});
+
+/**
+ * FOUND BY RUNNING IT, NOT BY READING IT.
+ *
+ * The generate control was offered on every rule, and the server refused for a
+ * rule decided by reading with: "blind validation runs against the deterministic
+ * engine; these selected rules are decided by reading, so the engine does not
+ * run them". The refusal is accurate and well worded. The interaction that
+ * provoked it was not.
+ *
+ * Offering an action on every rule and letting it fail on one of the two routes
+ * teaches a reviewer that that route is the lesser one — the exact claim the
+ * copy guards keep out of the words, arriving instead through what the buttons
+ * do. So the offer is derived from the rule's own route, and what is true of a
+ * rule decided by reading is stated positively: it is checked the way it is
+ * decided.
+ */
+describe("the offer follows the route the rule takes", () => {
+  it("offers to write a scenario for a rule the engine evaluates", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "deterministic")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+    expect(screen.getByTestId("generate-rule-test-a")).toBeTruthy();
+    expect(screen.queryByTestId("read-decided-a")).toBeNull();
+  });
+
+  it("says how a rule decided by reading is checked, instead of offering it an engine scenario", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "ai_ready")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+    expect(screen.queryByTestId("generate-rule-test-a")).toBeNull();
+    expect(screen.getByTestId("read-decided-a").textContent).toBe("Checked by reading");
+  });
+
+  it("writes only for the rules the engine evaluates when the policy holds both routes", async () => {
+    const generate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "deterministic"), rule("b", "Two", "ai_ready")])}
+        tests={[]}
+        testing={verbs({ generate })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("policy-generate-tests"));
+    fireEvent.click(await screen.findByRole("button", { name: /Write them/ }));
+    await waitFor(() => expect(generate).toHaveBeenCalled());
+    // Sending the read-decided rule too is what earned the refusal.
+    expect(generate.mock.calls[0][0]).toEqual(["a"]);
+  });
+
+  it("offers no scenario control at all when the engine evaluates none of them", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "ai_ready"), rule("b", "Two", "ai_ready")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+    expect(screen.queryByTestId("policy-generate-tests")).toBeNull();
+  });
+
+  it("explains which instrument runs what, without naming a shortfall", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "deterministic"), rule("b", "Two", "ai_ready")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+    const said = screen.getByTestId("policy-tests-instrument").textContent ?? "";
+    expect(said).toMatch(/run by the engine that computes comparisons/);
+    expect(said).toMatch(/states its test in words/);
+    // A denial still names the thing it denies, so there is nothing to negate.
+    expect(said).not.toMatch(/\b(not|no|cannot|can't|without|missing|lacks?|unsupported)\b/i);
+  });
+
+  it("says the same sentence whatever the mix, so no count of the day is written into it", () => {
+    // This began as a sentence carrying a share, which read "every rule of this
+    // policy state their test in words" the first time a real policy took one
+    // route — ungrammatical, and a number in a sentence whose job is to explain
+    // an instrument rather than to count. The split is in the table, row by row.
+    const said = (rules: CanonicalRule[]) => {
+      cleanup();
+      render(<PolicyTestsPane record={record(rules)} tests={[]} testing={verbs()} />);
+      return screen.getByTestId("policy-tests-instrument").textContent ?? "";
+    };
+    const allReading = said([rule("a", "One", "ai_ready"), rule("b", "Two", "ai_ready")]);
+    const mixed = said([rule("a", "One", "deterministic"), rule("b", "Two", "ai_ready")]);
+    expect(allReading).toBe(mixed);
+    expect(allReading).not.toMatch(/\d/);
+  });
+
+  it("says nothing about instruments when every rule takes the one route", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "One", "deterministic")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+    expect(screen.queryByTestId("policy-tests-instrument")).toBeNull();
   });
 });

@@ -583,6 +583,20 @@ export interface RuleTestRow {
    *  where the test came from, and a reviewer deciding whether to trust a green
    *  row needs to know that the question it answers was written by this app. */
   awaitingReview: number;
+  /** Whether the engine that computes comparisons evaluates this rule.
+   *
+   *  Scenario generation is a blind validation batch, and a blind validation
+   *  batch is run by that engine. A rule whose test is stated in words is
+   *  decided by reading it against its source, so the engine is not the
+   *  instrument that checks it and the server says so when asked.
+   *
+   *  This is read off the rule rather than passed in, and it selects which
+   *  rules the control offers to write for. Offering it on every rule and
+   *  letting the server refuse would teach a reviewer, through the refusal,
+   *  that one of two routes is the lesser — which is the same claim the copy
+   *  guards exist to keep out of the words, arriving through the interaction
+   *  instead. */
+  engineEvaluates: boolean;
 }
 
 const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: string }> = {
@@ -648,6 +662,7 @@ export function policyTestRows(
       tests: covering.length,
       testIds: covering.map((item) => item.test.id),
       awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
+      engineEvaluates: entry.rule.evaluation_mode === "deterministic",
     };
   });
 }
@@ -674,9 +689,13 @@ export function PolicyTestsPane({
 }) {
   const rows = policyTestRows(record, tests ?? []);
   const covered = rows.filter((row) => row.state !== "untested").length;
-  const untestedRuleIds = rows.filter((row) => row.state === "untested").map((row) => row.ruleId);
+  const writableRows = rows.filter((row) => row.engineEvaluates);
+  const untestedRuleIds = writableRows
+    .filter((row) => row.state === "untested")
+    .map((row) => row.ruleId);
   const everyTestId = rows.flatMap((row) => row.testIds);
   const awaitingReview = rows.reduce((total, row) => total + row.awaitingReview, 0);
+  const readDecided = rows.length - writableRows.length;
 
   return (
     <div className="policy-pane">
@@ -690,28 +709,32 @@ export function PolicyTestsPane({
 
       {testing && rows.length > 0 ? (
         <Space wrap size="small" style={{ marginBottom: 12 }} data-testid="policy-test-actions">
-          <Popconfirm
-            title="Write scenarios for these rules?"
-            description={
-              <div style={{ maxWidth: 320 }}>
-                This asks a model to read each rule and propose a scenario for it, which takes time
-                and costs model usage. What comes back is a proposal from this app, held for your
-                review, and it is not run until you run it.
-              </div>
-            }
-            okText="Write them"
-            cancelText="Not now"
-            onConfirm={() => {
-              void testing.generate(untestedRuleIds.length > 0 ? untestedRuleIds : rows.map((r) => r.ruleId));
-            }}
-            disabled={testing.working}
-          >
-            <Button size="small" type="primary" loading={testing.working} data-testid="policy-generate-tests">
-              {untestedRuleIds.length > 0
-                ? `Write scenarios for ${share(untestedRuleIds.length, rows.length)} with no test`
-                : "Write more scenarios"}
-            </Button>
-          </Popconfirm>
+          {writableRows.length > 0 && (
+            <Popconfirm
+              title="Write scenarios for these rules?"
+              description={
+                <div style={{ maxWidth: 320 }}>
+                  This asks a model to read each rule and propose a scenario for it, which takes time
+                  and costs model usage. What comes back is a proposal from this app, held for your
+                  review, and it is not run until you run it.
+                </div>
+              }
+              okText="Write them"
+              cancelText="Not now"
+              onConfirm={() => {
+                void testing.generate(
+                  untestedRuleIds.length > 0 ? untestedRuleIds : writableRows.map((r) => r.ruleId),
+                );
+              }}
+              disabled={testing.working}
+            >
+              <Button size="small" type="primary" loading={testing.working} data-testid="policy-generate-tests">
+                {untestedRuleIds.length > 0
+                  ? `Write scenarios for ${share(untestedRuleIds.length, rows.length)} with no test`
+                  : "Write more scenarios"}
+              </Button>
+            </Popconfirm>
+          )}
           <Popconfirm
             title="Run every test of this policy?"
             description={
@@ -742,6 +765,14 @@ export function PolicyTestsPane({
             </Text>
           ) : null}
         </Space>
+      ) : null}
+
+      {testing && readDecided > 0 ? (
+        <Paragraph type="secondary" data-testid="policy-tests-instrument">
+          Scenarios written here are run by the engine that computes comparisons, so they are
+          written for the rules it evaluates. Where a rule states its test in words, a reader checks
+          it against the source the same way it is decided — by reading.
+        </Paragraph>
       ) : null}
 
       {testing?.error ? (
@@ -815,7 +846,7 @@ export function PolicyTestsPane({
                       >
                         Run
                       </Button>
-                    ) : (
+                    ) : row.engineEvaluates ? (
                       <Button
                         size="small"
                         type="link"
@@ -828,6 +859,10 @@ export function PolicyTestsPane({
                       >
                         Write one
                       </Button>
+                    ) : (
+                      <Text type="secondary" data-testid={`read-decided-${row.ruleId}`}>
+                        Checked by reading
+                      </Text>
                     ),
                 } as const,
               ]
