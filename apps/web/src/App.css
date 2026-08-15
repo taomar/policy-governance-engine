@@ -11752,11 +11752,33 @@
 }
 
 .policy-logic__shape-rules {
+  display: flex;
   flex: 1 1 140px;
+  flex-wrap: wrap;
+  gap: 2px 4px;
   min-width: 0;
   color: var(--app-text-muted, #6b7280);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+
+/* The number of a rule in a group, and the way to it. Drawn as the number it
+   already was, so a reader who never uses it reads what they read before. */
+.policy-logic__shape-rule {
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.policy-logic__shape-rule:hover,
+.policy-logic__shape-rule:focus-visible {
+  background: var(--app-surface-muted, #f3f4f6);
+  color: var(--app-text, #111827);
 }
 
 .policy-logic__shape-attrs {
@@ -11786,6 +11808,13 @@
   border-radius: 6px;
   background: var(--app-surface, #ffffff);
   font-size: 12.5px;
+}
+
+/* A block can only take focus because something sent a reader to it, so say
+   where they landed. */
+.policy-logic__rule:focus {
+  outline: 2px solid var(--app-accent, #4f46e5);
+  outline-offset: 1px;
 }
 
 /* The ordinal and the signature take fixed tracks so the marks sit at the same

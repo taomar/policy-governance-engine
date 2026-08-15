@@ -455,6 +455,92 @@ describe("nothing is behind a control and nothing is hidden", () => {
     expect(view.querySelectorAll("*").length).toBeGreaterThan(0);
   }, WHOLE_POLICY);
 
+  it("carries a reader to a rule of a group without putting the rule behind it", () => {
+    // The groups say which rules are alike; the reader's next move is to go and
+    // read one. Every rule is drawn either way — this only moves the view.
+    const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
+    render(<PolicyLogicTable card={policy} />);
+    const view = screen.getByTestId("policy-logic");
+
+    const jumps = Array.from(
+      view.querySelectorAll<HTMLButtonElement>(".policy-logic__shape-rule"),
+    );
+    expect(jumps.length).toBeGreaterThan(0);
+    // Every rule the groups name is drawn, before anything is pressed.
+    expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(
+      LARGEST_MEASURED_POLICY,
+    );
+
+    for (const jump of jumps) {
+      // A real control, reachable by keyboard, that does not submit anything.
+      expect(jump.tagName).toBe("BUTTON");
+      expect(jump.getAttribute("type")).toBe("button");
+      expect(jump.hasAttribute("disabled")).toBe(false);
+      // Its face is a number, which says nothing on its own when it is read
+      // aloud away from the group that gives it its meaning.
+      expect(jump.textContent?.trim()).toMatch(/^\d+$/);
+      expect((jump.getAttribute("aria-label") ?? "").trim()).not.toBe("");
+      expect(jump.getAttribute("aria-label")).not.toMatch(/^\d+$/);
+    }
+
+    // Each one names a rule that is on the page, addressably and once.
+    const ids = Array.from(view.querySelectorAll("[data-rule]")).map((node) =>
+      node.getAttribute("id"),
+    );
+    expect(ids.every((id) => id !== null && id !== "")).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  }, WHOLE_POLICY);
+
+  it("presses a jump and arrives at that rule with every rule still drawn", () => {
+    const policy = unevenPolicy(6);
+    render(<PolicyLogicTable card={policy} />);
+    const view = screen.getByTestId("policy-logic");
+    const before = view.innerHTML;
+
+    // jsdom lays nothing out and so does not implement this. Standing one in
+    // is what lets the test see where the reader was sent.
+    const scrolled: Element[] = [];
+    const proto = Element.prototype as unknown as Record<string, unknown>;
+    const had = Object.prototype.hasOwnProperty.call(proto, "scrollIntoView");
+    const previous = proto.scrollIntoView;
+    proto.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolled.push(this);
+    };
+
+    try {
+      const jump = view.querySelector<HTMLButtonElement>(
+        ".policy-logic__shape-rule",
+      );
+      expect(jump).not.toBeNull();
+      jump?.click();
+
+      // It went to a rule of this policy, and to the one it names.
+      expect(scrolled).toHaveLength(1);
+      const arrived = scrolled[0] as HTMLElement;
+      expect(arrived.getAttribute("data-testid")).toBe("policy-logic-rule");
+      expect(
+        arrived.querySelector(".policy-card__rule-ordinal")?.textContent?.trim(),
+      ).toBe(jump?.textContent?.trim());
+      // A reader who cannot see the page arrives where a seeing reader does.
+      expect(document.activeElement).toBe(arrived);
+    } finally {
+      if (had) proto.scrollIntoView = previous;
+      else delete proto.scrollIntoView;
+    }
+
+    // Nothing was disclosed, folded, or moved: the same view, all of it.
+    expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(6);
+    expect(view.innerHTML).toBe(before);
+  });
+
+  it("keeps the blocks out of the tab order until something sends a reader to one", () => {
+    const policy = unevenPolicy(4);
+    render(<PolicyLogicTable card={policy} />);
+    for (const block of screen.getAllByTestId("policy-logic-rule")) {
+      expect(block.getAttribute("tabindex")).toBe("-1");
+    }
+  });
+
   it("draws the shape marks as a second reading, spoken by neither", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     render(<PolicyLogicTable card={policy} />);

@@ -125,11 +125,17 @@ export interface LogicRuleReading {
   marks: LogicMark[];
 }
 
+/** One rule of a shape group: its number on the card, and which rule it is. */
+export interface LogicShapeMember {
+  ordinal: number;
+  ruleId: string;
+}
+
 /** Rules that stated the same set of attributes. */
 export interface LogicShape {
   attributes: string[];
-  /** Their numbers on the card, in document order. */
-  ruleOrdinals: number[];
+  /** Them, in document order. */
+  rules: LogicShapeMember[];
 }
 
 /** One passage of the policy and the rules stated in it. */
@@ -326,11 +332,11 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
           shapeIndex.set(key, shape);
           shapes.push({
             attributes: stated.map((row) => row.attribute),
-            ruleOrdinals: [ordinal],
+            rules: [{ ordinal, ruleId: rule.rule_id }],
           });
         } else {
           shape = existing;
-          shapes[existing].ruleOrdinals.push(ordinal);
+          shapes[existing].rules.push({ ordinal, ruleId: rule.rule_id });
         }
       }
 

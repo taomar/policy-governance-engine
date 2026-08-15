@@ -8,6 +8,7 @@ import type {
   LogicBranch,
   LogicMark,
   LogicRuleReading,
+  LogicShapeMember,
 } from "../policyLogicShape";
 import { policyLogicShape } from "../policyLogicShape";
 import { policyRouteLabel } from "../policyGrouping";
@@ -165,12 +166,14 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
               {logic.shapes.map((shape, index) => (
                 <li key={index} className="policy-logic__shape">
                   <span className="policy-logic__shape-count">
-                    {shape.ruleOrdinals.length === 1
+                    {shape.rules.length === 1
                       ? "1 rule"
-                      : `${shape.ruleOrdinals.length} rules`}
+                      : `${shape.rules.length} rules`}
                   </span>
                   <span className="policy-logic__shape-rules">
-                    {shape.ruleOrdinals.join(", ")}
+                    {shape.rules.map((member) => (
+                      <JumpToRule key={member.ruleId} member={member} />
+                    ))}
                   </span>
                   <span className="policy-logic__shape-attrs">
                     {shape.attributes.length === 0 ? (
@@ -357,6 +360,46 @@ function Branch({ branch }: { branch: LogicBranch }) {
   );
 }
 
+/** Where a rule's own block sits in the document, addressable from elsewhere. */
+function blockId(ruleId: string): string {
+  return `policy-logic-rule-${ruleId}`;
+}
+
+/**
+ * The number of a rule in a group, and a way to get to it.
+ *
+ * The groups above answer "which of these rules are alike"; the reader's next
+ * move is to go and read the one that is not. On a policy of sixty rules that
+ * meant scrolling and counting block heads. This carries them there instead.
+ *
+ * It hides nothing: every rule is already drawn, and this only moves the view
+ * to one of them. Focus goes with the scroll, so a reader who does not see the
+ * page arrives where a reader who does sees.
+ */
+function JumpToRule({ member }: { member: LogicShapeMember }) {
+  return (
+    <button
+      type="button"
+      className="policy-logic__shape-rule"
+      // The number alone is the whole label on screen, where the group around
+      // it says what it counts. Read aloud, out of that group, it would be a
+      // bare digit, so the spoken name says what the number is.
+      aria-label={`Rule ${member.ordinal}`}
+      onClick={() => {
+        const block = document.getElementById(blockId(member.ruleId));
+        if (!block) return;
+        // Not every environment that runs this component lays anything out.
+        if (typeof block.scrollIntoView === "function") {
+          block.scrollIntoView({ block: "start", behavior: "auto" });
+        }
+        block.focus({ preventScroll: true });
+      }}
+    >
+      {member.ordinal}
+    </button>
+  );
+}
+
 /** One rule, whole: what scopes it, then what follows from it. */
 function RuleBlock({ rule }: { rule: LogicRuleReading }) {
   const [applies, outcome] = rule.branches;
@@ -365,6 +408,10 @@ function RuleBlock({ rule }: { rule: LogicRuleReading }) {
       className="policy-logic__rule"
       data-testid="policy-logic-rule"
       data-rule={rule.ruleId}
+      id={blockId(rule.ruleId)}
+      // Reachable when something sends a reader here, and skipped by the tab
+      // order when nothing has, so the reading order is unchanged.
+      tabIndex={-1}
     >
       <div className="policy-logic__rule-line">
         <span className="policy-card__rule-ordinal" aria-hidden>

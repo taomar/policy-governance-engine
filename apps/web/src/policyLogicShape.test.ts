@@ -395,13 +395,21 @@ describe("the shape of a policy", () => {
 
     expect(shape.shapes).toHaveLength(2);
     expect(shape.shapes[0].attributes).toEqual(["subject", "predicate"]);
-    expect(shape.shapes[0].ruleOrdinals).toEqual([1, 2, 4]);
+    expect(shape.shapes[0].rules.map((member) => member.ordinal)).toEqual([
+      1, 2, 4,
+    ]);
+    // Each member also says which rule it is, so a reader can be taken to it.
+    expect(shape.shapes[0].rules.map((member) => member.ruleId)).toEqual([
+      "same-1",
+      "same-2",
+      "same-3",
+    ]);
     expect(shape.shapes[1].attributes).toEqual([
       "subject",
       "predicate",
       "exception",
     ]);
-    expect(shape.shapes[1].ruleOrdinals).toEqual([3]);
+    expect(shape.shapes[1].rules.map((member) => member.ordinal)).toEqual([3]);
   });
 
   it("tells apart two rules that state one attribute in different halves", () => {
@@ -431,10 +439,9 @@ describe("the shape of a policy", () => {
       ]),
     );
 
-    expect(shape.shapes.map((group) => group.ruleOrdinals)).toEqual([
-      [1],
-      [2, 3, 4],
-    ]);
+    expect(
+      shape.shapes.map((group) => group.rules.map((member) => member.ordinal)),
+    ).toEqual([[1], [2, 3, 4]]);
   });
 
   it("gives every rule a mark for every attribute, in column order", () => {
