@@ -11524,6 +11524,30 @@
   font-size: 13px;
 }
 
+/* The rule's own words, made activatable.
+
+   A button, because Enter and Space and the focus ring come free with one and
+   are all of them easy to lose when reinventing it on a div. It carries none of
+   a button's appearance: the statement is evidence, and evidence that looks like
+   a control is evidence a reviewer distrusts. So the chrome is unset and only
+   the pointer says it can be reached — until it is focused, where the shared
+   `:focus-visible` outline applies and says so plainly.
+
+   `text-align: start` rather than `left`: the corpus is substantially
+   right-to-left, and a button's default centring would move an Arabic statement
+   away from the margin its neighbours sit against. */
+.policy-card__rule-open {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
 /* Both routes are ordinary, so both are drawn the same. Neither gets a warning
    colour, an icon, or a place in a "needs work" column: a rule the source
    stated in words is a rule the source stated in words. */

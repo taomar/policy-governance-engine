@@ -1,7 +1,6 @@
 import { Fragment } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
-import type { CanonicalRule } from "../api";
 import type { PolicyCard } from "../policyCards";
 import { candidateEditability } from "../candidateEditability";
 import {
@@ -128,6 +127,7 @@ export function PolicyReviewCard({
   onApprove,
   onReject,
   onSelectRule,
+  selectedRuleId,
 }: {
   card: PolicyCard;
   /** Every reviewable rule of this policy is in the bulk selection. */
@@ -147,11 +147,20 @@ export function PolicyReviewCard({
   onApprove?: () => void;
   onReject?: () => void;
   /** Opens this rule in the detail panel. Absent on a surface that has no
-   *  panel to open it in, which is why the control is drawn only when it is
-   *  present — an affordance that leads nowhere is worse than none. It carries
-   *  no permission: opening a rule is a read, and a sealed record opens the
-   *  same way a record under review does. */
-  onSelectRule?: (rule: CanonicalRule) => void;
+   *  panel to open it in, and when it is absent the rule renders exactly as it
+   *  did before this existed — no button, no cursor, no focus ring — because an
+   *  affordance that leads nowhere is worse than none. It carries no
+   *  permission: opening a rule is a read, and a sealed record opens the same
+   *  way a record under review does.
+   *
+   *  Takes the row's own identity rather than the rule it holds. `rule_id` is a
+   *  hash of the rule's content, so two rules a passage states in identical
+   *  words share one, and a caller resolving a click by `rule_id` can open a
+   *  different rule than the reviewer pointed at. */
+  onSelectRule?: (recordId: string) => void;
+  /** Which rule the panel is currently showing, so the row can say so. Absent
+   *  and "none selected" are the same here: neither marks a row. */
+  selectedRuleId?: string | null;
 }) {
   const title = policyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy);
@@ -495,6 +504,10 @@ export function PolicyReviewCard({
                     key={rule.recordId}
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
+                    // Says which row the panel beside this card is showing. On
+                    // the row, not on the button, because it is the record that
+                    // is open and not the control that opened it.
+                    aria-current={rule.recordId === selectedRuleId ? "true" : undefined}
                     value={read.ordinal}
                   >
                     <span className="policy-card__rule-ordinal" aria-hidden>
@@ -508,18 +521,44 @@ export function PolicyReviewCard({
                           generated subject label uses at the top of this card. */}
                       <RuleName candidateId={rule.recordId} variant="block" />
                       <div className="policy-card__rule-line">
-                        {read.statementIsMarkedWhole ? (
-                          // The words are on screen, marked, immediately above.
-                          // Printing them again is the third reading of one
-                          // sentence that this card was rebuilt to stop.
-                          <Text type="secondary" className="policy-card__rule-restated">
-                            This rule is the highlighted sentence above, word for word.
-                          </Text>
-                        ) : (
-                          <span className="policy-card__rule-title">
-                            <DirectionalText>{read.statement}</DirectionalText>
-                          </span>
-                        )}
+                        {/* Only the rule's own words are the target. The badges,
+                            tags and finding count that follow are separate
+                            controls with their own tooltips, and a button
+                            containing them would be invalid HTML and would take
+                            them out of the tab order. So the button wraps the
+                            statement and stops there.
+
+                            When no handler is passed there is no button at all,
+                            not a disabled one: the read-only surfaces render the
+                            statement exactly as they did before this existed. */}
+                        {(() => {
+                          const statement = read.statementIsMarkedWhole ? (
+                            // The words are on screen, marked, immediately above.
+                            // Printing them again is the third reading of one
+                            // sentence that this card was rebuilt to stop.
+                            <Text type="secondary" className="policy-card__rule-restated">
+                              This rule is the highlighted sentence above, word for word.
+                            </Text>
+                          ) : (
+                            <span className="policy-card__rule-title">
+                              <DirectionalText>{read.statement}</DirectionalText>
+                            </span>
+                          );
+                          if (!onSelectRule) return statement;
+                          return (
+                            <button
+                              type="button"
+                              className="policy-card__rule-open"
+                              data-testid="policy-card-rule-open"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onSelectRule(rule.recordId);
+                              }}
+                            >
+                              {statement}
+                            </button>
+                          );
+                        })()}
                         {/* Only what this rule does not share with its
                             neighbours. A badge here means "unlike the others",
                             so it is worth the reviewer stopping to read. */}
@@ -595,25 +634,6 @@ export function PolicyReviewCard({
                           </>
                         )}
                       </p>
-                      {onSelectRule && (
-                        <div className="policy-card__rule-actions">
-                          {/* One destination, reached in one click, and the rule
-                              stays where it is while the panel opens beside it.
-                              Nothing here decides anything: this is how a
-                              reviewer reads a rule in full, and it is offered
-                              on every record whatever its state. */}
-                          <Button
-                            size="small"
-                            type="link"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onSelectRule(rule.rule);
-                            }}
-                          >
-                            Open rule
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   </li>
                     );

@@ -874,11 +874,14 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       : {}),
   });
 
-  const selectCandidateRule = (rule: CanonicalRule) => {
-    const candidate = placeable.find((item) => item.rule.rule_id === rule.rule_id);
-    if (!candidate) return;
+  // Opens a record in the panel. Takes the record itself rather than the rule it
+  // holds, because `rule_id` is a hash of the rule's content: two rules a
+  // passage states in identical words share one, so resolving a click through it
+  // can open a rule the reviewer did not point at. The card rows hand back their
+  // own identity for exactly this reason.
+  const selectCandidateRecord = (candidate: (typeof placeable)[number]) => {
     if (grouped) {
-      const card = policyCards.find((c) => c.rules.some((r) => r.rule_id === rule.rule_id));
+      const card = policyCards.find((c) => c.rules.some((r) => r.recordId === candidate.id));
       if (card) {
         const index = policyCards.indexOf(card);
         if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1);
@@ -895,6 +898,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     const index = filteredCandidates.findIndex((item) => item.id === candidate.id);
     if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1);
     openCandidate(candidate);
+  };
+
+  const selectCandidateRuleById = (recordId: string) => {
+    const candidate = placeable.find((item) => item.id === recordId);
+    if (candidate) selectCandidateRecord(candidate);
+  };
+
+  const selectCandidateRule = (rule: CanonicalRule) => {
+    const candidate = placeable.find((item) => item.rule.rule_id === rule.rule_id);
+    if (candidate) selectCandidateRecord(candidate);
   };
 
   const changeWorkspaceMode = (mode: ReviewWorkspaceMode) => {
@@ -2040,7 +2053,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                                   ? () => requestReview(card.reviewableIds, "reject")
                                   : undefined
                               }
-                              onSelectRule={selectCandidateRule}
+                              onSelectRule={selectCandidateRuleById}
+                              selectedRuleId={selectedCandidateId}
                             />
                           );
                         })}
