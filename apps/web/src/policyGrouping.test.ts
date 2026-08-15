@@ -75,4 +75,23 @@ describe("policyRuleCountLabel", () => {
   it("does not render a negative count if one ever arrives", () => {
     expect(policyRuleCountLabel(-2)).toBe("0 rules");
   });
+
+  it("names both numbers when a filter is showing only some of the policy", () => {
+    // The seam this closes: the head said "20 rules" over seventeen rule
+    // blocks, and the Logic tab compared seventeen rows beneath it. Both
+    // numbers were true and the reader had to reconcile them unaided.
+    expect(policyRuleCountLabel(17, 20)).toBe("17 of 20 rules");
+    expect(policyRuleCountLabel(1, 4)).toBe("1 of 4 rules");
+  });
+
+  it("stays in the plain form when the policy is shown whole", () => {
+    expect(policyRuleCountLabel(20, 20)).toBe("20 rules");
+    expect(policyRuleCountLabel(1, 1)).toBe("1 rule");
+  });
+
+  it("degrades to the plain form rather than to nonsense on an inconsistency", () => {
+    // "17 of 3 rules" would tell a reader nothing they could act on.
+    expect(policyRuleCountLabel(17, 3)).toBe("17 rules");
+    expect(policyRuleCountLabel(2, -1)).toBe("2 rules");
+  });
 });

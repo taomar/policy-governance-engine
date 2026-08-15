@@ -164,7 +164,9 @@ export function PolicyDetailPanel({
             </Text>
           )}
           <div className="policy-detail-panel__meta">
-            <span>{policyRuleCountLabel(card.policy.rule_count)}</span>
+            <span>
+              {policyRuleCountLabel(card.rules.length, card.policy.rule_count)}
+            </span>
             <span className="policy-card__dot">·</span>
             <span>
               {card.policy.passage_count === 1

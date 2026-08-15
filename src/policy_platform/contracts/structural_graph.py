@@ -122,6 +122,17 @@ class StructuralGraph:
     table_cells: dict[str, TableCellRef] = field(default_factory=dict)
     #: Observed, never merged. See `TableContinuation`.
     table_continuations: list[TableContinuation] = field(default_factory=list)
+    #: Headings the document wrote but did not declare as sections of its own
+    #: numbering scheme — "Purpose", "Policy Details" — which it wrote as labels
+    #: *inside* the section above them. See `_resolve_heading_levels`.
+    #:
+    #: Recorded during the build because the distinction is drawn from the
+    #: headings around one heading and cannot be recovered from a single node
+    #: afterwards. Kept here, beside the heading structure it comes from, so
+    #: that anything deciding what counts as a policy has one answer to "did the
+    #: document name this" rather than re-deriving the document's outline from
+    #: its text — which would be a second definition of the same thing.
+    unnamed_section_headings: set[str] = field(default_factory=set)
 
     _outgoing: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
     _incoming: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
@@ -235,13 +246,37 @@ def _add_heading_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) 
     returns to a shallower level correctly closes the deeper ones. `contains`
     is emitted from the nearest heading only, keeping the containment tree a
     tree rather than a fan from every ancestor.
+
+    Levels are resolved for the whole document before the walk begins, because
+    the depth of an unnumbered heading is not a property of that heading alone —
+    see `_resolve_heading_levels`.
     """
+
+    headings = [
+        element for element in ordered if element.element_type in ("title", "heading")
+    ]
+    stated = [_stated_heading_depth(e) for e in headings]
+    level_of = dict(
+        zip(
+            (element.element_id for element in headings),
+            _resolve_heading_levels(stated),
+        )
+    )
+    # A heading whose depth we resolved rather than read is one the document did
+    # not declare as a section. Recorded, not inferred again later.
+    graph.unnamed_section_headings.update(
+        element.element_id
+        for element, depth, resolved in zip(
+            headings, stated, (level_of[e.element_id] for e in headings)
+        )
+        if depth is None and resolved > 1
+    )
 
     stack: list[tuple[int, str]] = []
 
     for element in ordered:
         if element.element_type in ("title", "heading"):
-            level = _heading_level(element)
+            level = level_of[element.element_id]
             while stack and stack[-1][0] >= level:
                 stack.pop()
             if stack:
@@ -259,13 +294,13 @@ def _add_heading_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) 
             graph.edges.append(StructuralEdge(parent, element.element_id, "contains"))
 
 
-def _heading_level(element: CanonicalElement) -> int:
-    """Depth of a heading, with a title always outermost.
+def _stated_heading_depth(element: CanonicalElement) -> int | None:
+    """The depth the heading's own numbering states, or `None` if it states none.
 
-    Canonical elements carry no explicit heading level, so depth is inferred
-    from the numbering the document itself uses ("2.1.3" is depth 3). Documents
-    with no numbering fall back to a single level, which keeps the graph flat
-    but never wrong — an invented hierarchy would be worse than a shallow one.
+    A title is depth 0 and outermost. "2.1.3" states depth 3. A heading that
+    carries no numbering states nothing, which is a different answer from
+    stating depth 1 — resolving that difference needs the headings around it,
+    so it is deferred to `_resolve_heading_levels` rather than guessed here.
     """
 
     if element.element_type == "title":
@@ -273,7 +308,55 @@ def _heading_level(element: CanonicalElement) -> int:
     label = element.text.split(None, 1)[0].rstrip(".") if element.text.split() else ""
     if label and all(part.isdigit() for part in label.split(".") if part):
         return max(len([part for part in label.split(".") if part]), 1)
-    return 1
+    return None
+
+
+def _resolve_heading_levels(stated: list[int | None]) -> list[int]:
+    """Give every heading a depth, reading an unnumbered one in its context.
+
+    **An unnumbered heading lying strictly between two numbered ones is a child
+    of the earlier one.** Numbering, once a document uses it, is that document's
+    own statement of its structure; a heading that opts out of the scheme while
+    the scheme is still running is subordinate to the section it appears in, and
+    one that appears after the scheme has ended is not governed by it and stays
+    outermost.
+
+    The defect this fixes: depth used to be inferred from a heading's own text
+    alone, so an unnumbered sub-heading returned 1, and the `>=` pop in
+    `_add_heading_edges` evicted its parent — making it a *sibling* of the
+    section it sits inside. On the GMU handbook that turned "Policy Details"
+    under "1. Manpower Planning, Recruitment & Selection" into a top-level
+    section whose only available name was "Policy Details".
+
+    The two-sided test is what keeps this safe rather than merely plausible. A
+    one-sided rule ("an unnumbered heading following a numbered one is its
+    child") reads the same in a sentence and is wrong on real data: it folds the
+    AIS handbook's unnumbered `Table of Violations and Penalties` — an appendix
+    of seventy-two rows after the numbering has finished — into
+    `10. ACKNOWLEDGEMENT`, which does not state it.
+
+    Measured across both stored documents: GMU reclassifies exactly two headings
+    ("Purpose" and "Policy Details"), both correctly; AIS reclassifies none.
+
+    Depth is taken from the nearest *preceding* stated depth, so consecutive
+    unnumbered headings become siblings of each other rather than nesting one
+    inside the next — the document wrote them at one level and drew no line
+    between them.
+    """
+
+    resolved: list[int] = []
+    for position, depth in enumerate(stated):
+        if depth is not None:
+            resolved.append(depth)
+            continue
+        governing = next(
+            (d for d in reversed(stated[:position]) if d is not None), None
+        )
+        numbering_continues = any(d is not None for d in stated[position + 1 :])
+        resolved.append(
+            governing + 1 if governing is not None and numbering_continues else 1
+        )
+    return resolved
 
 
 def _add_list_edges(graph: StructuralGraph, ordered: list[CanonicalElement]) -> None:

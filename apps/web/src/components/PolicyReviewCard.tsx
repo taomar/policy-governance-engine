@@ -204,7 +204,9 @@ export function PolicyReviewCard({
             </Text>
           )}
           <div className="policy-card__meta">
-            <span>{policyRuleCountLabel(card.policy.rule_count)}</span>
+            <span>
+              {policyRuleCountLabel(card.rules.length, card.policy.rule_count)}
+            </span>
             {card.policy.passage_count > 1 && (
               <>
                 <span className="policy-card__dot">·</span>

@@ -539,7 +539,24 @@ ${GROUP_DIVIDER_CSS.split(",\n")
         </div>
       </div>
 
-      <div className="ws-tab-panel">{TAB_CONTENT[activeTab]}</div>
+      {/* Keyed by the project, so switching project rebuilds the tab rather than
+          handing the previous project's data to the new one.
+
+          Every tab is given `policySetKey` as a prop, and three of them
+          (ReviewQueue, ComparePage, QualityPage) copy it into state at mount to
+          serve their own picker when rendered unscoped. React reconciles by
+          position and type, so switching project changed the prop and kept the
+          state: the header said one project and the queue below it still listed
+          the other one's policies. That is worse than an error, because both
+          halves look confident.
+
+          The key is at this boundary rather than inside each tab because it
+          states the fact that makes all of them correct — a different project is
+          a different surface, and every filter, page, selection and draft below
+          this point refers to the project that is being left. */}
+      <div className="ws-tab-panel" key={policySet.key}>
+        {TAB_CONTENT[activeTab]}
+      </div>
 
       <Modal
         title="Edit Project"

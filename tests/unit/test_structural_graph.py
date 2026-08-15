@@ -152,6 +152,154 @@ class TestHeadingHierarchy:
         assert len(graph.heading_path("E2")) <= len(graph.nodes)
 
 
+class TestUnnumberedHeadingsInsideANumberedScheme:
+    """An unnumbered heading between two numbered ones belongs to the earlier one.
+
+    The defect: depth came from a heading's own text alone, so an unnumbered
+    sub-heading returned 1 and the `>=` pop evicted its parent, making it a
+    *sibling* of the section it sits inside. On the GMU handbook that turned
+    "Policy Details", written under "1. Manpower Planning, Recruitment &
+    Selection", into a top-level section whose only available name was the words
+    "Policy Details" — which is what the reviewer saw as a card title.
+    """
+
+    def test_unnumbered_heading_between_numbered_ones_is_a_child(self) -> None:
+        document = _document(
+            [
+                _element("E1", "1. Manpower Planning", "heading", 0),
+                _element("E2", "Policy Details", "heading", 1),
+                _element("E3", "GMU carries out annual manpower planning.", order=2),
+                _element("E4", "2. Compensation", "heading", 3),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert graph.heading_path("E2") == ["E1"]
+        assert graph.heading_path("E3") == ["E1", "E2"]
+        assert graph.heading_path("E4") == []
+
+    def test_consecutive_unnumbered_headings_become_siblings_not_a_ladder(
+        self,
+    ) -> None:
+        """The document wrote them at one level and drew no line between them.
+
+        Nesting each inside the last would invent a hierarchy out of nothing but
+        adjacency — the same invention the old flat fallback existed to avoid.
+        """
+
+        document = _document(
+            [
+                _element("E1", "1. Manpower Planning", "heading", 0),
+                _element("E2", "Purpose", "heading", 1),
+                _element("E3", "Policy Details", "heading", 2),
+                _element("E4", "A clause.", order=3),
+                _element("E5", "2. Compensation", "heading", 4),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert graph.heading_path("E2") == ["E1"]
+        assert graph.heading_path("E3") == ["E1"]
+        assert graph.heading_path("E4") == ["E1", "E3"]
+
+    def test_unnumbered_heading_after_the_numbering_ends_stays_outermost(
+        self,
+    ) -> None:
+        """The AIS penalty schedule, and why the test has to be two-sided.
+
+        A one-sided rule — "an unnumbered heading following a numbered one is
+        its child" — reads the same in a sentence and is wrong on real data: it
+        folds the AIS handbook's unnumbered `Table of Violations and Penalties`,
+        an appendix of seventy-two rows written after the numbering has
+        finished, into `10. ACKNOWLEDGEMENT`, which does not state it.
+        """
+
+        document = _document(
+            [
+                _element("E1", "9. Discipline", "heading", 0),
+                _element("E2", "A clause.", order=1),
+                _element("E3", "10. Acknowledgement", "heading", 2),
+                _element("E4", "Another clause.", order=3),
+                _element("E5", "Table of Violations and Penalties", "heading", 4),
+                _element("E6", "A penalty row.", order=5),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert graph.heading_path("E5") == []
+        assert graph.heading_path("E6") == ["E5"]
+
+    def test_a_document_that_numbers_nothing_stays_flat(self) -> None:
+        """No scheme is running, so no heading can be opting out of one."""
+
+        document = _document(
+            [
+                _element("E1", "Purpose", "heading", 0),
+                _element("E2", "Scope", "heading", 1),
+                _element("E3", "A clause.", order=2),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert graph.heading_path("E2") == []
+        assert graph.heading_path("E3") == ["E2"]
+        assert graph.unnamed_section_headings == set()
+
+    def test_names_a_section_marks_only_the_subordinate_label(self) -> None:
+        document = _document(
+            [
+                _element("E0", "Staff Handbook", "title", 0),
+                _element("E1", "1. Manpower Planning", "heading", 1),
+                _element("E2", "Policy Details", "heading", 2),
+                _element("E3", "A clause.", order=3),
+                _element("E4", "2. Compensation", "heading", 4),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        # Only the label the document declined to number. A title, a numbered
+        # heading and a paragraph are all things the document named itself.
+        assert graph.unnamed_section_headings == {"E2"}
+
+    def test_a_subordinate_label_is_still_a_container_for_coverage(self) -> None:
+        """Reparenting must not turn a heading into unaccounted content.
+
+        Coverage is asserted over leaves, and a heading that stopped containing
+        its paragraphs would become one — reporting a structural change as
+        missing content, which is exactly the silent loss coverage exists to
+        expose.
+        """
+
+        document = _document(
+            [
+                _element("E1", "1. Manpower Planning", "heading", 0),
+                _element("E2", "Policy Details", "heading", 1),
+                _element("E3", "A clause.", order=2),
+                _element("E4", "2. Compensation", "heading", 3),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert "E2" not in graph.leaf_element_ids
+        assert verify_structural_coverage(document, graph) == []
+
+    def test_deeper_numbering_still_governs_an_unnumbered_label(self) -> None:
+        document = _document(
+            [
+                _element("E1", "2. Leave", "heading", 0),
+                _element("E2", "2.1 Annual Leave", "heading", 1),
+                _element("E3", "Entitlement", "heading", 2),
+                _element("E4", "A clause.", order=3),
+                _element("E5", "3. Pay", "heading", 4),
+            ]
+        )
+        graph = build_structural_graph(document)
+
+        assert graph.heading_path("E3") == ["E1", "E2"]
+        assert graph.heading_path("E4") == ["E1", "E2", "E3"]
+        assert graph.heading_path("E5") == []
+
+
 class TestReadingOrder:
     def test_precedes_edges_follow_logical_order(self) -> None:
         document = _document(

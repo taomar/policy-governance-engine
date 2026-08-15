@@ -42,8 +42,27 @@ export function policyRouteLabel(route: string | null | undefined): string {
 }
 
 /** How many rules a policy states, said plainly. One is the common case and
- *  reads as an ordinary sentence, not as an exception. */
-export function policyRuleCountLabel(count: number): string {
-  const safe = Math.max(0, count);
+ *  reads as an ordinary sentence, not as an exception.
+ *
+ *  `shown` is what the reader can see; `stated` is what the policy holds. They
+ *  differ whenever a filter admits only some of a policy's rules — a policy of
+ *  twenty rules with three already decided shows seventeen. Labelling that card
+ *  "20 rules" over seventeen rule blocks makes the reader reconcile two numbers
+ *  that never appear beside each other, and the Logic tab made it worse by
+ *  comparing seventeen rows under a head that said twenty.
+ *
+ *  So the label names both: the number on the card first, because that is what
+ *  the reader is counting, and the number the policy states second, because a
+ *  fragment presented as a whole policy is the defect this grouping exists to
+ *  prevent. The sentence naming what is missing stays where it is; this makes
+ *  the head agree with it instead of contradicting it.
+ */
+export function policyRuleCountLabel(shown: number, stated?: number): string {
+  const safe = Math.max(0, shown);
+  // A `stated` below `shown` would be an inconsistency upstream, and reading
+  // "17 of 3 rules" would tell the reader nothing they could act on. Take the
+  // larger, so the label degrades to the plain form rather than to nonsense.
+  const whole = stated === undefined ? safe : Math.max(safe, Math.max(0, stated));
+  if (whole !== safe) return `${safe} of ${whole} rules`;
   return safe === 1 ? "1 rule" : `${safe} rules`;
 }
