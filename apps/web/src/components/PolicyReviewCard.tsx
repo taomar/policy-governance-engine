@@ -10,6 +10,7 @@ import {
 } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { readPassage } from "../policyReading";
+import { notShownSentence, recordsNotShown } from "../recordsNotShown";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
@@ -503,10 +504,13 @@ export function PolicyReviewCard({
         <Text type="secondary" className="policy-card__partial">
           {/* A fragment presented as a whole policy is worse than no grouping
               at all, so the gap is stated rather than left to be read off two
-              numbers that do not agree. */}
-          {card.hiddenByFilter === 1
-            ? "1 more rule of this policy is outside the current filter."
-            : `${card.hiddenByFilter} more rules of this policy are outside the current filter.`}{" "}
+              numbers that do not agree.
+
+              What is missing is named by kind, from the records themselves, and
+              pointed at the filter that holds them — because "outside the
+              current filter" told a reviewer that something was gone without
+              telling them what or where, and they had to ask. */}
+          {notShownSentence(recordsNotShown(card))}{" "}
           Approving here decides the {card.reviewableIds.length === 1 ? "rule" : "rules"} shown above.
         </Text>
       )}
