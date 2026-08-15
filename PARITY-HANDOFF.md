@@ -17,6 +17,55 @@ the record's own status cannot.
 
 ---
 
+## Where this stands
+
+Two of the three files are now gone or going, and the items that closed are
+recorded here rather than struck through, because *how* each one closed is the
+part worth keeping.
+
+**Item 1 landed, and I acted on it the same day.** `PolicyCardRule` became
+source-neutral and `buildPolicyCards` took `PolicyRecordInput[]`. That turned
+`publishedPolicyCards.ts` from a second implementation into a 211-line adapter:
+the types are now aliases, `buildPublishedPolicyCards` delegates, and
+`publishedPolicyJsonDocument` is a **named re-export** of `policyJsonDocument`.
+
+The collapse was not tidying. The bridge had ended in `as unknown as PolicyCard`,
+and when item 1 changed the rule shape underneath it the cast absorbed the
+mismatch: the build stayed green while the serialiser received `undefined` rules
+and **the JSON tab of a published policy threw at runtime**. The cast was the
+defect, not the mapping. A re-export cannot go stale silently; a cast can, and did.
+
+**Item 11 is resolved by that collapse, not by the change it asked for.** It
+wanted `policyJsonDocument` parameterised so the bridge could stop supplying
+`policySourceLines`. There is no bridge now. Nothing to parameterise.
+
+**Item 9 landed** — the note entity union is widened at both ends and Notes is
+built on both surfaces, keyed on `provision_key` for the reason that item gave.
+
+**Item 10a landed** and `ReviewQueue.tsx` was already wired to it, so clicking a
+rule opens its detail. One caveat, live as I write: an in-flight edit to
+`PolicyReviewCard.tsx` narrows `onSelectRule` from `(rule: CanonicalRule)` to
+`(recordId: string)`. That is the better signature — a card should hand back an
+identity, not a payload — but `ReviewQueue.tsx:2043` passes `selectCandidateRule`,
+which takes the rule. **Whoever lands the narrowing must land the ReviewQueue side
+with it**, or the build breaks between the two commits. I own `ReviewQueue.tsx`
+and will take that half on request; I have not pre-emptively changed it, because
+changing it now breaks it against the committed card.
+
+**What is left of the three files is one:** `PublishedPolicyCard.tsx`. It is a
+component-level duplicate of `PolicyReviewCard.tsx`, and item 2 is still the
+condition for deleting it. `PublishedRecordActions.tsx` is being folded into
+`RecordActionsMenu` as item 5 asked.
+
+**One new obligation, not in the original list.** Both surfaces now carry the same
+eight tabs, and `bothSurfacesAskTheSameQuestions.test.tsx` asserts the *relation*
+between them: it reads the tab strip off both rendered components and requires the
+sets to match. It holds no list of tab names, so it cannot be edited into agreement
+with a half-finished change. **Adding a tab to one page and not the other now fails
+the build.** That is deliberate, and it applies to every owner below.
+
+---
+
 ## 1. `policyCards.ts` — owner: `dev-rulename`
 
 This is the largest item and the one that deletes the most duplicate code.
@@ -96,8 +145,44 @@ the caller supply the control and the label.
 
 **2.4 Accept an actions slot** for the kebab (see item 5).
 
-**When 2.1–2.4 land, `PublishedPolicyCard.tsx` can be deleted** and `PoliciesTab`
+**2.5 Four things the published card grew after this list was written, which it
+must not lose on the way across.** These are not new asks; they are the diff
+between the two components as they stand today, itemised so the merge is a
+checklist rather than a reading exercise.
+
+- **The eight tabs.** `PublishedPolicyCard` renders `Overview | Reading | Logic |
+  <PARTIES_AND_ROUTES_TAB_LABEL> | Scope | Tests | History | Notes | JSON` from
+  `policyTabPanes.tsx`. Every pane takes a `PolicyRecordView`, which
+  `publishedPolicyRecord(card)` and `candidatePolicyRecord(card)` both produce, so
+  the panes themselves need no change — `PolicyReviewCard` needs to call the right
+  adapter for the record it holds. **Do not import the label as a string literal;**
+  it had three spellings across three files once already.
+- **Two Ask AI placements**, both requiring `policySetKey` and `policyVersionId`:
+  `<PolicyAskAiButton policy={card.policy} …>` in the policy action row and
+  `<PublishedRuleAskAiButton rule={r.rule} …>` beside each rule. The second is
+  published-only by construction — it resolves against sealed records — so it is
+  the one place a record's status legitimately selects a different component
+  rather than a different view. Derive that from the record, not from which page
+  is rendering.
+- **History, with a fetch the card does not own.** `onRequestHistory(provisionKey)`
+  is called when the History tab is first opened, and the result is handed back as
+  `history` / `historyLoading`. The key is `provision_key`, never
+  `document_provisions.id`.
+- **`onViewHistory` and `onRevise`**, which are the published record's two verbs.
+  They are the read-only arm of item 5, and they must be reachable from the same
+  kebab that offers Approve and Reject on a draft — different entries of one menu,
+  chosen by status, not two menus.
+
+**When 2.1–2.5 land, `PublishedPolicyCard.tsx` can be deleted** and `PoliciesTab`
 render `PolicyReviewCard` directly.
+
+**Two tests will tell you when you are done, and one of them will fail loudly if
+you are half-done.** `publishedRecordOffersNoDecision.test.tsx` asserts a sealed
+record shows no Approve, Reject or Edit. `bothSurfacesAskTheSameQuestions.test.tsx`
+asserts the two surfaces offer the same tab strip — it reads the strip off both
+components rather than holding a list, so if the merged card serves one page its
+full set of tabs and the other a subset, that test fails and no amount of editing
+it will make it pass.
 
 ---
 
