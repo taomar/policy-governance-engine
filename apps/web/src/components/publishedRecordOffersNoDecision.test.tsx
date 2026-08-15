@@ -170,6 +170,8 @@ function renderCard({
       onToggleRule={() => {}}
       onRevise={onRevise}
       onViewHistory={() => {}}
+      policySetKey="a-set"
+      policyVersionId="a-version"
     />,
   );
 }

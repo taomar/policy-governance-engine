@@ -189,6 +189,8 @@ function renderOne(ruleIds: string[] = ["r1", "r2"]) {
       onSelectRule={() => {}}
       onToggleRule={() => {}}
       onViewHistory={() => {}}
+      policySetKey="a-set"
+      policyVersionId="a-version"
     />,
   );
 }
@@ -213,6 +215,8 @@ function renderWithHistory(props: {
       history={props.history ?? null}
       historyLoading={props.historyLoading}
       onRequestHistory={props.onRequestHistory}
+      policySetKey="a-set"
+      policyVersionId="a-version"
     />,
   );
   return { card };

@@ -31,8 +31,11 @@ import {
 } from "./policyTabPanes";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
+import { PolicyAskAiButton } from "./PolicyAskAiButton";
+import { PublishedRuleAskAiButton } from "./PublishedRuleAskAiButton";
 import { PublishedRecordActions } from "./PublishedRecordActions";
 import { RuleCard } from "./RuleCard";
+import { RuleName } from "./RuleName";
 
 const { Text } = Typography;
 
@@ -88,6 +91,8 @@ export function PublishedPolicyCard({
   history,
   historyLoading,
   onRequestHistory,
+  policySetKey,
+  policyVersionId,
 }: {
   card: PublishedPolicyCardModel;
   /** This policy is the one showing in the detail panel. */
@@ -120,6 +125,14 @@ export function PublishedPolicyCard({
    *  policies and each has its own history; fetching all of them to render one
    *  card's tab spends a request per policy on a tab most readers never open. */
   onRequestHistory?: (provisionKey: string) => void;
+  /** Where this record is published, which together with a rule id is what
+   *  identifies it. Asking without the version reaches the draft row that
+   *  produced the rule — the same id, possibly revised since — so a question
+   *  about a sealed record could be answered from the one still under review.
+   *  These are not permissions and grant nothing: a question is not a decision,
+   *  so nothing here is derived from editability. */
+  policySetKey: string;
+  policyVersionId: string;
 }) {
   const [tab, setTab] = useState<string>("reading");
   const record = publishedPolicyRecord(card);
@@ -197,6 +210,16 @@ export function PublishedPolicyCard({
                       {line.ordinal}
                     </span>
                     <div className="policy-card__rule-body">
+                      {/* This app's handle for the rule, above the rule's own
+                          words — the same aid the queue draws, reached by the
+                          rule's own identifier because a published version
+                          holds no draft row to ask about. Renders nothing at
+                          all until one has been generated. */}
+                      <RuleName
+                        policySetKey={policySetKey}
+                        ruleId={entry.rule_id}
+                        variant="block"
+                      />
                       <div className="policy-card__rule-line">
                         {line.statementIsMarkedWhole ? (
                           <Text type="secondary" className="policy-card__rule-restated">
@@ -269,6 +292,11 @@ export function PublishedPolicyCard({
                       >
                         {expanded ? "Hide rule" : "Open rule"}
                       </button>
+                      <PublishedRuleAskAiButton
+                        rule={entry.rule}
+                        policySetKey={policySetKey}
+                        policyVersionId={policyVersionId}
+                      />
                       <PublishedRecordActions
                         rule={entry.rule}
                         onRevise={onRevise}
@@ -421,6 +449,11 @@ export function PublishedPolicyCard({
           {card.policy.provision_id && (
             <PolicyExplainButton provisionId={card.policy.provision_id} policyKey={card.policy.key} />
           )}
+          <PolicyAskAiButton
+            policy={card.policy}
+            policySetKey={policySetKey}
+            policyVersionId={policyVersionId}
+          />
         </Space>
       </div>
 

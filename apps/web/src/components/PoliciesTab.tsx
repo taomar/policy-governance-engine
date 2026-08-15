@@ -728,6 +728,8 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             history={historyByKey[card.policy.key] ?? null}
                             historyLoading={historyLoadingKeys.has(card.policy.key)}
                             onRequestHistory={requestHistory}
+                            policySetKey={policySetKey}
+                            policyVersionId={versionId}
                           />
                         );
                       })}
