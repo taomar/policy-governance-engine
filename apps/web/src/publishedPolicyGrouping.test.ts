@@ -30,6 +30,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { AssembledPolicy, CanonicalRule } from "./api";
+import { buildPolicyCards } from "./policyCards";
 import {
   buildPublishedPolicyCards,
   policyComposition,
@@ -37,6 +38,7 @@ import {
   publishedPolicyTitle,
   publishedSharedFacets,
   unplacedPublishedRules,
+  type PublishedPolicyCardRule,
 } from "./publishedPolicyCards";
 
 function rule(
@@ -82,6 +84,19 @@ function rule(
     advice: [],
     ...overrides,
   } as unknown as CanonicalRule;
+}
+
+/** A rule as it sits on a card, built the way a *published* record reaches one:
+ *  carrying no draft id and no review state of its own, so the shared builder's
+ *  reading of that absence is what these assertions exercise. */
+function asCardRule(record: CanonicalRule): PublishedPolicyCardRule {
+  return {
+    rule_id: record.rule_id,
+    rule: record,
+    reviewStatus: "published",
+    recordId: record.rule_id,
+    evaluation_mode: record.evaluation_mode ?? "",
+  };
 }
 
 /** A policy as the version records it: a key, a heading, and the ids of the
@@ -230,22 +245,14 @@ describe("what a published card says about itself", () => {
   });
 
   it("describes what a policy is made of, and stays silent when there is nothing to contrast", () => {
-    const deciding = [rule("r1"), rule("r2")].map((r) => ({
-      rule_id: r.rule_id,
-      rule: r,
-      evaluation_mode: "ai_ready" as const,
-    }));
+    const deciding = [rule("r1"), rule("r2")].map((r) => asCardRule(r));
     // Every rule decides a case. "2 decide cases · 0 supply a meaning" tells a
     // reader nothing they cannot see from the rule count.
     expect(policyCompositionLabel(policyComposition(deciding))).toBeNull();
 
     const mixed = [
       ...deciding,
-      {
-        rule_id: "r3",
-        rule: rule("r3", { effect: { type: "informational" } as CanonicalRule["effect"] }),
-        evaluation_mode: "ai_ready" as const,
-      },
+      asCardRule(rule("r3", { effect: { type: "informational" } as CanonicalRule["effect"] })),
     ];
     const counts = policyComposition(mixed);
     expect(counts).toEqual({ decide: 2, define: 1, unstated: 0 });
@@ -254,5 +261,56 @@ describe("what a published card says about itself", () => {
     // Both halves must be readable as words, not as a bare pair of numerals.
     expect(label).toMatch(/2/);
     expect(label).toMatch(/1/);
+  });
+});
+
+/**
+ * One builder, one card, and a sealed record that seals itself.
+ *
+ * The published page used to have its own placement, its own card type and its
+ * own serialiser, because the shared card named a reviewable draft row and a
+ * published rule is not one. Two implementations of the same arrangement is the
+ * drift this whole line of work exists to close, and it closed here the moment
+ * the shared card started carrying a canonical rule and a status instead.
+ *
+ * What is asserted below is the property that made the collapse safe: nothing
+ * tells the shared builder that these records are published. It reads each
+ * record's own status through `candidateEditability` and returns an empty set of
+ * decidable ids because the record answers no — so the same builder, handed a
+ * record that is open to review, returns a non-empty one. If that reversal ever
+ * stops holding, read-only has become a property of the page rather than of the
+ * record, and the next page to show a published rule will get it wrong.
+ */
+describe("read-only as a fact about the record", () => {
+  const A_POLICY = [policy("p", [{ key: "p-a", ruleIds: ["r1", "r2"] }])];
+
+  it("offers no decision on a published version's rules", () => {
+    const [card] = buildPublishedPolicyCards(A_POLICY, [rule("r1"), rule("r2")]);
+    expect(card.rules).toHaveLength(2);
+    expect(card.reviewableIds).toEqual([]);
+    // Every rule is still addressable — a sealed record is read, copied and
+    // asked about; it is only not decided.
+    expect(card.allIds).toEqual(["r1", "r2"]);
+  });
+
+  it("carries no draft row behind a published rule", () => {
+    const [card] = buildPublishedPolicyCards(A_POLICY, [rule("r1"), rule("r2")]);
+    for (const entry of card.rules) {
+      // A synthesised draft row would be a record no table holds, keyed by an
+      // id that resolves to nothing, and everything downstream reaching for one
+      // would find it.
+      expect(entry.candidate).toBeUndefined();
+      expect(entry.recordId).toBe(entry.rule_id);
+    }
+  });
+
+  it("offers the decision when the same builder is handed a record open to one", () => {
+    // The mutation that proves the previous two are about the record and not
+    // about which builder was called: same policies, same shared builder, a
+    // record that says it is under review.
+    const [card] = buildPolicyCards(A_POLICY, [
+      { rule: rule("r1"), review_status: "candidate", id: "a-draft-row" },
+    ]);
+    expect(card.reviewableIds).toEqual(["a-draft-row"]);
   });
 });
