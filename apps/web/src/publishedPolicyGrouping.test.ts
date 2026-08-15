@@ -194,7 +194,13 @@ describe("what a published card says about itself", () => {
     expect(publishedPolicyTitle(withHeading, []).source).toBe("heading");
     expect(publishedPolicyTitle(withHeading, []).text).toBe(withHeading.heading);
 
-    const headless = { ...withHeading, heading: null, heading_path: [] };
+    // `heading` is the document's own characters, so "no heading" is the empty
+    // string rather than a null: the server sends what the document wrote.
+    const headless: AssembledPolicy = {
+      ...withHeading,
+      heading: "",
+      heading_path: [],
+    };
     // With no heading and no passage to read one from, the card must not
     // invent a name: it reports that it has none.
     expect(publishedPolicyTitle(headless, []).source).toBe("unnamed");
