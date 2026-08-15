@@ -12258,3 +12258,76 @@
   font-size: 10px;
   opacity: 0.8;
 }
+
+/* ---------------------------------------------------------------------------
+   Narrowing which of one policy's rules are on screen.
+
+   Drawn quietly and below the evidence it describes. These are a reading aid
+   over a policy the reviewer already opened, not a scope control, and anything
+   that competed with the quotations for attention would be claiming more than
+   that. No chip is coloured by which stance it names: the groups are two ways a
+   document speaks, not a good half and a lesser one.
+   --------------------------------------------------------------------------- */
+.composition-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.composition-focus__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composition-focus__label {
+  font-size: 11px;
+  color: var(--text-faint, #9ca3af);
+}
+
+.composition-focus__chip {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  cursor: pointer;
+}
+
+.composition-focus__chip:hover {
+  border-color: var(--text-faint, #9ca3af);
+}
+
+/* The pressed chip is filled rather than merely tinted, because a reviewer has
+   to be able to tell at a glance that they are looking at part of a policy
+   rather than all of it. A state you cannot see you are in is the fault this
+   control is most likely to introduce. */
+.composition-focus__chip[aria-pressed="true"] {
+  background: var(--surface-inset, #f3f4f6);
+  border-color: var(--text-faint, #9ca3af);
+  color: var(--text, #111827);
+  font-weight: 600;
+}
+
+.composition-focus__chip:focus-visible {
+  outline: 2px solid var(--text-faint, #9ca3af);
+  outline-offset: 1px;
+}
+
+/* Says what a narrowed view still decides. It carries the whole safety of this
+   control, so it is not muted into the background like a caption; it is set at
+   the same weight as the rules it is about. Empty when nothing is narrowed,
+   which is why it has no margin of its own to leave behind. */
+.composition-focus__consequence {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+
+.composition-focus__consequence:empty {
+  display: none;
+}

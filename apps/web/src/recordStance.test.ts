@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import {
   STANCE_ORDER,
+  composeFocus,
   compositionPhrase,
   groupByStance,
   recordStance,
@@ -299,5 +300,90 @@ describe("what a policy is made of", () => {
       expect(said).not.toMatch(RANKING);
       expect(said).not.toMatch(/\b(ai|deterministic|ai.?ready|automat\w*|manual)\b/i);
     }
+  });
+});
+
+describe("narrowing which records are on screen", () => {
+  const policy = [
+    withEffect("require_action"),
+    withEffect("deny"),
+    withEffect("informational"),
+    withEffect("informational"),
+    withEffect("informational"),
+  ];
+
+  it("shows every record until the reviewer asks for less", () => {
+    const focused = composeFocus(policy, recordStance, null);
+
+    expect(focused.focus).toBeNull();
+    expect(focused.shown).toHaveLength(policy.length);
+    expect(focused.total).toBe(policy.length);
+  });
+
+  it("counts the chips and picks the records in one pass, so they cannot disagree", () => {
+    // The fault this shape exists to prevent: a chip reading "3 supply meanings"
+    // over a list holding two. Two derivations agree until one of them is
+    // edited, and nothing on screen shows which is right.
+    for (const entry of composeFocus(policy, recordStance, null).tally) {
+      const focused = composeFocus(policy, recordStance, entry.stance);
+      expect(focused.shown).toHaveLength(entry.count);
+    }
+  });
+
+  it("counts every record exactly once across the choices offered", () => {
+    const { tally, total } = composeFocus(policy, recordStance, null);
+    expect(tally.reduce((sum, entry) => sum + entry.count, 0)).toBe(total);
+  });
+
+  it("offers nothing to choose when the policy holds one kind", () => {
+    // A control whose only state is the one it is already in teaches a reviewer
+    // nothing and costs them a click to find that out.
+    const oneKind = [withEffect("deny"), withEffect("require_action")];
+    expect(composeFocus(oneKind, recordStance, null).choosable).toBe(false);
+    expect(composeFocus(policy, recordStance, null).choosable).toBe(true);
+  });
+
+  it("offers a choice for a record stating no effect, rather than hiding it in another", () => {
+    const withUnstated = [withEffect("deny"), {}];
+    const { tally } = composeFocus(withUnstated, recordStance, null);
+
+    expect(tally.map((entry) => entry.stance)).toEqual(["decides", "unstated"]);
+  });
+
+  it("never offers a choice the policy holds no records for", () => {
+    const { tally } = composeFocus([withEffect("deny"), withEffect("informational")], recordStance, null);
+
+    expect(tally.every((entry) => entry.count > 0)).toBe(true);
+    expect(tally.some((entry) => entry.stance === "unstated")).toBe(false);
+  });
+
+  it("shows everything when asked for a kind this policy does not hold", () => {
+    // View state outlives what it describes: a reviewer focuses the definitions
+    // of one policy and opens another that has none. Answering with everything
+    // is the only response that cannot hide a record.
+    const noMeanings = [withEffect("deny"), {}];
+    const focused = composeFocus(noMeanings, recordStance, "supplies-meaning");
+
+    expect(focused.shown).toHaveLength(noMeanings.length);
+  });
+
+  it("reports the focus it applied rather than the one it was asked for", () => {
+    // So the buttons a caller draws describe the list it actually has. Reporting
+    // the request back would leave a chip pressed over a list it does not
+    // describe, which is the one state a reviewer cannot recover from by
+    // looking.
+    const noMeanings = [withEffect("deny"), {}];
+    expect(composeFocus(noMeanings, recordStance, "supplies-meaning").focus).toBeNull();
+    expect(composeFocus(noMeanings, recordStance, "unstated").focus).toBe("unstated");
+  });
+
+  it("leaves the records themselves untouched, whatever is shown", () => {
+    // Narrowing is a reading aid. Nothing it does may reach a record, because
+    // everything that decides, exports, approves or publishes reads records.
+    const before = JSON.stringify(policy);
+    for (const stance of [null, ...STANCE_ORDER]) {
+      composeFocus(policy, recordStance, stance);
+    }
+    expect(JSON.stringify(policy)).toBe(before);
   });
 });

@@ -200,7 +200,7 @@ export function stanceComposition<T>(
  * at the head of a card meets "Decide cases" again over the group those three
  * are in, and does not have to work out that they refer to the same rules.
  */
-function stancePhrase({ stance, count }: StanceTally): string {
+export function stanceTallyPhrase({ stance, count }: StanceTally): string {
   if (stance === "decides") {
     return count === 1 ? "1 decides a case" : `${count} decide cases`;
   }
@@ -223,5 +223,65 @@ function stancePhrase({ stance, count }: StanceTally): string {
  */
 export function compositionPhrase(tally: readonly StanceTally[]): string | null {
   if (tally.length <= 1) return null;
-  return tally.map(stancePhrase).join(" · ");
+  return tally.map(stanceTallyPhrase).join(" · ");
+}
+
+/**
+ * Which of a policy's rules a reviewer is looking at, and what they may choose.
+ *
+ * ## Why the shown records and the chip counts come from one call
+ *
+ * A control that narrows a list is two derivations if it is built the obvious
+ * way: one deciding what the buttons say, another deciding what the list holds.
+ * They agree until they do not, and the failure is silent — a chip reading
+ * "15 supply meanings" over a list of fourteen. Both come from here, from one
+ * pass over one set of records, so they cannot disagree.
+ *
+ * ## Why an unrecognised focus is not an error
+ *
+ * `requested` is view state held by whoever renders this, and view state
+ * outlives the thing it describes: a reviewer focuses the definitions of one
+ * policy and opens another that has none. Answering with everything, and
+ * reporting the focus as cleared, is the only behaviour that cannot hide a
+ * record. The caller is told what the effective focus is rather than what it
+ * asked for, so the buttons it draws describe the list it actually has.
+ *
+ * ## What this deliberately does not do
+ *
+ * Narrowing here is a reading aid over one policy the reviewer already has
+ * open. It changes what is on screen and nothing else — no record is removed
+ * from the policy, and no action taken on the policy is scoped by it. Anything
+ * that decides, approves, exports or publishes reads the policy's rules, never
+ * this. That distinction is the whole reason this is safe where an earlier
+ * filter across policies was not: that one made a card a fragment while its
+ * Approve still called itself policy-level.
+ */
+export interface StanceFocus<T> {
+  /** One entry per stance the policy actually holds, in reading order. */
+  tally: StanceTally[];
+  /** The focus in force — `null` when every record is shown. */
+  focus: RecordStance | null;
+  /** The records to render under that focus. */
+  shown: readonly T[];
+  /** Every record the policy holds, whatever the focus. */
+  total: number;
+  /** True when the reviewer could meaningfully choose, i.e. more than one stance. */
+  choosable: boolean;
+}
+
+export function composeFocus<T>(
+  items: readonly T[],
+  stanceOf: (item: T) => RecordStance,
+  requested: RecordStance | null,
+): StanceFocus<T> {
+  const tally = stanceComposition(items, stanceOf);
+  const focus =
+    requested !== null && tally.some((entry) => entry.stance === requested) ? requested : null;
+  return {
+    tally,
+    focus,
+    shown: focus === null ? items : items.filter((item) => stanceOf(item) === focus),
+    total: items.length,
+    choosable: tally.length > 1,
+  };
 }
