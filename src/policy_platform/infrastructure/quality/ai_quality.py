@@ -39,6 +39,10 @@ from policy_platform.infrastructure.quality.logic_faithfulness import (
     judge_logic,
 )
 from policy_platform.infrastructure.quality.methodology import derive_methodology_version
+from policy_platform.infrastructure.quality.policy_faithfulness import (
+    FaithfulnessFinding,
+    validate_rules,
+)
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
@@ -293,6 +297,8 @@ def _deterministic_findings(rules: list[CanonicalRule]) -> list[dict]:
     findings.extend(_self_containment_findings(rules))
     findings.extend(_split_decision_findings(rules))
     findings.extend(_promoted_qualifier_findings(rules))
+    # And whether each record still says what the sentence it cites says.
+    findings.extend(_policy_faithfulness_findings(rules))
     # And whether the logic formed from each sentence still quotes it.
     findings.extend(_logic_faithfulness_findings(rules))
 
@@ -394,6 +400,114 @@ def _logic_recommendation(finding: LogicFinding) -> str:
     return _LOGIC_RECOMMENDATION_BY_CODE.get(
         finding.code, _LOGIC_RECOMMENDATION_FALLBACK
     )
+
+
+#: Findings this pass raises that the quality report deliberately does not
+#: carry.
+#:
+#: `condition_not_compiled` fires when a source states a condition that no fact
+#: model compiles. That is the ordinary outcome on prose -- most records state
+#: their test in words and are decided by a reader -- so a finding raised for
+#: it would fire on a large fraction of every run, and a finding that fires on
+#: the ordinary case teaches a reviewer to skip findings. It is also already
+#: reported, per record and in wording that treats the outcome as the route it
+#: is, by `condition_provenance`; this would be a second and worse-worded copy
+#: of a statement the reviewer already has.
+#:
+#: Named rather than filtered by omission so that a code added to the pass
+#: later reaches the report by default. A detector whose output must be
+#: explicitly opted in is how the silence being repaired here began.
+_FAITHFULNESS_NOT_REPORTED = frozenset({"condition_not_compiled"})
+
+#: `FaithfulnessFinding.severity` is a two-value vocabulary; the report's is
+#: three. "blocking" means the record contradicts its source and "warning"
+#: means it is incomplete against it, so neither maps to "low" -- both describe
+#: a disagreement with the document, which is not a note.
+_FAITHFULNESS_SEVERITY = {"blocking": "high", "warning": "medium"}
+
+_FAITHFULNESS_RECOMMENDATION = {
+    "negation_dropped": (
+        "Compare the record's effect against the quoted sentence and re-extract "
+        "if the sense is reversed."
+    ),
+    "quantity_dropped": (
+        "Check the quoted sentence for the figure and add it to the record if it "
+        "belongs there."
+    ),
+    "source_condition_not_captured": (
+        "Read the quoted sentence and confirm the record's stated condition "
+        "carries what it says."
+    ),
+    "action_missing": (
+        "Read the quoted sentence and give the record the action it requires."
+    ),
+    "action_fragment": (
+        "Read the quoted sentence and restate the record's action as a whole "
+        "instruction."
+    ),
+    "duplicate_rule": (
+        "Compare the two records and their cited sentences, and merge them if "
+        "they say the same thing."
+    ),
+}
+
+_FAITHFULNESS_RECOMMENDATION_FALLBACK = (
+    "Compare the record against the sentence quoted with the finding."
+)
+
+
+def _policy_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
+    """Whether each record still says what the sentence it cites says.
+
+    This pass has run on every extraction since it was written and its output
+    went to `logger.info` and stopped, so no reviewer has read one. Its sibling
+    `judge_logic` reaches the report through the adapter below; the two were
+    built together and only one was wired up.
+
+    It is the check that catches an inverted obligation -- a source reading
+    "shall not exceed 10%" formulated as an obligation to exceed it. That is
+    not a weaker answer than the extractor should have given; it is the
+    opposite one, carrying the same citation and the same confidence, and it is
+    the single finding here a reviewer cannot reconstruct from anything else on
+    the surface.
+
+    Reported as a statement about the run, not as a per-record flag. The
+    extraction path decided deliberately that faithfulness must not mark rules
+    for review, and routing it to the queue would overturn that decision
+    sideways rather than argue with it.
+    """
+
+    findings: list[dict] = []
+    for finding in validate_rules(rules):
+        if finding.code in _FAITHFULNESS_NOT_REPORTED:
+            continue
+        findings.append(
+            {
+                "severity": _FAITHFULNESS_SEVERITY.get(finding.severity, "medium"),
+                "category": finding.code,
+                "finding": _faithfulness_text(finding),
+                "affected_rule_ids": [finding.rule_id],
+                "recommendation": _FAITHFULNESS_RECOMMENDATION.get(
+                    finding.code, _FAITHFULNESS_RECOMMENDATION_FALLBACK
+                ),
+                "source": "deterministic",
+            }
+        )
+    return findings
+
+
+def _faithfulness_text(finding: FaithfulnessFinding) -> str:
+    """The finding, with the source it rests on attached.
+
+    The quote is not decoration. Every check here asserts a disagreement
+    between a record and a document, and a reviewer who cannot see the document
+    line has been asked to take the assertion on trust -- which is what the
+    finding accuses the extractor of doing.
+    """
+
+    if not finding.source_quote:
+        return finding.message
+    return f"{finding.message} Source: {finding.source_quote[:200]!r}"
 
 
 def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
