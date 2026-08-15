@@ -27,6 +27,10 @@
  */
 import type { AssembledPassage, AssembledPolicy, CanonicalRule } from "./api";
 import { passageTitle, type PassageTitle } from "./policyCards";
+import {
+  policyComposition as sharedPolicyComposition,
+  type PolicyComposition,
+} from "./policyRecordFacts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
@@ -228,43 +232,18 @@ export function publishedSharedFacets(card: PublishedPolicyCard): PublishedShare
 }
 
 /**
- * The effect type a policy states vocabulary with rather than authority.
+ * How a policy is made up: what settles cases, and what supplies meaning.
  *
- * Named from the effect table rather than from the rule type, because the
- * effect is what the record does and the type is what it is called.
+ * The count itself lives in `policyRecordFacts`, over canonical rules, because
+ * the policy panel and the published card both need it and a policy is made of
+ * the same two kinds of statement wherever it is drawn. This is the adapter
+ * from a card's paired rules to that, and nothing more.
  */
-const STATES_VOCABULARY = "informational";
-
-export interface PolicyComposition {
-  /** Rules that settle a case one way or the other. */
-  decide: number;
-  /** Rules that state what a word means, so the others can use it. */
-  define: number;
-}
-
-/** How a policy is made up: what settles cases, and what supplies meaning. */
 export function policyComposition(
   rules: readonly PublishedPolicyCardRule[],
 ): PolicyComposition {
-  let define = 0;
-  for (const rule of rules) {
-    if ((rule.rule.effect?.type ?? "") === STATES_VOCABULARY) define += 1;
-  }
-  return { decide: rules.length - define, define };
+  return sharedPolicyComposition(rules.map((entry) => entry.rule));
 }
 
-/**
- * The composition in words, or null when there is nothing to say.
- *
- * Null when every rule does the same thing: "4 decide" beside "4 rules" is the
- * same number twice, and the head already carries the count. The line is drawn
- * only where the policy is genuinely made of two kinds of statement, which is
- * the fact a reader cannot get from the count alone.
- */
-export function policyCompositionLabel(composition: PolicyComposition): string | null {
-  if (composition.decide === 0 || composition.define === 0) return null;
-  const decide = composition.decide === 1 ? "1 decides a case" : `${composition.decide} decide cases`;
-  const define =
-    composition.define === 1 ? "1 supplies a meaning" : `${composition.define} supply meanings`;
-  return `${decide} · ${define}`;
-}
+export { policyCompositionLabel } from "./policyRecordFacts";
+export type { PolicyComposition } from "./policyRecordFacts";
