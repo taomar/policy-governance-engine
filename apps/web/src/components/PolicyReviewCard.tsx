@@ -5,6 +5,7 @@ import {
   passagePageLabel,
   passageQuotations,
   policyTitle,
+  policyTopicLabel,
   sharedRuleFacets,
 } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
@@ -132,6 +133,7 @@ export function PolicyReviewCard({
   onReject?: () => void;
 }) {
   const title = policyTitle(card.policy, card.passages);
+  const topicLabel = policyTopicLabel(card.policy);
   const page = passagePageLabel(card.policy.page);
   const shared = sharedRuleFacets(card);
   // Shown only when the rule-type badge is not. Measured across both documents,
@@ -169,6 +171,35 @@ export function PolicyReviewCard({
           />
         )}
         <div className="policy-card__headings">
+          {/* Ours, and first, so that it is read before the document's words
+              rather than in among them — and so the document's heading and its
+              trail stay contiguous and unbroken below. Every state carries the
+              same marker, because what the reader must never lose track of is
+              which line this app wrote, not which line it succeeded at. */}
+          <p className="policy-card__topic" data-generated="true" data-testid="policy-topic-label">
+            <span className="policy-card__topic-mark" aria-hidden>
+              ✦
+            </span>
+            <span className="policy-card__topic-what">Subject, named by this app:</span>{" "}
+            {topicLabel.state === "named" ? (
+              <span className="policy-card__topic-text" title={topicLabel.provenance}>
+                {/* Unquoted, deliberately. Quotation marks around these words
+                    would present them as somebody's exact words, and they are
+                    nobody's — the document's exact words are below. */}
+                <DirectionalText>{topicLabel.text}</DirectionalText>
+              </span>
+            ) : (
+              <span className="policy-card__topic-none">
+                {/* Two different facts, said differently. One says a name was
+                    attempted and did not come; the other says none has been
+                    attempted. A reviewer waiting for the first would wait
+                    forever, so they are never worded the same. */}
+                {topicLabel.state === "unavailable"
+                  ? "could not be named — the heading below is the document's own"
+                  : "not yet named for this policy"}
+              </span>
+            )}
+          </p>
           {trail.length > 0 && (
             <p className="policy-card__trail" data-testid="policy-heading-trail">
               {/* The chain of headings that governs this section, each verbatim

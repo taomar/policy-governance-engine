@@ -11141,6 +11141,45 @@
   color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
 }
 
+.policy-card__topic {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+/* A mark carried by every state, so the line is recognisable as this app's
+   before any of its words are read. */
+.policy-card__topic-mark {
+  opacity: 0.55;
+}
+
+.policy-card__topic-what {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* The generated words themselves. Emphasised against the rest of the line so
+   they can be scanned, and still quieter than the title below, which is the
+   document's. No quotation marks and no italics: both read as a citation. */
+.policy-card__topic-text {
+  font-weight: 600;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+/* Absent and unavailable read as prose rather than as a name, so neither can
+   be mistaken for a label the model produced. */
+.policy-card__topic-none {
+  font-style: italic;
+  opacity: 0.85;
+}
+
 .policy-card__meta,
 .policy-card__rule-meta {
   display: flex;

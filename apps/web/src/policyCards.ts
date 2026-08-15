@@ -460,6 +460,61 @@ export function policyTitle(
 }
 
 /**
+ * What the card knows about the generated subject name, as three distinct states.
+ *
+ * A discriminated union rather than a nullable string, because the three cases
+ * a reader must be able to tell apart are not "a string or not a string":
+ *
+ * - `named` — a label was generated and this is it,
+ * - `unavailable` — one was asked for and nothing usable came back,
+ * - `absent` — nobody has asked.
+ *
+ * Collapsing the last two would tell a reviewer "not generated yet" about a
+ * policy the system has already failed on, and they would wait for something
+ * that is not coming. The distinction is the same one `loadState.ts` draws
+ * between a value that is missing and a value that is empty, and it is drawn
+ * here for the same reason.
+ *
+ * The empty-label case is deliberately absent from this union. An empty reply
+ * is refused at generation and stored as an unavailable outcome, so no state
+ * downstream ever has to render nothing as if it were a name.
+ */
+export type PolicyTopicLabelState =
+  | { readonly state: "named"; readonly text: string; readonly provenance: string }
+  | { readonly state: "unavailable" }
+  | { readonly state: "absent" };
+
+/**
+ * Read the generated subject name off a policy.
+ *
+ * This never composes a label and never falls back to one. A fallback would be
+ * this app naming a document's subject out of its own vocabulary — which is the
+ * single thing the product exists not to do — so an absent label stays absent
+ * all the way to the screen, where it is stated rather than filled in.
+ *
+ * `generated` is required to be true on the payload before the text is used. It
+ * is the server's assertion that these words are ours, and a payload arriving
+ * without it is not something this may present as a label.
+ */
+export function policyTopicLabel(
+  policy: Pick<AssembledPolicy, "topic_label">,
+): PolicyTopicLabelState {
+  const label = policy.topic_label;
+  if (!label || label.generated !== true) return { state: "absent" };
+  const text = label.text?.trim() ?? "";
+  if (!text) return { state: "unavailable" };
+  // Provenance travels with the words, not in a lookup somewhere else. A reader
+  // asking "where did this come from" is asking about the string in front of
+  // them, and the answer has to be reachable from it.
+  const parts = [label.model_deployment, label.generated_at, label.prompt_version];
+  return {
+    state: "named",
+    text,
+    provenance: parts.filter((part): part is string => Boolean(part)).join(" · "),
+  };
+}
+
+/**
  * What every rule of the card says the same way.
  *
  * A field is returned when all the rules agree on it and `null` when they do
@@ -528,6 +583,22 @@ export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
     // now should not have to guess whether the title is the document's
     // heading, a sentence of the passage, or something this app made up.
     title_from: title.source,
+    // Ours, and filed apart from every key above that holds the document's
+    // characters. Under its own object with its own provenance so that a
+    // consumer reading `heading`, `heading_path`, `title` or `quotations` never
+    // picks this up by accident, and so that a reader opening the file a year
+    // from now can see it was generated, by what, and when.
+    generated_topic_label:
+      card.policy.topic_label && card.policy.topic_label.generated === true
+        ? {
+            generated: true as const,
+            text: card.policy.topic_label.text,
+            unavailable_code: card.policy.topic_label.unavailable_code,
+            model_deployment: card.policy.topic_label.model_deployment,
+            prompt_version: card.policy.topic_label.prompt_version,
+            generated_at: card.policy.topic_label.generated_at,
+          }
+        : null,
     source_elements: card.policy.source_elements,
     page: card.policy.page,
     rule_count: card.policy.rule_count,

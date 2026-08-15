@@ -38,6 +38,7 @@ from policy_platform.infrastructure.extraction.formulation_mapping import (
     SKIP_NOT_EXTRACTED,
 )
 from policy_platform.infrastructure.assistants import rule_change_explainer
+from policy_platform.infrastructure.assistants import provision_topic_label
 from policy_platform.domain.models import (
     CandidateRule,
     CorrelationFindingRow,
@@ -152,6 +153,57 @@ async def extract_with_ai(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class TopicLabelRequest(BaseModel):
+    """How many provisions to name, and whether to name them again."""
+
+    #: A ceiling on one run, so a request cannot become an unbounded spend and a
+    #: caller can name a handful first and look at them before naming the rest.
+    limit: int = Field(default=25, ge=1, le=500)
+    #: Re-name provisions that already carry a label. Off by default: running
+    #: this twice should cost nothing the second time.
+    regenerate: bool = False
+
+
+@router.post("/policy-sets/{key}/topic-labels")
+async def generate_topic_labels(
+    key: str,
+    body: TopicLabelRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Name the subject each policy of this set is about.
+
+    A card is titled by the heading the document wrote, and that stays its
+    title. This produces a second, shorter string beside it — a few words naming
+    the subject — because a heading written for somebody reading in order often
+    names nothing to somebody scanning a queue.
+
+    What comes back is ours and is stored as ours, in a table of its own with
+    the model, the instruction and a digest of the words it was generated from.
+    It is never written into the row holding the document's headings.
+
+    Provisions that produced nothing usable are recorded as such rather than
+    skipped silently, so the interface can say the label is unavailable instead
+    of showing a card that looks un-generated forever.
+    """
+
+    policy_set = await PolicySetRepository(session).get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    _require_ai_configured()
+    try:
+        result = await provision_topic_label.label_provisions(
+            session,
+            policy_set_id=policy_set.id,
+            limit=body.limit if body else 25,
+            regenerate=body.regenerate if body else False,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    await session.commit()
+    return result
 
 
 @router.get("/candidate-rules/{candidate_id}/explain-change")

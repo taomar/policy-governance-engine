@@ -19,6 +19,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -434,6 +435,76 @@ class DocumentProvision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             "document_version_id",
             "provision_key",
             name="uq_document_provisions_version_key",
+        ),
+    )
+
+
+class ProvisionTopicLabel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """A short generated name for the subject one provision is about.
+
+    WHY THIS IS A TABLE OF ITS OWN AND NOT A COLUMN ON `document_provisions`
+
+    Because it is not the document's. `document_provisions` holds the headings
+    the source wrote and nothing else, and the guard on it forbids a prose
+    column by name — a `topic_label` column there would put a sentence this
+    system composed into the row a reader trusts to be a copy. Sitting in its
+    own table, the label is distinguishable in the database from anything the
+    document said by *where it is stored*, which no later reader can misread.
+
+    The separation also gives provenance somewhere to live. A generated string
+    without the model, the instruction and the words it was generated from is a
+    claim with no history, and `document_provisions` would have had to grow four
+    columns describing a fifth.
+
+    ONE ROW IS ONE ATTEMPT, AND AN ATTEMPT MAY HAVE PRODUCED NOTHING
+
+    `label_text` and `unavailable_code` are exclusive and exactly one is set.
+    Three states are therefore distinguishable and stay distinguishable:
+
+    * no row — nobody has asked for a label for this provision;
+    * `label_text` — this is the label;
+    * `unavailable_code` — it was asked for, and no usable label came back.
+
+    Collapsing the third into the first would tell a reader "not generated yet"
+    about a provision the system has already failed on, and they would wait.
+    """
+
+    __tablename__ = "provision_topic_labels"
+
+    #: One current label per provision. Re-generating replaces it rather than
+    #: appending, because a card shows one label and a second row would make
+    #: "which one" a question the reader has to answer.
+    provision_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_provisions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    #: The generated words. Never the document's — the document's words are the
+    #: heading path on `document_provisions` and the source text on each rule.
+    label_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Why there is no label, when an attempt produced none. A code and never a
+    #: sentence: a stored sentence cannot be re-worded for the reader and cannot
+    #: be told apart later from something a document stated.
+    unavailable_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    #: Which deployment answered. Null when the attempt never reached one.
+    model_deployment: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Which instruction was in force. A label generated under an older prompt
+    #: is recognisable as such instead of being assumed to satisfy today's rule.
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    #: Digest of the exact text the model was shown, so a label can be told
+    #: apart from one generated before the document was re-read.
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: How many of the provision's rules contributed text.
+    source_rule_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: When it was generated. Explicit rather than read off `updated_at`:
+    #: provenance a reader relies on should not be a bookkeeping side effect.
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(label_text IS NULL) <> (unavailable_code IS NULL)",
+            name="ck_provision_topic_labels_one_outcome",
         ),
     )
 

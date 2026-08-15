@@ -150,6 +150,23 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     # not block -- it would quietly unlink rules that are about to be deleted
     # anyway, and the ordering error would leave no trace. Placed by the
     # constraint that actually binds instead: document_versions is its parent.
+    # Before document_provisions, which is its parent. The foreign key is ON
+    # DELETE CASCADE, so the database would clear these anyway -- and that is
+    # exactly why the DELETE is written out. A row this file never names is a
+    # row nobody counts, and the count is how a teardown is checked to have
+    # emptied what it claimed to. A generated label surviving unnoticed would
+    # also be the worst kind of leftover: a string this system composed, with
+    # no document left to check it against.
+    (
+        "provision_topic_labels",
+        """DELETE FROM provision_topic_labels WHERE provision_id IN (
+               SELECT dp.id FROM document_provisions dp
+               WHERE dp.policy_set_id = :sid
+                  OR dp.document_version_id IN (
+                      SELECT dv.id FROM document_versions dv
+                      JOIN source_documents d ON d.id = dv.document_id
+                      WHERE d.policy_set_id = :sid))""",
+    ),
     (
         "document_provisions",
         """DELETE FROM document_provisions WHERE policy_set_id = :sid
