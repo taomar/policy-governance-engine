@@ -86,6 +86,11 @@ import {
   matchedCandidateIds,
   placeableCandidates,
 } from "../queueCardSelection";
+import {
+  candidateAnswersRuleFilters,
+  candidateIdsAnsweringRuleFilters,
+  cardsAnsweringRuleFilters,
+} from "../queueCardFilters";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
@@ -285,7 +290,18 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setError(null);
     setLoading(true);
     try {
-      const status = statusFilter === "all" ? undefined : statusFilter;
+      // Review status and delta status are NOT sent to the server.
+      //
+      // They are properties of a rule, and asking the server for "the pending
+      // rules" returns rules, not policies — so every card assembled from the
+      // answer holds only the part of its policy that matched, while still
+      // offering one `Approve policy` over it. The queue's unit is the policy,
+      // so the population it loads has to be whole policies too.
+      //
+      // Document and run stay server-side: they are scope, not a filter within
+      // a policy. A policy belongs to one document, so scoping to a document
+      // never splits one — and the assembly call below is given the same scope,
+      // so the two answers describe the same population.
       const scope = {
         document_id: documentFilter || undefined,
         extraction_run_id: runFilter || undefined,
@@ -301,9 +317,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       setPoliciesState("loading");
       setPoliciesError(null);
       const [list, assembled] = await Promise.all([
-        api.listCandidateRules(selectedKey, status, {
+        api.listCandidateRules(selectedKey, undefined, {
           ...scope,
-          delta_status: deltaFilter === "all" ? undefined : deltaFilter,
           // Opening a historical run means asking for rules a later run retired,
           // so those rows have to be included or the run would look empty.
           include_superseded: Boolean(runFilter),
@@ -338,6 +353,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     }
   };
 
+  // Only the filters that change which records are fetched trigger a reload.
+  // Status and delta now narrow the assembled cards in place, so refetching on
+  // them would spend a round-trip to receive the same payload — and clear the
+  // reviewer's selection and page while doing it.
   useEffect(() => {
     void loadCandidates();
     setQualityFindings(null); // stale once the policy set/filter changes — re-run on demand
@@ -347,7 +366,15 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setInspectorFullscreen(false);
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, statusFilter, documentFilter, runFilter, deltaFilter]);
+  }, [selectedKey, documentFilter, runFilter]);
+
+  // Narrowing by status or delta changes which cards are shown but not which
+  // are loaded, so it only has to return to the first page. The selection is
+  // kept: a reviewer who has a rule open and then narrows the queue has not
+  // asked to stop looking at it.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, deltaFilter]);
 
   useEffect(() => {
     void loadFacets();
@@ -516,6 +543,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   );
 
   /**
+   * The filters that are properties of a rule rather than of a policy.
+   *
+   * Held together because they are applied together and at the same level: they
+   * choose which policies appear, never what a policy contains.
+   */
+  const ruleFilters = useMemo(
+    () => ({ status: statusFilter, delta: deltaFilter }),
+    [statusFilter, deltaFilter],
+  );
+
+  /**
    * Every candidate a policy can be built from, whatever the search says.
    *
    * A search narrows which policies are worth looking at. It is not a statement
@@ -526,9 +564,22 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
    */
   const placeable = useMemo(() => placeableCandidates(candidates), [candidates]);
 
+  /**
+   * The ungrouped fallback's rows, filtered at rule level — which is correct
+   * *here* and nowhere else on this screen.
+   *
+   * This list is used only when the assembly is unavailable, and then its rows
+   * are rules, not policies: there is no card to fragment and no policy-level
+   * Approve to mislead anyone. A rule list narrowed by a rule's own status is
+   * exactly what it appears to be. The grouped queue above is the one that had
+   * to move to policy level, because there the unit on screen is the policy.
+   */
   const filteredCandidates = useMemo(
-    () => placeable.filter(matchesSearch),
-    [placeable, matchesSearch],
+    () =>
+      placeable.filter(
+        (c) => matchesSearch(c) && candidateAnswersRuleFilters(c, ruleFilters),
+      ),
+    [placeable, matchesSearch, ruleFilters],
   );
 
   /** The reading this one replaced, when it is still in the payload. */
@@ -560,9 +611,28 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [placeable, searchText],
   );
 
+  /**
+   * The records answering the rule-level filters, used only to choose cards.
+   *
+   * The queue is a list of policies, so status and delta select policies here
+   * rather than rules. A policy is offered when any of its rules answers, and
+   * comes back whole — see `queueCardFilters` for why a card that shows the
+   * matching part of a policy while offering one policy-level Approve is the
+   * defect this replaces.
+   */
+  const filterMatchedIds = useMemo(
+    () => candidateIdsAnsweringRuleFilters(placeable, ruleFilters),
+    [placeable, ruleFilters],
+  );
+
   const policyCards = useMemo(
-    () => cardsAnsweringSearch(allPolicyCards, searchText, matchedIds),
-    [allPolicyCards, searchText, matchedIds]
+    () =>
+      cardsAnsweringRuleFilters(
+        cardsAnsweringSearch(allPolicyCards, searchText, matchedIds),
+        ruleFilters,
+        filterMatchedIds,
+      ),
+    [allPolicyCards, searchText, matchedIds, ruleFilters, filterMatchedIds]
   );
 
   // Rules the assembly did not place — reachable when a historical run is open,
