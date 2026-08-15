@@ -33,6 +33,7 @@ import {
   candidateIdsAnsweringRuleFilters,
   cardsAnsweringRuleFilters,
   filterIsOff,
+  policySelectionNote,
 } from "./queueCardFilters";
 
 /** Neutral placeholders. Nothing here leans on the vocabulary of any document. */
@@ -269,5 +270,90 @@ describe("the queue does not ask the server to narrow rules within a policy", ()
 
   it("filters the assembled cards instead", () => {
     expect(source).toContain("cardsAnsweringRuleFilters");
+  });
+
+  it("renders the note that reconciles the two counts", () => {
+    // The strip counts records; the list counts policies. Both are right, and
+    // the screen has to say which is which, so this must actually be rendered
+    // -- not merely exported and forgotten.
+    expect(source).toContain("policySelectionNote");
+    expect(source).toContain("policy-selection-note");
+  });
+
+  it("names filters with the words the controls themselves use", () => {
+    // Restating labels here would let the note drift from the button that set
+    // the filter. It reads both tables instead.
+    expect(source).toContain("REVIEW_STATUS_TABS");
+    expect(source).toContain("DELTA_META");
+  });
+});
+
+describe("the note reconciling record counts with policy counts", () => {
+  it("says nothing when no filter is narrowing anything", () => {
+    expect(policySelectionNote(22, [])).toBeNull();
+  });
+
+  it("says nothing when the list is empty, leaving that to the empty state", () => {
+    // Absent and empty are different, and the queue already describes empty.
+    // A second sentence saying it is one more than a reader needs.
+    expect(policySelectionNote(0, ["Approved"])).toBeNull();
+  });
+
+  it("names both units, so neither number has to be guessed", () => {
+    const note = policySelectionNote(22, ["Needs review"]);
+    expect(note).toContain("22 policies");
+    expect(note).toContain("rule");
+  });
+
+  it("explains why a policy lists rules the filter did not select", () => {
+    const note = policySelectionNote(4, ["Published"]) ?? "";
+    expect(note).toContain("every rule of the policy");
+    expect(note).toContain("did not select");
+  });
+
+  it("agrees with itself for a single policy", () => {
+    const note = policySelectionNote(1, ["Rejected"]) ?? "";
+    expect(note).toContain("1 policy ");
+    expect(note).not.toContain("1 policies");
+    expect(note).toContain("matches");
+  });
+
+  it("names every active filter, not just the first", () => {
+    const note = policySelectionNote(3, ["Approved", "New"]) ?? "";
+    expect(note).toContain("Approved");
+    expect(note).toContain("New");
+  });
+
+  it("quotes the filter's own label rather than inflecting it into a sentence", () => {
+    // Grammar built from a label breaks the moment a label is added. Quoting
+    // sidesteps it, and keeps the label recognisably the control's word.
+    const note = policySelectionNote(2, ["Changes requested"]) ?? "";
+    expect(note).toContain("“Changes requested”");
+  });
+
+  it("frames a route as a route, never as a shortfall", () => {
+    const note = policySelectionNote(9, ["Needs review", "Unchanged"]) ?? "";
+    for (const banned of [
+      "cannot",
+      "can't",
+      "unable",
+      "fail",
+      "not supported",
+      "unsupported",
+      "missing",
+      "incomplete",
+      "only",
+      "limitation",
+      "fallback",
+    ]) {
+      expect(note.toLowerCase()).not.toContain(banned);
+    }
+  });
+
+  it("carries no vocabulary from any one document or domain", () => {
+    const note = policySelectionNote(7, ["Approved"]) ?? "";
+    for (const domain of ["employee", "policy set", "handbook", "clause", "HR", "leave"]) {
+      expect(note.toLowerCase()).not.toContain(domain.toLowerCase());
+    }
   });
 });

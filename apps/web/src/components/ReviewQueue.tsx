@@ -90,6 +90,8 @@ import {
   candidateAnswersRuleFilters,
   candidateIdsAnsweringRuleFilters,
   cardsAnsweringRuleFilters,
+  filterIsOff,
+  policySelectionNote,
 } from "../queueCardFilters";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
@@ -99,7 +101,7 @@ import { PolicyReviewCard } from "./PolicyReviewCard";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
 import type { RecordActionHandlers } from "./RecordActionsMenu";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
-import { ReviewStatusTabs } from "./ReviewStatusTabs";
+import { ReviewStatusTabs, REVIEW_STATUS_TABS } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
 import { RuleDetailInline } from "./RuleDetailInline";
@@ -661,6 +663,31 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   const grouped = policiesState === "ready";
   const listTotal = grouped ? policyCards.length : filteredCandidates.length;
+
+  /**
+   * What the current rule-level filters are called, in the words the controls
+   * themselves use. Read from the tab strip's own table rather than restated,
+   * so the note can never name a filter differently from the button that set
+   * it — and so a filter added there needs no second edit here.
+   */
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (!filterIsOff(statusFilter)) {
+      labels.push(
+        REVIEW_STATUS_TABS.find((t) => t.value === statusFilter)?.label ?? statusFilter,
+      );
+    }
+    if (!filterIsOff(deltaFilter)) {
+      labels.push(DELTA_META[deltaFilter]?.label ?? deltaFilter);
+    }
+    return labels;
+  }, [statusFilter, deltaFilter]);
+
+  // Only meaningful for the grouped queue: the ungrouped fallback lists rules,
+  // so its count and the strip's count are already the same unit.
+  const selectionNote = grouped
+    ? policySelectionNote(listTotal, activeFilterLabels)
+    : null;
 
   // Family banding, by the same criterion the Policies view uses: a curated
   // `group_label`, else rules of one type testing the same fact. Clustering runs
@@ -1868,6 +1895,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             </Space>
 
             {qualityError && <Alert type="warning" showIcon message={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
+
+            {selectionNote && (
+              <Text
+                type="secondary"
+                data-testid="policy-selection-note"
+                style={{ display: "block", marginBottom: 12 }}
+              >
+                {selectionNote}
+              </Text>
+            )}
 
             {selectableIds.length > 0 && (
               <div className="bulk-bar">

@@ -110,3 +110,36 @@ export function cardsAnsweringRuleFilters(
   if (filterIsOff(filters.status) && filterIsOff(filters.delta)) return [...cards];
   return cards.filter((card) => card.rules.some((entry) => matched.has(entry.candidate.id)));
 }
+
+/**
+ * The sentence that reconciles the two numbers a filtered queue now shows.
+ *
+ * The status strip counts records, because a status is a property of a record
+ * and "266 need review" is the true and actionable number. The list beneath it
+ * counts policies, because a policy is what a reviewer decides. Those are two
+ * different units and both are correct, so the screen has to say which is
+ * which — a number whose unit is left to be guessed is worse than no number.
+ *
+ * It also answers the question the reviewer asks next. Choosing one status and
+ * then seeing a policy list twelve rules, most of them in some other state,
+ * looks like the filter is broken. It is not: the filter chose the policy, and
+ * the policy supplied its rules. Saying so once, here, is cheaper than leaving
+ * every card to look wrong.
+ *
+ * Returns null when there is nothing to reconcile — no filter, or nothing
+ * shown, the latter already being described by the queue's empty state. Two
+ * sentences saying "nothing here" is one more than a reader needs.
+ */
+export function policySelectionNote(
+  shown: number,
+  filterLabels: readonly string[],
+): string | null {
+  if (filterLabels.length === 0 || shown <= 0) return null;
+  const names = filterLabels.map((l) => `“${l}”`).join(" and ");
+  const unit = shown === 1 ? "policy" : "policies";
+  return (
+    `${shown} ${unit} ${shown === 1 ? "matches" : "match"} ${names}. ` +
+    `Each lists every rule of the policy, including rules the filter did not select.`
+  );
+}
+
