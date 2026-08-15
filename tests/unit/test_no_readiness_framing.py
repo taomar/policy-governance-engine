@@ -112,6 +112,12 @@ _CODE_PUNCTUATION = set("{}()[]<>=;:|&$#\"'`/\\")
 #: holds each one to that: the path must exist, and the file must still carry a
 #: phrase that needs excusing. An entry failing either is not a narrow
 #: exemption, it is a standing permission for whatever lands at that path next.
+#: A file whose name marks it as a test rather than as something that ships.
+#: Matched on the name so it holds for `.test.ts`, `.test.tsx` and `.spec.*`
+#: alike, and keeps holding after a rename that this list would not have known
+#: about.
+_IS_TEST_FILE = re.compile(r"\.(test|spec)\.tsx?$")
+
 _MECHANISM = {
     SRC / "contracts" / "formulation.py",
 }
@@ -232,6 +238,49 @@ def test_the_guard_would_notice_the_wording_it_forbids():
     )
 
 
+def test_the_exclusion_has_not_blunted_the_guard(tmp_path):
+    """The exclusion is narrow: a shipping file is still caught.
+
+    An exclusion is the cheapest way to make a red guard green, and the cheap
+    version excludes too much. This runs the scan's own two rules over a file
+    named as something that ships and over one named as a test, with identical
+    contents, and requires them to disagree. If the exclusion ever widens to the
+    point of covering the interface, the first half fails.
+    """
+
+    shipped = "  <span>not machine-executable</span>"
+    header = "            <span>Executability</span>"
+
+    assert _IS_TEST_FILE.search("PolicyRow.test.tsx")
+    assert _IS_TEST_FILE.search("policyCards.spec.ts")
+    assert not _IS_TEST_FILE.search("PolicyRow.tsx")
+    assert not _IS_TEST_FILE.search("policyCards.ts")
+    # A file merely *about* testing still ships, so it is still read.
+    assert not _IS_TEST_FILE.search("testScenarioPanel.tsx")
+
+    # Both rules still fire on the wording itself.
+    assert _FRAMING_RE.search(shipped)
+    assert any(_BARE_EXECUTABILITY.search(caption) for caption in _interface_captions(header))
+
+    # And the scan still reaches real interface files: excluding tests must not
+    # have emptied it.
+    scanned = _rendered_web_files()
+    assert len(scanned) > 50, f"only {len(scanned)} files scanned after the exclusion"
+    assert not any(_IS_TEST_FILE.search(path.name) for path in scanned)
+
+    # The exclusion is load-bearing rather than decorative: at least one test
+    # file does carry a phrase, which is why it had to exist.
+    excluded = [
+        path
+        for path in WEB.rglob("*.ts*")
+        if path.is_file() and _IS_TEST_FILE.search(path.name)
+    ]
+    assert excluded, "no test files found, so the exclusion hides nothing"
+    assert any(
+        _FRAMING_RE.search(path.read_text(encoding="utf-8")) for path in excluded
+    ), "no excluded test carries the framing, so the exclusion is unnecessary"
+
+
 def test_the_guard_would_notice_a_bare_executability_caption():
     """Proves the second rule fires on labels and stays off identifiers.
 
@@ -306,6 +355,29 @@ def test_every_exemption_is_earned():
         )
 
 
+def _rendered_web_files() -> list[Path]:
+    """Interface files a user's eyes can reach, which excludes the tests.
+
+    A test that asserts the interface never says "machine executable" has to
+    write "machine executable" down to look for it. Scanning tests made this
+    guard fire on the sentence stating its own rule, and there is no wording of
+    that assertion that would survive: any spelling of the phrase precise enough
+    to catch is precise enough to trip on. So the two rules were in a standoff
+    no edit to either test could settle, and the scan was the half that was
+    wrong -- a test renders to no user, and this guard is about what a user
+    reads.
+
+    `test_the_exclusion_has_not_blunted_the_guard` holds the exclusion to being
+    narrow: the phrase is still caught in a file that ships.
+    """
+
+    return sorted(
+        path
+        for path in WEB.rglob("*.ts*")
+        if path.is_file() and not _IS_TEST_FILE.search(path.name)
+    )
+
+
 def test_no_readiness_framing_in_python_string_literals():
     """Text a user reads, wherever a string ends up being rendered."""
 
@@ -331,7 +403,7 @@ def test_no_readiness_framing_in_rendered_web_strings():
 
     offenders: list[str] = []
     examined = 0
-    for path in sorted(p for p in WEB.rglob("*.ts*") if p.is_file()):
+    for path in _rendered_web_files():
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
@@ -352,7 +424,7 @@ def test_no_bare_executability_in_interface_captions():
 
     offenders: list[str] = []
     examined = 0
-    for path in sorted(p for p in WEB.rglob("*.ts*") if p.is_file()):
+    for path in _rendered_web_files():
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
@@ -381,7 +453,7 @@ def test_the_caption_scan_reads_the_interface():
     returns, this figure drops to nothing and says so.
     """
 
-    files = [p for p in WEB.rglob("*.ts*") if p.is_file()]
+    files = _rendered_web_files()
     assert len(files) > 50, f"only {len(files)} interface files found; the glob is wrong"
 
     captions = 0
