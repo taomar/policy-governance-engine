@@ -29,6 +29,8 @@
  * measurement of one.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { CandidateRule } from "../api";
+import { fromDraftRow } from "../policyCards";
 import { cleanup, render } from "@testing-library/react";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import type { CanonicalRule } from "../api";
@@ -67,12 +69,12 @@ function card(passages: readonly (readonly (string | null)[])[]): PolicyCard {
       return {
         rule_id: `r${index}`,
         evaluation_mode: "deterministic",
-        candidate: {
+        ...fromDraftRow({
           id: `candidate-${index}`,
           review_status: "pending",
           rule_type: "obligation",
           rule: rule(`r${index}`, effectType),
-        },
+        } as unknown as CandidateRule),
       };
     });
     return { passage: { key: `passage-${passageIndex}` }, rules };
@@ -100,8 +102,8 @@ function card(passages: readonly (readonly (string | null)[])[]): PolicyCard {
     },
     passages: built,
     rules: all,
-    reviewableIds: all.map((one) => one.candidate.id),
-    allIds: all.map((one) => one.candidate.id),
+    reviewableIds: all.map((one) => one.recordId),
+    allIds: all.map((one) => one.recordId),
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }

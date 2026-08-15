@@ -53,14 +53,72 @@ import type {
 } from "./api";
 import { candidateEditability } from "./candidateEditability";
 
-/** One rule of a policy, as the current filter shows it. */
+/** One rule of a policy, as a card holds it.
+ *
+ *  Deliberately says nothing about *which* table the record came from. A draft
+ *  row under review and a published row carry the same rule, and both surfaces
+ *  draw the same card from it. Naming a candidate here was the one thing
+ *  stopping the published page calling this, and a second copy of the layout
+ *  was written instead — which is how two surfaces showing the same rules start
+ *  disagreeing about them. */
 export interface PolicyCardRule {
   rule_id: string;
-  /** The reviewable record behind the rule. The flat list is what a reviewer
-   *  approves, edits and rejects; the assembly only says where it belongs. */
-  candidate: CandidateRule;
+  /** The rule itself. Both a draft row and a published row carry one, and it is
+   *  what everything reading a card actually wants. */
+  rule: CanonicalRule;
+  /** Where this record stands. Read through `candidateEditability`, which is
+   *  what decides whether anything may be decided about it — including on a
+   *  published record, where the answer is no. */
+  reviewStatus: string;
+  /** This record's own id: the draft row's where there is one, otherwise the
+   *  rule's. What a decision, a copied id or a history lookup addresses.
+   *
+   *  Always present, so nothing downstream has to handle its absence and no
+   *  record is ever keyed by an id that resolves to nothing. */
+  recordId: string;
+  /** The fuller draft row, where the record is one.
+   *
+   *  Optional, and no consumer may require it: a published record has none.
+   *  The review surface still needs it for editing and bulk actions, which are
+   *  paths that only exist where a draft row does. */
+  candidate?: CandidateRule;
   /** This rule's own route, from the assembly. Never summarised away. */
   evaluation_mode: string;
+}
+
+/**
+ * A record a card can be built from, said structurally rather than by name.
+ *
+ * `CandidateRule` satisfies this, and so does anything else carrying a rule —
+ * which is the point: the published page hands over rows from a different table
+ * and gets the same cards, rather than a transliteration of this file that
+ * drifts from it a commit at a time.
+ */
+export interface PolicyRecordInput {
+  rule: CanonicalRule;
+  /** Absent on records that were never under review. Treated as published,
+   *  because a record with no review state is not one awaiting a decision. */
+  review_status?: string;
+  /** Absent on records identified by their rule alone. */
+  id?: string;
+}
+
+/**
+ * The card-rule fields a draft row supplies.
+ *
+ * One statement of how a row under review becomes a rule on a card, so the
+ * mapping is written once rather than at every place that builds one. Spread
+ * beside `rule_id` and `evaluation_mode`.
+ */
+export function fromDraftRow(
+  candidate: CandidateRule,
+): Pick<PolicyCardRule, "rule" | "reviewStatus" | "recordId" | "candidate"> {
+  return {
+    rule: candidate.rule,
+    reviewStatus: candidate.review_status,
+    recordId: candidate.id,
+    candidate,
+  };
 }
 
 /** One passage of a card: the sentence, and the rules stated in it.
@@ -106,7 +164,7 @@ export interface PolicyCard {
  * showing. A policy with none of its rules in view produces no card at all
  * rather than an empty one, and a passage with none in view produces no block.
  *
- * WHY THIS AND `unplacedCandidates` SHARE ONE PASS
+ * WHY THIS AND `unplacedRules` SHARE ONE PASS
  *
  * They used to answer "is this rule placed?" from different fields. This one
  * walked `policy.passages`; that one walked `policy.rules`. When a policy
@@ -120,18 +178,18 @@ export interface PolicyCard {
  * So there is now one pass and one definition, and the definition is *rendered*
  * rather than *listed*: a rule is placed when it came out on a card. A policy
  * that cannot be laid out therefore places nothing, and everything it holds
- * falls through to `unplacedCandidates`, which is a view that exists precisely
+ * falls through to `unplacedRules`, which is a view that exists precisely
  * to keep rules on screen when the arrangement around them is missing.
  */
 export function buildPolicyCards(
   policies: readonly AssembledPolicy[],
-  candidates: readonly CandidateRule[],
+  candidates: readonly PolicyRecordInput[],
 ): PolicyCard[] {
   return placement(policies, candidates).cards;
 }
 
 /**
- * Candidates the assembly did not place.
+ * Records the assembly did not place.
  *
  * The two fetches do not always cover the same population: the flat list can
  * ask for superseded rows when a historical run is open, and the assembly does
@@ -147,17 +205,24 @@ export function buildPolicyCards(
  * passage is a claim that the document stated these rules together in one run
  * of text, and manufacturing one to satisfy a layout would put a claim about
  * the source on screen that no reading of the source produced.
+ *
+ * Returns what it was given, so a caller gets its own row type back rather than
+ * this file's idea of one.
  */
-export function unplacedCandidates(
+export function unplacedRules<T extends PolicyRecordInput>(
   policies: readonly AssembledPolicy[],
-  candidates: readonly CandidateRule[],
-): CandidateRule[] {
-  return placement(policies, candidates).unplaced;
+  candidates: readonly T[],
+): T[] {
+  return placement(policies, candidates).unplaced as T[];
 }
+
+/** The former name, kept while its callers are renamed. A duplicated name, and
+ *  deliberately not a duplicated implementation. */
+export const unplacedCandidates = unplacedRules;
 
 interface Placement {
   cards: PolicyCard[];
-  unplaced: CandidateRule[];
+  unplaced: PolicyRecordInput[];
 }
 
 /**
@@ -172,13 +237,13 @@ interface Placement {
  */
 let lastPlacement: {
   policies: readonly AssembledPolicy[];
-  candidates: readonly CandidateRule[];
+  candidates: readonly PolicyRecordInput[];
   result: Placement;
 } | null = null;
 
 function placement(
   policies: readonly AssembledPolicy[],
-  candidates: readonly CandidateRule[],
+  candidates: readonly PolicyRecordInput[],
 ): Placement {
   if (lastPlacement && lastPlacement.policies === policies && lastPlacement.candidates === candidates) {
     return lastPlacement.result;
@@ -190,9 +255,9 @@ function placement(
 
 function place(
   policies: readonly AssembledPolicy[],
-  candidates: readonly CandidateRule[],
+  candidates: readonly PolicyRecordInput[],
 ): Placement {
-  const byRuleId = new Map<string, CandidateRule>();
+  const byRuleId = new Map<string, PolicyRecordInput>();
   for (const candidate of candidates) {
     if (!byRuleId.has(candidate.rule.rule_id)) byRuleId.set(candidate.rule.rule_id, candidate);
   }
@@ -211,7 +276,21 @@ function place(
         if (!candidate) continue;
         rules.push({
           rule_id: rule.rule_id,
-          candidate,
+          rule: candidate.rule,
+          // A record carrying no review state is not one awaiting a decision.
+          // Read as published rather than as unrecognised, so the interface
+          // explains it as an immutable snapshot instead of as a build that
+          // does not know what it is looking at.
+          reviewStatus: candidate.review_status ?? "published",
+          recordId: candidate.id ?? rule.rule_id,
+          // The wider input narrowed back, in the one place it happens. A
+          // record carrying a draft row's id and its review state is a draft
+          // row; a published row carries neither and stays undefined, so
+          // nothing downstream can reach for a row that does not exist.
+          candidate:
+            candidate.id !== undefined && candidate.review_status !== undefined
+              ? (candidate as CandidateRule)
+              : undefined,
           evaluation_mode: rule.evaluation_mode,
         });
       }
@@ -222,8 +301,8 @@ function place(
 
     const reviewStatuses: string[] = [];
     for (const rule of rules) {
-      if (!reviewStatuses.includes(rule.candidate.review_status)) {
-        reviewStatuses.push(rule.candidate.review_status);
+      if (!reviewStatuses.includes(rule.reviewStatus)) {
+        reviewStatuses.push(rule.reviewStatus);
       }
     }
 
@@ -238,10 +317,12 @@ function place(
       // What one approve on this card will write to. A rule already approved,
       // rejected or published is not re-decided by a later decision on its
       // neighbours: that would overwrite a judgement somebody already made.
+      // Read off the record's own state, never off whether a handler was
+      // wired: a sealed record must stay sealed however it is drawn.
       reviewableIds: rules
-        .filter((rule) => candidateEditability(rule.candidate.review_status).canReview)
-        .map((rule) => rule.candidate.id),
-      allIds: rules.map((rule) => rule.candidate.id),
+        .filter((rule) => candidateEditability(rule.reviewStatus).canReview)
+        .map((rule) => rule.recordId),
+      allIds: rules.map((rule) => rule.recordId),
       reviewStatuses,
     });
   }
@@ -531,7 +612,7 @@ export function policyTitle(
     return { source: "heading", text: heading, rest: [] };
   }
   if (!first) return { source: "unnamed", text: "", rest: [] };
-  return passageTitle(first.rules.map((rule) => rule.candidate.rule));
+  return passageTitle(first.rules.map((rule) => rule.rule));
 }
 
 /**
@@ -726,11 +807,11 @@ function shared<T>(values: readonly T[]): T | null {
 
 export function sharedRuleFacets(card: PolicyCard): SharedRuleFacets {
   return {
-    ruleType: shared(card.rules.map((rule) => rule.candidate.rule.rule_type)),
-    effectType: shared(card.rules.map((rule) => rule.candidate.rule.effect?.type ?? "")),
+    ruleType: shared(card.rules.map((rule) => rule.rule.rule_type)),
+    effectType: shared(card.rules.map((rule) => rule.rule.effect?.type ?? "")),
     route: shared(card.rules.map((rule) => rule.evaluation_mode)),
-    reviewStatus: shared(card.rules.map((rule) => rule.candidate.review_status)),
-    revision: shared(card.rules.map((rule) => rule.candidate.rule.rule_revision)),
+    reviewStatus: shared(card.rules.map((rule) => rule.reviewStatus)),
+    revision: shared(card.rules.map((rule) => rule.rule.rule_revision)),
   };
 }
 
@@ -798,7 +879,7 @@ export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
     // rejoined to the queue it came from without matching headings.
     provision_id: card.policy.provision_id ?? null,
     passages: card.passages.map((block) => {
-      const rules = block.rules.map((rule) => rule.candidate.rule);
+      const rules = block.rules.map((rule) => rule.rule);
       const passageName = passageTitle(rules);
       return {
         key: block.passage.key,

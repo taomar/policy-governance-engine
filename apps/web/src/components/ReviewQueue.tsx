@@ -915,7 +915,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
    *  change what the action decides. */
   const selectableIds = (
     grouped
-      ? policyCards.flatMap((card) => card.rules.map((entry) => entry.candidate))
+      ? // A card can now hold a record with no draft row behind it, which the
+        // review surface never has. Filtered rather than asserted, so a
+        // published record could never be swept into a bulk decision.
+        policyCards.flatMap((card) =>
+          card.rules.flatMap((entry) => (entry.candidate ? [entry.candidate] : [])),
+        )
       : filteredCandidates
   )
     .filter((c) => candidateEditability(c.review_status).canReview)
@@ -1404,7 +1409,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         statusLabel={(status) => STATUS_LABEL[status] ?? status}
         ruleDetail={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
-          if (!entry) return null;
+          if (!entry?.candidate) return null;
           return (
             <RuleDetailInline
               candidate={entry.candidate}
@@ -1413,7 +1418,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               // is the one thing an expansion can do that is worse than showing
               // nothing: it charges a click for words already read.
               statementVisibleAbove
-              allRules={openPolicyCard.rules.map((r) => r.candidate.rule)}
+              allRules={openPolicyCard.rules.map((r) => r.rule)}
               onOpenFullRecord={() => openRuleWithinPolicy(ruleId)}
             />
           );
@@ -1436,7 +1441,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         onRequestHistory={requestPolicyHistory}
         ruleActions={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
-          if (!entry) return {};
+          if (!entry?.candidate) return {};
           return ruleActionHandlers(entry.candidate, () => openRuleWithinPolicy(ruleId));
         }}
         /* What the queue can genuinely service for a whole policy, and no more.
@@ -1457,7 +1462,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         policyActions={{
           "open-record": () => {
             const unsettled = openPolicyCard.rules.find((r) =>
-              openPolicyCard.reviewableIds.includes(r.candidate.id),
+              openPolicyCard.reviewableIds.includes(r.recordId),
             );
             const target = unsettled ?? openPolicyCard.rules[0];
             if (target) openRuleWithinPolicy(target.rule_id);
@@ -1494,7 +1499,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                   passages has fifty element ids and one name, and a persisted
                   provision's key is a digest. `6e4461b7c9deb997…` names nothing
                   a reviewer is holding in mind while reading rule 3 of 10. */}
-              Rule {openPolicyCard.rules.findIndex((r) => r.candidate.id === selectedCandidate.id) + 1} of{" "}
+              Rule {openPolicyCard.rules.findIndex((r) => r.recordId === selectedCandidate.id) + 1} of{" "}
               {openPolicyCard.rules.length} in{" "}
               {policyTitle(openPolicyCard.policy, openPolicyCard.passages).text ||
                 openPolicyCard.policy.key}

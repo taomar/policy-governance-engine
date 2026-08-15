@@ -167,11 +167,9 @@ function slotText(
 }
 
 function decomposition(rule: {
-  candidate: {
-    rule: { formulation?: { canonical?: { rule?: CanonicalPolicyRule } } };
-  };
+  rule: { formulation?: { canonical?: { rule?: CanonicalPolicyRule } } };
 }): CanonicalPolicyRule | undefined {
-  return rule.candidate.rule.formulation?.canonical?.rule;
+  return rule.rule.formulation?.canonical?.rule;
 }
 
 /**
@@ -222,14 +220,14 @@ export function policyLogic(card: PolicyCard): PolicyLogic {
         ordinal,
         passageKey: block.passage.key,
         ruleType:
-          facets.ruleType === null ? rule.candidate.rule.rule_type : null,
+          facets.ruleType === null ? rule.rule.rule_type : null,
         effectType:
           facets.effectType === null
-            ? (rule.candidate.rule.effect?.type ?? "")
+            ? (rule.rule.effect?.type ?? "")
             : null,
         route: facets.route === null ? rule.evaluation_mode : null,
         reviewStatus:
-          facets.reviewStatus === null ? rule.candidate.review_status : null,
+          facets.reviewStatus === null ? rule.reviewStatus : null,
         cells: columns.map((column) => {
           if (!core) return { state: "unrecorded" as const };
           const text = slotText(core, column.attribute);

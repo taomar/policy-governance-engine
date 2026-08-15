@@ -26,6 +26,8 @@
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { CandidateRule } from "./api";
+import { fromDraftRow } from "./policyCards";
 import { cleanup, render } from "@testing-library/react";
 
 import type { PolicyAttribute } from "./api";
@@ -74,7 +76,7 @@ function cardRule(
   return {
     rule_id: ruleId,
     evaluation_mode: route,
-    candidate: {
+    ...fromDraftRow({
       id: `record-${ruleId}`,
       review_status: "candidate",
       rule: {
@@ -84,7 +86,7 @@ function cardRule(
         condition: { type: "all", all: [] },
         attributes: table,
       },
-    },
+    } as unknown as CandidateRule),
   } as unknown as PolicyCardRule;
 }
 
@@ -119,8 +121,8 @@ function twoWays(size: number): [PolicyCard, PolicyCard] {
       passages,
       rules,
       hiddenByFilter: 0,
-      reviewableIds: rules.map((rule) => rule.candidate.id),
-      allIds: rules.map((rule) => rule.candidate.id),
+      reviewableIds: rules.map((rule) => rule.recordId),
+      allIds: rules.map((rule) => rule.recordId),
       reviewStatuses: ["candidate"],
     };
   };

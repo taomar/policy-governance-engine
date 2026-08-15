@@ -141,7 +141,7 @@ export function cardsAnsweringRuleFilters(
   if (filterIsOff(filters.status) && filterIsOff(filters.delta)) {
     return [...cards];
   }
-  return cards.filter((card) => card.rules.some((entry) => matched.has(entry.candidate.id)));
+  return cards.filter((card) => card.rules.some((entry) => matched.has(entry.recordId)));
 }
 
 /**

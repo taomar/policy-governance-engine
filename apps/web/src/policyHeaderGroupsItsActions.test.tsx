@@ -119,7 +119,14 @@ function candidate(ruleId: string): CandidateRule {
 
 function cardFor(provisionId: string | null): PolicyCard {
   const row = candidate("R1");
-  const entry = { rule_id: "R1", candidate: row, evaluation_mode: "ai_ready" as const };
+  const entry = {
+    rule_id: "R1",
+    rule: row.rule,
+    reviewStatus: row.review_status,
+    recordId: row.id,
+    candidate: row,
+    evaluation_mode: "ai_ready" as const,
+  };
   const policy = {
     key: "prov-1",
     heading: "Hiring relatives",

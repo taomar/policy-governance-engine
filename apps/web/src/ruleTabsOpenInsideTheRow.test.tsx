@@ -37,6 +37,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import type { CandidateRule, CanonicalRule } from "./api";
 import { ActorProvider } from "./ActorContext";
 import type { PolicyCard } from "./policyCards";
+import { fromDraftRow } from "./policyCards";
 import { CandidateRow } from "./components/CandidateRow";
 import { PolicyDetailPanel } from "./components/PolicyDetailPanel";
 import { RuleDetailInline } from "./components/RuleDetailInline";
@@ -495,10 +496,10 @@ describe("the full record opens inside the row it belongs to", () => {
             rule_count: 1,
             rules: [],
           },
-          rules: [{ rule_id: "R1", candidate: row, evaluation_mode: "ai_ready" }],
+          rules: [{ rule_id: "R1", ...fromDraftRow(row), evaluation_mode: "ai_ready" }],
         },
       ],
-      rules: [{ rule_id: "R1", candidate: row, evaluation_mode: "ai_ready" }],
+      rules: [{ rule_id: "R1", ...fromDraftRow(row), evaluation_mode: "ai_ready" }],
       hiddenByFilter: 0,
       reviewableIds: [row.id],
       allIds: [row.id],
@@ -545,3 +546,4 @@ describe("the full record opens inside the row it belongs to", () => {
     expect(within(region as HTMLElement).getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
   });
 });
+

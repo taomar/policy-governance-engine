@@ -84,5 +84,5 @@ export function cardsAnsweringSearch(
   matched: ReadonlySet<string>,
 ): PolicyCard[] {
   if (!searchText.trim()) return [...cards];
-  return cards.filter((card) => card.rules.some((entry) => matched.has(entry.candidate.id)));
+  return cards.filter((card) => card.rules.some((entry) => matched.has(entry.recordId)));
 }

@@ -17,6 +17,8 @@
  * measurement of one.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { CandidateRule } from "../api";
+import { fromDraftRow } from "../policyCards";
 import { cleanup, render } from "@testing-library/react";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import { policyComposition, policyCompositionLabel } from "../policyRecordFacts";
@@ -39,12 +41,12 @@ function card(effects: readonly (string | null)[]): PolicyCard {
   const rules = effects.map((effectType, index) => ({
     rule_id: `r${index}`,
     evaluation_mode: "deterministic",
-    candidate: {
+    ...fromDraftRow({
       id: `candidate-${index}`,
       review_status: "pending",
       rule_type: "obligation",
       rule: rule(`r${index}`, effectType),
-    },
+    } as unknown as CandidateRule),
   }));
 
   return {
@@ -66,8 +68,8 @@ function card(effects: readonly (string | null)[]): PolicyCard {
     },
     passages: [{ passage: { key: "a-passage-key" }, rules }],
     rules,
-    reviewableIds: rules.map((one) => one.candidate.id),
-    allIds: rules.map((one) => one.candidate.id),
+    reviewableIds: rules.map((one) => one.recordId),
+    allIds: rules.map((one) => one.recordId),
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }
@@ -94,7 +96,7 @@ function shown(effects: readonly (string | null)[]): {
   return {
     said: container.querySelector('[data-testid="policy-composition"]')?.textContent ?? null,
     expected: policyCompositionLabel(
-      policyComposition(model.rules.map((one) => one.candidate.rule)),
+      policyComposition(model.rules.map((one) => one.rule)),
     ),
     rendered: container.querySelectorAll('[data-testid="policy-card-rule"]').length,
   };

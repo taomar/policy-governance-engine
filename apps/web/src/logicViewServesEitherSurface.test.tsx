@@ -30,6 +30,8 @@
  * only that the view tolerates an empty row.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { CandidateRule } from "./api";
+import { fromDraftRow } from "./policyCards";
 import { cleanup, render } from "@testing-library/react";
 
 import type { PolicyAttribute } from "./api";
@@ -84,11 +86,11 @@ function reviewShaped(stated: Stated): PolicyCardRule {
   return {
     rule_id: stated.ruleId,
     evaluation_mode: stated.route,
-    candidate: {
+    ...fromDraftRow({
       id: `row-${stated.ruleId}`,
       review_status: "candidate",
       rule: statedRule(stated),
-    },
+    } as unknown as CandidateRule),
   } as unknown as PolicyCardRule;
 }
 

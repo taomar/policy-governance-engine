@@ -147,7 +147,7 @@ describe("a rule-level filter chooses policies, never their contents", () => {
     const shown = cardsAnsweringRuleFilters(cards, { status: "candidate" }, matched);
 
     // Every id the decision writes to is an id the reviewer can see on the card.
-    const visible = new Set(shown[0].rules.map((r) => r.candidate.id));
+    const visible = new Set(shown[0].rules.map((r) => r.recordId));
     for (const id of shown[0].allIds) expect(visible.has(id)).toBe(true);
   });
 

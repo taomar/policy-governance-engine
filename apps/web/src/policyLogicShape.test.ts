@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { CandidateRule } from "./api";
+import { fromDraftRow } from "./policyCards";
 
 import type { PolicyAttribute } from "./api";
 import type {
@@ -41,7 +43,7 @@ function cardRule(
   return {
     rule_id: ruleId,
     evaluation_mode: options.route ?? "ai_ready",
-    candidate: {
+    ...fromDraftRow({
       id: `record-${ruleId}`,
       review_status: "candidate",
       rule: {
@@ -54,7 +56,7 @@ function cardRule(
             ? undefined
             : { applies: table.applies ?? [], outcome: table.outcome ?? [] },
       },
-    },
+    } as unknown as CandidateRule),
   } as unknown as PolicyCardRule;
 }
 
@@ -72,8 +74,8 @@ function card(blocks: { key: string; rules: PolicyCardRule[] }[]): PolicyCard {
     passages,
     rules,
     hiddenByFilter: 0,
-    reviewableIds: rules.map((rule) => rule.candidate.id),
-    allIds: rules.map((rule) => rule.candidate.id),
+    reviewableIds: rules.map((rule) => rule.recordId),
+    allIds: rules.map((rule) => rule.recordId),
     reviewStatuses: ["candidate"],
   };
 }

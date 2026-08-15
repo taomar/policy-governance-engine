@@ -25,6 +25,8 @@
  * measurement of one.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { CandidateRule } from "./api";
+import { fromDraftRow } from "./policyCards";
 import { cleanup, render, screen } from "@testing-library/react";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
 import { policyCompositionLabel } from "./policyRecordFacts";
@@ -101,7 +103,7 @@ function card(shownIds: string[], allIds: string[]): PolicyCard {
   const shownRules = shownIds.map((rule_id, index) => ({
     rule_id,
     evaluation_mode: "deterministic",
-    candidate: {
+    ...fromDraftRow({
       id: `candidate-${index}`,
       review_status: "pending",
       rule_type: "obligation",
@@ -113,7 +115,7 @@ function card(shownIds: string[], allIds: string[]): PolicyCard {
         condition: { type: "all", all: [] },
         effect: { type: "obligation", action: "an action" },
       },
-    },
+    } as unknown as CandidateRule),
   }));
 
   return {
@@ -135,8 +137,8 @@ function card(shownIds: string[], allIds: string[]): PolicyCard {
     },
     passages: [{ passage: { key: "a-passage-key" }, rules: shownRules }],
     rules: shownRules,
-    reviewableIds: shownRules.map((rule) => rule.candidate.id),
-    allIds: shownRules.map((rule) => rule.candidate.id),
+    reviewableIds: shownRules.map((rule) => rule.recordId),
+    allIds: shownRules.map((rule) => rule.recordId),
     hiddenByFilter: allIds.length - shownIds.length,
   } as unknown as PolicyCard;
 }
@@ -255,7 +257,7 @@ function mixedCard(): PolicyCard {
     (type, index) => ({
       rule_id: `r${index}`,
       evaluation_mode: "deterministic",
-      candidate: {
+      ...fromDraftRow({
         id: `candidate-${index}`,
         review_status: "pending",
         rule_type: "obligation",
@@ -267,7 +269,7 @@ function mixedCard(): PolicyCard {
           condition: { type: "all", all: [] },
           effect: { type, action: "an action" },
         },
-      },
+      } as unknown as CandidateRule),
     }),
   );
 
@@ -290,8 +292,8 @@ function mixedCard(): PolicyCard {
     },
     passages: [{ passage: { key: "a-passage-key" }, rules }],
     rules,
-    reviewableIds: rules.map((rule) => rule.candidate.id),
-    allIds: rules.map((rule) => rule.candidate.id),
+    reviewableIds: rules.map((rule) => rule.recordId),
+    allIds: rules.map((rule) => rule.recordId),
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }

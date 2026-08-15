@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
+import { candidateEditability } from "../candidateEditability";
 import {
   passagePageLabel,
   passageQuotations,
@@ -138,8 +139,9 @@ export function PolicyReviewCard({
   findingsFor: (ruleId: string) => number;
   onToggleSelect: () => void;
   onOpen: () => void;
-  /** Records the decision against every reviewable rule of the policy at
-   *  once. Absent when the policy holds nothing left to decide. */
+  /** How a decision is recorded, never whether one may be: that is read from
+   *  the records themselves. Absent when there is nothing this surface can do
+   *  with a decision, which is a different thing from the policy being sealed. */
   onApprove?: () => void;
   onReject?: () => void;
 }) {
@@ -153,7 +155,7 @@ export function PolicyReviewCard({
   // resolution. Where the types differ and the effect does not, it is the only
   // thing all the rules agree on and it stays.
   const sharedEffect =
-    shared.effectType && !shared.ruleType ? card.rules[0]?.candidate.rule.effect : undefined;
+    shared.effectType && !shared.ruleType ? card.rules[0]?.rule.effect : undefined;
   // What the card is made of, on the one axis that divides its rules without
   // counting any of them twice — taken from the shared module rather than read
   // off the rules here, because the published card states this same fact and two
@@ -167,11 +169,23 @@ export function PolicyReviewCard({
   // records actually take, so the parts sum to the rules on the card and a
   // reviewer can check that against the head count.
   const composition = policyCompositionLabel(
-    policyComposition(card.rules.map((rule) => rule.candidate.rule)),
+    policyComposition(card.rules.map((rule) => rule.rule)),
   );
   // The headings above this one. The innermost is the card's own title, so it
   // is not repeated in the trail.
   const trail = card.policy.heading_path.slice(0, -1);
+  // Whether this policy may be decided at all is a property of its records, not
+  // of how this card was wired. A sealed published version and a queue entry
+  // awaiting review are different records, and the difference is written on the
+  // record — `candidateEditability` is the one place that reads it. Asking
+  // "was `onApprove` passed?" instead would let a mistake at a call site make a
+  // sealed record decidable, which is the failure this card must not have.
+  //
+  // The handlers say *how* a decision is recorded. They never say whether one
+  // may be.
+  const decidable = card.rules.some(
+    (rule) => candidateEditability(rule.reviewStatus).canReview,
+  );
   // Numbered across the whole card, so "rule 9 of 14" means the same thing in
   // the list, in the detail panel and in conversation — the passage blocks
   // group the rules, they do not restart them.
@@ -181,13 +195,13 @@ export function PolicyReviewCard({
   // below may differ; the numbers may not, because they are the only record on
   // the card of where the source states each rule.
   const readBlocks = card.passages.map((block) => {
-    const passageRules = block.rules.map((rule) => rule.candidate.rule);
+    const passageRules = block.rules.map((rule) => rule.rule);
     const reading = readPassage(passageQuotations(passageRules), passageRules, ordinal + 1);
     ordinal += passageRules.length;
     const rows = block.rules.map((rule, index) => ({
       rule,
       read: reading.rules[index],
-      stance: recordStance(rule.candidate.rule),
+      stance: recordStance(rule.rule),
     }));
     // Grouped inside the passage, never across it. A rule and the quotation it
     // was drawn from are the two halves of the evidence a reviewer is checking,
@@ -222,7 +236,7 @@ export function PolicyReviewCard({
       aria-label={`Policy ${title.text || card.policy.key}`}
     >
       <div className="policy-card__head">
-        {(onApprove || onReject) && (
+        {decidable && (
           <Checkbox
             checked={selected}
             indeterminate={indeterminate}
@@ -376,7 +390,7 @@ export function PolicyReviewCard({
               policyKey={card.policy.key}
             />
           )}
-          {onApprove && onReject && (
+          {decidable && onApprove && onReject && (
             <>
               <Tooltip
                 title={`Approve this policy — records the decision against ${
@@ -470,7 +484,7 @@ export function PolicyReviewCard({
                     // states in identical words would share one — and React
                     // omits children that collide on a key. A card that drops a
                     // rule is the one failure this queue cannot have.
-                    key={rule.candidate.id}
+                    key={rule.recordId}
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
                     value={read.ordinal}
@@ -484,7 +498,7 @@ export function PolicyReviewCard({
                           generated, so a card with none is the card that was
                           here before. Marked as ours by the same ✦ the
                           generated subject label uses at the top of this card. */}
-                      <RuleName candidateId={rule.candidate.id} variant="block" />
+                      <RuleName candidateId={rule.recordId} variant="block" />
                       <div className="policy-card__rule-line">
                         {read.statementIsMarkedWhole ? (
                           // The words are on screen, marked, immediately above.
@@ -502,14 +516,14 @@ export function PolicyReviewCard({
                             neighbours. A badge here means "unlike the others",
                             so it is worth the reviewer stopping to read. */}
                         {!shared.effectType && shared.ruleType !== null && (
-                          <PolicyEffectBadge effect={rule.candidate.rule.effect} size="small" />
+                          <PolicyEffectBadge effect={rule.rule.effect} size="small" />
                         )}
                         {!shared.ruleType && (
                           /* Named so it reads as what the rule is, not as a mark against it.
                              The type badge sits beside a route badge, and without a name a
                              reader can mistake one for the other. */
                           <Tooltip title="The kind of rule this is. It differs from the others in this policy.">
-                            <Tag variant="filled">{ruleTypeLabel(rule.candidate.rule.rule_type)}</Tag>
+                            <Tag variant="filled">{ruleTypeLabel(rule.rule.rule_type)}</Tag>
                           </Tooltip>
                         )}
                         {!shared.route && (
@@ -520,8 +534,8 @@ export function PolicyReviewCard({
                           </Tooltip>
                         )}
                         {!shared.reviewStatus && (
-                          <Tag color={statusColor(rule.candidate.review_status)}>
-                            {statusLabel(rule.candidate.review_status)}
+                          <Tag color={statusColor(rule.reviewStatus)}>
+                            {statusLabel(rule.reviewStatus)}
                           </Tag>
                         )}
                         {findings > 0 && (

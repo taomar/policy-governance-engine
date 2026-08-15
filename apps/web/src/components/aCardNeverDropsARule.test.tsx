@@ -13,6 +13,8 @@
  * measurement of one.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CandidateRule } from "../api";
+import { fromDraftRow } from "../policyCards";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { PolicyCard, PolicyCardRule } from "../policyCards";
 import type { AssembledPolicy } from "../api";
@@ -25,7 +27,7 @@ function rule(candidateId: string, statement: string): PolicyCardRule {
     // Deliberately shared: this is the case the key has to survive.
     rule_id: SHARED_DIGEST,
     evaluation_mode: "deterministic",
-    candidate: {
+    ...fromDraftRow({
       id: candidateId,
       review_status: "pending",
       rule: {
@@ -36,7 +38,7 @@ function rule(candidateId: string, statement: string): PolicyCardRule {
         condition: { type: "all", all: [] },
         effect: { type: "obligation", action: "an action" },
       },
-    },
+    } as unknown as CandidateRule),
   } as unknown as PolicyCardRule;
 }
 
@@ -69,7 +71,7 @@ function card(rules: PolicyCardRule[]): PolicyCard {
       },
     ],
     rules,
-    reviewableIds: rules.map((one) => one.candidate.id),
+    reviewableIds: rules.map((one) => one.recordId),
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }
@@ -150,7 +152,7 @@ describe("a passage that states two rules the same way", () => {
       rule("33333333-3333-4333-8333-333333333333", "The first statement"),
       rule("44444444-4444-4444-8444-444444444444", "The second statement"),
     ];
-    const keys = new Set(rules.map((one) => one.candidate.id));
+    const keys = new Set(rules.map((one) => one.recordId));
     const digests = new Set(rules.map((one) => one.rule_id));
 
     expect(keys.size).toBe(rules.length);
@@ -170,7 +172,7 @@ describe("a rule whose record states no effect", () => {
     // given, which is the one failure this product cannot afford.
     const withEffect = rule("55555555-5555-4555-8555-555555555555", "A rule that states its effect");
     const withoutEffect = rule("66666666-6666-4666-8666-666666666666", "A rule that states none");
-    delete (withoutEffect.candidate.rule as { effect?: unknown }).effect;
+    delete (withoutEffect.rule as { effect?: unknown }).effect;
 
     expect(() => renderCard([withEffect, withoutEffect])).not.toThrow();
     expect(screen.getByText("A rule that states its effect")).toBeTruthy();

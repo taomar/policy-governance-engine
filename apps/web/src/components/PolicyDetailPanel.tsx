@@ -378,7 +378,7 @@ export function PolicyDetailPanel({
               <>
                 {card.passages.map((block) => {
                   const passageRules = block.rules.map(
-                    (rule) => rule.candidate.rule,
+                    (rule) => rule.rule,
                   );
                   const quotations = passageQuotations(passageRules);
                   const name = passageTitle(passageRules);
@@ -426,7 +426,7 @@ export function PolicyDetailPanel({
 
                       <ol className="policy-detail-panel__rules">
                         {block.rules.map((rule) => {
-                          const canonical = rule.candidate.rule;
+                          const canonical = rule.rule;
                           const decision = ruleDecisionSummary(canonical);
                           ordinal += 1;
                           return (
@@ -470,10 +470,10 @@ export function PolicyDetailPanel({
                                 </Tooltip>
                                 <Tag
                                   color={statusColor(
-                                    rule.candidate.review_status,
+                                    rule.reviewStatus,
                                   )}
                                 >
-                                  {statusLabel(rule.candidate.review_status)}
+                                  {statusLabel(rule.reviewStatus)}
                                 </Tag>
                                 <Button
                                   size="small"
@@ -499,7 +499,7 @@ export function PolicyDetailPanel({
                                   scope="rule"
                                   recordId={rule.rule_id}
                                   recordName={canonical.title}
-                                  reviewStatuses={[rule.candidate.review_status]}
+                                  reviewStatuses={[rule.reviewStatus]}
                                   on={ruleActions?.(rule.rule_id)}
                                 />
                               </div>
@@ -562,7 +562,7 @@ export function PolicyDetailPanel({
                                   <div>
                                     <dt>Candidate record</dt>
                                     <dd className="policy-row-mono">
-                                      {rule.candidate.id}
+                                      {rule.recordId}
                                     </dd>
                                   </div>
                                   <div>

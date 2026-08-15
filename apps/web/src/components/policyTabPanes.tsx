@@ -67,7 +67,7 @@ export function candidatePolicyRecord(card: PolicyCard): PolicyRecordView {
   return {
     policy: card.policy,
     passageCount: card.passages.length,
-    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.candidate.rule })),
+    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
   };
 }
 

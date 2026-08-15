@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { CandidateRule } from "./api";
+import { fromDraftRow } from "./policyCards";
 
 import type { CanonicalPolicyRule } from "./api";
 import type {
@@ -37,7 +39,7 @@ function cardRule(
   return {
     rule_id: ruleId,
     evaluation_mode: overrides.route ?? "ai_ready",
-    candidate: {
+    ...fromDraftRow({
       id: `record-${ruleId}`,
       review_status: overrides.reviewStatus ?? "candidate",
       rule: {
@@ -48,7 +50,7 @@ function cardRule(
         formulation:
           parts === null ? undefined : { canonical: { rule: core(parts) } },
       },
-    },
+    } as unknown as CandidateRule),
   } as unknown as PolicyCardRule;
 }
 
@@ -66,8 +68,8 @@ function card(blocks: { key: string; rules: PolicyCardRule[] }[]): PolicyCard {
     passages,
     rules,
     hiddenByFilter: 0,
-    reviewableIds: rules.map((rule) => rule.candidate.id),
-    allIds: rules.map((rule) => rule.candidate.id),
+    reviewableIds: rules.map((rule) => rule.recordId),
+    allIds: rules.map((rule) => rule.recordId),
     reviewStatuses: ["candidate"],
   };
 }
