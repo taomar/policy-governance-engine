@@ -1181,6 +1181,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             ? () => requestReview(openPolicyCard.reviewableIds, "reject")
             : undefined
         }
+        policySetKey={selectedKey}
         actions={
           <>
             {isDesktop && (

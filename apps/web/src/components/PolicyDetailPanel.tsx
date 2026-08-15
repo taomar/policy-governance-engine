@@ -25,8 +25,11 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { ConditionView } from "./ConditionView";
 import { DirectionalText } from "./DirectionalText";
 import { JsonView } from "./JsonView";
+import { PolicyAskAiButton } from "./PolicyAskAiButton";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyLogicTable } from "./PolicyLogicTable";
+import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
 
@@ -97,6 +100,7 @@ export function PolicyDetailPanel({
   ruleDetail,
   onApprove,
   onReject,
+  policySetKey,
   actions,
 }: {
   card: PolicyCard;
@@ -116,6 +120,12 @@ export function PolicyDetailPanel({
   ruleDetail?: (ruleId: string) => React.ReactNode;
   onApprove?: () => void;
   onReject?: () => void;
+  /** The set this policy belongs to, which asking about it has to name.
+   *
+   *  Optional, because a panel can be drawn from a card alone; the ask control
+   *  is simply absent when nothing can say which set the question is about,
+   *  rather than drawn and then failing when it is pressed. */
+  policySetKey?: string;
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
   actions?: React.ReactNode;
 }) {
@@ -132,6 +142,27 @@ export function PolicyDetailPanel({
       return next;
     });
   let ordinal = 0;
+
+  // Both read the policy and neither writes to it, so they belong together and
+  // apart from the two that decide it. Each is present only when it has what it
+  // needs: the explainer needs a persisted grouping to explain, and asking needs
+  // the set the question is about. Neither is drawn to be pressed and fail.
+  const assistive = [
+    card.policy.provision_id ? (
+      <PolicyExplainButton
+        key="explain"
+        provisionId={card.policy.provision_id}
+        policyKey={card.policy.key}
+      />
+    ) : null,
+    policySetKey ? (
+      <PolicyAskAiButton
+        key="ask"
+        policy={card.policy}
+        policySetKey={policySetKey}
+      />
+    ) : null,
+  ].filter(Boolean);
 
   return (
     <div
@@ -196,9 +227,24 @@ export function PolicyDetailPanel({
             ))}
           </div>
         </div>
-        <Space size={4} wrap className="policy-detail-panel__actions">
+        {/* Three kinds of control, kept apart.
+         *
+         *  Approving and rejecting change the record. Explaining and asking
+         *  change nothing and produce a reading. Expanding and hiding change
+         *  neither and move furniture. Run as one row of six they read as six
+         *  equal options, and the two that write are the two that cannot be
+         *  taken back — so each kind is its own labelled group with a rule
+         *  between, and a group that has nothing in it draws neither the group
+         *  nor its rule. */}
+        <div className="policy-header-actions">
           {onApprove && onReject && (
-            <>
+            <Space
+              size={4}
+              wrap
+              role="group"
+              aria-label="Decide this policy"
+              className="policy-header-actions__group"
+            >
               <Button
                 size="small"
                 type="primary"
@@ -215,10 +261,35 @@ export function PolicyDetailPanel({
               >
                 Reject policy
               </Button>
-            </>
+            </Space>
           )}
-          {actions}
-        </Space>
+          {assistive.length > 0 && (
+            <Space
+              size={4}
+              wrap
+              role="group"
+              // Named for what both do and neither decides, so the pair reads
+              // as two ways of asking rather than as two spellings of one.
+              // Their own labels then carry the difference: one answers a
+              // question nobody typed, the other answers the reviewer's.
+              aria-label="Ask about this policy"
+              className="policy-header-actions__group policy-header-actions__group--assistive"
+            >
+              {assistive}
+            </Space>
+          )}
+          {actions && (
+            <Space
+              size={4}
+              wrap
+              role="group"
+              aria-label="This panel"
+              className="policy-header-actions__group policy-header-actions__group--chrome"
+            >
+              {actions}
+            </Space>
+          )}
+        </div>
       </div>
 
       <Tabs

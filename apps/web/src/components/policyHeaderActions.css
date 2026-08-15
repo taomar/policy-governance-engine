@@ -1,0 +1,38 @@
+/* The policy header's controls, grouped by what pressing one does.
+ *
+ * Decide · Ask · This panel. The grouping is in the markup, as three labelled
+ * groups; this only makes the grouping visible, with a hairline between and a
+ * little more air than the gap inside a group. Nothing here encodes an order or
+ * a count of buttons, so a group that gains or loses one still reads as one
+ * group.
+ *
+ * Logical properties throughout: the same header is drawn right-to-left for an
+ * Arabic reading of the same policy, and the rule belongs on the side the next
+ * group starts on, whichever side that is.
+ */
+
+.policy-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.policy-header-actions__group {
+  display: flex;
+  align-items: center;
+}
+
+/* Between groups, not before the first: a leading rule would read as a
+   separator from the title, which is not what it separates. */
+.policy-header-actions__group + .policy-header-actions__group {
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--app-border, #e5e7eb);
+}
+
+/* The two assistive controls answer questions and decide nothing. Sitting
+   between the decisions and the furniture, they take the quieter weight of the
+   two so a reviewer's eye lands on the decision first. */
+.policy-header-actions__group--assistive .ant-btn {
+  font-weight: 400;
+}
