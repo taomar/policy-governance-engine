@@ -11458,6 +11458,39 @@
   border-radius: 6px;
 }
 
+/* Interface chrome, not a sentence of the record. Sized and cased so it reads as
+   a divider between runs of rules rather than as something the document said —
+   the same reason the generated subject label is marked, arrived at differently
+   because this is our structure rather than our words. */
+.policy-card__rule-group {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-text-muted, #6b7280);
+  padding: 4px 0 0 2px;
+}
+
+/* Only the first group of a passage sits flush against the quotation; the ones
+   below it need air to read as the start of something rather than the tail of
+   the rules above. */
+.policy-card__rule-group + .policy-card__rule {
+  margin-top: 2px;
+}
+.policy-card__rule + .policy-card__rule-group {
+  margin-top: 6px;
+  border-top: 1px solid var(--app-border, #e5e7eb);
+}
+
+/* Said once per card, above the passages, and only when the display order is not
+   the document's. It is an explanation of this screen, so it is set apart from
+   both the quotations and the rules. */
+.policy-card__grouping-note {
+  display: block;
+  font-size: 11px;
+  padding: 0 2px 4px;
+}
+
 .policy-card__rule-ordinal {
   flex: 0 0 auto;
   width: 20px;

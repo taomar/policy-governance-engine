@@ -271,4 +271,84 @@ describe("what the card actually renders", () => {
     expect(container.querySelector(".policy-card__partial")).toBeNull();
     expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(1);
   });
+
+  it("heads a run of records without ranking the run below it", () => {
+    // The card groups its rules by whether they bind anyone, and puts the ones
+    // that do first. That ordering is the exact shape of a ranking, so the
+    // words over each group are where "only definitions" would reappear —
+    // this time about records that are on screen rather than off it.
+    const { container } = render(
+      <PolicyReviewCard
+        card={mixedCard()}
+        selected={false}
+        indeterminate={false}
+        open={false}
+        statusColor={() => "default"}
+        statusLabel={(status: string) => status}
+        findingsFor={() => 0}
+        onToggleSelect={() => {}}
+        onOpen={() => {}}
+      />,
+    );
+
+    const written = [
+      ...[...container.querySelectorAll('[data-testid="rule-group"]')].map(
+        (node) => node.textContent ?? "",
+      ),
+      container.querySelector('[data-testid="rule-grouping-note"]')?.textContent ?? "",
+    ];
+
+    expect(written.filter((text) => text.length > 0)).not.toEqual([]);
+    const offences = written.flatMap((text) =>
+      ranked(text).map((pattern) => `${pattern} in: ${text}`),
+    );
+    expect(offences).toEqual([]);
+  });
 });
+
+/** A policy whose rules fall on both sides of the constraining question. */
+function mixedCard(): PolicyCard {
+  const rules = ["deny", "informational", "require_action", "informational"].map(
+    (type, index) => ({
+      rule_id: `r${index}`,
+      evaluation_mode: "deterministic",
+      candidate: {
+        id: `candidate-${index}`,
+        review_status: "pending",
+        rule_type: "obligation",
+        rule: {
+          rule_id: `r${index}`,
+          title: `statement ${index}`,
+          description: "a sentence of the source",
+          evaluation_mode: "deterministic",
+          condition: { type: "all", all: [] },
+          effect: { type, action: "an action" },
+        },
+      },
+    }),
+  );
+
+  return {
+    policy: {
+      key: "a-key",
+      heading: "A heading",
+      heading_path: ["A heading"],
+      topic_label: null,
+      persisted: true,
+      provision_id: "a-provision-id",
+      document_version_id: null,
+      source_elements: "p1-E1",
+      page: 1,
+      rule_count: rules.length,
+      passage_count: 1,
+      route: "deterministic",
+      passages: [{ rules: rules.map(({ rule_id }) => ({ rule_id })) }],
+      rules: [],
+    },
+    passages: [{ passage: { key: "a-passage-key" }, rules }],
+    rules,
+    reviewableIds: rules.map((rule) => rule.candidate.id),
+    allIds: rules.map((rule) => rule.candidate.id),
+    hiddenByFilter: 0,
+  } as unknown as PolicyCard;
+}

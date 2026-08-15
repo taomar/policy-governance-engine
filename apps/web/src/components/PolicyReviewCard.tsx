@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
@@ -12,6 +13,13 @@ import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { readPassage } from "../policyReading";
 import { policyComposition, policyCompositionLabel } from "../policyRecordFacts";
 import { notShownSentence, recordsNotShown } from "../recordsNotShown";
+import {
+  STANCE_GROUPING_NOTE,
+  STANCE_ORDER,
+  groupByStance,
+  recordStance,
+  stanceHeading,
+} from "../recordStance";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
@@ -165,6 +173,41 @@ export function PolicyReviewCard({
   // the list, in the detail panel and in conversation — the passage blocks
   // group the rules, they do not restart them.
   let ordinal = 0;
+
+  // Read in the document's order, always, and numbered here. The display order
+  // below may differ; the numbers may not, because they are the only record on
+  // the card of where the source states each rule.
+  const readBlocks = card.passages.map((block) => {
+    const passageRules = block.rules.map((rule) => rule.candidate.rule);
+    const reading = readPassage(passageQuotations(passageRules), passageRules, ordinal + 1);
+    ordinal += passageRules.length;
+    const rows = block.rules.map((rule, index) => ({
+      rule,
+      read: reading.rules[index],
+      stance: recordStance(rule.candidate.rule),
+    }));
+    // Grouped inside the passage, never across it. A rule and the quotation it
+    // was drawn from are the two halves of the evidence a reviewer is checking,
+    // and no ordering convenience is worth separating them.
+    return { block, reading, groups: groupByStance(rows, (row) => row.stance) };
+  });
+
+  // Passages that state a rule someone is bound by come before passages that
+  // only supply meaning. `groupByStance` returns its groups in stance order, so
+  // a passage's first group is already its strongest claim on the reviewer's
+  // attention and no second ranking is needed. Sorting is stable, so the
+  // document's order survives among passages that rank together.
+  const displayBlocks = [...readBlocks].sort(
+    (a, b) =>
+      STANCE_ORDER.indexOf(a.groups[0]?.stance ?? "unstated") -
+      STANCE_ORDER.indexOf(b.groups[0]?.stance ?? "unstated"),
+  );
+  // Said only when something actually moved. A note explaining an ordering that
+  // matches the document would be a line of text answering a question nobody on
+  // this card can be asking.
+  const regrouped =
+    displayBlocks.some((entry, index) => entry !== readBlocks[index]) ||
+    readBlocks.some((entry) => entry.groups.length > 1);
 
   return (
     <article
@@ -368,10 +411,13 @@ export function PolicyReviewCard({
         </Space>
       </div>
 
-      {card.passages.map((block) => {
-        const passageRules = block.rules.map((rule) => rule.candidate.rule);
-        const reading = readPassage(passageQuotations(passageRules), passageRules, ordinal + 1);
-        ordinal += passageRules.length;
+      {card.passages.length > 0 && regrouped && (
+        <Text type="secondary" className="policy-card__grouping-note" data-testid="rule-grouping-note">
+          {STANCE_GROUPING_NOTE}
+        </Text>
+      )}
+
+      {displayBlocks.map(({ block, reading, groups }) => {
         return (
           <section
             key={block.passage.key}
@@ -398,10 +444,23 @@ export function PolicyReviewCard({
             )}
 
             <ol className="policy-card__rules">
-              {block.rules.map((rule, index) => {
-                const read = reading.rules[index];
-                const findings = findingsFor(rule.rule_id);
-                return (
+              {groups.map((group) => (
+                <Fragment key={group.stance}>
+                  {/* Headed only where the passage holds more than one kind.
+                      A heading over every rule of a passage that holds one kind
+                      names a distinction the reviewer cannot use. */}
+                  {groups.length > 1 && (
+                    <li
+                      className="policy-card__rule-group"
+                      data-testid="rule-group"
+                      data-stance={group.stance}
+                    >
+                      {stanceHeading(group.stance, group.items.length)}
+                    </li>
+                  )}
+                  {group.items.map(({ rule, read }) => {
+                    const findings = findingsFor(rule.rule_id);
+                    return (
                   <li
                     // Keyed by the row's own identity, not by `rule_id`. That is
                     // a hash of the rule's content, so two rules a passage
@@ -513,8 +572,10 @@ export function PolicyReviewCard({
                       </p>
                     </div>
                   </li>
-                );
-              })}
+                    );
+                  })}
+                </Fragment>
+              ))}
             </ol>
           </section>
         );
