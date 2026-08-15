@@ -27,7 +27,7 @@ import {
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
   PolicyTestsPane,
-  publishedPolicyRecord,
+  policyRecord,
   type PolicySightingView,
   type PolicyTestingVerbs,
 } from "./policyTabPanes";
@@ -85,6 +85,7 @@ export function PublishedPolicyCard({
   onToggleExportSelection,
   onOpen,
   onSelectRule,
+  selectedRuleId,
   onToggleRule,
   onRevise,
   onViewHistory,
@@ -111,6 +112,8 @@ export function PublishedPolicyCard({
   onToggleExportSelection?: () => void;
   onOpen: () => void;
   onSelectRule: (rule: CanonicalRule) => void;
+  /** Which rule the panel is currently showing, so the row can say so. */
+  selectedRuleId?: string | null;
   onToggleRule: (rule: CanonicalRule) => void;
   /** Present only when this version is the one a revision may start from. */
   onRevise?: (rule: CanonicalRule) => void;
@@ -145,7 +148,7 @@ export function PublishedPolicyCard({
   policyVersionId: string;
 }) {
   const [tab, setTab] = useState<string>("reading");
-  const record = publishedPolicyRecord(card);
+  const record = policyRecord(card);
   const title = publishedPolicyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy);
   const page = passagePageLabel(card.policy.page);
@@ -223,6 +226,11 @@ export function PublishedPolicyCard({
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
                     data-rule={entry.rule_id}
+                    /* Says which rule the panel is answering about, to a reader
+                     * using a screen reader as much as to one looking at the
+                     * list. Absent and "none selected" are the same here:
+                     * neither marks a row. */
+                    aria-current={entry.rule_id === selectedRuleId ? "true" : undefined}
                     value={line.ordinal}
                   >
                     <span className="policy-card__rule-ordinal" aria-hidden>
@@ -240,15 +248,41 @@ export function PublishedPolicyCard({
                         variant="block"
                       />
                       <div className="policy-card__rule-line">
-                        {line.statementIsMarkedWhole ? (
-                          <Text type="secondary" className="policy-card__rule-restated">
-                            This rule is the highlighted sentence above, word for word.
-                          </Text>
-                        ) : (
-                          <span className="policy-card__rule-title">
-                            <DirectionalText>{line.statement}</DirectionalText>
-                          </span>
-                        )}
+                        {/* Only the rule's own words are the target. The badges
+                            and tags beside it are separate controls with their
+                            own tooltips, and the kebab and Ask AI that follow
+                            are buttons; a button containing any of them would be
+                            invalid HTML and would take them out of the tab
+                            order. So this wraps the statement and stops there.
+
+                            The same shape the queue card uses, deliberately: a
+                            rule's own words are how a reader picks it out on
+                            either surface, and this page had them as inert text
+                            while the queue had them as the way in. */}
+                        {(() => {
+                          const statement = line.statementIsMarkedWhole ? (
+                            <Text type="secondary" className="policy-card__rule-restated">
+                              This rule is the highlighted sentence above, word for word.
+                            </Text>
+                          ) : (
+                            <span className="policy-card__rule-title">
+                              <DirectionalText>{line.statement}</DirectionalText>
+                            </span>
+                          );
+                          return (
+                            <button
+                              type="button"
+                              className="policy-card__rule-open"
+                              data-testid="policy-card-rule-open"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onSelectRule(entry.rule);
+                              }}
+                            >
+                              {statement}
+                            </button>
+                          );
+                        })()}
                         {/* Only what this rule does not share with its
                             neighbours, so a badge here always carries
                             something worth stopping for. */}
