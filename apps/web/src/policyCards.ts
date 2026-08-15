@@ -216,10 +216,6 @@ export function unplacedRules<T extends PolicyRecordInput>(
   return placement(policies, candidates).unplaced as T[];
 }
 
-/** The former name, kept while its callers are renamed. A duplicated name, and
- *  deliberately not a duplicated implementation. */
-export const unplacedCandidates = unplacedRules;
-
 interface Placement {
   cards: PolicyCard[];
   unplaced: PolicyRecordInput[];

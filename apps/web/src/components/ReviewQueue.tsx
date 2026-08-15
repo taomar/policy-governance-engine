@@ -66,7 +66,8 @@ import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
 import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
-import { buildPolicyCards, policyTitle, unplacedCandidates, type PolicyCard } from "../policyCards";
+import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
+import { recordScaleLabel } from "../policyRecordFacts";
 import { type LoadState, describeApiFailure } from "../loadState";
 import { qualityScanSummary } from "../qualityScanSummary";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
@@ -732,7 +733,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   );
 
   const unplaced = useMemo(
-    () => unplacedCandidates(policies, filteredCandidates),
+    () => unplacedRules(policies, filteredCandidates),
     [policies, filteredCandidates]
   );
 
@@ -1682,7 +1683,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       {selectedKey && totalCandidates > 0 && (
         <div className="review-progress-line">
           <Text className="review-progress-line__total">
-            <strong>{totalCandidates}</strong> rules
+            {/* Policies lead, because a policy is what gets decided. The rule
+                count follows rather than disappearing: it is what a policy is
+                made of. Null while the assembly is not ready, so the line says
+                the one number it actually has instead of reporting no policies
+                over a queue that plainly holds some. */}
+            <strong>
+              {recordScaleLabel(
+                policiesState === "ready" ? allPolicyCards.length : null,
+                totalCandidates,
+              )}
+            </strong>
           </Text>
           <Progress
             percent={publishedPct}

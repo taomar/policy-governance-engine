@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildPolicyCards, unplacedCandidates } from "./policyCards";
+import { buildPolicyCards, unplacedRules } from "./policyCards";
 import type { AssembledPolicy, CandidateRule } from "./api";
 
 function candidate(ruleId: string): CandidateRule {
@@ -112,7 +112,7 @@ describe("every candidate reaches the screen", () => {
       const onCards = buildPolicyCards(policies, candidates).flatMap((card) =>
         card.rules.map((rule) => rule.rule_id),
       );
-      const left = unplacedCandidates(policies, candidates).map((c) => c.rule.rule_id);
+      const left = unplacedRules(policies, candidates).map((c) => c.rule.rule_id);
 
       const shown = new Set([...onCards, ...left]);
       expect([...shown].sort()).toEqual([...ruleIds].sort());
@@ -125,7 +125,7 @@ describe("every candidate reaches the screen", () => {
       const onCards = buildPolicyCards(policies, candidates).flatMap((card) =>
         card.rules.map((rule) => rule.rule_id),
       );
-      const left = unplacedCandidates(policies, candidates).map((c) => c.rule.rule_id);
+      const left = unplacedRules(policies, candidates).map((c) => c.rule.rule_id);
 
       const shown = [...onCards, ...left];
       expect(shown.length).toBe(new Set(shown).size);
@@ -138,7 +138,7 @@ describe("every candidate reaches the screen", () => {
     const policies = [policyWith(ruleIds, ["passages"])];
 
     expect(buildPolicyCards(policies, candidates)).toEqual([]);
-    expect(unplacedCandidates(policies, candidates).map((c) => c.rule.rule_id)).toEqual(ruleIds);
+    expect(unplacedRules(policies, candidates).map((c) => c.rule.rule_id)).toEqual(ruleIds);
   });
 
   it("keeps a rule on screen when the policy lists it but no passage states it", () => {
@@ -152,7 +152,7 @@ describe("every candidate reaches the screen", () => {
     const onCards = buildPolicyCards(policies, candidates).flatMap((card) =>
       card.rules.map((rule) => rule.rule_id),
     );
-    const left = unplacedCandidates(policies, candidates).map((c) => c.rule.rule_id);
+    const left = unplacedRules(policies, candidates).map((c) => c.rule.rule_id);
 
     expect(onCards).toEqual(["r1"]);
     expect(left).toEqual(["r2", "r3"]);
@@ -162,7 +162,7 @@ describe("every candidate reaches the screen", () => {
     const policies = [policyWith(ruleIds, [])];
 
     expect(buildPolicyCards(policies, candidates)[0].rules).toHaveLength(3);
-    expect(unplacedCandidates(policies, candidates)).toEqual([]);
+    expect(unplacedRules(policies, candidates)).toEqual([]);
   });
 
   it("does not invent a passage to hold a policy it could not lay out", () => {
@@ -182,8 +182,8 @@ describe("every candidate reaches the screen", () => {
     const policies = [policyWith(ruleIds, ["passages"])];
 
     const cardsFirst = buildPolicyCards(policies, candidates);
-    const leftAfter = unplacedCandidates(policies, candidates);
-    const leftFirst = unplacedCandidates(policies, candidates);
+    const leftAfter = unplacedRules(policies, candidates);
+    const leftFirst = unplacedRules(policies, candidates);
     const cardsAfter = buildPolicyCards(policies, candidates);
 
     expect(cardsAfter).toEqual(cardsFirst);
@@ -198,6 +198,6 @@ describe("every candidate reaches the screen", () => {
     expect(buildPolicyCards(policies, candidates)[0].rules).toHaveLength(3);
     const narrowed = [candidate("r1")];
     expect(buildPolicyCards(policies, narrowed)[0].rules).toHaveLength(1);
-    expect(unplacedCandidates(policies, narrowed)).toEqual([]);
+    expect(unplacedRules(policies, narrowed)).toEqual([]);
   });
 });

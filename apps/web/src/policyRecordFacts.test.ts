@@ -31,6 +31,8 @@ import {
   policyScope,
   policyScopeDisagreements,
   policyTakesOneRoute,
+  recordScaleLabel,
+  reviewBacklogBadge,
 } from "./policyRecordFacts";
 
 function rule(
@@ -282,5 +284,154 @@ describe("who a policy applies to", () => {
       "jurisdictions",
       "processes",
     ]);
+  });
+});
+
+/**
+ * The size of the job, stated in the unit the job is done in.
+ *
+ * THE FAILURE THIS EXISTS TO PREVENT
+ *
+ * A queue of policies headed by a rule count invites the reviewer to read that
+ * number as how many decisions are ahead of them. It is not: the same number of
+ * rules can be a handful of policies or hundreds, and nothing in the number
+ * says which. Leading with policies fixes the unit; keeping the rule count
+ * beside it keeps the fact that a policy is made of rules.
+ *
+ * The second failure is quieter. A surface that has not assembled its policies
+ * yet knows the rule count and nothing else, and a label that fills that hole
+ * with zero reports a measurement nobody took — worse than the rule count on
+ * its own, because it looks like an answer.
+ */
+describe("recordScaleLabel", () => {
+  it("leads with the unit the work is decided in", () => {
+    expect(recordScaleLabel(70, 398)).toBe("70 policies · 398 rules");
+  });
+
+  it("keeps the rule count, because a policy is made of rules", () => {
+    expect(recordScaleLabel(70, 398)).toContain("398 rules");
+  });
+
+  it("says only what it knows when the policies are not counted yet", () => {
+    expect(recordScaleLabel(null, 398)).toBe("398 rules");
+  });
+
+  it("never reports zero policies for an uncounted queue", () => {
+    expect(recordScaleLabel(null, 398)).not.toMatch(/0 polic/);
+  });
+
+  it("distinguishes an empty result from an uncounted one", () => {
+    expect(recordScaleLabel(0, 0)).toBe("0 policies · 0 rules");
+    expect(recordScaleLabel(null, 0)).toBe("0 rules");
+  });
+
+  it("agrees with itself about one", () => {
+    expect(recordScaleLabel(1, 1)).toBe("1 policy · 1 rule");
+    expect(recordScaleLabel(2, 2)).toBe("2 policies · 2 rules");
+  });
+
+  it("states both counts exactly, rounding and abbreviating nothing", () => {
+    for (const [policies, rules] of [
+      [1, 1],
+      [9, 10],
+      [70, 398],
+      [1234, 56789],
+    ] as const) {
+      const label = recordScaleLabel(policies, rules);
+      expect(label).toContain(String(policies));
+      expect(label).toContain(String(rules));
+      expect(label).not.toMatch(/[~kKmM+]/);
+    }
+  });
+
+  it("never adds the two counts together, because they count different things", () => {
+    expect(recordScaleLabel(70, 398)).not.toContain("468");
+  });
+
+  it("names no route, and so cannot rank one", () => {
+    for (const label of [recordScaleLabel(70, 398), recordScaleLabel(null, 1)]) {
+      expect(label).not.toMatch(/deterministic|ai.ready|read|comput/i);
+    }
+  });
+});
+
+/**
+ * A number in a pill, and the unit it is counted in.
+ *
+ * THE FAILURE THIS EXISTS TO PREVENT
+ *
+ * A badge is a bare number: the same pill reading 398 or 70 looks identical,
+ * so whichever it holds the reader supplies the unit themselves. Beside a queue
+ * of policies they supply "policies", and a rule count there quietly overstates
+ * the work ahead by however many rules a policy happens to hold.
+ *
+ * The second failure is the fix going wrong. The policy count comes from a
+ * server field that a not-yet-restarted server does not send, and reading that
+ * absence as zero would badge an empty queue over work that is plainly there.
+ * Absent falls back and says which unit it fell back to; it never invents one.
+ */
+describe("reviewBacklogBadge", () => {
+  it("badges the unit the work is decided in", () => {
+    expect(reviewBacklogBadge(398, 70).value).toBe(70);
+  });
+
+  it("names the unit, because the pill cannot", () => {
+    expect(reviewBacklogBadge(398, 70).hint).toContain("70 policies");
+    expect(reviewBacklogBadge(398, 70).hint).toContain("398 rules");
+  });
+
+  it("falls back to what it has when the policy count is not served", () => {
+    const badge = reviewBacklogBadge(398, undefined);
+    expect(badge.value).toBe(398);
+    expect(badge.hint).toContain("398 rules");
+  });
+
+  it("does not read an unserved policy count as none outstanding", () => {
+    expect(reviewBacklogBadge(398, undefined).value).not.toBe(0);
+    expect(reviewBacklogBadge(398, undefined).value).not.toBeNull();
+    expect(reviewBacklogBadge(398, undefined).hint).not.toContain("0 polic");
+  });
+
+  it("does not claim a policy unit it was not given", () => {
+    expect(reviewBacklogBadge(398, undefined).hint).not.toMatch(/polic/i);
+  });
+
+  it("withholds the pill only when the work really is finished", () => {
+    expect(reviewBacklogBadge(0, 0).value).toBeNull();
+    expect(reviewBacklogBadge(398, 0).value).toBeNull();
+  });
+
+  it("says something even before any count has arrived", () => {
+    const badge = reviewBacklogBadge(undefined, undefined);
+    expect(badge.value).toBeNull();
+    expect(badge.hint.trim().length).toBeGreaterThan(0);
+    expect(badge.hint).not.toMatch(/\d/);
+  });
+
+  it("agrees with itself about one", () => {
+    expect(reviewBacklogBadge(1, 1).hint).toContain("1 policy · 1 rule");
+  });
+
+  it("ranks no route, and calls no record a shortfall", () => {
+    for (const badge of [
+      reviewBacklogBadge(398, 70),
+      reviewBacklogBadge(398, undefined),
+      reviewBacklogBadge(undefined, undefined),
+    ]) {
+      expect(badge.hint).not.toMatch(
+        /deterministic|ai.ready|unread|cannot|fail|gap|limitation|incomplete|missing/i,
+      );
+    }
+  });
+
+  it("shows the same number the hint leads with, so the two cannot disagree", () => {
+    for (const [rules, policies] of [
+      [398, 70],
+      [1, 1],
+      [9, 4],
+    ] as const) {
+      const badge = reviewBacklogBadge(rules, policies);
+      expect(badge.hint.startsWith(String(badge.value))).toBe(true);
+    }
   });
 });

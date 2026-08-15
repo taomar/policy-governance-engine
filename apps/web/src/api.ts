@@ -117,6 +117,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface WorkspaceCounts {
   documents: number;
   review_pending: number;
+  /** The same outstanding review work counted in the unit it is decided in.
+   *
+   *  Optional because absent is a real state and not zero: a server that has
+   *  not been restarted since this field was added serves the object without
+   *  it, and a client that read the missing key as 0 would badge an empty
+   *  queue over work that is plainly there. Callers must fall back to
+   *  `review_pending` and say which unit they are showing. */
+  review_pending_policies?: number;
   policies: number;
   versions: number;
   limits: number;

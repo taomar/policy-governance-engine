@@ -51,6 +51,7 @@ import { AggregateLimitsPage } from "./AggregateLimitsPage";
 import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
+import { reviewBacklogBadge } from "../policyRecordFacts";
 
 const { Text, Paragraph } = Typography;
 
@@ -97,7 +98,6 @@ interface TabMeta {
   /** Render the badge as "needs attention" (amber) rather than neutral. */
   attention?: boolean;
 }
-
 /**
  * Declared in workflow order, which is also render order. `TAB_META` is the one
  * place a tab's identity lives — label, grouping, icon, explanation and which
@@ -125,7 +125,11 @@ const TAB_META: TabMeta[] = [
     label: "Review",
     group: "author",
     icon: <AuditOutlined />,
-    hint: "Candidate rules the AI drafted, waiting for a human decision.",
+    /* Both the badge and this hint are replaced at render time by
+       `reviewBacklogBadge`, so that the pill leads with the unit the work is
+       decided in and the hover always names that unit. The static text below is
+       what shows before any counts have loaded. */
+    hint: "Extracted policies waiting for a human decision.",
     count: "review_pending",
     attention: true,
   },
@@ -513,11 +517,22 @@ ${GROUP_DIVIDER_CSS.split(",\n")
             activeKey={activeTab}
             onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
             items={VISIBLE_TAB_META.map((meta) => {
-          const value = meta.count ? counts?.[meta.count] : undefined;
+          /* The review tab is badged in policies rather than rules: a policy is
+             what a reviewer decides, so the rule count answers a question they
+             are not asking. The helper also returns the wording, because a pill
+             has no room for a unit and a bare number must not be left to be
+             guessed at — and it degrades to the rule count, saying so, when the
+             policy count is not served. */
+          const backlog =
+            meta.key === "review"
+              ? reviewBacklogBadge(counts?.review_pending, counts?.review_pending_policies)
+              : null;
+          const value = backlog ? backlog.value : meta.count ? counts?.[meta.count] : undefined;
+          const hint = backlog && counts ? backlog.hint : meta.hint;
           return {
             key: meta.key,
             label: (
-              <Tooltip title={`${TAB_GROUP_LABELS[meta.group]} · ${meta.hint}`} mouseEnterDelay={0.5}>
+              <Tooltip title={`${TAB_GROUP_LABELS[meta.group]} · ${hint}`} mouseEnterDelay={0.5}>
                 <span className="ws-tab">
                   <span className="ws-tab-icon">{meta.icon}</span>
                   <span className="ws-tab-label">{meta.label}</span>

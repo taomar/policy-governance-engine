@@ -420,6 +420,19 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
         supersedes the previous run's rows rather than deleting them, so a raw
         count would keep charging the reviewer for work that is no longer on
         their queue and would only ever grow.
+      * `review_pending_policies` counts the same outstanding work in the unit
+        it is decided in. A reviewer approves a policy, not a rule, so the rule
+        count answers a question they are not asking and a badge carrying it
+        overstates how many decisions are ahead. It is a second number rather
+        than a replacement because both are true and they are not derivable
+        from one another.
+
+        A pending candidate that is attached to no provision is its own unit:
+        nothing groups it, so it is one more thing to decide. Adding it to the
+        distinct-provision count is therefore not double-counting — the two
+        `count`s partition the pending rows on whether `provision_id` is null,
+        and every pending row is in exactly one of them. Dropping the second
+        would let a queue that plainly holds work badge nothing.
       * `policies` counts rules in the *active* version, not every approved rule
         ever published; approved versions are immutable and accumulate.
       * `exceptions_open` counts undecided requests only — a decided exception
@@ -440,6 +453,16 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
                      WHERE policy_set_id = :sid
                        AND review_status = 'candidate'
                        AND superseded_at IS NULL) AS review_pending,
+                  (SELECT count(DISTINCT provision_id) FROM candidate_rules
+                     WHERE policy_set_id = :sid
+                       AND review_status = 'candidate'
+                       AND superseded_at IS NULL
+                       AND provision_id IS NOT NULL)
+                  + (SELECT count(*) FROM candidate_rules
+                       WHERE policy_set_id = :sid
+                         AND review_status = 'candidate'
+                         AND superseded_at IS NULL
+                         AND provision_id IS NULL) AS review_pending_policies,
                   (SELECT count(*) FROM approved_rules ar
                      JOIN approved_policy_versions v ON ar.policy_version_id = v.id
                      WHERE v.policy_set_id = :sid AND v.is_active) AS policies,

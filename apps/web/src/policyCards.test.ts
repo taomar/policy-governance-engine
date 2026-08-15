@@ -27,7 +27,7 @@ import {
   policyJsonDocument,
   policyTitle,
   sharedRuleFacets,
-  unplacedCandidates,
+  unplacedRules,
 } from "./policyCards";
 
 function rule(ruleId: string, overrides: Partial<CanonicalRule> = {}): CanonicalRule {
@@ -347,11 +347,11 @@ describe("buildPolicyCards", () => {
   });
 });
 
-describe("unplacedCandidates", () => {
+describe("unplacedRules", () => {
   it("names a rule the assembly did not place instead of dropping it", () => {
     // The flat list asks for superseded rows when a historical run is open and
     // the assembly does not, so this gap is reachable in normal use.
-    const left = unplacedCandidates(
+    const left = unplacedRules(
       [policy("p9-E000072", ["a"])],
       [candidate("a"), candidate("stray")],
     );
@@ -361,11 +361,11 @@ describe("unplacedCandidates", () => {
 
   it("finds nothing to report when every rule was placed", () => {
     // CONTROL: the ordinary case must produce no note at all.
-    expect(unplacedCandidates([policy("p9-E000072", ["a"])], [candidate("a")])).toEqual([]);
+    expect(unplacedRules([policy("p9-E000072", ["a"])], [candidate("a")])).toEqual([]);
   });
 
   it("treats an unavailable assembly as every rule unplaced, not as no rules", () => {
-    const left = unplacedCandidates([], [candidate("a"), candidate("b")]);
+    const left = unplacedRules([], [candidate("a"), candidate("b")]);
     expect(left).toHaveLength(2);
   });
 });

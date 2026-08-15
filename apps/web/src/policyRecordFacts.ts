@@ -134,9 +134,81 @@ export function policyCompositionSentence(rules: readonly CanonicalRule[]): stri
     : `Every rule of this policy ${settles}.`;
 }
 
+/**
+ * How much there is to work through, said in the unit the work is done in.
+ *
+ * A reviewer decides policies. The rule count answered a different question —
+ * how many records the extraction produced — and standing alone at the top of a
+ * queue of policies it read as the size of the job, which it is not: four
+ * hundred rules can be seventy decisions or four hundred, and the number alone
+ * does not say which.
+ *
+ * So the policy count leads and the rule count follows it, and neither is
+ * dropped: the rules are what a policy is made of and a reviewer sizing a card
+ * still wants them. Both are exact — this rounds nothing and approximates
+ * nothing, and the two numbers are counts of different things rather than parts
+ * of one total, so they are joined rather than summed.
+ *
+ * `policies` may be null, which is not zero: a surface that has not assembled
+ * the policies yet cannot say how many there are, and saying "0 policies" over
+ * a queue holding rules would be a measurement nobody took. It then says what
+ * it can, which is the rule count on its own.
+ */
+export function recordScaleLabel(policies: number | null, rules: number): string {
+  const rulePart = `${rules} ${rules === 1 ? "rule" : "rules"}`;
+  if (policies === null) return rulePart;
+  return `${policies} ${policies === 1 ? "policy" : "policies"} · ${rulePart}`;
+}
+
+/**
+ * What a badge should show for outstanding review, and what to say it is.
+ *
+ * A badge is a bare number in a pill: it has no room for a unit, so the number
+ * has to be the one the reader assumes. Beside a queue of policies that is the
+ * policy count, and showing the rule count there overstates the work — the same
+ * pill reading 398 or 70 is indistinguishable without a unit, which is exactly
+ * the ambiguity a bare count invites.
+ *
+ * So the unit is never left to the reader: the returned `hint` always names it,
+ * and the two numbers are returned together so a surface with room can show
+ * both. When the policy count is absent — a server that does not serve it yet —
+ * this falls back to the rule count and *says so*, rather than badging a
+ * confident policy figure it does not have or a zero it never measured.
+ */
+export interface ReviewBacklogBadge {
+  /** The number to put in the pill, or null when there is nothing outstanding. */
+  value: number | null;
+  /** What that number counts, always stated because the pill cannot state it. */
+  hint: string;
+}
+
+export function reviewBacklogBadge(
+  rules: number | null | undefined,
+  policies: number | null | undefined,
+): ReviewBacklogBadge {
+  const ruleCount = typeof rules === "number" ? rules : null;
+  const policyCount = typeof policies === "number" ? policies : null;
+
+  if (policyCount !== null) {
+    return {
+      value: policyCount === 0 ? null : policyCount,
+      hint:
+        ruleCount === null
+          ? `${policyCount} ${policyCount === 1 ? "policy" : "policies"} waiting for a decision.`
+          : `${recordScaleLabel(policyCount, ruleCount)} waiting for a decision.`,
+    };
+  }
+  if (ruleCount !== null) {
+    return {
+      value: ruleCount === 0 ? null : ruleCount,
+      hint: `${recordScaleLabel(null, ruleCount)} waiting for a decision.`,
+    };
+  }
+  return { value: null, hint: "Waiting for a decision." };
+}
+
 /** One route through the policy's rules, with how many take it. */
-export interface PolicyRouteTally {
-  route: string;
+export interface PolicyRouteTally {  route: string;
   label: string;
   count: number;
 }
