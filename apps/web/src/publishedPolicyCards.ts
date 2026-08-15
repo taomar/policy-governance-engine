@@ -25,7 +25,7 @@
  * queue and for the published version alike, and a second opinion computed here
  * would be free to disagree with the first.
  */
-import type { AssembledPassage, AssembledPolicy, CanonicalRule } from "./api";
+import { api, type AssembledPassage, type AssembledPolicy, type CanonicalRule } from "./api";
 import type { PolicySightingView } from "./components/policyTabPanes";
 import { passageTitle, policyJsonDocument, type PassageTitle, type PolicyCard } from "./policyCards";
 import {
@@ -33,73 +33,24 @@ import {
   type PolicyComposition,
 } from "./policyRecordFacts";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
-
 /**
- * One GET, shaped the way the rest of this module needs it.
+ * The published version as policies, and this policy's history.
  *
- * `api.ts` has a private helper doing exactly this and these functions belong
- * beside it; they are here only because that module is being edited elsewhere.
- * Written once rather than per call so that when they move, one thing moves.
+ * Both are `api.ts` calls now. They lived here briefly, with a second copy of
+ * the base URL beside them, only because that module was being edited
+ * elsewhere; a second place for the base URL to be wrong is a second place to
+ * fix it. Re-exported rather than repointed at every call site, so this module
+ * can be deleted in one move once its callers reach `buildPolicyCards`.
  */
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      if (typeof body?.detail === "string") detail = body.detail;
-    } catch {
-      // Fall back to the status line; a body that will not parse is not a
-      // better sentence than the one the transport already gave.
-    }
-    throw new Error(`${res.status} ${detail}`);
-  }
-  return (await res.json()) as T;
-}
-
-/**
- * The published version as policies.
- *
- * The same payload the review queue reads, from the published side of the
- * boundary. Written here rather than in `api.ts` only because that module is
- * being edited elsewhere; it belongs beside `listPolicies` and is written up to
- * move there.
- */
-export async function listVersionPolicies(
+export const listVersionPolicies = (
   policySetKey: string,
   versionId: string,
-): Promise<AssembledPolicy[]> {
-  const path = `/api/policy-sets/${encodeURIComponent(policySetKey)}/versions/${encodeURIComponent(
-    versionId,
-  )}/policies`;
-  return await getJson<AssembledPolicy[]>(path);
-}
+): Promise<AssembledPolicy[]> => api.listVersionPolicies(policySetKey, versionId);
 
-/**
- * Every version this policy has been seen in, oldest first.
- *
- * Keyed by the provision key rather than by a row id, because a policy is not a
- * row: `document_provisions.id` belongs to one document version and cannot
- * follow a policy through a re-extraction, while the key does. That is what
- * makes a history derivable at all.
- *
- * A failure is raised, not swallowed into an empty list. The pane draws a
- * different sentence for "not loaded" than for "no other version was found",
- * and turning the first into the second would have it claim a fact about the
- * record that this call never established.
- */
-export async function listProvisionHistory(
+export const listProvisionHistory = (
   policySetKey: string,
   provisionKey: string,
-): Promise<PolicySightingView[]> {
-  const path = `/api/policy-sets/${encodeURIComponent(policySetKey)}/provisions/${encodeURIComponent(
-    provisionKey,
-  )}/history`;
-  return await getJson<PolicySightingView[]>(path);
-}
+): Promise<PolicySightingView[]> => api.listProvisionHistory(policySetKey, provisionKey);
 
 export interface PublishedPolicyCardRule {
   rule_id: string;

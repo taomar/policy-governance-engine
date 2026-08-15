@@ -9,6 +9,15 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
 import { actorRoleRefusalText, isActorRoleRefusal } from "./actorRole";
+// A sighting is declared where it is rendered, and read from there here, so the
+// wire shape has one description rather than two that agree until they do not.
+// A previous copy of this interface was written from the design instead of from
+// a response and named three fields the server never sends; it cost a crash no
+// test caught, because each side was checking itself against its own idea of
+// the shape. `tests/unit/test_provision_history.py` now compares the pane's
+// declaration against the endpoint's keys in both directions, so retyping it
+// here would fail that guard, and would be right to.
+import type { PolicySightingView } from "./components/policyTabPanes";
 
 export interface ApiError {
   status: number;
@@ -2930,6 +2939,41 @@ export const api = {
       `/api/policy-sets/${encodeURIComponent(key)}/policies${qs ? `?${qs}` : ""}`
     );
   },
+
+  /**
+   * The policies of one published version.
+   *
+   * The same payload shape `listPolicies` returns, from the published side of
+   * the boundary, and assembled by the same `assemble()` on the server rather
+   * than by a parallel implementation — so a policy is the same policy whether
+   * a reviewer is deciding it or reading what was published.
+   */
+  listVersionPolicies: (key: string, versionId: string) =>
+    request<AssembledPolicy[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(
+        versionId,
+      )}/policies`,
+    ),
+
+  /**
+   * Every version this policy has been seen in, oldest first.
+   *
+   * Keyed by the provision key rather than by a row id, because a policy is not
+   * a row: `document_provisions.id` belongs to one document version and cannot
+   * follow a policy through a re-extraction, while the key does. That is what
+   * makes a history derivable at all.
+   *
+   * A failure is raised, never flattened into an empty list. The pane draws a
+   * different sentence for "not asked" than for "no other version was found",
+   * and turning the first into the second would have it claim a fact about the
+   * record that this call never established.
+   */
+  listProvisionHistory: (key: string, provisionKey: string) =>
+    request<PolicySightingView[]>(
+      `/api/policy-sets/${encodeURIComponent(key)}/provisions/${encodeURIComponent(
+        provisionKey,
+      )}/history`,
+    ),
 
   /**
    * Ask for a short generated name for the subject of each policy in this set.
