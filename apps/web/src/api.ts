@@ -1732,7 +1732,21 @@ export interface PolicySetSummary {
 
 // ---------- Notes ----------
 
-export type NoteEntityType = "policy_set" | "policy_version" | "candidate_rule" | "rule";
+/** What a note can be attached to.
+ *
+ * `"provision"` is a policy, keyed on its `provision_key` rather than on the
+ * `document_provisions` row. The row belongs to one document version and is
+ * replaced by the next extraction run; the key is the policy's identity across
+ * versions, which is what everything else here already groups and compares by.
+ * A note keyed to the row would silently stop appearing after a re-extraction
+ * without anything having deleted it. Mirrors `"rule"`, which keys on the
+ * business rule id for the same reason. */
+export type NoteEntityType =
+  | "policy_set"
+  | "policy_version"
+  | "candidate_rule"
+  | "rule"
+  | "provision";
 
 export interface Note {
   id: string;

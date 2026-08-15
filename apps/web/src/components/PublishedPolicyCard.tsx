@@ -22,6 +22,7 @@ import { MarkedQuotation } from "./MarkedQuotation";
 import {
   PARTIES_AND_ROUTES_TAB_LABEL,
   PolicyHistoryPane,
+  PolicyNotesPane,
   PolicyOverviewPane,
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
@@ -486,6 +487,11 @@ export function PublishedPolicyCard({
             key: "history",
             label: "History",
             children: <PolicyHistoryPane sightings={history ?? null} loading={historyLoading} />,
+          },
+          {
+            key: "notes",
+            label: "Notes",
+            children: <PolicyNotesPane record={record} />,
           },
           {
             key: "json",

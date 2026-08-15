@@ -37,6 +37,7 @@ import {
 } from "../policyRecordFacts";
 import type { PublishedPolicyCard } from "../publishedPolicyCards";
 import { DirectionalText } from "./DirectionalText";
+import { NotesPanel } from "./NotesPanel";
 import "./policyTabPanes.css";
 
 const { Text, Paragraph } = Typography;
@@ -599,3 +600,75 @@ export function PolicyHistoryPane({
     </div>
   );
 }
+
+/* --------------------------------------------------------------------- Notes */
+
+/**
+ * What people have said about this policy.
+ *
+ * WHY THIS IS NOT THE RULE'S NOTES PANEL WITH A LOOP AROUND IT
+ *
+ * Notes already attach to a rule, and a policy holds rules, so the cheap move
+ * would have been to show every note on every rule of the policy under one
+ * heading. That would put a remark about one sentence of the document under a
+ * title claiming it is about the whole section, and — worse — there would be no
+ * way to write the other kind. "These two rules contradict each other" is a
+ * statement about the policy; filed against one of the two rules it reads as a
+ * complaint about that rule alone, and the reader of the other one never sees
+ * it.
+ *
+ * So a policy's notes are the policy's own, attached to the policy.
+ *
+ * WHAT IT IS KEYED ON, AND WHY THAT IS THE WHOLE DESIGN
+ *
+ * `provision_key`, not the `document_provisions` row id. The row is per document
+ * version: re-extract the document and every row is replaced, so a note keyed to
+ * one would stop appearing without anything having deleted it — the worst
+ * failure available here, because a reviewer would have no way to know a remark
+ * had ever been made. The key is the policy's identity across versions, which is
+ * what History groups by and what the published grouping relies on. The rule
+ * notes already made exactly this choice for exactly this reason.
+ *
+ * WHY IT IS NOT GATED ON EDITABILITY
+ *
+ * A note is not a change to the record. A sealed version can be discussed —
+ * indeed a published policy is the one most likely to attract "this is being
+ * read wrongly in practice" — and nothing a note says alters what was published.
+ * The pane therefore behaves identically on both surfaces, and this file, as
+ * ever, is told nothing about which one it is on.
+ */
+export function PolicyNotesPane({ record }: { record: PolicyRecordView }) {
+  const provisionKey = record.policy.key?.trim() ?? "";
+
+  // A grouping the system has not recorded has no key that will still resolve
+  // after the next run, so a note written against it would be addressed to
+  // nothing. Said out loud rather than by presenting a composer that silently
+  // loses what is typed into it.
+  if (!record.policy.persisted || !provisionKey) {
+    return (
+      <div className="policy-pane" data-testid="policy-notes-pane">
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <Text type="secondary">
+              This policy is assembled for display and has not been recorded as a policy in its own
+              right, so there is nothing for a note to stay attached to. Notes on its individual
+              rules are on those rules.
+            </Text>
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="policy-pane" data-testid="policy-notes-pane">
+      <Paragraph type="secondary" className="policy-pane__note">
+        On the policy as a whole. A remark about one rule belongs on that rule, where the person
+        reading that rule will find it.
+      </Paragraph>
+      <NotesPanel entityType="provision" entityId={provisionKey} compact />
+    </div>
+  );
+}
+

@@ -346,7 +346,11 @@ class PublishCandidatesRequest(BaseModel):
 
 
 class CreateNoteRequest(BaseModel):
-    entity_type: Literal["policy_set", "policy_version", "candidate_rule", "rule"]
+    # "provision" keys on `DocumentProvision.provision_key`, not on the row id.
+    # See `domain/models.py::Note` for why: the row is per document version and
+    # is replaced by the next extraction run, which would take a policy's notes
+    # out of view without deleting one.
+    entity_type: Literal["policy_set", "policy_version", "candidate_rule", "rule", "provision"]
     entity_id: str
     author: str
     author_role: str

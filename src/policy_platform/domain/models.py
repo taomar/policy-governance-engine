@@ -1057,6 +1057,16 @@ class Note(Base, UUIDPrimaryKeyMixin, TimestampMixin):
                            intentionally keyed by the stable rule id (not a
                            row id) so notes persist across a rule's
                            candidate -> approved -> superseded lifecycle.
+    - "provision"      -> entity_id = DocumentProvision.provision_key (business
+                           key), for the same reason and by the same argument.
+                           A provision *row* belongs to one document version:
+                           re-extract the document and the row is replaced,
+                           taking every note keyed to it out of view without
+                           deleting one. The key is what survives — it is
+                           already what identifies a policy across published
+                           versions everywhere else in this system — so a note
+                           on a policy attaches to the policy rather than to
+                           the cut of it that happened to be on screen.
 
     Notes are never edited in place (no update endpoint) — only appended or
     deleted by their author/an admin — so this table is an append-mostly
