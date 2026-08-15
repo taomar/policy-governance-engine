@@ -81,8 +81,20 @@ def _serve(monkeypatch: pytest.MonkeyPatch, records: list[dict]) -> None:
 
     by_id = {record["rule_id"]: record for record in records}
 
-    async def _lookup(_session: Any, _key: str | None, rule_ids: list[str]) -> list[dict]:
-        return [by_id[rule_id] for rule_id in rule_ids if rule_id in by_id]
+    async def _lookup(
+        _session: Any,
+        _key: str | None,
+        rule_ids: list[str],
+        *,
+        policy_version_id: str | None = None,
+    ) -> tuple[list[dict], str]:
+        found = [by_id[rule_id] for rule_id in rule_ids if rule_id in by_id]
+        source = (
+            ai_chat.RECORDS_FROM_PUBLISHED_VERSION
+            if policy_version_id
+            else ai_chat.RECORDS_FROM_DRAFT_ROWS
+        )
+        return found, source
 
     monkeypatch.setattr(ai_chat, "_policy_rule_payloads", _lookup)
 
@@ -196,6 +208,10 @@ async def test_reading_every_rule_says_so_with_the_counts(
         "rule_count": 2,
         "covered_rule_count": 2,
         "covers_every_rule": True,
+        # Named on every grounded answer, not only on the unusual one. A note
+        # that appears only when something is odd teaches a reader that its
+        # absence means "ordinary", and here "ordinary" is the draft row.
+        "record_source": ai_chat.RECORDS_FROM_DRAFT_ROWS,
     }
 
 

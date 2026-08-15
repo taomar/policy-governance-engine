@@ -199,28 +199,97 @@ _POLICY_BLOCK_PREAMBLE = (
 )
 
 
+#: Which table a grounded answer's records were read out of.
+#:
+#: Reported to the caller rather than left to be inferred from which arguments
+#: were sent. A draft row and a published rule can carry the same `rule_id` and
+#: say different things — the draft is where a revision is being written, the
+#: published rule is what the version promised — so "grounded in this policy"
+#: is two different claims depending on which was read, and a reader deciding
+#: whether a record is faithful needs to know which one they were told about.
+RECORDS_FROM_PUBLISHED_VERSION = "published_version"
+RECORDS_FROM_DRAFT_ROWS = "draft_records"
+
+
+async def _version_rule_payloads(
+    session: AsyncSession, policy_set_id: uuid.UUID, policy_version_id: str
+) -> dict[str, dict] | None:
+    """Every rule of one published version, by its own rule id.
+
+    `None` — distinct from an empty mapping — when the version does not exist
+    or belongs to a different policy set. The caller must not fall back to the
+    draft rows in that case: a published record and the draft that produced it
+    are two records, and answering about the second while the reader is looking
+    at the first is the one failure this surface cannot have. An answer that
+    does not arrive is recoverable; an answer about the wrong record is not.
+    """
+    try:
+        version_uuid = uuid.UUID(policy_version_id)
+    except (ValueError, AttributeError, TypeError):
+        return None
+    version = await ApprovedPolicyVersionRepository(session).get_by_id(version_uuid)
+    if version is None or version.policy_set_id != policy_set_id:
+        return None
+
+    # The contract objects rather than the columns: `CanonicalRule` already
+    # names every field `_policy_rule_record` reads, including the
+    # `formulation.canonical.source_text` that carries the document's own
+    # words, and publishing copies that formulation across verbatim. Rebuilding
+    # the shape by hand here would be a second reading of the same row, free to
+    # drift from the one the evaluator consumes.
+    package = approved_policy_version_to_package(version)
+    by_rule_id: dict[str, dict] = {}
+    for rule in package.rules:
+        if rule.rule_id not in by_rule_id:
+            by_rule_id[rule.rule_id] = rule.model_dump(mode="json")
+    return by_rule_id
+
+
 async def _policy_rule_payloads(
-    session: AsyncSession, policy_set_key: str | None, rule_ids: list[str]
-) -> list[dict]:
-    """The records for `rule_ids`, in the order asked for.
+    session: AsyncSession,
+    policy_set_key: str | None,
+    rule_ids: list[str],
+    *,
+    policy_version_id: str | None = None,
+) -> tuple[list[dict], str]:
+    """The records for `rule_ids`, in the order asked for, and where they came from.
 
     The caller's order is the order the card shows, which is document order, so
     a coverage statement about "the first N" names a prefix a reader can point
     at rather than an arbitrary subset. Ids not found are skipped rather than
     guessed at.
+
+    `policy_version_id` moves the lookup from the draft rows to that published
+    version. It is not an optimisation: the published page shows sealed records,
+    and resolving their ids against `candidate_rules` would answer about a draft
+    that may have been revised since — or, where no draft survives, about
+    nothing at all while still looking like an answer.
     """
     if not policy_set_key:
-        return []
+        return [], RECORDS_FROM_DRAFT_ROWS
     policy_set = await PolicySetRepository(session).get_by_key(policy_set_key)
     if policy_set is None:
-        return []
+        return [], RECORDS_FROM_DRAFT_ROWS
+
+    if policy_version_id:
+        published = await _version_rule_payloads(session, policy_set.id, policy_version_id)
+        if published is None:
+            return [], RECORDS_FROM_PUBLISHED_VERSION
+        return (
+            [published[rule_id] for rule_id in rule_ids if rule_id in published],
+            RECORDS_FROM_PUBLISHED_VERSION,
+        )
+
     rows = await CandidateRuleRepository(session).list_by_policy_set(policy_set.id)
     by_rule_id: dict[str, dict] = {}
     for row in rows:
         rule_id = row.payload_json.get("rule_id")
         if rule_id and rule_id not in by_rule_id:
             by_rule_id[rule_id] = row.payload_json
-    return [by_rule_id[rule_id] for rule_id in rule_ids if rule_id in by_rule_id]
+    return (
+        [by_rule_id[rule_id] for rule_id in rule_ids if rule_id in by_rule_id],
+        RECORDS_FROM_DRAFT_ROWS,
+    )
 
 
 def _policy_rule_record(payload: dict) -> dict:
@@ -289,6 +358,7 @@ async def ask(
     focus_candidate_rule_id: str | None = None,
     focus_rule_ids: list[str] | None = None,
     answer_language: str | None = None,
+    policy_version_id: str | None = None,
 ) -> dict:
     """Answer `question`, grounded in indexed clauses (+ approved rules if a policy set is given).
 
@@ -317,10 +387,22 @@ async def ask(
     `focus_rule_ids`, when given, grounds the answer on a whole policy: the
     records for those rule ids, in the order given, pinned at the front of
     CONTEXT. A policy can hold more rules than one request carries, so the reply
-    adds a `grounding` object saying how many rules were asked about and how many
-    were read. It is reported rather than inferred — sending a subset silently
-    would make "grounded in all of it" and "grounded in the first part of it"
-    look identical to the reviewer relying on the answer.
+    adds a `grounding` object saying how many rules were asked about, how many
+    were read, and which table they were read out of. It is reported rather than
+    inferred — sending a subset silently would make "grounded in all of it" and
+    "grounded in the first part of it" look identical to the reviewer relying on
+    the answer, and the same is true of reading none of them: `grounding` is
+    present whenever rule ids were asked for, including when nothing resolved,
+    because an answer built from general retrieval alone and an answer built
+    from the policy are otherwise indistinguishable on screen.
+
+    `policy_version_id`, when given with `focus_rule_ids`, reads those records
+    from that published version instead of from the draft rows. A published
+    record and the draft that produced it share a `rule_id` and may say
+    different things, so the id alone does not say which record a reader is
+    looking at. Where the version does not exist, or belongs to another policy
+    set, nothing is read and that is reported — this never falls back to the
+    drafts, because an answer about the wrong record is worse than no answer.
     """
 
     settings = get_settings()
@@ -333,18 +415,31 @@ async def ask(
     grounding: dict | None = None
 
     if focus_rule_ids:
+        # Built before the load, and never conditional on it succeeding. The
+        # failure this shape prevents is the quiet one: a request that named
+        # nine rules, resolved none of them, and answered anyway from general
+        # retrieval — which reads on screen exactly like an answer about the
+        # policy. `covered_rule_count` of zero says so instead.
+        record_source = RECORDS_FROM_PUBLISHED_VERSION if policy_version_id else RECORDS_FROM_DRAFT_ROWS
+        covered = 0
         try:
-            payloads = await _policy_rule_payloads(session, policy_set_key, list(focus_rule_ids))
+            payloads, record_source = await _policy_rule_payloads(
+                session,
+                policy_set_key,
+                list(focus_rule_ids),
+                policy_version_id=policy_version_id,
+            )
             if payloads:
                 block, covered = _policy_context_block(payloads)
                 context_blocks.append(block)
-                grounding = {
-                    "rule_count": len(focus_rule_ids),
-                    "covered_rule_count": covered,
-                    "covers_every_rule": covered == len(focus_rule_ids),
-                }
         except Exception as exc:  # noqa: BLE001 - chat should still answer without the policy block
             logger.warning("failed to load policy rules during ask(): %s", exc)
+        grounding = {
+            "rule_count": len(focus_rule_ids),
+            "covered_rule_count": covered,
+            "covers_every_rule": covered == len(focus_rule_ids),
+            "record_source": record_source,
+        }
 
     if focus_candidate_rule_id:
         try:
@@ -419,7 +514,22 @@ async def ask(
             policy_set = await policy_set_repo.get_by_key(policy_set_key)
             if policy_set is not None:
                 version_repo = ApprovedPolicyVersionRepository(session)
-                active = await version_repo.get_active_version(policy_set.id)
+                # The version the reader is looking at, when they named one, and
+                # the active one otherwise. A reader on a superseded version
+                # asking what else the policy says must be told about that
+                # version's other rules; listing the active version's under the
+                # heading "currently-approved" beside a sealed record would put
+                # two versions in one answer with nothing marking the seam.
+                active = None
+                if policy_version_id:
+                    try:
+                        named = await version_repo.get_by_id(uuid.UUID(policy_version_id))
+                    except (ValueError, AttributeError, TypeError):
+                        named = None
+                    if named is not None and named.policy_set_id == policy_set.id:
+                        active = named
+                else:
+                    active = await version_repo.get_active_version(policy_set.id)
                 if active is not None:
                     package = approved_policy_version_to_package(active)
                     rule_lines = [
@@ -427,9 +537,16 @@ async def ask(
                         for r in package.rules
                     ]
                     if rule_lines:
+                        # Named by which version holds them rather than by
+                        # whether that version is the live one: this block is
+                        # pinned to the version the reader named when they named
+                        # one, and calling a superseded version's rules
+                        # "currently-approved" would be a claim about the policy
+                        # set that the block does not support.
+                        standing = "currently approved" if active.is_active else "superseded"
                         context_blocks.append(
-                            f"Currently-approved rules for policy set '{policy_set_key}' "
-                            f"(version {active.version_number}):\n" + "\n".join(rule_lines)
+                            f"Rules of policy set '{policy_set_key}' version {active.version_number} "
+                            f"({standing}):\n" + "\n".join(rule_lines)
                         )
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to load approved rules context during ask(): %s", exc)

@@ -102,6 +102,16 @@ class AskRequest(BaseModel):
     arrives from the caller, is checked for shape, and is passed on, so adding a
     language is a change to the interface's string table and to nothing on this
     side. `None` asks in no particular language and is exactly today's request."""
+    policy_version_id: str | None = None
+    """The published version `focus_rule_ids` name, when the reader is looking
+    at one.
+
+    Sent from the published surfaces, omitted from the review queue. A published
+    rule and the draft row that produced it share a `rule_id`, so the ids alone
+    do not say which of the two a reader is looking at; this does. Given, the
+    records are read from that version and never from the drafts, and a version
+    that does not resolve grounds nothing rather than falling back — see
+    `ai_chat._policy_rule_payloads`."""
 
 
 @router.get("/status")
@@ -126,6 +136,7 @@ async def ask(body: AskRequest, session: AsyncSession = Depends(get_session)) ->
             focus_candidate_rule_id=body.focus_candidate_rule_id,
             focus_rule_ids=body.focus_rule_ids,
             answer_language=body.answer_language,
+            policy_version_id=body.policy_version_id,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
