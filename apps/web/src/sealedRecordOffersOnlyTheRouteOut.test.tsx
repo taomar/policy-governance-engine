@@ -173,3 +173,40 @@ describe("the sealed record's menu, as a reader meets it", () => {
     expect(actions).toEqual(["copy-id"]);
   });
 });
+
+/**
+ * The same rule, applied to the two surfaces that show a record in full.
+ *
+ * `PolicyInspector` and `RuleDetailInline` are reachable from the review queue
+ * and from the page that reads published versions. Neither may take a caller's
+ * word for whether the record it is showing can be changed — that is the
+ * record's own answer, and a prop offering a second one is how the two pages
+ * came to disagree in the first place.
+ *
+ * Read as source rather than rendered, because the claim is about the contract
+ * these components publish, not about one arrangement of props. A component
+ * that never receives the flag today can still be handed it tomorrow.
+ */
+const SOURCES = import.meta.glob("./components/{PolicyInspector,RuleDetailInline}.tsx", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+describe("no surface takes a second opinion on whether a record may be changed", () => {
+  it("finds the files it is guarding", () => {
+    // Without this the suite passes by reading nothing at all.
+    expect(Object.keys(SOURCES)).toHaveLength(2);
+  });
+
+  for (const flag of ["canEdit", "canReview", "canApprove", "isEditable", "readOnly", "editable"]) {
+    it(`declares no \`${flag}\` prop`, () => {
+      for (const [path, source] of Object.entries(SOURCES)) {
+        // A prop declaration: the name, optional `?`, then `:` — as it appears
+        // in an interface or a destructured signature.
+        const declared = new RegExp(`(^|[\\s{,])${flag}\\??\\s*:`, "m");
+        expect(`${path}: ${declared.test(source)}`).toBe(`${path}: false`);
+      }
+    });
+  }
+});
