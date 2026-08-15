@@ -1155,13 +1155,18 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         card={openPolicyCard}
         statusColor={(status) => STATUS_COLOR[status] ?? "default"}
         statusLabel={(status) => STATUS_LABEL[status] ?? status}
-        onOpenRule={openRuleWithinPolicy}
         ruleDetail={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
           if (!entry) return null;
           return (
             <RuleDetailInline
               candidate={entry.candidate}
+              // The card above already quotes this rule's statement, verbatim,
+              // in the passage it came from. Repeating it inside the expansion
+              // is the one thing an expansion can do that is worse than showing
+              // nothing: it charges a click for words already read.
+              statementVisibleAbove
+              allRules={openPolicyCard.rules.map((r) => r.candidate.rule)}
               onOpenFullRecord={() => openRuleWithinPolicy(ruleId)}
             />
           );

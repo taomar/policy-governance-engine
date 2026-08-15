@@ -19,6 +19,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import unicodedata
 from collections import OrderedDict
 from pathlib import Path
 
@@ -161,6 +162,55 @@ class TestWhatCountsAsAName:
         )
         assert code == UNAVAILABLE_NAMED_A_ROUTE
 
+    def test_a_handle_may_join_the_several_things_one_rule_covers(self) -> None:
+        """A rule can govern more than one thing at once, and then the shortest
+        honest handle for it is a list. Refusing the separator would push the
+        model into either dropping one of them or writing a longer phrase that
+        avoids the punctuation, and both are worse than the comma.
+
+        Asked of Unicode rather than written out, so the assertion covers a
+        script whose comma this file does not contain.
+        """
+
+        separators = [
+            mark
+            for mark in rule_namer.FORBIDDEN_PUNCTUATION
+            if "COMMA" in (unicodedata.name(mark, "") or "")
+        ]
+        assert separators, "the shared set holds no separator to allow"
+        for mark in separators:
+            name, code = validate_name(
+                f"Warden upkeep{mark} deputy countersigning",
+                rule=LATIN,
+                source_scripts=LATIN_SCRIPTS,
+            )
+            assert code is None, mark
+            assert name is not None and mark in name
+
+    def test_a_handle_may_not_be_punctuated_like_a_sentence(self) -> None:
+        """The separator is allowed and nothing else is: a reader must not be
+        able to mistake a handle for the rule."""
+
+        for mark in rule_namer.NAME_PUNCTUATION:
+            _, code = validate_name(
+                f"Warden upkeep{mark} deputy countersigning",
+                rule=LATIN,
+                source_scripts=LATIN_SCRIPTS,
+            )
+            assert code == UNAVAILABLE_REPLY_UNUSABLE, mark
+
+    def test_a_separator_at_the_edge_is_dropped_rather_than_refused(self) -> None:
+        """It joins the phrase to nothing, so the phrase is still the phrase."""
+
+        for mark in rule_namer._LIST_SEPARATORS:
+            name, code = validate_name(
+                f"{mark} Warden tide register upkeep{mark}",
+                rule=LATIN,
+                source_scripts=LATIN_SCRIPTS,
+            )
+            assert code is None, mark
+            assert name == "Warden tide register upkeep"
+
 
 class _Replies:
     """A client that answers with what it was told to, and counts the asks."""
@@ -227,6 +277,93 @@ class TestNamesWithinAPolicyAreDistinct:
         client = _Replies("not json at all", _reply(**{"1": "Register upkeep"}))
         attempts = await generate_names(build_source(["A heading"], [LATIN]), client=client)
         assert client.asks == rule_namer.ASK_ATTEMPTS
+        assert attempts[0].name == "Register upkeep"
+
+    async def test_one_unusable_record_does_not_cost_its_siblings_their_names(
+        self,
+    ) -> None:
+        """Measured on the live corpus, the commonest unusable reply is a phrase
+        written in a language the heading does not use, and the same request
+        asked again does not repeat it. So the ask is repeated -- and a record
+        already named keeps the name it was given, because re-deciding a good
+        answer on a second sample would make the names depend on the batch."""
+
+        siblings = [LATIN, _rule("Another turn", what="logged elsewhere entirely")]
+        client = _Replies(
+            _reply(**{"1": "Register upkeep", "2": "지속계약 직원 채용"}),
+            _reply(**{"1": "A different phrase", "2": "Deputy countersigning"}),
+        )
+
+        attempts = await generate_names(
+            build_source(["A heading"], siblings), client=client
+        )
+
+        assert client.asks == 2
+        assert [a.name for a in attempts] == ["Register upkeep", "Deputy countersigning"]
+
+    async def test_a_record_the_model_declined_is_not_asked_about_again(self) -> None:
+        """It was asked, and answered. Asking again is this module disagreeing
+        with the answer it got."""
+
+        siblings = [LATIN, _rule("Another turn", what="logged elsewhere entirely")]
+        client = _Replies(
+            _reply(**{"1": "Register upkeep", "2": DECLINE_REPLY}),
+            _reply(**{"1": "Register upkeep", "2": "Deputy countersigning"}),
+        )
+
+        attempts = await generate_names(
+            build_source(["A heading"], siblings), client=client
+        )
+
+        assert client.asks == 1
+        assert attempts[1].name is None
+        assert attempts[1].unavailable_code == UNAVAILABLE_DECLINED
+
+    async def test_a_policy_settles_on_one_language_across_its_requests(self) -> None:
+        """A bilingual passage permits either script, and a policy too large for
+        one request would otherwise let each request choose for itself. Measured
+        on the live corpus, that put two languages of handle on one card.
+
+        Neither script is named as the one to keep: whichever the policy wrote
+        first is the one it holds to, so this behaves the same whichever way
+        round the document is.
+        """
+
+        bilingual = _rule(
+            "Kestrel Bay mooring turns دفتر المراسي",
+            who="the harbour warden حارس الميناء",
+            what="records each turn يقيد كل دورة رسو في سجل المد",
+        )
+        for first, second in (
+            ("Register upkeep", "قيد الدورات"),
+            ("قيد الدورات", "Register upkeep"),
+        ):
+            settled: set[str] = set()
+            opening = await generate_names(
+                build_source(["A heading عنوان"], [bilingual]),
+                client=_Replies(_reply(**{"1": first})),
+                settled_scripts=settled,
+            )
+            later = await generate_names(
+                build_source(["A heading عنوان"], [bilingual]),
+                client=_Replies(_reply(**{"1": second})),
+                settled_scripts=settled,
+            )
+
+            assert opening[0].name == first
+            assert later[0].name is None
+            assert later[0].unavailable_code == UNAVAILABLE_REPLY_UNUSABLE
+
+    async def test_settling_never_narrows_a_policy_to_no_language_at_all(self) -> None:
+        """A request whose passage shares no script with what the policy has
+        written so far is named on its own terms rather than refused wholesale."""
+
+        settled = {"HANGUL"}
+        attempts = await generate_names(
+            build_source(["A heading"], [LATIN]),
+            client=_Replies(_reply(**{"1": "Register upkeep"})),
+            settled_scripts=settled,
+        )
         assert attempts[0].name == "Register upkeep"
 
     async def test_a_failing_call_names_nothing_and_raises_nothing(self) -> None:

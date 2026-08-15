@@ -1,6 +1,7 @@
 import { Tree, Typography } from "antd";
 import type { CanonicalRule, PolicyAttribute } from "../api";
 import { effectMeta } from "../ruleDisplay";
+import { DirectionalText } from "./DirectionalText";
 
 const { Text } = Typography;
 
@@ -49,7 +50,9 @@ function attributeRow(row: PolicyAttribute, index: number): TreeDatum {
         <Text code className="policy-attr-name">
           {row.attribute}
         </Text>
-        <span className="policy-attr-value">{row.text}</span>
+        <span className="policy-attr-value">
+          <DirectionalText>{row.text}</DirectionalText>
+        </span>
         <span className="policy-attr-fact">
           {row.fact ? (
             <Text code className="policy-attr-fact-name">

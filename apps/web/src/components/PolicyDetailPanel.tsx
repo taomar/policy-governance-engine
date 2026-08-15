@@ -94,7 +94,6 @@ export function PolicyDetailPanel({
   card,
   statusColor,
   statusLabel,
-  onOpenRule,
   ruleDetail,
   onApprove,
   onReject,
@@ -103,15 +102,17 @@ export function PolicyDetailPanel({
   card: PolicyCard;
   statusColor: (status: string) => string;
   statusLabel: (status: string) => string;
-  /** Take one rule to the larger surface, replacing this panel's content with
-   *  the inspector. Optional, and no longer the way to read a rule: the
-   *  reviewer used to have to leave the policy to see any of its detail and
-   *  click back to return, which cost them the passage they were comparing
-   *  against. `ruleDetail` opens it here instead. */
-  onOpenRule?: (ruleId: string) => void;
   /** This rule's detail, shown in place under it when the reviewer opens it.
+   *
    *  A function, so a policy of fourteen rules builds detail for the ones that
-   *  are open and not for the ones that are not. */
+   *  are open and not for the ones that are not.
+   *
+   *  There used to be a second control beside the expander, which took the rule
+   *  to a separate surface for everything the inline detail left out. It was
+   *  the old cost wearing a new label: the reviewer still left the policy they
+   *  were comparing against, and still clicked back. What that surface held is
+   *  now inside what this returns, so the row has one control and the policy
+   *  stays on screen. */
   ruleDetail?: (ruleId: string) => React.ReactNode;
   onApprove?: () => void;
   onReject?: () => void;
@@ -348,15 +349,6 @@ export function PolicyDetailPanel({
                                 >
                                   Details
                                 </Button>
-                                {onOpenRule && (
-                                  <Button
-                                    size="small"
-                                    type="text"
-                                    onClick={() => onOpenRule(rule.rule_id)}
-                                  >
-                                    Open rule
-                                  </Button>
-                                )}
                               </div>
                               <div
                                 className="policy-decision-line"

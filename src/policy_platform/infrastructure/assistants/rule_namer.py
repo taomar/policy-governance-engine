@@ -80,6 +80,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -169,12 +170,32 @@ MAX_NAME_WORDS = 14
 #: seeing whole records, and distinctness is enforced across all of them.
 MAX_RECORD_CHARS = 8000
 
-#: A second ask, and only when the reply as a whole was unusable — unparseable,
-#: or carrying no usable name at all. A batch where most names are good and one
-#: is not is not re-asked: that would spend every rule's tokens again to sample
-#: variance on one of them, and the one that came back declined is an answer
-#: rather than a miss.
+#: A second ask, covering only the records the first ask left unusable. A record
+#: already named is not asked about again, and a record the model explicitly
+#: declined is not either — that is an answer, not a miss. Measured on the live
+#: corpus, most of what comes back unusable is a phrase written in a language the
+#: heading does not use, which the same request asked again does not repeat.
 ASK_ATTEMPTS = 2
+
+#: The punctuation a handle may not hold. The subject label's set, less the list
+#: separators.
+#:
+#: The label names one subject, so a comma in it is a sign the model wrote two.
+#: A handle is not under that restraint: a rule may govern several things at once
+#: and the shortest honest handle for it joins them with a comma. Everything that
+#: ends or joins a sentence stays out, because a handle is a phrase and a reader
+#: must not read it as the rule.
+#:
+#: Which characters those are is asked of Unicode rather than listed here, so a
+#: script whose comma this app has not met yet is treated like every other one.
+NAME_PUNCTUATION = frozenset(
+    mark
+    for mark in FORBIDDEN_PUNCTUATION
+    if "COMMA" not in (unicodedata.name(mark, "") or "")
+)
+
+#: What a handle may hold between two of the things it names, and nowhere else.
+_LIST_SEPARATORS = frozenset(FORBIDDEN_PUNCTUATION) - NAME_PUNCTUATION
 
 
 @dataclass(frozen=True)
@@ -330,17 +351,22 @@ _SYSTEM_PROMPT = """You are given a heading a document wrote, and the records \
 this app extracted from the passage under that heading. Each record is one rule \
 as this app decomposed it.
 
-For each record, write a short phrase naming what that rule is for: its purpose \
-or its subject, the thing a reader would look it up by. Do not restate what the \
-rule says. The phrase stands beside the rule, never in place of it.
+For each record, write a short phrase naming what that rule is for: its purpose, \
+its subject, or the occasion and the people it governs — the thing a reader \
+would look it up by. Do not restate what the rule says. The phrase stands beside \
+the rule, never in place of it.
 
-These records were drawn from one passage and several of them are alike. Each \
-phrase must be one no reader could mistake for another phrase in the same reply.
+These records were drawn from one passage and several of them are alike. What \
+tells them apart is often who the rule is about, or when it applies, or which \
+step of a process it covers. Say that, in words. Each phrase must be one no \
+reader could mistake for another phrase in the same reply.
 
-At most fourteen words, and fewer wherever fewer is enough. Do not lengthen a \
+One line, or two where two are needed to tell a record from its neighbours. At \
+most fourteen words, and fewer wherever fewer is enough. Do not lengthen a \
 phrase to fill the room.
 
-Do not include any number, amount, date, condition or outcome. Do not copy any \
+Do not give any figure, amount or date, and do not give what the rule requires \
+or what follows from it: a reader must go to the rule for those. Do not copy any \
 run of words from the record. Do not end with a full stop. Do not add quotation \
 marks.
 
@@ -368,6 +394,9 @@ def validate_name(
     """
 
     text = strip_enclosing_quotes(" ".join((reply or "").split()))
+    # A separator at either end joins this phrase to nothing, so it is dropped
+    # rather than refused: the phrase itself is still the phrase.
+    text = text.strip("".join(_LIST_SEPARATORS)).strip()
     if not text:
         return None, UNAVAILABLE_REPLY_UNUSABLE
 
@@ -380,7 +409,7 @@ def validate_name(
         return None, UNAVAILABLE_REPLY_UNUSABLE
     if marks_between_words(text, WORD_MARKS, allow_at_edge=True):
         return None, UNAVAILABLE_REPLY_UNUSABLE
-    if marks_between_words(text, FORBIDDEN_PUNCTUATION):
+    if marks_between_words(text, NAME_PUNCTUATION):
         return None, UNAVAILABLE_REPLY_UNUSABLE
     # A number in a handle is a term of the rule, and a term of the rule belongs
     # in the rule where a reviewer checks it against the source.
@@ -465,6 +494,7 @@ async def generate_names(
     *,
     client: AzureOpenAIClient | None = None,
     taken: set[str] | None = None,
+    settled_scripts: set[str] | None = None,
 ) -> list[NameAttempt]:
     """Name every record in one request, in the order they were given.
 
@@ -472,6 +502,12 @@ async def generate_names(
     a policy split across several requests still cannot end up with two rules
     wearing the same handle. It is read and added to; nothing about it reaches
     the model, which is shown records and a heading and nothing else.
+
+    `settled_scripts` carries the writing systems the earlier requests of the
+    same policy actually wrote in. A bilingual passage permits either, and each
+    request would otherwise choose for itself — which on the live corpus put two
+    languages of handle on one card. Narrowing to what the policy has already
+    used makes that choice once. It only ever narrows, and never to nothing.
 
     A failure is an outcome and not an exception: the card renders without
     names, so every failing path returns attempts carrying a code.
@@ -500,6 +536,17 @@ async def generate_names(
         return failed(UNAVAILABLE_NO_RECORD, model=None)
 
     replies: dict[int, str] = {}
+    source_scripts = source.scripts
+    if settled_scripts:
+        narrowed = source_scripts & settled_scripts
+        if narrowed:
+            source_scripts = narrowed
+    # The name accepted for each ordinal, and for the rest the code saying why
+    # there is none yet. Kept apart so a second ask only has to cover what the
+    # first left, and so a record already named is never asked about again.
+    usable: dict[int, str] = {}
+    codes: dict[int, str] = {}
+    answered: set[int] = set()
     try:
         ask = client or AzureOpenAIClient(settings)
         for attempt_number in range(ASK_ATTEMPTS):
@@ -519,12 +566,45 @@ async def generate_names(
                 timeout=90.0,
             )
             replies = _replies_by_ordinal(raw)
-            if replies:
+            for index, rule in enumerate(source.rules):
+                ordinal = index + 1
+                if ordinal in usable or ordinal in answered:
+                    continue
+                reply = replies.get(ordinal)
+                if reply is None:
+                    codes[ordinal] = UNAVAILABLE_UNANSWERED
+                    continue
+                name, code = validate_name(
+                    reply, rule=rule, source_scripts=source_scripts
+                )
+                if name is not None:
+                    usable[ordinal] = name
+                    codes.pop(ordinal, None)
+                    continue
+                codes[ordinal] = code or UNAVAILABLE_REPLY_UNUSABLE
+                if code == UNAVAILABLE_DECLINED:
+                    # The model was asked and said there was nothing to name.
+                    # That is an answer, and asking the same question again
+                    # would be this module disagreeing with it.
+                    answered.add(ordinal)
+
+            outstanding = [
+                index + 1
+                for index in range(len(source.rules))
+                if index + 1 not in usable and index + 1 not in answered
+            ]
+            if not outstanding:
                 break
             if attempt_number + 1 < ASK_ATTEMPTS:
+                # Measured on the live corpus: most of what comes back unusable
+                # is a reply written in a language the heading does not use, and
+                # that is sampling noise rather than a property of the record —
+                # the same request asked again is usually answered properly.
                 logger.info(
-                    "rule name reply held no usable entries, asking again "
+                    "rule name reply unusable for %d of %d records, asking again "
                     "(attempt %d of %d)",
+                    len(outstanding),
+                    len(source.rules),
                     attempt_number + 2,
                     ASK_ATTEMPTS,
                 )
@@ -532,16 +612,11 @@ async def generate_names(
         logger.warning("rule name generation failed: %s", exc)
         return failed(UNAVAILABLE_MODEL_FAILED, model=deployment)
 
-    source_scripts = source.scripts
     attempts: list[NameAttempt] = []
     for index, rule in enumerate(source.rules):
-        reply = replies.get(index + 1)
-        if reply is None:
-            name, code = None, UNAVAILABLE_UNANSWERED
-        else:
-            name, code = validate_name(
-                reply, rule=rule, source_scripts=source_scripts
-            )
+        ordinal = index + 1
+        name = usable.get(ordinal)
+        code = None if name is not None else codes.get(ordinal, UNAVAILABLE_UNANSWERED)
         if name is not None:
             key = _normalised(name)
             if key in already:
@@ -551,6 +626,8 @@ async def generate_names(
                 name, code = None, UNAVAILABLE_NOT_DISTINCT
             else:
                 already.add(key)
+                if settled_scripts is not None:
+                    settled_scripts.update(scripts_of(name))
         attempts.append(
             NameAttempt(
                 name=name,
@@ -693,10 +770,15 @@ async def name_rules(
 
         policies += 1
         taken: set[str] = set()
+        # One policy, one language of handle, even when the passage is bilingual
+        # and large enough to need several requests.
+        settled: set[str] = set()
         attempt_by_digest: dict[str, NameAttempt] = {}
         for group in chunk_rules(distinct):
             source = build_source(list(provision.heading_path_json or []), group)
-            for attempt in await generate_names(source, client=client, taken=taken):
+            for attempt in await generate_names(
+                source, client=client, taken=taken, settled_scripts=settled
+            ):
                 attempt_by_digest[attempt.source_digest] = attempt
 
         for rule in pending:
@@ -721,7 +803,8 @@ async def name_rules(
             )
 
     return {
-        "policies": len(provisions),
+        "policies_in_set": len(provisions),
+        "policies_named": policies,
         "attempted": attempted,
         "named": named,
         "unavailable": unavailable,

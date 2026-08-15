@@ -1,0 +1,92 @@
+/* The tab strip that lives inside an expanded rule row.
+ *
+ * Deliberately quieter than the tabs on the full-record surface: this strip
+ * sits inside a row of a queue, under the row's own heading, and competing
+ * with that heading for weight would make the queue read as a list of tab
+ * bars. Underline-on-active, one accent, nothing that draws the eye before
+ * the words do.
+ *
+ * Colours are the design system's: Indigo Index for the active-tab ink bar,
+ * which is what that hue is for, and Indigo Ink for focus outlines, which is
+ * what that one is for. Every horizontal property is logical
+ * (inline-start/inline-end, block-end), so the strip lays itself out from the
+ * right when the interface direction is right-to-left without a second rule
+ * set to maintain. */
+
+.inline-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inline-tabs-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-block-end: 1px solid var(--app-border-subtle, #e2e8f0);
+}
+
+.inline-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  /* The active underline is drawn as a border on the button itself so the
+     inactive buttons reserve the same height and the strip does not jump by a
+     pixel every time a tab is chosen. */
+  border-block-end: 2px solid transparent;
+  margin-block-end: -1px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--app-text-muted, #64748b);
+  cursor: pointer;
+  border-start-start-radius: 4px;
+  border-start-end-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.inline-tab:hover {
+  color: var(--app-text-secondary, #1e293b);
+  background: var(--app-surface-subtle, #f4f5f7);
+}
+
+.inline-tab:focus-visible {
+  outline: 2px solid var(--app-accent, #5b4db1);
+  outline-offset: -2px;
+}
+
+.inline-tab--active {
+  color: var(--app-link, #7c3aed);
+  border-block-end-color: var(--app-link, #7c3aed);
+  font-weight: 600;
+}
+
+.inline-tabs-panel {
+  /* No height cap and no scroll container: a quotation that is long is long,
+     and the row grows to hold it. Clipping here would hide the document's own
+     words behind a scrollbar inside a scrollbar. */
+  min-width: 0;
+}
+
+/* A pane written as a stack of titled blocks, spaced the way the detail's own
+   blocks are so a tab body and the row around it read as one document. */
+.rule-detail-inline__panes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inline-tabs-panel:focus-visible {
+  outline: 2px solid var(--app-accent, #5b4db1);
+  outline-offset: 2px;
+}
+
+/* Inside a row the inspector's panes should not re-impose the inspector's
+   padding — the row already indents its detail region. */
+.inline-tabs-panel .inspector-pane {
+  padding: 0;
+}
