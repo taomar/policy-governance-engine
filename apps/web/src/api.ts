@@ -306,6 +306,17 @@ export interface ConditionProvenance {
    *  | `conditions_not_representable` | `no_scope_derived` */
   code: string;
   unsupported_expression: string;
+  /**
+   * The document's own wording for a quantity that reached the record and did
+   * not compile into a comparison.
+   *
+   * Two of the route wordings tell the reviewer this figure is shown beside
+   * the reason. The server sent it and this interface did not declare it, so
+   * the sentence promised evidence that nothing drew - and a reviewer shown no
+   * figure concludes the document stated none, which is the opposite of what
+   * the refusal recorded.
+   */
+  unprojected_quantity: string;
 }
 
 /** One phrase the projection classified, with the evidence for its role. */

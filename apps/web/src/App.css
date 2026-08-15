@@ -10910,6 +10910,17 @@
   margin-bottom: 0;
 }
 
+/* The figure the route reason says is shown alongside. Sits above the produced
+ * expression and reads the same way: the source's own words, quoted, so a
+ * reviewer judges the refusal instead of taking it on trust. */
+.condition-route .condition-route-quantity {
+  margin-bottom: 8px;
+}
+
+.condition-route .condition-route-quantity:last-child {
+  margin-bottom: 0;
+}
+
 .inspector-pane > .executability-badge {
   margin-bottom: 4px;
 }

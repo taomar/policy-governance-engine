@@ -40,8 +40,12 @@ const CODES_AT_WRITING = 5;
 /** A code no build has wording for. Deliberately shaped like a real one. */
 const UNSEEN_CODE = "conditions_deferred_to_a_later_reading";
 
-function provenance(code: string, unsupported_expression = ""): ConditionProvenance {
-  return { code, unsupported_expression };
+function provenance(
+  code: string,
+  unsupported_expression = "",
+  unprojected_quantity = ""
+): ConditionProvenance {
+  return { code, unsupported_expression, unprojected_quantity };
 }
 
 /**
@@ -282,5 +286,76 @@ describe("the record detail view", () => {
     // and against a build where this whole feature had been reverted.
     expect(screen.getByText(/Condition — when this rule fires/i)).toBeTruthy();
     expect(document.querySelector(".condition-route")).toBeNull();
+  });
+});
+
+/**
+ * The figure the routing reason says is shown.
+ *
+ * Two of the wordings above end by telling the reviewer the quantity is
+ * visible: "The clause's own quantity is shown alongside, so the grouping can
+ * be checked", and "The figure found in the line is shown alongside". The
+ * server has been sending it, on `unprojected_quantity`, and the interface
+ * declared no such field and drew nothing.
+ *
+ * That is worse than an omission. A reviewer told the evidence is beside the
+ * claim and shown none does not conclude the panel is incomplete; they
+ * conclude the document had no figure, which is the opposite of what the
+ * refusal recorded. The sentence made the absence unreadable as an absence.
+ */
+describe("the quantity behind a refused projection", () => {
+  afterEach(cleanup);
+
+  /** The wordings that promise it. Named so a reworded one is noticed here. */
+  const CODES_PROMISING_THE_FIGURE = [
+    "stated_quantity_is_one_clause_of_a_provision",
+    "stated_quantity_comes_from_a_table_row",
+  ];
+
+  it("is promised by wording that is still in the mapping", () => {
+    // Positive control for the two tests below. If a reword removed the
+    // promise, they would be enforcing a claim nothing makes any more.
+    for (const code of CODES_PROMISING_THE_FIGURE) {
+      expect(CONDITION_ROUTE[code]).toBeTruthy();
+      expect(CONDITION_ROUTE[code].reason).toMatch(/shown alongside/i);
+    }
+  });
+
+  it("is rendered when the server sends one", () => {
+    render(
+      <ConditionRouteNote
+        provenance={provenance(
+          "stated_quantity_comes_from_a_table_row",
+          "",
+          "not more than 10% of basic salary"
+        )}
+      />
+    );
+
+    expect(screen.getByText("not more than 10% of basic salary")).toBeTruthy();
+  });
+
+  it("is rendered whatever the code says, because the promise is about content", () => {
+    // Keyed on content, not on the two codes above, for the reason the sibling
+    // block gives: a third code carrying a figure would otherwise send it back
+    // to being computed and unread.
+    render(
+      <ConditionRouteNote
+        provenance={provenance("quantity_states_nothing_counted", "", "30")}
+      />
+    );
+
+    expect(screen.getByText("30")).toBeTruthy();
+  });
+
+  it("draws no empty figure when the server sends none", () => {
+    const { container } = render(
+      <ConditionRouteNote provenance={provenance("conditions_not_projected")} />
+    );
+
+    // Positive control first: the note itself drew, so the absence below is an
+    // absence of the figure and not of the panel.
+    expect(container.querySelector(".condition-route")).toBeTruthy();
+    expect(container.querySelector(".condition-route-quantity")).toBeNull();
   });
 });

@@ -36,6 +36,12 @@ export function ConditionRouteNote({
   // block to a particular code would hide it the day a second case carries one.
   const expression = (provenance?.unsupported_expression ?? "").trim();
 
+  // The figure two of the route wordings promise is "shown alongside". Keyed
+  // on content for the same reason, and for a sharper one: the promise is made
+  // by a sentence, so a code that carries a figure without being on a list
+  // here would leave that sentence lying.
+  const quantity = (provenance?.unprojected_quantity ?? "").trim();
+
   return (
     <Alert
       className="condition-route"
@@ -52,6 +58,12 @@ export function ConditionRouteNote({
           <Paragraph type="secondary" className="condition-route-reason">
             {route.reason}
           </Paragraph>
+          {quantity && (
+            <div className="condition-route-quantity">
+              <Text type="secondary">The figure the source states, word for word:</Text>
+              <Text code>{quantity}</Text>
+            </div>
+          )}
           {expression && (
             <div className="condition-route-expression">
               <Text type="secondary">The expression the extraction produced for it, word for word:</Text>
