@@ -8,6 +8,8 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
+import { actorRoleRefusalText, isActorRoleRefusal } from "./actorRole";
+
 export interface ApiError {
   status: number;
   detail: string;
@@ -16,10 +18,26 @@ export interface ApiError {
 export class PolicyPlatformApiError extends Error implements ApiError {
   status: number;
   detail: string;
-  constructor(status: number, detail: string, options?: { cause?: unknown }) {
+  /**
+   * The server's own name for this refusal, when it sent one.
+   *
+   * Present when `detail` was an object rather than a sentence. A caller that
+   * needs to act on a particular refusal matches this and never the words,
+   * so rewording cannot change behaviour.
+   */
+  code?: string;
+  /** The rest of a structured refusal, for a caller that needs its fields. */
+  data?: Record<string, unknown>;
+  constructor(
+    status: number,
+    detail: string,
+    options?: { cause?: unknown; code?: string; data?: Record<string, unknown> },
+  ) {
     super(detail, options);
     this.status = status;
     this.detail = detail;
+    this.code = options?.code;
+    this.data = options?.data;
   }
 }
 
@@ -63,8 +81,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ?? JSON.stringify(body);
-    } catch {
+      // A structured refusal: the server sent a code and the fields a reader's
+      // sentence needs, and the words for it live in this app. Before this,
+      // `body.detail ?? JSON.stringify(body)` would have put the raw object in
+      // front of a reviewer as `[object Object]`.
+      if (isActorRoleRefusal(body.detail)) {
+        throw new PolicyPlatformApiError(res.status, actorRoleRefusalText(body.detail), {
+          code: body.detail.code,
+          data: body.detail,
+        });
+      }
+      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body);
+    } catch (cause) {
+      if (cause instanceof PolicyPlatformApiError) throw cause;
       // ignore parse failure, fall back to statusText
     }
     throw new PolicyPlatformApiError(res.status, detail);

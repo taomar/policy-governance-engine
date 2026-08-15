@@ -27,6 +27,7 @@ import {
   type PolicyAttestationStatus,
 } from "../api";
 import { useActor } from "../ActorContext";
+import { actorRoleRefusalText } from "../actorRole";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -208,7 +209,10 @@ export function PolicyAttestationsPage({ policySetKey }: { policySetKey: string 
         <Alert
           type="info"
           showIcon
-          message="Only a Policy Manager can launch a new campaign. Switch your acting role in the header to launch one."
+          message={actorRoleRefusalText({
+            required_role: "policy_manager",
+            action: "launch_attestation_campaign",
+          })}
           style={{ marginTop: 16 }}
         />
       )}

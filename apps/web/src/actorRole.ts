@@ -1,0 +1,77 @@
+/**
+ * The words for a refusal that turns on who is acting.
+ *
+ * The server used to send the sentence. Two routers each held a copy of it and
+ * this interface held a third, which had already drifted: the servers said
+ * "perform this action" and the page said "launch a new campaign". A copy
+ * change meant editing three places, two of them behind a deployment.
+ *
+ * The server now sends `actor_role_insufficient` with the role it wanted and
+ * the action it refused. Both are needed. A bare refusal code would leave this
+ * file to guess the verb, and the page that already worded it differently is
+ * the proof that a guess drifts.
+ *
+ * Which roles and actions can arrive is checked from the other side of the
+ * boundary by `tests/unit/test_actor_role_wording.py`, which reads the tuples
+ * out of `api/actor_role.py` and fails when one of them has no entry here.
+ * That direction cannot run from this side: the declaration is Python.
+ */
+
+/** How each role is named to a reader. */
+export const ACTOR_ROLE_LABEL: Record<string, string> = {
+  policy_manager: "Policy Manager",
+};
+
+/**
+ * The verb phrase for each guarded action, written to sit inside "Only a
+ * Policy Manager can ___".
+ */
+export const GUARDED_ACTION_PHRASE: Record<string, string> = {
+  launch_attestation_campaign: "launch a new campaign",
+};
+
+/** What the server sends when it refuses on the acting role. */
+export interface ActorRoleRefusal {
+  code: string;
+  required_role: string;
+  action: string;
+}
+
+export const ACTOR_ROLE_REFUSAL = "actor_role_insufficient";
+
+/**
+ * True when this is a refusal about the acting role rather than any other 403.
+ *
+ * Checked on the code, never on the words, so that rewording this file cannot
+ * change which errors are recognised.
+ */
+export function isActorRoleRefusal(detail: unknown): detail is ActorRoleRefusal {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    (detail as { code?: unknown }).code === ACTOR_ROLE_REFUSAL
+  );
+}
+
+/**
+ * The sentence, from the role and the action.
+ *
+ * Falls back to naming neither rather than inventing either. An unknown role
+ * or action means this build is older than the server, and a reader is better
+ * served by a true vague sentence than a confident wrong one.
+ */
+export function actorRoleRefusalText(refusal: {
+  required_role: string;
+  action: string;
+}): string {
+  const role = ACTOR_ROLE_LABEL[refusal.required_role];
+  const phrase = GUARDED_ACTION_PHRASE[refusal.action];
+
+  if (!role) {
+    return "You do not have the role this action needs. Switch your acting role in the header.";
+  }
+  if (!phrase) {
+    return `Only a ${role} can do this. Switch your acting role in the header.`;
+  }
+  return `Only a ${role} can ${phrase}. Switch your acting role in the header.`;
+}

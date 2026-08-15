@@ -21,6 +21,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from policy_platform.api.actor_role import require_role
 from policy_platform.api.schemas import (
     AcknowledgePolicyAttestationRequest,
     CreatePolicyAttestationCampaignRequest,
@@ -38,11 +39,18 @@ router = APIRouter(prefix="/api/policy-attestations", tags=["policy-attestations
 
 
 def _require_manager(actor_role: str) -> None:
-    if actor_role != "policy_manager":
-        raise HTTPException(
-            status_code=403,
-            detail="Only a Policy Manager can perform this action. Switch your acting role in the header.",
-        )
+    """Kept as the router's own name for the guard; the words are not here.
+
+    See `api/actor_role.py`: this refusal used to be a sentence composed in two
+    routers and reworded a third time in the interface. It now travels as a
+    code with the role and the action it names.
+    """
+
+    require_role(
+        actor_role,
+        required="policy_manager",
+        action="launch_attestation_campaign",
+    )
 
 
 def _status_of(row: PolicyAttestation) -> str:
