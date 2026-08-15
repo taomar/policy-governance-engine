@@ -37,12 +37,16 @@ from policy_platform.infrastructure.ingestion.reading_order import (
     has_rtl,
     normalize_presentation_forms,
 )
+from tests.corpus import uploaded_document
 
 DOCUMENTS = Path(__file__).resolve().parents[2] / "data" / "documents"
 SAMPLES = Path(__file__).resolve().parents[2] / "samples" / "source-documents"
 
 #: A PDF that paints right-to-left runs, with numbers embedded inside them.
-BILINGUAL = DOCUMENTS / "d2997cd6-7534-4de0-8c87-5cbdf8a3a900_v1_AIS_Employee_Handbook-1.pdf"
+#: Resolved by the stable tail of the upload name: the full name carries the
+#: upload UUID, which changes whenever the document is re-issued, and pinning
+#: it meant this fixture stopped resolving without anyone noticing.
+BILINGUAL_NAME = "AIS_Employee_Handbook-1.pdf"
 #: A PDF with no right-to-left character anywhere, for the no-change guarantee.
 LTR_ONLY = SAMPLES / "HR-Guide-Policy-and-Procedure-Template.pdf"
 
@@ -81,13 +85,7 @@ def _paint_order_text(document) -> str:
 
 @pytest.fixture(scope="module")
 def bilingual():
-    if not BILINGUAL.exists():
-        pytest.fail(
-            f"the bilingual fixture is missing at {BILINGUAL}. This test cannot be "
-            "skipped quietly: with no fixture there is nothing to detect, and a "
-            "silent skip reads exactly like a pass."
-        )
-    return ingest_document(BILINGUAL, document_id="rtl-guard")
+    return ingest_document(uploaded_document(BILINGUAL_NAME), document_id="rtl-guard")
 
 
 def test_the_fixture_actually_contains_right_to_left_runs(bilingual):

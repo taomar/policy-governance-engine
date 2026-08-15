@@ -35,13 +35,9 @@ import pytest
 
 from policy_platform.infrastructure.ingestion import document_ingestion as di
 from policy_platform.infrastructure.ingestion.document_ingestion import ingest_document
+from tests.corpus import TRACKED, UPLOADS, uploaded_document
 
-_PAGINATED_PDF = (
-    Path(__file__).resolve().parents[2]
-    / "data"
-    / "documents"
-    / "aa098d99-a26b-4f19-bb35-162336932938_v1_STAFF-HANDBOOK-GMU-2024.pdf"
-)
+_PAGINATED_PDF_NAME = "STAFF-HANDBOOK-GMU-2024.pdf"
 
 
 def _line(text: str, top: float, *, size: float = 12.0, height: float = 12.0) -> di._Line:
@@ -137,11 +133,11 @@ class TestSmallPrintIsNotAHeading:
         assert di._classify_line(at_body, body_size=10.0) == "heading"
 
 
-@pytest.mark.skipif(not _PAGINATED_PDF.exists(), reason="paginated fixture not present")
 class TestSectionsComeFromHeadingsNotFurniture:
     @pytest.fixture(scope="class")
     def document(self):
-        return ingest_document(str(_PAGINATED_PDF), _PAGINATED_PDF.name)
+        source = uploaded_document(_PAGINATED_PDF_NAME)
+        return ingest_document(str(source), source.name)
 
     def test_the_fixture_still_exercises_the_claim(self, document) -> None:
         """Assert the volume examined, so an empty scan cannot pass silently.
@@ -377,11 +373,9 @@ class TestRunningTextIsNotReadAsStructure:
 
     @pytest.fixture(scope="class")
     def lines(self) -> list[di._Line]:
-        candidates = sorted(_PAGINATED_PDF.parent.glob("*AIS_Employee_Handbook*.pdf"))
-        if not candidates:
-            pytest.skip("no multi-class fixture available")
+        source = uploaded_document("AIS_Employee_Handbook-1.pdf")
         collected: list[di._Line] = []
-        with di.pdfplumber.open(candidates[0]) as pdf:
+        with di.pdfplumber.open(source) as pdf:
             for index, page in enumerate(pdf.pages, start=1):
                 collected.extend(di._read_page(page, index)[0])
         return collected
@@ -462,8 +456,8 @@ def _available_documents() -> list[Path]:
     """
 
     roots = [
-        _PAGINATED_PDF.parent,
-        Path(__file__).resolve().parents[2] / "samples" / "source-documents",
+        UPLOADS,
+        TRACKED,
     ]
     found: list[Path] = []
     for root in roots:
@@ -506,7 +500,15 @@ class TestASentenceIsNotAHeading:
             if element.element_type == "heading" and element.text.strip()
         ]
         if not headings:
-            pytest.skip("no headings were found, so nothing is asserted")
+            # Not a skip. Zero headings means the detector saw nothing, which
+            # satisfies "no heading is a finished sentence" vacuously -- so the
+            # one outcome that would prove heading detection had collapsed is
+            # also the one that used to report as a pass.
+            pytest.fail(
+                f"{document_path.name} yielded no headings at all, so this claim "
+                "was not exercised. An empty scan and a clean scan must not "
+                "render identically."
+            )
 
         offenders = [text for text in headings if text.endswith(_SENTENCE_END)]
 
@@ -570,12 +572,7 @@ class TestAHeadingIsNeverAContinuation:
 
     @pytest.fixture(scope="class")
     def document(self):
-        candidates = sorted(
-            (_PAGINATED_PDF.parent).glob("*AIS_Employee_Handbook*.pdf")
-        )
-        if not candidates:
-            pytest.skip("no mixed-size document available to exercise the claim")
-        source = candidates[0]
+        source = uploaded_document("AIS_Employee_Handbook-1.pdf")
         return ingest_document(str(source), source.name)
 
     def test_a_sentence_tail_set_like_its_paragraph_is_not_a_heading(self) -> None:

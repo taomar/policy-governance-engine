@@ -18,6 +18,7 @@ from policy_platform.contracts.canonical_document import (
     SourceFragment,
 )
 from policy_platform.infrastructure.ingestion import document_ingestion as ingestion
+from tests.corpus import tracked_document, uploaded_document
 from policy_platform.infrastructure.ingestion.document_ingestion import (
     IngestionError,
     _Block,
@@ -30,8 +31,16 @@ from policy_platform.infrastructure.ingestion.document_ingestion import (
 )
 
 DOCUMENTS = Path(__file__).resolve().parents[2] / "data" / "documents"
-LABOR_LAW = DOCUMENTS / "76d9d9d5-fa0b-42c1-bd84-fcdf772ecea4_v1_262c0074-a07a-46d7-aec5-aa339fa11179-saudilaborlaw.pdf"
-HARDWARE_DOCX = DOCUMENTS / "fd1a8004-0876-42fc-82ea-87599bcdc942_v2_Workplace-Hardware-Provisioning-Policy-v3.3.docx"
+#: Pinned by their full upload name, these two resolved nowhere: `data/documents/`
+#: is gitignored and its filenames carry the upload UUID, so both classes below
+#: skipped in every checkout and had never run. `test_table_headers_are_preserved`
+#: guards the header-row defect fixed in this same file.
+#: `TestRealPdf` asserts invariants that hold of any real document, so it is
+#: pointed at a committed one. It was previously pinned to an upload named
+#: `...saudilaborlaw.pdf` that is present in no checkout, and skipped silently
+#: in all of them.
+REAL_PDF = "HR-Guide-Policy-and-Procedure-Template.pdf"
+HARDWARE_DOCX = "Workplace-Hardware-Provisioning-Policy-v3.3.docx"
 
 
 def _line(text: str, *, top=0.0, x0=0.0, x1=100.0, size=10.0, page=1) -> _Line:
@@ -214,18 +223,31 @@ class TestUnsupportedInput:
             ingestion.ingest_document(target)
 
 
-@pytest.mark.skipif(not LABOR_LAW.exists(), reason="sample PDF not present")
 class TestRealPdf:
-    """Spec sections 51-53 against a real document."""
+    """Spec sections 51-53 against a real document.
+
+    Resolved by the stable tail of the upload name rather than the whole of it,
+    and absent means failed rather than skipped -- see `tests/corpus.py`.
+    """
 
     @pytest.fixture(scope="class")
-    def document(self):
-        return ingestion.ingest_pdf(LABOR_LAW, "labor-law")
+    def source(self):
+        return tracked_document(REAL_PDF)
 
-    def test_every_page_is_ingested(self, document):
-        # INVARIANT 1.
-        assert document.page_count == 50
-        assert len(document.pages) == 50
+    @pytest.fixture(scope="class")
+    def document(self, source):
+        return ingestion.ingest_pdf(source, "real-pdf")
+
+    def test_every_page_is_ingested(self, document, source):
+        # INVARIANT 1. The count is read from the file rather than written here,
+        # so re-issuing the document does not turn this into a false alarm.
+        import pdfplumber
+
+        with pdfplumber.open(source) as pdf:
+            expected = len(pdf.pages)
+        assert expected > 1, "a single-page document cannot exercise this invariant"
+        assert document.page_count == expected
+        assert len(document.pages) == expected
 
     def test_every_fragment_resolves(self, document):
         # INVARIANT 4 and 5.
@@ -266,10 +288,10 @@ class TestRealPdf:
         kept = sum(len("".join(element.text.split())) for element in document.elements)
         assert kept / raw > 0.95
 
-    def test_ingestion_is_deterministic(self):
+    def test_ingestion_is_deterministic(self, source):
         # Spec section 45: identical bytes produce identical ids and offsets.
-        first = ingestion.ingest_pdf(LABOR_LAW, "labor-law")
-        second = ingestion.ingest_pdf(LABOR_LAW, "labor-law")
+        first = ingestion.ingest_pdf(source, "real-pdf")
+        second = ingestion.ingest_pdf(source, "real-pdf")
         assert [e.element_id for e in first.elements] == [e.element_id for e in second.elements]
         assert [e.text for e in first.elements] == [e.text for e in second.elements]
         assert [
@@ -288,11 +310,10 @@ class TestRealPdf:
         assert len(attributed) / len(paragraphs) > 0.5
 
 
-@pytest.mark.skipif(not HARDWARE_DOCX.exists(), reason="sample DOCX not present")
 class TestRealDocx:
     @pytest.fixture(scope="class")
     def document(self):
-        return ingestion.ingest_docx(HARDWARE_DOCX, "hardware")
+        return ingestion.ingest_docx(tracked_document(HARDWARE_DOCX), "hardware")
 
     def test_fragments_resolve(self, document):
         assert document.verify_fragments() == []
