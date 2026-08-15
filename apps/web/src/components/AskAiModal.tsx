@@ -256,6 +256,19 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                     }
                   />
                 )}
+                {t.result.groups.length === 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    className="ask-rule-unquoted"
+                    data-testid="ask-rule-unquoted"
+                    message={
+                      <span lang={t.language.tag}>
+                        <DirectionalText align>{t.language.copy.noQuotedTextNote}</DirectionalText>
+                      </span>
+                    }
+                  />
+                )}
                 {t.result.groups.length > 0 && (
                   <section className="ask-rule-quoted" data-testid="ask-rule-quoted">
                     <p className="ask-rule-quoted__heading" lang={t.language.tag}>

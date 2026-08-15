@@ -488,6 +488,45 @@ describe("nothing asked, waiting, refused and failed stay four different things"
   });
 });
 
+describe("an answer that quoted nothing says so", () => {
+  // Under this dialog's licence to help the reviewer: a reply carrying a
+  // reflection and no facts rendered exactly like a grounded one, because the
+  // quoted section is simply absent when there is nothing to put in it. The
+  // reviewer's whole job is deciding whether a record matches its source, and
+  // "the model wrote prose and quoted no source" is the one thing they most
+  // need told. Absent is not empty here either: this is a fifth condition
+  // stated out loud, and it collapses none of the four.
+  it("marks an ungrounded answer in whichever language it was asked in", async () => {
+    for (const language of ASK_ANSWER_LANGUAGES) {
+      serve(answer({ groups: [], reflection: ENGLISH_REFLECTION }));
+      render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+      choose(language.endonym);
+      clickSuggestion(language.copy.scopes.rule.suggestions[0]);
+
+      const note = await screen.findByTestId("ask-rule-unquoted");
+      expect(note.textContent, language.tag).toContain(language.copy.noQuotedTextNote);
+      // Said in the reader's language, and announced as such.
+      expect(note.querySelector(`[lang="${language.tag}"]`), language.tag).not.toBeNull();
+      // The four states it must not be mistaken for. An answer arrived, so this
+      // is neither absence nor failure, and the reflection is still shown.
+      expect(screen.queryByTestId("ask-rule-empty"), language.tag).toBeNull();
+      expect(screen.queryByTestId("ask-rule-failed"), language.tag).toBeNull();
+      expect(screen.queryByTestId("ask-rule-thinking"), language.tag).toBeNull();
+      expect(screen.queryByTestId("ask-rule-reflection"), language.tag).not.toBeNull();
+      cleanup();
+    }
+  });
+
+  it("says nothing of the kind when the document was quoted", async () => {
+    serve(answer());
+    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
+
+    await screen.findByTestId("ask-rule-quoted");
+    expect(screen.queryByTestId("ask-rule-unquoted")).toBeNull();
+  });
+});
+
 describe("the control is a control", () => {
   it("is a named group of radios carrying each language's own name", () => {
     serve(answer());

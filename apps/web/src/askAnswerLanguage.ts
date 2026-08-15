@@ -85,6 +85,12 @@ export interface AskAnswerCopy {
   quotedHeading: string;
   /** Says the quoted material is not translated, whichever language is chosen. */
   quotedStaysNote: string;
+  /** Said when an answer came back carrying no quoted source text at all. An
+   *  answer with nothing quoted and an answer quoting the document read the
+   *  same once rendered — the quoted section is simply absent — and the whole
+   *  job here is deciding whether a record matches its source. So the absence
+   *  is stated rather than left as a gap the reader has to notice. */
+  noQuotedTextNote: string;
   /** Marks the app's own writing, the way the generated subject label does. */
   writtenByAppLabel: string;
   /** Precedes the provenance chips. */
@@ -128,6 +134,8 @@ const ENGLISH: AskAnswerLanguage = {
     quotedHeading: "The document's own words",
     quotedStaysNote:
       "Quoted text is shown as the document wrote it, in its own language, whichever language you choose here.",
+    noQuotedTextNote:
+      "This answer quoted no source text. What follows is this app's own reflection; read it against the rule before you rely on it.",
     writtenByAppLabel: "In plain words, by this app",
     retrievedFromLabel: "Retrieved from",
     coverageNote:
@@ -181,6 +189,8 @@ const ARABIC: AskAnswerLanguage = {
     quotedHeading: "كلمات المستند نفسها",
     quotedStaysNote:
       "النص المقتبس يظهر كما كتبه المستند، بلغته هو، مهما كانت اللغة التي تختارها هنا.",
+    noQuotedTextNote:
+      "لم تقتبس هذه الإجابة أي نص من المستند. ما يلي هو تأمل هذا التطبيق وحده؛ اقرأه مقابل القاعدة قبل الاعتماد عليه.",
     writtenByAppLabel: "بكلمات مبسطة، من هذا التطبيق",
     retrievedFromLabel: "مأخوذ من",
     coverageNote:
