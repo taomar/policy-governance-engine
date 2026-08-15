@@ -112,6 +112,7 @@ def _to_response(candidate) -> CandidateRuleResponse:
             str(candidate.baseline_candidate_id) if candidate.baseline_candidate_id else None
         ),
         superseded_at=candidate.superseded_at,
+        provision_id=str(candidate.provision_id) if candidate.provision_id else None,
         rule=_with_decision_readiness(CanonicalRule.model_validate(candidate.payload_json)),
     )
 
@@ -363,6 +364,12 @@ async def list_policies(
                 else None
             ),
             "persisted": policy.persisted,
+            # The identity a candidate's `provision_id` points at. Sent so a
+            # client holding the flat list and this one joins them on identity
+            # rather than by matching heading strings — the derivation that
+            # persisting the grouping exists to make unnecessary. Null exactly
+            # when this policy is the read-time fallback.
+            "provision_id": policy.provision_id,
             "document_version_id": policy.document_version_id,
             "source_elements": policy.source_elements,
             "page": policy.page,

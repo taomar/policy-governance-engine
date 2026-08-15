@@ -96,6 +96,11 @@ class ProvisionGrouping:
     """
 
     key: str
+    #: The persisted row's identity. Carried so the policy can state which
+    #: provision it is, and so the reference the flat candidate list already
+    #: sends resolves to a policy on this page without either side deriving
+    #: anything. A plain value: this dataclass still touches no database.
+    provision_id: str
     #: The governing headings, outermost first, exactly as the document wrote
     #: them. Carried so the card can be named by its own heading rather than by
     #: a sentence taken out of one of its passages.
@@ -163,6 +168,12 @@ class AssembledPolicy:
     #: a reviewer approving a policy is entitled to know whether its boundary is
     #: stored or inferred.
     persisted: bool = False
+    #: The persisted row this policy is, when it is one. Present exactly when
+    #: `persisted` is true. It is what the flat candidate list's `provision_id`
+    #: points at, so a client holding both lists resolves rule to policy by
+    #: identity — never by matching headings, which is the derivation this
+    #: field exists to make unnecessary.
+    provision_id: str | None = None
 
     @property
     def heading(self) -> str:
@@ -366,6 +377,7 @@ def assemble(
                 passages=assembled,
                 heading_path=heading_path,
                 persisted=provision is not None,
+                provision_id=provision.provision_id if provision is not None else None,
             )
         )
     policies.sort(key=lambda policy: _document_position(policy.passages[0].key))

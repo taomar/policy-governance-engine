@@ -460,20 +460,28 @@ export function policyTitle(
 }
 
 /**
- * What the card knows about the generated subject name, as three distinct states.
+ * What the card knows about the generated subject name, as four distinct states.
  *
- * A discriminated union rather than a nullable string, because the three cases
- * a reader must be able to tell apart are not "a string or not a string":
+ * A discriminated union rather than a nullable string, because the cases a
+ * reader must be able to tell apart are not "a string or not a string":
  *
- * - `named` — a label was generated and this is it,
+ * - `named` — a label was generated and it says something the heading did not,
+ * - `redundant` — a label was generated and it only repeats the heading,
  * - `unavailable` — one was asked for and nothing usable came back,
  * - `absent` — nobody has asked.
  *
- * Collapsing the last two would tell a reviewer "not generated yet" about a
- * policy the system has already failed on, and they would wait for something
- * that is not coming. The distinction is the same one `loadState.ts` draws
- * between a value that is missing and a value that is empty, and it is drawn
- * here for the same reason.
+ * Collapsing `unavailable` into `absent` would tell a reviewer "not generated
+ * yet" about a policy the system has already failed on, and they would wait for
+ * something that is not coming. The distinction is the same one `loadState.ts`
+ * draws between a value that is missing and a value that is empty, and it is
+ * drawn here for the same reason.
+ *
+ * `redundant` is separate from `absent` for the mirror of that reason. Both
+ * render as nothing on the card, but they are opposite facts — one is "there is
+ * no name", the other is "the name is already on the screen, in the document's
+ * own words, directly below". Naming it keeps the export honest and keeps the
+ * rule testable; conflating it would make "no eyebrow" mean two things and
+ * quietly turn a display decision into a claim about the data.
  *
  * The empty-label case is deliberately absent from this union. An empty reply
  * is refused at generation and stored as an unavailable outcome, so no state
@@ -481,8 +489,50 @@ export function policyTitle(
  */
 export type PolicyTopicLabelState =
   | { readonly state: "named"; readonly text: string; readonly provenance: string }
+  | { readonly state: "redundant"; readonly text: string }
   | { readonly state: "unavailable" }
   | { readonly state: "absent" };
+
+/** The words of a string, for comparing one string's content against another's.
+ *
+ *  Maximal runs of letters and digits, case-folded. Unicode-aware through the
+ *  `u` flag, so an Arabic label tokenises the same way a Latin one does and
+ *  neither is privileged. Nothing here knows what a word means, only where one
+ *  ends — there is no stopword list, because a stopword list is a list of one
+ *  language's words and this must work on a document in any language.
+ */
+function words(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+}
+
+/**
+ * Does the label tell the reader anything the heading did not?
+ *
+ * The label exists to answer "what is this about?" when the heading does not.
+ * Where the heading already answers it, a label repeating it is a second copy
+ * of a fact the reader has, costing a line and teaching nothing — and worse,
+ * training them to skip a line that elsewhere carries the whole value.
+ *
+ * Judged as a relation between two strings, never as a property of either. Every
+ * word of the label already appearing in the heading chain means the label added
+ * no word; anything else means it did. There is no threshold to tune, no list of
+ * headings, no vocabulary, and nothing that knows what a subject is — so the
+ * same rule holds on a document of any kind in any language.
+ *
+ * Compared against the whole chain rather than the innermost heading because the
+ * card shows the whole chain. A label repeating an outer heading is as redundant
+ * to the reader as one repeating the inner, and they are looking at both.
+ *
+ * The decision is made here, at display, and never stored. It is a function of
+ * two strings that can each change — a heading corrected, a label regenerated —
+ * and a stored answer would go stale silently against both.
+ */
+export function labelAddsNothing(text: string, headingPath: readonly string[]): boolean {
+  const inHeading = new Set(words(headingPath.join(" ")));
+  const inLabel = words(text);
+  if (inLabel.length === 0) return true;
+  return inLabel.every((word) => inHeading.has(word));
+}
 
 /**
  * Read the generated subject name off a policy.
@@ -497,12 +547,13 @@ export type PolicyTopicLabelState =
  * without it is not something this may present as a label.
  */
 export function policyTopicLabel(
-  policy: Pick<AssembledPolicy, "topic_label">,
+  policy: Pick<AssembledPolicy, "topic_label" | "heading_path">,
 ): PolicyTopicLabelState {
   const label = policy.topic_label;
   if (!label || label.generated !== true) return { state: "absent" };
   const text = label.text?.trim() ?? "";
   if (!text) return { state: "unavailable" };
+  if (labelAddsNothing(text, policy.heading_path ?? [])) return { state: "redundant", text };
   // Provenance travels with the words, not in a lookup somewhere else. A reader
   // asking "where did this come from" is asking about the string in front of
   // them, and the answer has to be reachable from it.
@@ -597,6 +648,11 @@ export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
             model_deployment: card.policy.topic_label.model_deployment,
             prompt_version: card.policy.topic_label.prompt_version,
             generated_at: card.policy.topic_label.generated_at,
+            // Whether the card showed it. A label that only repeats the
+            // heading is withheld on screen but kept here: the file records
+            // what was generated, and separately what a reader was shown, so
+            // neither can be inferred wrongly from the other.
+            shown_on_card: policyTopicLabel(card.policy).state === "named",
           }
         : null,
     source_elements: card.policy.source_elements,
@@ -608,6 +664,10 @@ export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
     // derived it. A file that does not say cannot be told apart later from one
     // that does.
     persisted: card.policy.persisted,
+    // Which persisted provision this policy is, when it is one. The same
+    // identity the flat candidate list carries, so an exported file can be
+    // rejoined to the queue it came from without matching headings.
+    provision_id: card.policy.provision_id ?? null,
     passages: card.passages.map((block) => {
       const rules = block.rules.map((rule) => rule.candidate.rule);
       const passageName = passageTitle(rules);

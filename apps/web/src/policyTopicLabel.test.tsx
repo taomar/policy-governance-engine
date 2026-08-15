@@ -23,7 +23,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { policyJsonDocument, policyTopicLabel } from "./policyCards";
+import { labelAddsNothing, policyJsonDocument, policyTopicLabel } from "./policyCards";
 import type { PolicyCard } from "./policyCards";
 import type { AssembledPolicy, PolicyTopicLabel } from "./api";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
@@ -45,13 +45,17 @@ function labelPayload(overrides: Partial<PolicyTopicLabel> = {}): PolicyTopicLab
   };
 }
 
-function policy(topic: PolicyTopicLabel | null): AssembledPolicy {
+function policy(
+  topic: PolicyTopicLabel | null,
+  headingPath: string[] = ["Outer", HEADING],
+): AssembledPolicy {
   return {
     key: "a-key",
-    heading: HEADING,
-    heading_path: ["Outer", HEADING],
+    heading: headingPath[headingPath.length - 1] ?? HEADING,
+    heading_path: headingPath,
     topic_label: topic,
     persisted: true,
+    provision_id: "a-provision-id",
     document_version_id: null,
     source_elements: "p1-E1",
     page: 1,
@@ -63,9 +67,9 @@ function policy(topic: PolicyTopicLabel | null): AssembledPolicy {
   };
 }
 
-function card(topic: PolicyTopicLabel | null): PolicyCard {
+function card(topic: PolicyTopicLabel | null, headingPath?: string[]): PolicyCard {
   return {
-    policy: policy(topic),
+    policy: policy(topic, headingPath),
     passages: [],
     rules: [],
     reviewableIds: [],
@@ -77,10 +81,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderCard(topic: PolicyTopicLabel | null) {
+function renderCard(topic: PolicyTopicLabel | null, headingPath?: string[]) {
   return render(
     <PolicyReviewCard
-      card={card(topic)}
+      card={card(topic, headingPath)}
       selected={false}
       indeterminate={false}
       open={false}
@@ -94,7 +98,7 @@ function renderCard(topic: PolicyTopicLabel | null) {
 }
 
 describe("reading a generated label off a policy", () => {
-  it("reports three states, and never a fourth", () => {
+  it("reports four states, and never a fifth", () => {
     // The reader must be able to tell "we tried and got nothing" from "nobody
     // has tried". A single nullable string cannot say both.
     expect(policyTopicLabel(policy(labelPayload())).state).toBe("named");
@@ -104,6 +108,10 @@ describe("reading a generated label off a policy", () => {
       ).state,
     ).toBe("unavailable");
     expect(policyTopicLabel(policy(null)).state).toBe("absent");
+    // A name that only repeats the heading is a fourth fact, not a missing one.
+    expect(
+      policyTopicLabel(policy(labelPayload({ text: HEADING }), ["Outer", HEADING])).state,
+    ).toBe("redundant");
   });
 
   it("treats an empty label as a failure and never as a name", () => {
@@ -220,5 +228,74 @@ describe("rendering a generated label beside the document's heading", () => {
     const line = screen.getByTestId("policy-topic-label");
     expect(line.querySelector("bdi")?.textContent).toBe(arabic);
     expect(document.querySelector(".policy-card__title")?.textContent).toBe(HEADING);
+  });
+});
+
+describe("a label earns its line only by saying something the heading did not", () => {
+  it("withholds a label whose every word the heading already carries", () => {
+    // The reader has this answer already, in the document's own words, on the
+    // next line. Repeating it costs a line and teaches nothing -- and a line
+    // that is sometimes the whole value of the card and sometimes an echo is a
+    // line people learn to skip, informative cases included.
+    expect(labelAddsNothing("Section one", ["Outer", "Section one"])).toBe(true);
+    expect(labelAddsNothing("SECTION ONE", ["Outer", "Section one"])).toBe(true);
+    renderCard(labelPayload({ text: "Section one" }), ["Outer", "Section one"]);
+    expect(screen.queryByTestId("policy-topic-label")).toBeNull();
+  });
+
+  it("keeps a label that introduces any word the heading did not", () => {
+    expect(labelAddsNothing("Stated arrangement", ["Outer", "Section one"])).toBe(false);
+    renderCard(labelPayload(), ["Outer", "Section one"]);
+    expect(screen.getByTestId("policy-topic-label")).toBeTruthy();
+  });
+
+  it("judges the whole heading chain, because the card shows the whole chain", () => {
+    // A label repeating an outer heading is as redundant to a reader looking at
+    // the trail as one repeating the innermost.
+    expect(labelAddsNothing("Outer", ["Outer", "Section one"])).toBe(true);
+  });
+
+  it("compares words rather than characters, so a longer heading word is not a match", () => {
+    // Substring containment would call "arrange" redundant against
+    // "arrangement". They are different words and the shorter one is new.
+    expect(labelAddsNothing("arrange", ["arrangement"])).toBe(false);
+  });
+
+  it("applies the same rule to a script the heading does not use", () => {
+    // A label in another script shares no word with a Latin heading, so it is
+    // always new -- which is right: it is exactly the case the reader cannot
+    // read off the heading. No language is named to reach that answer.
+    const arabic = "\u0627\u0644\u062a\u0631\u062a\u064a\u0628";
+    expect(labelAddsNothing(arabic, ["Section one"])).toBe(false);
+    expect(labelAddsNothing(arabic, [arabic])).toBe(true);
+  });
+
+  it("holds no heading, no vocabulary and no fitted threshold of its own", () => {
+    // The rule is a relation between two strings handed to it. If it carried a
+    // list of headings, or a threshold fitted to a corpus, it would be right
+    // about one set of documents and wrong about the next.
+    //
+    // Asserted precisely rather than crudely: `0` and `1` are structural (an
+    // empty check, an index) and cannot encode a measurement, so those are
+    // allowed and anything else is not. A string literal containing a letter is
+    // how domain vocabulary would arrive, so none may.
+    const source = labelAddsNothing.toString();
+    const numbers = (source.match(/\b\d+\b/g) ?? []).filter(
+      (literal) => literal !== "0" && literal !== "1",
+    );
+    expect(numbers).toEqual([]);
+    const stringsWithWords = (source.match(/"[^"]*"|'[^']*'/g) ?? []).filter((literal) =>
+      /\p{L}/u.test(literal),
+    );
+    expect(stringsWithWords).toEqual([]);
+  });
+
+  it("records a withheld label in the export rather than dropping it", () => {
+    // What was generated and what a reader was shown are different facts, and
+    // neither may be inferred from the other's absence.
+    const doc = policyJsonDocument(card(labelPayload({ text: "Section one" }), ["Section one"]));
+    const label = doc.generated_topic_label as Record<string, unknown>;
+    expect(label.text).toBe("Section one");
+    expect(label.shown_on_card).toBe(false);
   });
 });

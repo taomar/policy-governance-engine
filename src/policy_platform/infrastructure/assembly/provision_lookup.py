@@ -65,6 +65,7 @@ async def provision_groupings(
             continue
         groupings[str(rule_id)] = ProvisionGrouping(
             key=row.provision_key,
+            provision_id=str(row.id),
             heading_path=tuple(row.heading_path_json or ()),
         )
     return groupings

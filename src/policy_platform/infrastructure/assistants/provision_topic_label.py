@@ -128,13 +128,44 @@ _FORBIDDEN_PUNCTUATION = frozenset(
     ".!?;:,_\u061F\u060C\u061B\u3002\uFF0C\uFF1B\uFF1A\uFF01\uFF1F\u2026\u00B7|"
 )
 
-#: Quote characters. A pair enclosing the whole reply is removed, because a
-#: model wrapping its answer in quotes is a formatting habit rather than a claim
-#: about the document. Anything left after that is refused: a label carrying a
-#: quotation mark presents itself as somebody's exact words, and it is not.
-_QUOTES = "\"'\u2018\u2019\u201C\u201D\u00AB\u00BB\u2039\u203A\u0060"
+#: Quote characters that are never part of a word.
+#:
+#: No orthography writes a doubled or angled quotation mark inside or at the
+#: edge of a word, so one of these left in a reply is quoting something. A pair
+#: enclosing the whole reply is removed first, because a model wrapping its
+#: answer in quotes is a formatting habit rather than a claim about the
+#: document. Anything after that is refused: a label carrying a quotation mark
+#: presents itself as somebody's exact words, and it is not.
+_QUOTE_MARKS = "\"\u2018\u201C\u201D\u00AB\u00BB\u2039\u203A\u0060"
 
-#: How much of the passage the model reads. A budget, so one enormous section
+#: Marks that may belong to a word.
+#:
+#: An apostrophe joins letters in an elision and trails a letter in a possessive,
+#: in more languages than could be listed here. Positionally it is
+#: indistinguishable from a closing single quote, so it is admitted when it
+#: touches a letter and refused when it floats. Admitting it is the side to err
+#: on: a passage was refused a label for containing the same apostrophe its own
+#: heading contains, which is the check being hostile to how a language writes.
+_WORD_MARKS = "'\u2019\u02BC"
+
+#: What `_strip_enclosing_quotes` removes when it wraps the whole reply.
+_QUOTES = _QUOTE_MARKS + _WORD_MARKS
+
+#: How many times the model is asked before a reply that is not a subject name
+#: is recorded as the outcome.
+#:
+#: A reply is a sample, not a verdict. Asked twice about eleven passages whose
+#: first reply had been refused, this model produced a usable subject name for
+#: six of them on the second ask -- the same passage, the same words, the same
+#: prompt. So a single refused reply was recording model variance as a property
+#: of the passage, and a reviewer lost a label to it permanently.
+#:
+#: Two, not more: the point is to sample past variance, not to keep asking until
+#: something gets through, which is how a validator stops meaning anything. And
+#: only a reply that fails validation is re-asked -- a call that raises is not,
+#: because a refusal by the service is a decision about the text and repeating
+#: it only spends the quota again.
+ASK_ATTEMPTS = 2#: How much of the passage the model reads. A budget, so one enormous section
 #: cannot cost a run; the subject of a passage is stated at its start, so the
 #: opening is what is kept.
 MAX_SOURCE_CHARS = 4000
@@ -266,6 +297,35 @@ def _strip_enclosing_quotes(text: str) -> str:
     return text
 
 
+def _marks_between_words(text: str, marks, *, allow_at_edge: bool = False) -> bool:
+    """Whether any of `marks` appears where it separates runs rather than joins them.
+
+    A mark with a letter on both sides is part of a word: the apostrophe in an
+    elision, the hyphen in a compound. A mark anywhere else is doing the work of
+    punctuation -- ending a clause, ending a sentence, opening a quotation --
+    because sentence machinery is always followed by a space or by the end of
+    the text, never by a letter.
+
+    `allow_at_edge` widens that to a mark touching a letter on either side, for
+    marks that trail a word as well as join one.
+
+    The distinction is positional, so it holds for text in scripts this has
+    never read. The alternative -- listing which marks are letters in which
+    language -- would be one language's spelling rules written into a check that
+    every language has to pass.
+    """
+
+    for index, char in enumerate(text):
+        if char not in marks:
+            continue
+        before = text[index - 1].isalpha() if index > 0 else False
+        after = text[index + 1].isalpha() if index + 1 < len(text) else False
+        joined = (before or after) if allow_at_edge else (before and after)
+        if not joined:
+            return True
+    return False
+
+
 def validate_label(reply: str, source: LabelSource) -> tuple[str | None, str | None]:
     """The usable label in a reply, or the code saying why there is none.
 
@@ -281,9 +341,11 @@ def validate_label(reply: str, source: LabelSource) -> tuple[str | None, str | N
     if not text:
         return None, UNAVAILABLE_REPLY_UNUSABLE
 
-    if any(char in _QUOTES for char in text):
+    if any(char in _QUOTE_MARKS for char in text):
         return None, UNAVAILABLE_REPLY_UNUSABLE
-    if any(char in _FORBIDDEN_PUNCTUATION for char in text):
+    if _marks_between_words(text, _WORD_MARKS, allow_at_edge=True):
+        return None, UNAVAILABLE_REPLY_UNUSABLE
+    if _marks_between_words(text, _FORBIDDEN_PUNCTUATION):
         return None, UNAVAILABLE_REPLY_UNUSABLE
     if any(char.isdigit() for char in text):
         return None, UNAVAILABLE_REPLY_UNUSABLE
@@ -346,15 +408,27 @@ async def generate_label(
         )
 
     try:
-        reply = await (client or AzureOpenAIClient(settings)).chat(
-            [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": source.combined},
-            ],
-            deployment=deployment,
-            max_tokens=200,
-            timeout=60.0,
-        )
+        ask = client or AzureOpenAIClient(settings)
+        for attempt_number in range(ASK_ATTEMPTS):
+            reply = await ask.chat(
+                [
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": source.combined},
+                ],
+                deployment=deployment,
+                max_tokens=200,
+                timeout=60.0,
+            )
+            label, code = validate_label(reply, source)
+            if label is not None:
+                break
+            if attempt_number + 1 < ASK_ATTEMPTS:
+                logger.info(
+                    "topic label reply was not a subject name, asking again "
+                    "(attempt %d of %d)",
+                    attempt_number + 2,
+                    ASK_ATTEMPTS,
+                )
     except Exception as exc:  # noqa: BLE001 - the heading stands on its own
         logger.warning("topic label generation failed: %s", exc)
         return LabelAttempt(
@@ -366,7 +440,6 @@ async def generate_label(
             source_rule_count=source.rule_count,
         )
 
-    label, code = validate_label(reply, source)
     return LabelAttempt(
         label=label,
         unavailable_code=code,

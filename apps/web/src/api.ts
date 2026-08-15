@@ -912,6 +912,17 @@ export interface CandidateRule {
    *  a run nobody requested. */
   superseded_by_candidate_id: string | null;
   superseded_at: string | null;
+  /** Which persisted provision states this rule — a reference, nothing more.
+   *
+   *  Resolves against `AssembledPolicy.provision_id` from
+   *  `GET /policy-sets/{key}/policies`. Deliberately not accompanied by the
+   *  heading chain or the sibling rules: that composition is served once, there,
+   *  and a second copy travelling on the flat list would be free to disagree
+   *  with it the moment a filter separated them.
+   *
+   *  Null for a rule extracted before provisions existed, or one whose document
+   *  defeated grouping. Null means "not linked", never "no provisions here". */
+  provision_id?: string | null;
   rule: CanonicalRule;
 }
 
@@ -1110,6 +1121,12 @@ export interface AssembledPolicy {
    *  inferred at read time from the headings its rules cite. Shown rather than
    *  hidden: a reviewer approving a policy is entitled to know which. */
   persisted: boolean;
+  /** Which persisted provision this policy is. Present exactly when `persisted`
+   *  is true, and the target of `CandidateRule.provision_id` — so a client
+   *  holding both lists joins rule to policy by identity, never by matching
+   *  headings. Matching headings is the derivation persisting the grouping
+   *  exists to make unnecessary. */
+  provision_id?: string | null;
   /** Scopes the grouping: two documents may share a heading without thereby
    *  stating one policy. */
   document_version_id: string | null;

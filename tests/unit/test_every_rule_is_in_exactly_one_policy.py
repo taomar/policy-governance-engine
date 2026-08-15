@@ -148,7 +148,8 @@ class TestEveryRuleIsInExactlyOnePolicy:
         # `7.2. WORK PERMIT (IQAMA) & TRANSFERRING ONES SPONSORSHIP`, in its
         # general form: two consecutive elements, one about a medical test and
         # one about sponsorship cost, previously two cards with one name.
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("7.2. WORK PERMIT",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("7.2. WORK PERMIT",))
         policies = self._assembled(
             [_rule("medical", "p9-E000074"), _rule("sponsorship", "p9-E000075")],
             provisions={"medical": grouping, "sponsorship": grouping},
@@ -159,8 +160,10 @@ class TestEveryRuleIsInExactlyOnePolicy:
         assert {rule.rule_id for rule in policies[0].rules} == {"medical", "sponsorship"}
 
     def test_every_rule_lands_in_a_policy(self) -> None:
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("1. Employment",))
-        other = ProvisionGrouping(key="prov-b", heading_path=("2. Leave",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("1. Employment",))
+        other = ProvisionGrouping(
+            key="prov-b", provision_id="id-prov-b", heading_path=("2. Leave",))
         rules = [_rule(f"r{i}", f"E{i}") for i in range(6)]
         policies = self._assembled(
             rules,
@@ -176,8 +179,10 @@ class TestEveryRuleIsInExactlyOnePolicy:
     def test_no_rule_lands_in_two_policies(self) -> None:
         # CONTROL for the test above, which an assembly that copied every rule
         # into every policy would also pass.
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("1. Employment",))
-        other = ProvisionGrouping(key="prov-b", heading_path=("2. Leave",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("1. Employment",))
+        other = ProvisionGrouping(
+            key="prov-b", provision_id="id-prov-b", heading_path=("2. Leave",))
         rules = [_rule(f"r{i}", f"E{i}") for i in range(6)]
         policies = self._assembled(
             rules,
@@ -193,7 +198,8 @@ class TestEveryRuleIsInExactlyOnePolicy:
     def test_a_policy_of_fourteen_holds_fourteen(self) -> None:
         # "Nothing is lost", stated as the count the card will print beside the
         # rules it will draw. The two are the same number or the card is lying.
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("10. Conduct",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("10. Conduct",))
         rules = [_rule(f"r{i}", f"E{i}") for i in range(14)]
         policies = self._assembled(
             rules, provisions={rule.rule_id: grouping for rule in rules}
@@ -208,7 +214,8 @@ class TestEveryRuleIsInExactlyOnePolicy:
         # CONTROL. The ordinary case must go through the same path and come out
         # as a policy, not as a container with one thing in it or as an
         # exception the assembly routes around.
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("3. Dress code",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("3. Dress code",))
         policies = self._assembled([_rule("only", "E1")], provisions={"only": grouping})
 
         assert len(policies) == 1
@@ -225,7 +232,8 @@ class TestEveryRuleIsInExactlyOnePolicy:
         assert placed == {"orphan"}
 
     def test_a_mixed_run_places_grouped_and_ungrouped_rules_alike(self) -> None:
-        grouping = ProvisionGrouping(key="prov-a", heading_path=("1. Employment",))
+        grouping = ProvisionGrouping(
+            key="prov-a", provision_id="id-prov-a", heading_path=("1. Employment",))
         policies = self._assembled(
             [_rule("grouped", "E1"), _rule("loose", "E9")],
             provisions={"grouped": grouping},

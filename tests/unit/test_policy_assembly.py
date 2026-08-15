@@ -425,8 +425,11 @@ class TestNothingIsInvented:
         A policy-level summary would be text no one in the document wrote, and
         the moment it existed a reviewer would start approving it instead of
         the rules. The only strings a policy carries are its provenance -- its
-        key, and the heading chain copied verbatim from the document, which is
-        why those can be shown as the policy's name.
+        key, the identity of the persisted row it is, and the heading chain
+        copied verbatim from the document, which is why those can be shown as
+        the policy's name. An identity is admissible here for the same reason a
+        key is: it names *which* policy this is and says nothing about what the
+        policy holds, so there is nothing in it for a reviewer to approve.
 
         Asserted as an exact field set rather than a check for known-bad names,
         so a summary column added later fails here on the day it is added
@@ -444,6 +447,7 @@ class TestNothingIsInvented:
             "passages",
             "heading_path",
             "persisted",
+            "provision_id",
         }
 
     def test_a_policy_is_named_by_the_heading_its_provision_recorded(self):
@@ -457,7 +461,7 @@ class TestNothingIsInvented:
         """
 
         grouping = ProvisionGrouping(
-            key="ab12", heading_path=("7. EMPLOYMENT", "7.2. WORK PERMIT (IQAMA)")
+            key="ab12", provision_id="id-ab12", heading_path=("7. EMPLOYMENT", "7.2. WORK PERMIT (IQAMA)")
         )
         policies = assemble(
             [_rule("R1", "p9-E000074", section="S"), _rule("R2", "p9-E000075", section="S")],

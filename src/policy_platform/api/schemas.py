@@ -248,6 +248,25 @@ class CandidateRuleResponse(BaseModel):
     #:
     #: Absent means this is the latest reading of its sentence.
     superseded_by_candidate_id: str | None = None
+    #: Which persisted provision states this rule — a reference, never the
+    #: provision itself.
+    #:
+    #: Deliberately an identity and nothing more. `GET /policies` already
+    #: composes the provision: which rules belong together, the heading chain,
+    #: the passages. Repeating any of that here would put two answers to one
+    #: question on the same page, free to disagree the moment a filter, a
+    #: superseded row or a stale cache separates them — which is the defect
+    #: persisting the grouping was meant to end. A reference cannot disagree
+    #: with the thing it points at; it can only fail to resolve, and that is
+    #: visible.
+    #:
+    #: Costs no query: the column is already on the row being serialised.
+    #:
+    #: Absent for a rule extracted before provisions existed, or one whose
+    #: document defeated grouping. Absent means "not linked", never "no
+    #: provisions here" — those rules are still reviewable, under the heading
+    #: their evidence records.
+    provision_id: str | None = None
     rule: CanonicalRule
 
 
