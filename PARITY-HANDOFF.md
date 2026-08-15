@@ -269,16 +269,37 @@ seen at a version; `document_provisions.id` belongs to one document version and
 cannot follow a policy across a re-extraction. `AssembledPolicy.key` is the right
 argument.
 
-## 9. `api.ts` line ~1717 + `schemas.py` line ~349 — notes are rule-bound
+## 9. `api.ts` line ~1735 + `schemas.py` line ~349 — notes are rule-bound
 
 **What is needed:** widen the note entity union at both ends so a note can name a
-policy.
+policy, and key it on the policy's identity rather than its row.
 
-- `schemas.py:349` — the Pydantic `Literal` listing note entity types.
-- `api.ts:1717` — the TypeScript union that mirrors it.
+- `schemas.py:349` — `CreateNoteRequest.entity_type` is
+  `Literal["policy_set", "policy_version", "candidate_rule", "rule"]`. Add one
+  member for a policy.
+- `api.ts:1735` — `NoteEntityType`, the TypeScript union that mirrors it. Add the
+  same member.
 
-Both are literal unions over an existing column. **No migration is needed** — the
-column already stores a string.
+**Only creating is blocked.** `GET /api/notes` takes `entity_type: str` with no
+constraint (`routers/notes.py`), `NoteResponse.entity_type` is a plain `str`
+(`schemas.py:358`), and the column is text by design — the model's own docstring
+says it is polymorphic precisely so notes can attach to unrelated tables without
+a schema change. **No migration is needed.** The `Literal` on the create schema
+is the entire obstacle, and it is one line.
+
+**Which id to key on, and why the obvious answer is wrong.** Key a policy note on
+`provision_key`, not on `document_provisions.id`.
+
+`document_provisions.id` is per document version: zero keys span more than one,
+so a note written against a row id is a note about *that cut* of the policy. The
+next extraction run produces a new row and the note silently stops appearing —
+not deleted, not moved, just no longer reachable from the policy it was written
+about. `provision_key` is the policy's identity across versions and is already
+what the published grouping and the History endpoint are built on. This is the
+same distinction the `Note` model already draws for rules, and it resolved it
+the same way: `"rule"` is keyed on `CanonicalRule.rule_id`, the stable business
+key, explicitly "so notes persist across a rule's candidate -> approved ->
+superseded lifecycle." A policy needs exactly that, for exactly that reason.
 
 **Why it matters:** Notes is the one tab of the eight not built, and it is not
 built because there is nowhere to put a policy-scoped note. The cost of leaving
@@ -365,3 +386,41 @@ surface.
 `EVERY_TAB` list, so that literal changes with it — and is better read from the
 same constant, so the list can never again agree with a spelling it was copied
 from.
+
+## 13. `PolicyInspector.readOnly` is gone — what replaced it, and why not deletion
+
+**Done, not requested.** `PolicyInspector`'s `readOnly` prop has been renamed to
+`shownAsReference`, and two of the four things it gated have been deleted
+outright. If you hold a call site that passed `readOnly`, rename it; nothing else
+changes.
+
+**Why it was not simply deleted, as I previously said it should be.** I said that
+before reading its two callers. Read across every call site, the flag stood in
+front of four unrelated questions:
+
+| gated | decided by | verdict |
+|---|---|---|
+| `Revise` | `onRevise` being passed | dead — neither caller that raised the flag passed the handler |
+| the caller's `additionalActions` | the node being passed | dead — same |
+| the `Notes` tab | the flag | live |
+| the `Test scenario` tab | the flag | live |
+
+The two dead gates are the shape this whole exercise exists to remove — a flag
+giving a second opinion on a question the call site had already answered — and
+they were provably unreachable, so removing them is behaviour-preserving. They
+are gone, and `inspectorHonoursItsHandlers.test.tsx` fails if either returns.
+
+The two live ones are **not editability, and deleting the prop would have been
+wrong.** Both callers are drawers that show a rule as a citation inside another
+workflow — a quality finding, a validation preview. Whether a record may be
+changed is a property of the record and `candidateEditability` answers it.
+Whether this inspector is the place the reader came to act, or a reference pulled
+in beside something else, is a property of the surrounding surface — and the
+*same* published rule is both, on different pages. No record can answer that, so
+the caller must, and the honest fix was to name it for what it decides rather
+than to delete a distinction that is real.
+
+**Note for anyone tempted to widen it again:** it may suppress only *acting on* a
+rule reached sideways. The moment it gates something a record or a handler
+already answers, it is the old flag under a new name.
+
