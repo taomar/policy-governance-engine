@@ -46,6 +46,7 @@ EdgeKind = Literal[
     "caption_for",
     "footnote_marker_to_note",
     "continues_on",
+    "table_continues_on",
 ]
 
 
@@ -56,6 +57,41 @@ class StructuralEdge:
     source: str
     target: str
     kind: EdgeKind
+
+
+@dataclass(frozen=True)
+class TableContinuation:
+    """A record that one page's grid may continue the previous page's.
+
+    Deliberately not a merge. `page.find_tables()` is a per-page API, so a table
+    running across a page break is emitted as two grids with different ids, and
+    the question of whether they are one table has no answer that structure alone
+    can give. Measured on a real bilingual schedule spanning seven pages:
+
+    * the governing heading repeats on all seven pages -- but that is text
+      equality, not structure, and a running heading over genuinely distinct
+      tables would say the same thing;
+    * column counts across pages of that one table were 18, 10, 11, 18, 8, 18, 8,
+      so grid width is not stable even within a single logical table;
+    * "the table runs to the bottom margin" misses a page that ends 97pt above
+      the bottom and still continues.
+
+    So no single signal identifies a continuation. This record states what was
+    observed and names every signal that fired, leaving the judgement to the
+    consumer. `table_id`s are never merged: two tables stay two, because that is
+    what the evidence supports, and grouping records for a reviewer is done a
+    level up by governing heading rather than by a claim about layout.
+    """
+
+    #: The table that may continue onto the next page.
+    from_table_id: str
+    #: The table that may be its continuation.
+    to_table_id: str
+    from_page: int
+    to_page: int
+    #: Every signal that fired, in a fixed order so the record is comparable
+    #: between runs. Never empty: a record with no corroboration is not emitted.
+    signals: tuple[str, ...]
 
 
 @dataclass
@@ -84,6 +120,8 @@ class StructuralGraph:
     #: Cell coordinates, kept beside the nodes so consumers can reason about
     #: table position without holding the canonical document as well.
     table_cells: dict[str, TableCellRef] = field(default_factory=dict)
+    #: Observed, never merged. See `TableContinuation`.
+    table_continuations: list[TableContinuation] = field(default_factory=list)
 
     _outgoing: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
     _incoming: dict[tuple[str, str], list[str]] = field(default_factory=dict, repr=False)
@@ -179,6 +217,7 @@ def build_structural_graph(document: CanonicalDocument) -> StructuralGraph:
     _add_table_edges(graph, ordered)
     _add_reference_edges(graph, ordered)
     _add_continuation_edges(graph, ordered)
+    _add_table_continuations(graph, ordered)
 
     graph.index()
     return graph
@@ -360,6 +399,126 @@ def _add_continuation_edges(graph: StructuralGraph, ordered: list[CanonicalEleme
 def _ends_mid_sentence(text: str) -> bool:
     stripped = text.rstrip()
     return bool(stripped) and stripped[-1] not in ".!?:;"
+
+
+#: Signals that corroborate a continuation. At least one must fire on top of the
+#: two structural preconditions; neither is trusted on its own, because each was
+#: measured failing on a real document (see `TableContinuation`).
+#:
+#: Column count is deliberately absent. It was measured varying 18/10/11/18/8/18/8
+#: across pages of a single logical table, so it misses real continuations; and
+#: two unrelated tables of equal width match trivially, so it also fires on false
+#: ones. A signal with both failure directions is not evidence.
+_CORROBORATING = (
+    "repeated_governing_heading",
+    "continuation_has_no_header_row",
+)
+
+
+def _add_table_continuations(
+    graph: StructuralGraph, ordered: list[CanonicalElement]
+) -> None:
+    """Record where one page's grid appears to continue the previous page's.
+
+    Two preconditions must both hold, and then at least one corroborating signal
+    on top of them. The conjunction is the point: every individual signal was
+    measured producing a wrong answer somewhere, so any one of them alone would
+    be an opinion rather than an observation.
+
+    Nothing here reads a heading's wording, a numbering scheme or a layout
+    constant, so no document is a target.
+    """
+
+    rows_by_table: dict[str, list[CanonicalElement]] = {}
+    for element in ordered:
+        if element.table_id:
+            rows_by_table.setdefault(element.table_id, []).append(element)
+    if len(rows_by_table) < 2:
+        return
+
+    order = {element.element_id: index for index, element in enumerate(ordered)}
+    table_ids = list(rows_by_table)
+
+    for earlier_id, later_id in zip(table_ids, table_ids[1:]):
+        earlier = rows_by_table[earlier_id]
+        later = rows_by_table[later_id]
+        earlier_page = _last_page(earlier)
+        later_page = _first_page(later)
+        if earlier_page is None or later_page is None:
+            continue
+
+        # Precondition 1: the pages are consecutive. A gap means intervening
+        # content that is not a page break, whatever else agrees.
+        if later_page != earlier_page + 1:
+            continue
+
+        # Precondition 2: nothing but headings sits between the two grids. The
+        # repeated heading of a continued table lands exactly here, which is
+        # also why `_add_continuation_edges` cannot see these -- it requires
+        # strict reading-order adjacency and identical element types.
+        between = ordered[order[earlier[-1].element_id] + 1 : order[later[0].element_id]]
+        if any(element.element_type != "heading" for element in between):
+            continue
+
+        signals: list[str] = []
+
+        earlier_heading = _governing_heading(ordered, order, earlier[0])
+        later_heading = _governing_heading(ordered, order, later[0])
+        if (
+            earlier_heading
+            and later_heading
+            and " ".join(earlier_heading.split()) == " ".join(later_heading.split())
+        ):
+            signals.append("repeated_governing_heading")
+
+        # Only observable because ingestion stopped assuming grid row 0 is a
+        # header row. While every table carried headers -- wrongly -- a
+        # continuation page was indistinguishable from a table's first page.
+        if any(row.table_headers for row in earlier) and not any(
+            row.table_headers for row in later
+        ):
+            signals.append("continuation_has_no_header_row")
+
+        if not signals:
+            continue
+
+        graph.table_continuations.append(
+            TableContinuation(
+                from_table_id=earlier_id,
+                to_table_id=later_id,
+                from_page=earlier_page,
+                to_page=later_page,
+                signals=tuple(s for s in _CORROBORATING if s in signals),
+            )
+        )
+        graph.edges.append(
+            StructuralEdge(
+                earlier[-1].element_id, later[0].element_id, "table_continues_on"
+            )
+        )
+
+
+def _last_page(elements: list[CanonicalElement]) -> int | None:
+    pages = [page for element in elements for page in element.pages]
+    return max(pages) if pages else None
+
+
+def _first_page(elements: list[CanonicalElement]) -> int | None:
+    pages = [page for element in elements for page in element.pages]
+    return min(pages) if pages else None
+
+
+def _governing_heading(
+    ordered: list[CanonicalElement],
+    order: dict[str, int],
+    element: CanonicalElement,
+) -> str | None:
+    """The nearest heading before `element` in reading order, verbatim."""
+
+    for candidate in reversed(ordered[: order[element.element_id]]):
+        if candidate.element_type == "heading":
+            return candidate.text
+    return None
 
 
 def verify_structural_coverage(
