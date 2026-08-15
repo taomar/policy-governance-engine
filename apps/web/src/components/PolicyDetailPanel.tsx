@@ -40,7 +40,7 @@ import {
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
   PolicyTestsPane,
-  candidatePolicyRecord,
+  policyRecord,
   type PolicySightingView,
   type PolicyTestingVerbs,
 } from "./policyTabPanes";
@@ -196,7 +196,7 @@ export function PolicyDetailPanel({
    *  used would make the file disagree with the screen. */
   documentName?: string | null;
 }) {
-  const record = candidatePolicyRecord(card);
+  const record = policyRecord(card);
   const title = policyTitle(card.policy, card.passages);
   const page = passagePageLabel(card.policy.page);
   // The headings above this one. The innermost is the card's own title, so it
@@ -284,6 +284,12 @@ export function PolicyDetailPanel({
     >
       <div className="policy-detail-panel__head">
         <div className="policy-detail-panel__identity">
+          {/* The counterpart of the rule panel's marker. One panel serves both
+            * depths, so the reader is told which depth they are at rather than
+            * being left to infer it from what happens to be on screen. */}
+          <p className="record-kind-eyebrow" data-testid="record-kind">
+            Policy
+          </p>
           {trail.length > 0 && (
             <p
               className="policy-card__trail"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { DownloadOutlined, FileSearchOutlined, LayoutOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { DownloadOutlined, FileSearchOutlined, LayoutOutlined, LeftOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import {
   api,
   downloadBlob,
@@ -31,6 +31,7 @@ import {
 import { EditRuleModal } from "./EditRuleModal";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
 import { PolicyInspector } from "./PolicyInspector";
+import { PolicyDetailPanel } from "./PolicyDetailPanel";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { usePolicyTesting } from "./policyTesting";
@@ -42,6 +43,8 @@ import {
   listProvisionHistory,
   listVersionPolicies,
   publishedCardsAnsweringNarrowing,
+  publishedPolicyTitle,
+  type PublishedPolicyCard as PublishedPolicyCardModel,
   unplacedPublishedRules,
 } from "../publishedPolicyCards";
 import {
@@ -53,7 +56,32 @@ import {
 
 const { Title, Text } = Typography;
 
+/**
+ * How a record's state reads on this page.
+ *
+ * Every record a published version serves is published, so in practice these
+ * answer once. They are still functions of the status rather than a constant,
+ * because the panel is the review surface's panel and a card that arrives here
+ * carrying some other state must be able to say so rather than be relabelled.
+ */
+const publishedStatusColor = (status: string) => (status === "published" ? "green" : "default");
+const publishedStatusLabel = (status: string) => status.replace(/_/g, " ");
+
 type PoliciesWorkspaceMode = "list" | "split" | "detail";
+
+/**
+ * Whether an element sits entirely outside the window, vertically.
+ *
+ * The one decision behind moving the page for a reader, so it is separated from
+ * the moving: a selection scrolls the panel back only when the panel is
+ * genuinely out of sight. The partially-visible case is the one that matters —
+ * a panel with its top edge above the window is still being read, and pulling
+ * the page under someone mid-sentence to gain a few pixels is worse than
+ * leaving them where they are.
+ */
+export function isOutsideWindow(box: { top: number; bottom: number }, windowHeight: number): boolean {
+  return box.bottom <= 0 || box.top >= windowHeight;
+}
 
 /** How many policies are drawn at once. A whole policy is a much taller thing
  *  than a row, so the list is paged rather than virtualized — the same choice
@@ -104,6 +132,18 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [focusedFamily, setFocusedFamily] = useState<string | null>(null);
 
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
+  /** The policy the reader opened, by its `provision_key`.
+   *
+   *  A policy and a rule are two different selections, and this page used to
+   *  hold only the second: opening a policy selected its first rule, so the
+   *  panel answered a question about one rule of twelve while the reader was
+   *  pointing at the policy. A reader tracing a policy was then offered the
+   *  rule's identifier and the policy *set*'s, and neither named the thing on
+   *  screen.
+   *
+   *  Held as the key rather than the card because the cards are rebuilt on every
+   *  narrowing; a held card would go stale, a held key resolves or does not. */
+  const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
   /** The rule whose detail is open inside its policy. Distinct from the
    *  selection, which drives the inspector: a reader can be looking at one
    *  rule in place while the panel still shows the one they arrived on. */
@@ -113,6 +153,9 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [reviseTarget, setReviseTarget] = useState<CanonicalRule | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<PoliciesWorkspaceMode>("split");
   const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
+  /** The panel column, so a selection made while it is scrolled out of the
+   *  window can bring it back. See `revealPanel`. */
+  const inspectorRef = useRef<HTMLDivElement | null>(null);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
   /** The set's tests, loaded once for the page so every policy's Tests tab
    *  reads the same answer. `null` while unknown — a failed load must not read
@@ -311,15 +354,18 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     setFocusedFamily(null);
   }, [versionId]);
 
-  // Auto-select the first rule whenever a new rule set loads, but keep the current selection
-  // (and whichever inspector tab the user is on) if it's still present — e.g. after switching
-  // grouping/sort/filters, which never change the underlying `rules` array.
+  // Open on a policy, and stay on a policy until the reader drills into one of
+  // its rules. Selecting a rule up front is what produced the reported fault:
+  // the page is a list of policies, so the panel that opens beside it has to be
+  // answering about a policy. Keeps the current selection when it survives a
+  // reload — switching grouping, sort or filters never changes `rules`.
   useEffect(() => {
     if (rules.length === 0) {
       setSelectedRuleId(null);
+      setOpenPolicyKey(null);
       return;
     }
-    setSelectedRuleId((prev) => (prev && rules.some((r) => r.rule_id === prev) ? prev : rules[0].rule_id));
+    setSelectedRuleId((prev) => (prev && rules.some((r) => r.rule_id === prev) ? prev : null));
   }, [rules]);
 
   // Computed once over the full, unfiltered rule set (not `sorted`/`filtered`) so a rule's
@@ -425,6 +471,19 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  from the page. */
   const unplaced = useMemo(() => unplacedPublishedRules(policies, shownRules), [policies, shownRules]);
 
+  // A policy the narrowing no longer shows is not a policy the panel may keep
+  // open. Separated from the rule effect above because the cards, not the
+  // rules, are what a search selects.
+  useEffect(() => {
+    if (cards.length === 0) {
+      setOpenPolicyKey(null);
+      return;
+    }
+    setOpenPolicyKey((prev) =>
+      prev && cards.some((card) => card.policy.key === prev) ? prev : cards[0].policy.key,
+    );
+  }, [cards]);
+
   const pagedCards = useMemo(
     () => cards.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [cards, page]
@@ -479,25 +538,86 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const selectedRule = useMemo(() => rules.find((r) => r.rule_id === selectedRuleId) ?? null, [rules, selectedRuleId]);
   const canRevise = !!selectedVersion?.is_active;
 
-  const handleSelectRule = (rule: CanonicalRule) => {
-    setSelectedRuleId(rule.rule_id);
+  /** The policy the panel is showing, when it is showing a policy.
+   *
+   *  Resolved from the narrowed cards, so a policy that a search has taken off
+   *  the list cannot stay open in the panel beside it. */
+  const openPolicyCard = useMemo(
+    () => cards.find((card) => card.policy.key === openPolicyKey) ?? null,
+    [cards, openPolicyKey],
+  );
+
+  /** The file the open policy was read out of, where the runs resolve it.
+   *
+   *  `null` rather than a guess when they do not: this names a document to a
+   *  reader tracing one, and a wrong name is worse than none. */
+  const documentName = useMemo(() => {
+    const versionId = openPolicyCard?.policy.document_version_id;
+    if (!versionId) return null;
+    return (
+      extractionRuns?.find((run) => run.document_version_id === versionId)?.document_title ?? null
+    );
+  }, [openPolicyCard, extractionRuns]);
+
+  /** Bring the panel to where the reader can see it, whatever they opened.
+   *
+   *  Both arms answer the same question — "the record you asked for is over
+   *  here" — at the two breakpoints, which is why they share one function
+   *  rather than each selection handler knowing about layout.
+   *
+   *  The desktop arm exists because the card list is taller than the panel
+   *  beside it: a reader who has scrolled far enough down to reach a rule has
+   *  scrolled the panel off the top of the window, so the panel answers them
+   *  where they cannot see it and the click reads as having done nothing. It
+   *  moves only when the panel is genuinely out of view, and only far enough
+   *  to bring it back — a scroll on every selection would yank the page under
+   *  a reader who could already see the answer.
+   */
+  const revealPanel = () => {
     if (isDesktop) {
       // Selecting a record while scanning in list-only mode is an explicit
       // request to inspect it; restore the split without forcing full focus.
       if (workspaceMode === "list") setWorkspaceMode("split");
+      // After the panel has re-rendered with what was just selected, so the
+      // measurement is of the panel the reader is about to read.
+      requestAnimationFrame(() => {
+        const panelNode = inspectorRef.current;
+        if (!panelNode) return;
+        if (isOutsideWindow(panelNode.getBoundingClientRect(), window.innerHeight)) {
+          panelNode.scrollIntoView({ block: "nearest" });
+        }
+      });
     } else {
       setMobileInspectorOpen(true);
     }
   };
 
+  /** Open a policy in the panel, as a policy.
+   *
+   *  Clears the rule selection, because the two are one panel at two depths and
+   *  a rule left selected would put the reader back where they just came from.
+   */
+  const handleOpenPolicy = (card: PublishedPolicyCardModel) => {
+    setOpenPolicyKey(card.policy.key);
+    setSelectedRuleId(null);
+    setInspectorTab("overview");
+    revealPanel();
+  };
+
+  const handleSelectRule = (rule: CanonicalRule) => {
+    setSelectedRuleId(rule.rule_id);
+    // Drilling into a rule from a card keeps that card's policy behind it, so
+    // "back to the policy" has somewhere to go. Reaching a rule from anywhere
+    // else — the flat list, a citation — leaves whatever was open alone.
+    const owner = cards.find((card) => card.rules.some((entry) => entry.rule_id === rule.rule_id));
+    if (owner) setOpenPolicyKey(owner.policy.key);
+    revealPanel();
+  };
+
   const handleViewHistory = (rule: CanonicalRule) => {
     setSelectedRuleId(rule.rule_id);
     setInspectorTab("history");
-    if (isDesktop) {
-      if (workspaceMode === "list") setWorkspaceMode("split");
-    } else {
-      setMobileInspectorOpen(true);
-    }
+    revealPanel();
   };
 
   const changeWorkspaceMode = (mode: PoliciesWorkspaceMode) => {
@@ -546,7 +666,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         ? "No policies in this family match the current search and filters."
         : "No policies match the current search and filters.";
 
-  const inspector = (
+  const ruleInspector = (
     <PolicyInspector
       rule={selectedRule}
       allRules={rules}
@@ -556,6 +676,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       policySetKey={policySetKey}
       activeTabKey={inspectorTab}
       onTabChange={setInspectorTab}
+      recordLabel="rule"
       onRevise={canRevise ? setReviseTarget : undefined}
       onSelectRule={handleSelectRule}
       onClose={!isDesktop ? () => setMobileInspectorOpen(false) : undefined}
@@ -564,6 +685,104 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       isFullscreen={inspectorFullscreen}
     />
   );
+
+  // One panel, two depths — the same arrangement the review queue uses, and the
+  // same component doing it. A policy opens as a policy; one of its rules opens
+  // inside the same panel behind an explicit way back. The published surface
+  // had only the second half of this, so pointing at a policy answered about a
+  // rule.
+  const panel =
+    openPolicyCard && !selectedRule ? (
+      <PolicyDetailPanel
+        card={openPolicyCard}
+        documentName={documentName}
+        statusColor={publishedStatusColor}
+        statusLabel={publishedStatusLabel}
+        policySetKey={policySetKey}
+        tests={tests}
+        testsLoading={testsLoading}
+        testing={testing}
+        extractionRuns={extractionRuns}
+        history={historyByKey[openPolicyCard.policy.key] ?? null}
+        historyLoading={historyLoadingKeys.has(openPolicyCard.policy.key)}
+        onRequestHistory={requestHistory}
+        /* No `onApprove` and no `onReject`. Not suppressed here — there is
+         * nothing on a sealed record for either of them to write to, and the
+         * card's `reviewableIds` is empty for the same reason. A published
+         * policy therefore reaches this panel with no decision to offer,
+         * without this call site claiming anything about publishing. */
+        ruleDetail={(ruleId) => {
+          const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
+          if (!entry) return null;
+          return (
+            <div className="policy-card__rule-detail" data-testid="policy-card-rule-detail">
+              <RuleCard
+                rule={entry.rule}
+                defaultExpanded
+                hideNotes
+                aggregateLimits={aggregateLimits}
+                onRevise={canRevise ? setReviseTarget : undefined}
+              />
+            </div>
+          );
+        }}
+        ruleActions={(ruleId) => {
+          const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
+          if (!entry) return {};
+          return {
+            "open-record": () => handleSelectRule(entry.rule),
+            "view-history": () => handleViewHistory(entry.rule),
+            ...(canRevise ? { revise: () => setReviseTarget(entry.rule) } : {}),
+          };
+        }}
+        policyActions={{
+          "open-record": () => {
+            const first = openPolicyCard.rules[0];
+            if (first) handleSelectRule(first.rule);
+          },
+        }}
+        actions={
+          <>
+            {isDesktop && (
+              <Button size="small" onClick={() => setInspectorFullscreen((value) => !value)}>
+                {inspectorFullscreen ? "Restore" : "Expand"}
+              </Button>
+            )}
+            {isDesktop ? (
+              <Button size="small" onClick={hideInspector}>
+                Hide
+              </Button>
+            ) : (
+              <Button size="small" onClick={() => setMobileInspectorOpen(false)}>
+                Close
+              </Button>
+            )}
+          </>
+        }
+      />
+    ) : (
+      <>
+        {openPolicyCard && selectedRule && (
+          <div className="policy-detail-panel__breadcrumb">
+            <Button size="small" icon={<LeftOutlined />} onClick={() => setSelectedRuleId(null)}>
+              Back to the policy
+            </Button>
+            <Text type="secondary">
+              {/* Named by its title, not its key: a persisted provision's key is
+                  a digest, and a digest names nothing a reader is holding in
+                  mind while reading rule 3 of 12. The key is on the policy's
+                  own Overview, to copy, which is where tracing needs it. */}
+              Rule{" "}
+              {openPolicyCard.rules.findIndex((r) => r.rule_id === selectedRule.rule_id) + 1} of{" "}
+              {openPolicyCard.rules.length} in{" "}
+              {publishedPolicyTitle(openPolicyCard.policy, openPolicyCard.passages).text ||
+                openPolicyCard.policy.key}
+            </Text>
+          </div>
+        )}
+        {ruleInspector}
+      </>
+    );
 
   return (
     <>
@@ -766,11 +985,9 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             aggregateLimits={aggregateLimits}
                             expandedRuleId={expandedRuleId}
                             onToggleExportSelection={() => toggleExportSelection(ids)}
-                            onOpen={() => {
-                              const first = card.rules[0];
-                              if (first) handleSelectRule(first.rule);
-                            }}
+                            onOpen={() => handleOpenPolicy(card)}
                             onSelectRule={handleSelectRule}
+                            selectedRuleId={selectedRuleId}
                             onToggleRule={(rule) =>
                               setExpandedRuleId((prev) => (prev === rule.rule_id ? null : rule.rule_id))
                             }
@@ -852,11 +1069,12 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                     />
                   )}
                   <div
+                    ref={inspectorRef}
                     className={`policies-workspace-inspector${
                       inspectorFullscreen ? " policies-workspace-inspector--fullscreen" : ""
                     }`}
                   >
-                    {inspector}
+                    {panel}
                   </div>
                 </>
               )}
@@ -867,7 +1085,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
 
       {!isDesktop && (
         <Drawer
-          open={mobileInspectorOpen && !!selectedRule}
+          open={mobileInspectorOpen && (!!selectedRule || !!openPolicyCard)}
           onClose={() => setMobileInspectorOpen(false)}
           placement="right"
           size="100%"
@@ -875,7 +1093,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           styles={{ body: { padding: 0 } }}
           className="policy-inspector-drawer"
         >
-          {inspector}
+          {panel}
         </Drawer>
       )}
 

@@ -44,7 +44,7 @@ import {
 } from "../publishedPolicyCards";
 import {
   PARTIES_AND_ROUTES_TAB_LABEL,
-  publishedPolicyRecord,
+  policyRecord,
   type PolicySightingView,
 } from "./policyTabPanes";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
@@ -286,14 +286,14 @@ describe("the policy as one document", () => {
 describe("the neutral view a shared pane reads", () => {
   it("names every rule of the policy, with the id it is known by", () => {
     const [card] = cardsFor({ "a-policy": ["r1", "r2"] });
-    const record = publishedPolicyRecord(card);
+    const record = policyRecord(card);
     expect(record.rules.map((entry) => entry.rule_id)).toEqual(["r1", "r2"]);
     expect(record.rules.map((entry) => entry.rule)).toEqual(card.rules.map((entry) => entry.rule));
   });
 
   it("says nothing about who may act on the record", () => {
     const [card] = cardsFor({ "a-policy": ["r1"] });
-    const record = publishedPolicyRecord(card) as unknown as Record<string, unknown>;
+    const record = policyRecord(card) as unknown as Record<string, unknown>;
     // A pane that can see a status can branch on it, and the branch is how the
     // two surfaces drifted apart the first time.
     for (const forbidden of ["editable", "canReview", "readOnly", "status", "reviewStatus"]) {

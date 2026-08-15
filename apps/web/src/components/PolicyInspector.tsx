@@ -274,18 +274,32 @@ export function PolicyInspector({
       )}
       {overviewSupplement}
       <Descriptions column={1} size="small" bordered className="inspector-descriptions">
-        <Descriptions.Item label="Rule ID">
+        {/* THREE IDENTIFIERS, THREE DIFFERENT THINGS
+         *
+         * A reader tracing a record was offered "Rule ID" and "Policy ID (set)"
+         * side by side and reasonably read the second as the identifier of the
+         * policy this rule belongs to. It is not. It is the identifier of the
+         * whole set — every policy of the document at once — and the policy is
+         * a first-class record with an identity of its own, its `provision_key`,
+         * which is what carries across versions and what History is grouped by.
+         *
+         * So each label now names its scope rather than leaving the reader to
+         * infer it, widest first, and the policy's own key is on the policy's
+         * Overview where the policy is what is being shown. Nothing here
+         * invents a policy identifier for a rule: a rule states which policy it
+         * belongs to, and that is a different pane's answer. */}
+        <Descriptions.Item label="This rule">
           <Text code copyable={{ text: rule.rule_id }}>
             {rule.rule_id}
           </Text>
         </Descriptions.Item>
-        <Descriptions.Item label="Policy ID (set)">
+        <Descriptions.Item label="The policy set it belongs to">
           <Text code copyable={{ text: rule.policy_set_id }}>
             {rule.policy_set_id}
           </Text>
         </Descriptions.Item>
         {recordKind === "published" && (
-          <Descriptions.Item label="Published version ID">
+          <Descriptions.Item label="The published version it was read at">
             <Text code copyable={{ text: rule.policy_version_id }}>
               {rule.policy_version_id}
             </Text>
@@ -570,6 +584,15 @@ export function PolicyInspector({
   return (
     <div className="policy-inspector">
       <div className="policy-inspector-header">
+        {/* Which of the two records this panel is answering about.
+         *
+         * The page beside it lists policies, and a policy and one of its rules
+         * are two different selections that used to open the same rule-shaped
+         * panel. Naming the kind is what lets a reader tell, without counting
+         * identifiers, whether they are looking at the thing they pointed at. */}
+        <p className="record-kind-eyebrow" data-testid="record-kind">
+          Rule
+        </p>
         <div className="policy-inspector-title-row">
           <Title level={5} className="policy-inspector-title">
             <DirectionalText>{rule.title}</DirectionalText>

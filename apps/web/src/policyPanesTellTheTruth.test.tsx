@@ -40,7 +40,7 @@ import {
   PolicyScopePane,
   PolicyTestsPane,
   policyTestRows,
-  candidatePolicyRecord,
+  policyRecord,
 } from "./components/policyTabPanes";
 
 beforeAll(() => {
@@ -167,7 +167,7 @@ function testItem(ruleId: string | null, status: "pass" | "fail" | "error" | nul
 describe("an absent test is never an assurance", () => {
   it("calls a rule with no test untested, not passing", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2" }]);
-    const rows = policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "pass")]);
+    const rows = policyTestRows(policyRecord(card), [testItem("r-1", "pass")]);
     // Control: the covered rule really did come back passing.
     expect(rows.find((r) => r.ruleId === "r-1")?.state).toBe("passing");
     expect(rows.find((r) => r.ruleId === "r-2")?.state).toBe("untested");
@@ -175,7 +175,7 @@ describe("an absent test is never an assurance", () => {
 
   it("does not print a passing word anywhere for a policy with no tests", () => {
     const card = cardOf([{ id: "r-1" }]);
-    render(<PolicyTestsPane record={candidatePolicyRecord(card)} tests={[]} />);
+    render(<PolicyTestsPane record={policyRecord(card)} tests={[]} />);
     // Control: the pane rendered the rule at all.
     expect(screen.getByText(/Statement of r-1/)).toBeTruthy();
     expect(screen.queryByText(/Passing/)).toBeNull();
@@ -184,18 +184,18 @@ describe("an absent test is never an assurance", () => {
 
   it("treats a run that errored as unverified rather than failing", () => {
     const card = cardOf([{ id: "r-1" }]);
-    const rows = policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "error")]);
+    const rows = policyTestRows(policyRecord(card), [testItem("r-1", "error")]);
     expect(rows[0].state).toBe("unverified");
   });
 
   it("reports failing when a covering test failed", () => {
     const card = cardOf([{ id: "r-1" }]);
-    expect(policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "fail")])[0].state).toBe("failing");
+    expect(policyTestRows(policyRecord(card), [testItem("r-1", "fail")])[0].state).toBe("failing");
   });
 
   it("ignores a test that targets no rule, because it belongs to no policy", () => {
     const card = cardOf([{ id: "r-1" }]);
-    const rows = policyTestRows(candidatePolicyRecord(card), [testItem(null, "pass")]);
+    const rows = policyTestRows(policyRecord(card), [testItem(null, "pass")]);
     expect(rows[0].state).toBe("untested");
   });
 });
@@ -203,7 +203,7 @@ describe("an absent test is never an assurance", () => {
 describe("a route is never rendered as a shortfall", () => {
   it("lists only the routes the policy's rules take", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2" }]);
-    const { container } = render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
+    const { container } = render(<PolicyPartiesAndRoutesPane record={policyRecord(card)} />);
     // Control: the route section rendered something.
     expect(screen.getByText(/How its rules are decided/)).toBeTruthy();
     // No count of a route no rule took can appear, in any wording.
@@ -216,7 +216,7 @@ describe("a route is never rendered as a shortfall", () => {
       { id: "r-1", mode: "deterministic", facts: ["a_named_value"] },
       { id: "r-2" },
     ]);
-    const { container } = render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
+    const { container } = render(<PolicyPartiesAndRoutesPane record={policyRecord(card)} />);
     // Control: the fact from the comparing rule is there.
     expect(screen.getByText("a_named_value")).toBeTruthy();
     // The rule that names none is not listed beside it with an empty entry.
@@ -225,7 +225,7 @@ describe("a route is never rendered as a shortfall", () => {
 
   it("says how a policy decided by reading works, rather than what it holds none of", () => {
     const card = cardOf([{ id: "r-1" }]);
-    render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
+    render(<PolicyPartiesAndRoutesPane record={policyRecord(card)} />);
     expect(screen.getByText(/the words\s+are the test/)).toBeTruthy();
   });
 
@@ -261,7 +261,7 @@ describe("a route is never rendered as a shortfall", () => {
     ],
   ])("never reassures %s out of a shortage it would have introduced", (_name, spec) => {
     const { container } = render(
-      <PolicyPartiesAndRoutesPane record={candidatePolicyRecord(cardOf(spec))} />,
+      <PolicyPartiesAndRoutesPane record={policyRecord(cardOf(spec))} />,
     );
     const rendered = container.textContent ?? "";
     // Control: the pane rendered its captions, so an empty match proves nothing.
@@ -278,7 +278,7 @@ describe("scope disagreements survive being read together", () => {
       { id: "r-1", personas: ["one_named_group"] },
       { id: "r-2", personas: ["another_named_group"] },
     ]);
-    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
+    render(<PolicyScopePane record={policyRecord(card)} />);
     // Control: both values survived the union.
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.getByText("another_named_group")).toBeTruthy();
@@ -290,14 +290,14 @@ describe("scope disagreements survive being read together", () => {
       { id: "r-1", personas: ["one_named_group"] },
       { id: "r-2", personas: ["one_named_group"] },
     ]);
-    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
+    render(<PolicyScopePane record={policyRecord(card)} />);
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.queryByText(/Its rules differ here/)).toBeNull();
   });
 
   it("does not let a narrow rule speak for a rule bound to everyone", () => {
     const card = cardOf([{ id: "r-1", personas: ["one_named_group"] }, { id: "r-2" }]);
-    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
+    render(<PolicyScopePane record={policyRecord(card)} />);
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.getByText(/apply to everyone/)).toBeTruthy();
   });
@@ -310,7 +310,7 @@ describe("scope disagreements survive being read together", () => {
 describe("a policy holding rules is never described as holding none", () => {
   it("says what its single rule does rather than calling the policy empty", () => {
     const card = cardOf([{ id: "r-1" }]);
-    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    render(<PolicyOverviewPane record={policyRecord(card)} />);
     // This once asserted on a "1 rule" pill, which the pane no longer renders:
     // the card header states the rule count immediately above, and restating it
     // here was the thing a reviewer told us made the tab uninformative. The
@@ -327,14 +327,14 @@ describe("a policy holding rules is never described as holding none", () => {
       { id: "r-1", effectType: "informational" },
       { id: "r-2", effectType: "informational" },
     ]);
-    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    render(<PolicyOverviewPane record={policyRecord(card)} />);
     expect(screen.getByText(/Every rule of this policy supplies a meaning\./)).toBeTruthy();
     expect(screen.queryByText(/\b0\b/)).toBeNull();
   });
 
   it("still contrasts the two sides when the policy holds both", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2", effectType: "informational" }]);
-    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    render(<PolicyOverviewPane record={policyRecord(card)} />);
     expect(screen.getByText(/1 decides a case · 1 supplies a meaning/)).toBeTruthy();
   });
 
@@ -348,7 +348,7 @@ describe("a policy holding rules is never described as holding none", () => {
       { id: "r-2", effectType: "informational" },
       { id: "r-3", effectType: undefined, statesNoEffect: true },
     ]);
-    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    render(<PolicyOverviewPane record={policyRecord(card)} />);
     const said = screen.getByText(/decides a case/).textContent ?? "";
     const counts = [...said.matchAll(/(\d+)/g)].map((match) => Number(match[1]));
 

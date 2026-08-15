@@ -25,6 +25,17 @@
   text-transform: uppercase;
 }
 
+/* Names which record a panel is showing — a policy, or one of its rules.
+   Deliberately quiet: it settles a question a reader would otherwise answer by
+   counting identifiers, and it is not the heading. */
+.record-kind-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ant-color-text-tertiary);
+  margin: 0 0 2px;
+}
+
 .policy-pane__trail {
   margin-bottom: 0 !important;
 }

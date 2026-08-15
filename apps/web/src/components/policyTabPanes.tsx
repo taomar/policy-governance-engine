@@ -35,7 +35,6 @@ import {
   policyScope,
   type PolicyScopeDimension,
 } from "../policyRecordFacts";
-import type { PublishedPolicyCard } from "../publishedPolicyCards";
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance } from "./policyProvenance";
@@ -79,28 +78,41 @@ export interface PolicyRecordView {
   progress?: { decided: number; open: number } | null;
 }
 
-/** A queue card as a policy record. */
-export function candidatePolicyRecord(card: PolicyCard): PolicyRecordView {
+/**
+ * A card as a policy record.
+ *
+ * One function for both surfaces. There were two — one that always reported
+ * review progress and one that never did — and each caller picked by knowing
+ * which page it was on. That is a surface deciding a question about a record,
+ * which is the branch this whole type exists to prevent: the same card handed
+ * to the two of them described itself differently.
+ *
+ * WHERE THE ANSWER COMES FROM INSTEAD
+ *
+ * Review progress is progress through deciding draft rows, so it exists exactly
+ * where the card holds draft rows. A published version supplies none — the
+ * builder reads that absence as published rather than filling it in — so a
+ * sealed policy reports no progress without this function being told anything
+ * about publishing. A candidate whose rules have all been settled still holds
+ * its rows, and "every rule decided" is both true and worth reading there.
+ *
+ * The failure this avoids is specific: `allIds` is populated on a published
+ * card too (a record with no draft row is known by its rule id), so counting
+ * `allIds − reviewableIds` on one reports every rule of a sealed policy as
+ * freshly decided — a claim about a review that never took place.
+ */
+export function policyRecord(card: PolicyCard): PolicyRecordView {
+  const underReview = card.rules.some((entry) => entry.candidate !== undefined);
   return {
     policy: card.policy,
     passageCount: card.passages.length,
     rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
-    progress: {
-      decided: card.allIds.length - card.reviewableIds.length,
-      open: card.reviewableIds.length,
-    },
-  };
-}
-
-/** A published card as a policy record. */
-export function publishedPolicyRecord(card: PublishedPolicyCard): PolicyRecordView {
-  return {
-    policy: card.policy,
-    passageCount: card.passages.length,
-    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
-    // A published record is sealed. There is no decision outstanding on it, so
-    // there is no progress through one to report.
-    progress: null,
+    progress: underReview
+      ? {
+          decided: card.allIds.length - card.reviewableIds.length,
+          open: card.reviewableIds.length,
+        }
+      : null,
   };
 }
 
