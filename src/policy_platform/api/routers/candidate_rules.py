@@ -56,8 +56,14 @@ from policy_platform.infrastructure.ingestion.manual_extraction import get_or_cr
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.policy_tests.policy_test_execution import run_active_tests_for_version
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
+from policy_platform.infrastructure.persistence.provision_snapshot import (
+    ProvisionSnapshot,
+    snapshots_carried_forward,
+    snapshots_for_candidates,
+)
 from policy_platform.infrastructure.persistence.review_facets import build_review_facets
 from policy_platform.infrastructure.assembly.policy_assembly import assemble
+from policy_platform.infrastructure.assembly.provision_lookup import provision_groupings
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     CandidateRuleRepository,
@@ -285,16 +291,25 @@ async def list_policies(
 ) -> list[dict]:
     """The review queue as policies rather than as loose rules.
 
-    A paragraph is one policy stating one or more rules. `/candidate-rules`
-    returns the rules, which is what a reviewer edits; this returns the same
-    rules arranged under the passage that stated them, which is what a reviewer
-    reads. Two calls, one population — the ids here index into the ids there,
-    so a client holding both needs no second fetch.
+    A section of the document is one policy and the passages beneath it are its
+    rules. `/candidate-rules` returns the rules, which is what a reviewer edits;
+    this returns the same rules arranged under the section that states them,
+    which is what a reviewer reads. Two calls, one population — the ids here
+    index into the ids there, so a client holding both needs no second fetch.
 
-    Derived here rather than stored, for the same reason `_with_successors` is:
-    a grouping is a fact about the set in view, and if the key turns out to
-    anchor a passage wrongly, the fix is to change the key rather than to
-    migrate every stored record.
+    The passage boundary comes out too, and is load-bearing rather than
+    decorative. A policy of fourteen rules is fourteen rules from several
+    sentences; the largest in the corpus is seventy-two. A flat list of
+    seventy-two is not a workload a reviewer can hold, so `passages` carries the
+    inner grouping and the client renders all three levels at once. Nothing is
+    behind a control a reviewer must operate to learn that a rule exists.
+
+    The grouping itself is no longer derived here. Extraction records which
+    provision states each rule and this reads that back, so approval, export and
+    every other consumer see the same policies this endpoint shows. Rules with
+    no link — extracted before provisions existed, or from a document whose
+    structure defeated grouping — fall back to the heading their evidence
+    records, which is what keeps them reviewable at all.
     """
 
     policy_set_repo = PolicySetRepository(session)
@@ -309,22 +324,48 @@ async def list_policies(
         document_version_id=document_version_id,
         extraction_run_id=extraction_run_id,
     )
-    policies = assemble([CanonicalRule.model_validate(c.payload_json) for c in candidates])
+    groupings = await provision_groupings(session, candidates)
+    policies = assemble(
+        [CanonicalRule.model_validate(c.payload_json) for c in candidates],
+        provisions=groupings,
+    )
+
+    def _rule(rule) -> dict:
+        return {
+            "rule_id": rule.rule_id,
+            "title": rule.title,
+            "evaluation_mode": rule.evaluation_mode.value,
+        }
+
     return [
         {
             "key": policy.key,
+            "heading": policy.heading,
+            # The full chain, outermost first, verbatim. Sent as a list rather
+            # than joined so the client can render it as a trail without this
+            # endpoint having to invent a separator — and so no string leaves
+            # here that the document did not write.
+            "heading_path": list(policy.heading_path),
+            "persisted": policy.persisted,
+            "document_version_id": policy.document_version_id,
             "source_elements": policy.source_elements,
             "page": policy.page,
             "rule_count": policy.rule_count,
+            "passage_count": policy.passage_count,
             "route": policy.route,
-            "rules": [
+            "passages": [
                 {
-                    "rule_id": rule.rule_id,
-                    "title": rule.title,
-                    "evaluation_mode": rule.evaluation_mode.value,
+                    "key": passage.key,
+                    "source_elements": passage.source_elements,
+                    "page": passage.page,
+                    "rule_count": passage.rule_count,
+                    "rules": [_rule(rule) for rule in passage.rules],
                 }
-                for rule in policy.rules
+                for passage in policy.passages
             ],
+            # Flat, in document order, for callers that want the whole policy
+            # without walking its passages. The same rules, once each.
+            "rules": [_rule(rule) for rule in policy.rules],
         }
         for policy in policies
     ]
@@ -684,11 +725,17 @@ async def publish_approved_candidates(
     # prior revision of that rule — never silently dropping the rest of the
     # rule set.
     merged_rules: dict[str, CanonicalRule] = {}
+    # Which policy each rule belongs to, carried the same way the rules are:
+    # from the active version for those being carried forward, and from the
+    # candidates for those being added. A rule that keeps its content across a
+    # publish must keep the policy it was approved under with it.
+    provisions: dict[str, ProvisionSnapshot] = {}
     current_active = await version_repo.get_active_version(policy_set.id)
     if current_active is not None:
         baseline_package = approved_policy_version_to_package(current_active)
         for rule in baseline_package.rules:
             merged_rules[rule.rule_id] = rule
+        provisions.update(snapshots_carried_forward(current_active.rules))
 
     for candidate in approved:
         rule = CanonicalRule.model_validate(candidate.payload_json).model_copy(
@@ -700,6 +747,9 @@ async def publish_approved_candidates(
         merged_rules[rule.rule_id] = rule
 
     rules: list[CanonicalRule] = list(merged_rules.values())
+    # After the carried-forward ones, so a rule being republished from a
+    # candidate takes the candidate's provision rather than the older copy.
+    provisions.update(await snapshots_for_candidates(session, approved))
 
     # Aggregate limits (e.g. "60+15 days capped at 70/year combined") have no
     # per-candidate review step — they're structural policy-set config a
@@ -732,6 +782,7 @@ async def publish_approved_candidates(
         is_active=body.is_active,
         rules=rules,
         aggregate_limits=aggregate_limits,
+        provisions=provisions,
     )
 
     for candidate in approved:

@@ -11107,18 +11107,7 @@
   gap: 2px;
 }
 
-/* The section a card sits under: context above the name, not the name itself.
-   94% of passages in the corpus share a heading with another passage, so a
-   heading identifies where a card is, never which one it is. */
-.policy-card__section {
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  line-height: 1.4;
-}
-
-/* The policy's name: its own opening statement, quoted whole. Wraps rather
+/* The policy's name: the heading it was assembled under, verbatim. Wraps rather
    than truncating — a name cut mid-sentence is the defect this replaced. */
 .policy-card__title {
   display: block;
@@ -11144,6 +11133,14 @@
   font-size: 12px;
 }
 
+/* The chain of headings above the card's own. Quieter than the title because
+   it is context for it, never a competing name. */
+.policy-card__trail {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
 .policy-card__meta,
 .policy-card__rule-meta {
   display: flex;
@@ -11166,6 +11163,50 @@
 .policy-card__statuses,
 .policy-card__actions {
   flex: 0 0 auto;
+}
+
+/* One passage of the section: its own words, then the rules stated in them.
+   The card is the section now, so this is the boundary that tells a reviewer
+   which sentence an obligation came from — visible, never collapsed, because a
+   fourteen-rule card without it is fourteen unattributed obligations under one
+   name. Marked by an indent and a rule above rather than a box, so a card of
+   fifty passages reads as one document and not fifty nested cards. */
+.policy-card__passage-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--app-border-subtle, #f0f0f0);
+}
+
+.policy-card__passage-block:first-of-type {
+  border-block-start: 0;
+  padding-block-start: 0;
+}
+
+.policy-card__passage-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The passage's own opening statement, quoted. Smaller than the policy title
+   above it, because it names a part and the title names the whole. */
+.policy-card__passage-title {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The element the passage was read from. On the face because it is what a
+   reviewer cites when they disagree with a boundary — unlike a record id,
+   which answers no question the card asks. */
+.policy-card__passage-source {
+  font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  opacity: 0.55;
 }
 
 /* The rest of the passage, under its own first statement. Together they are
@@ -11252,6 +11293,42 @@
 .policy-card__route,
 .policy-card__rule-route {
   font-size: 11px;
+}
+
+/* The condition and the outcome, whole.
+
+   `.policy-decision-line` is shared with the dense list rows, where it is one
+   line of a scannable table and an ellipsis is an honest abbreviation of
+   something the reader can open. Here it is not: this is the surface a reviewer
+   approves from, and "an employee begins work on a different date · with that
+   date as the st…" asks them to approve a condition they have not read. A
+   `title` tooltip does not answer it either — that is the rule hidden behind a
+   control, one hover instead of one click.
+
+   Scoped to the two decision surfaces rather than changed on the shared class,
+   so the lists that do want one line keep it. The grid goes with it: a grid
+   allocates fixed tracks, and a long condition starves the outcome column until
+   "be issued" stacks one letter per line. Flow instead — the parts wrap as a
+   sentence does, and the outcome stays a phrase. */
+.policy-card__rule .policy-decision-line,
+.policy-detail-rule .policy-decision-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 5px;
+  row-gap: 2px;
+  white-space: normal;
+  overflow: visible;
+}
+
+.policy-card__rule .policy-decision-value,
+.policy-card__rule .policy-decision-result,
+.policy-detail-rule .policy-decision-value,
+.policy-detail-rule .policy-decision-result {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .review-unplaced {

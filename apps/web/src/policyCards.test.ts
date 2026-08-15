@@ -7,7 +7,7 @@
  * of the arrangement rather than of any document, and pinning them to a corpus
  * would make the suite depend on a database that has been emptied before.
  *
- * The one exception is `passageStatement`, which is exercised against the
+ * The one exception is `passageQuotations`, which is exercised against the
  * actual overlapping sentences of `p9-E000072` as the API returns them. That
  * overlap is the reason the function exists and a synthetic stand-in would not
  * have the shape.
@@ -22,9 +22,10 @@ import {
   buildPolicyCards,
   passageHeading,
   passagePageLabel,
-  passageStatement,
+  passageQuotations,
   passageTitle,
   policyJsonDocument,
+  policyTitle,
   sharedRuleFacets,
   unplacedCandidates,
 } from "./policyCards";
@@ -89,27 +90,156 @@ function candidate(
   } as CandidateRule;
 }
 
+/** A policy assembled without a heading: one passage, keyed by its element.
+ *
+ *  The server falls back to the passage key when evidence records no heading,
+ *  so this is that shape — and the shape most of the older tests below were
+ *  written against, kept so they keep testing what they tested. */
 function policy(
   key: string,
   ruleIds: string[],
   overrides: Partial<AssembledPolicy> = {},
 ): AssembledPolicy {
+  // No heading path and so no heading: this is the derived grouping's fallback
+  // for a passage whose evidence recorded no section, where the key is the
+  // first element. The server sends no heading in that case rather than sending
+  // the element id, so the fixture sends none either.
+  return section(key, [[key, ruleIds]], { heading: "", heading_path: [], ...overrides });
+}
+
+/** A policy assembled under a heading, from named passages. */
+function section(
+  key: string,
+  blocks: [string, string[]][],
+  overrides: Partial<AssembledPolicy> = {},
+): AssembledPolicy {
+  const named = (rule_id: string) => ({
+    rule_id,
+    title: `title ${rule_id}`,
+    evaluation_mode: "ai_ready",
+  });
+  // A test overriding `rules` is describing what the card holds, so the
+  // passages have to hold the same rules — the card is built from them, and a
+  // fixture whose two views disagree tests neither.
+  const flatOverride = overrides.rules;
+  const passages =
+    overrides.passages ??
+    (flatOverride
+      ? [
+          {
+            key: blocks[0][0],
+            source_elements: blocks[0][0],
+            page: 9,
+            rule_count: flatOverride.length,
+            rules: flatOverride,
+          },
+        ]
+      : blocks.map(([passageKey, ruleIds]) => ({
+          key: passageKey,
+          source_elements: passageKey,
+          page: 9,
+          rule_count: ruleIds.length,
+          rules: ruleIds.map(named),
+        })));
+  const rules = passages.flatMap((passage) => passage.rules);
   return {
     key,
-    source_elements: key,
+    heading: key,
+    // One step, so `heading_path.slice(0, -1)` — the trail above the card's own
+    // name — is empty. Tests that need a trail override it.
+    heading_path: [key],
+    persisted: true,
+    document_version_id: "dv1",
+    source_elements: passages.map((passage) => passage.key).join("; "),
     page: 9,
-    rule_count: ruleIds.length,
+    rule_count: rules.length,
+    passage_count: passages.length,
     route: "ai_ready",
-    rules: ruleIds.map((rule_id) => ({
-      rule_id,
-      title: `title ${rule_id}`,
-      evaluation_mode: "ai_ready",
-    })),
     ...overrides,
+    passages,
+    rules,
   };
 }
 
 describe("buildPolicyCards", () => {
+  it("makes one card of the two sentences one heading states", () => {
+    // The owner's case, fourth telling: `7.2. WORK PERMIT (IQAMA) &
+    // TRANSFERRING ONES SPONSORSHIP` says a medical test is needed and that
+    // the employee pays half the transfer cost. Two consecutive elements, one
+    // policy — and previously two cards with the same name.
+    const cards = buildPolicyCards(
+      [
+        section("7.2. WORK PERMIT (IQAMA) & TRANSFERRING ONES SPONSORSHIP", [
+          ["p9-E000074", ["medical"]],
+          ["p9-E000075", ["sponsorship"]],
+        ]),
+      ],
+      [candidate("medical"), candidate("sponsorship")],
+    );
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].rules.map((r) => r.rule_id)).toEqual(["medical", "sponsorship"]);
+    expect(cards[0].reviewableIds).toEqual(["record-medical", "record-sponsorship"]);
+  });
+
+  it("keeps each rule under the passage that stated it", () => {
+    // The card gets bigger and the rules do not get fewer — and a reviewer
+    // reading a long card can still see which words each rule came from.
+    const cards = buildPolicyCards(
+      [
+        section("7.1. THE EMPLOYMENT CONTRACT", [
+          ["p9-E000071", ["a"]],
+          ["p9-E000072", ["b", "c"]],
+        ]),
+      ],
+      [candidate("a"), candidate("b"), candidate("c")],
+    );
+
+    expect(cards[0].passages.map((block) => block.passage.key)).toEqual([
+      "p9-E000071",
+      "p9-E000072",
+    ]);
+    expect(cards[0].passages.map((block) => block.rules.map((r) => r.rule_id))).toEqual([
+      ["a"],
+      ["b", "c"],
+    ]);
+  });
+
+  it("shows every rule of a large policy rather than a sample of them", () => {
+    // `Table of Violations and Penalties` is 72 rules across 50 passages, and
+    // it is one policy: a disciplinary schedule with a row per offence. The
+    // card is long. Nothing about that licenses hiding any of it.
+    const ids = Array.from({ length: 72 }, (_, n) => `r${n}`);
+    const blocks: [string, string[]][] = Array.from({ length: 50 }, (_, n) => [
+      `p${20 + n}-E${(160 + n).toString().padStart(6, "0")}`,
+      ids.slice(n === 49 ? 49 : n, n === 49 ? 72 : n + 1),
+    ]);
+    const cards = buildPolicyCards(
+      [section("Table of Violations and Penalties", blocks)],
+      ids.map((id) => candidate(id)),
+    );
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].rules).toHaveLength(72);
+    expect(cards[0].passages).toHaveLength(50);
+    expect(cards[0].hiddenByFilter).toBe(0);
+  });
+
+  it("drops a passage the filter has emptied without dropping the card", () => {
+    const cards = buildPolicyCards(
+      [
+        section("7.1. THE EMPLOYMENT CONTRACT", [
+          ["p9-E000071", ["a"]],
+          ["p9-E000072", ["b"]],
+        ]),
+      ],
+      [candidate("b")],
+    );
+
+    expect(cards[0].passages.map((block) => block.passage.key)).toEqual(["p9-E000072"]);
+    expect(cards[0].hiddenByFilter).toBe(1);
+  });
+
   it("makes one card of the three rules one passage states", () => {
     // The owner's case. Three records, one judgement.
     const cards = buildPolicyCards(
@@ -240,7 +370,7 @@ describe("unplacedCandidates", () => {
   });
 });
 
-describe("passageStatement", () => {
+describe("passageQuotations", () => {
   // The three rules of p9-E000072, with the source text each one records,
   // exactly as `GET /policy-sets/ais-employee-handbook/candidate-rules`
   // returns it. The second restates the first before adding its own sentence,
@@ -269,53 +399,72 @@ describe("passageStatement", () => {
   }
 
   it("quotes the passage once instead of restating its opening three times", () => {
-    const statement = passageStatement([
+    const quotations = passageQuotations([
       withSource("a", first),
       withSource("b", second),
       withSource("c", third),
     ]);
 
-    expect(statement).toBe(`${second} ${third}`);
-    // The opening sentence appears exactly once, not once per rule.
-    expect(statement.split("According to the new organizational structure")).toHaveLength(2);
-    expect(statement).toContain("a temporary contract will be issued");
-    expect(statement).toContain("the permanent contract will be issued");
+    expect(quotations).toEqual([second, third]);
+    // The opening sentence appears in exactly one quotation, not once per rule.
+    expect(
+      quotations.filter((text) => text.includes("According to the new organizational structure")),
+    ).toHaveLength(1);
+  });
+
+  it("never joins two of the document's texts into one string", () => {
+    // THE CONSTRAINT. This returned `kept.join(" ")`, so two texts the document
+    // states as separate records arrived as one run of prose and nothing
+    // downstream could tell where one ended. Every entry is a whole record's
+    // text and no entry is two of them.
+    const texts = [first, second, third];
+    const quotations = passageQuotations([
+      withSource("a", first),
+      withSource("b", second),
+      withSource("c", third),
+    ]);
+
+    for (const quotation of quotations) {
+      expect(texts).toContain(quotation);
+    }
   });
 
   it("adds no word the document does not have", () => {
-    const statement = passageStatement([withSource("a", first), withSource("b", second)]);
-    expect(second).toContain(statement);
+    const quotations = passageQuotations([withSource("a", first), withSource("b", second)]);
+    for (const quotation of quotations) expect(second).toContain(quotation);
   });
 
   it("keeps two unrelated sentences whole rather than choosing between them", () => {
     // CONTROL for the containment rule: dropping either would lose a rule's
     // source text, which is worse than repeating a clause.
-    const statement = passageStatement([
+    const quotations = passageQuotations([
       withSource("a", "Staff must give notice."),
       withSource("b", "Leave accrues monthly."),
     ]);
 
-    expect(statement).toBe("Staff must give notice. Leave accrues monthly.");
+    expect(quotations).toEqual(["Staff must give notice.", "Leave accrues monthly."]);
   });
 
   it("collapses two rules recording the identical sentence to one copy", () => {
-    const statement = passageStatement([
+    const quotations = passageQuotations([
       withSource("a", "Staff must read the policies."),
       withSource("b", "Staff must read the policies."),
     ]);
 
-    expect(statement).toBe("Staff must read the policies.");
+    expect(quotations).toEqual(["Staff must read the policies."]);
   });
 
   it("falls back to the description when no formulator record was stored", () => {
     // Hand-drafted rules carry no formulation. Showing nothing would make the
     // passage look empty when the text is right there on the record.
-    expect(passageStatement([rule("a", { description: "Hand written." })])).toBe("Hand written.");
+    expect(passageQuotations([rule("a", { description: "Hand written." })])).toEqual([
+      "Hand written.",
+    ]);
   });
 
   it("returns nothing rather than something invented when there is no text", () => {
-    expect(passageStatement([rule("a", { description: "" })])).toBe("");
-    expect(passageStatement([])).toBe("");
+    expect(passageQuotations([rule("a", { description: "" })])).toEqual([]);
+    expect(passageQuotations([])).toEqual([]);
   });
 });
 
@@ -380,13 +529,13 @@ describe("policyJsonDocument", () => {
     expect(document.source_elements).toBe("p9-E000072");
     expect(document.page).toBe(9);
     expect(document.rule_count).toBe(3);
+    expect(document.passage_count).toBe(1);
     expect(document.route).toBe("ai_ready");
-    expect(Array.isArray(document.rules)).toBe(true);
-    expect((document.rules as CanonicalRule[]).map((r) => r.rule_id)).toEqual(["a", "b", "c"]);
+    expect(nestedRules(document).map((r) => r.rule_id)).toEqual(["a", "b", "c"]);
   });
 
   it("nests the whole rule, not a reference to one", () => {
-    const nested = (policyJsonDocument(cards[0]).rules as CanonicalRule[])[0];
+    const nested = nestedRules(policyJsonDocument(cards[0]))[0];
     expect(nested.condition).toBeDefined();
     expect(nested.effect).toBeDefined();
     expect(nested.evidence).toBeDefined();
@@ -398,7 +547,7 @@ describe("policyJsonDocument", () => {
     expect(policyJsonDocument(cards[0])).not.toHaveProperty("rules_hidden_by_filter");
   });
 
-  it("does not pass a partial passage off as a whole one", () => {
+  it("does not pass a partial policy off as a whole one", () => {
     const partial = buildPolicyCards(
       [policy("p9-E000072", ["a", "b", "c"])],
       [candidate("a")],
@@ -406,12 +555,103 @@ describe("policyJsonDocument", () => {
     const document = policyJsonDocument(partial);
 
     expect(document.rule_count).toBe(3);
-    expect((document.rules as CanonicalRule[])).toHaveLength(1);
+    expect(nestedRules(document)).toHaveLength(1);
     expect(document.rules_hidden_by_filter).toBe(2);
   });
 
   it("records the absence of a heading rather than omitting the field", () => {
     expect(policyJsonDocument(cards[0]).heading).toBeNull();
+  });
+
+  it("keeps the rules of a heading under the passage that stated each", () => {
+    // The document a reviewer downloads has to answer "which sentence said
+    // this", or a fourteen-rule policy arrives as fourteen unattributed
+    // obligations under one name.
+    const card = buildPolicyCards(
+      [
+        section("7.2. WORK PERMIT (IQAMA)", [
+          ["p9-E000074", ["a"]],
+          ["p9-E000075", ["b"]],
+        ]),
+      ],
+      [candidate("a"), candidate("b")],
+    )[0];
+    const document = policyJsonDocument(card) as Record<string, unknown>;
+    const passages = document.passages as { key: string; rules: CanonicalRule[] }[];
+
+    expect(document.key).toBe("7.2. WORK PERMIT (IQAMA)");
+    expect(document.heading).toBe("7.2. WORK PERMIT (IQAMA)");
+    expect(document.title).toBe("7.2. WORK PERMIT (IQAMA)");
+    expect(document.title_from).toBe("heading");
+    expect(passages.map((p) => p.key)).toEqual(["p9-E000074", "p9-E000075"]);
+    expect(passages.map((p) => p.rules.map((r) => r.rule_id))).toEqual([["a"], ["b"]]);
+  });
+});
+
+/** Every rule of the document, from the passages that hold them. */
+function nestedRules(document: Record<string, unknown>): CanonicalRule[] {
+  const passages = document.passages as { rules: CanonicalRule[] }[];
+  return passages.flatMap((passage) => passage.rules);
+}
+
+describe("policyTitle", () => {
+  it("names a policy by the heading it was assembled under", () => {
+    // The card used to announce "Stated together in one passage", which
+    // describes why the rules were grouped rather than what they are about.
+    const card = buildPolicyCards(
+      [
+        section("7.1. THE EMPLOYMENT CONTRACT", [
+          ["p9-E000071", ["a"]],
+          ["p9-E000072", ["b"]],
+        ]),
+      ],
+      [candidate("a"), candidate("b")],
+    )[0];
+
+    expect(policyTitle(card.policy, card.passages)).toEqual({
+      source: "heading",
+      text: "7.1. THE EMPLOYMENT CONTRACT",
+      rest: [],
+    });
+  });
+
+  it("reads the heading and never the key, which is now a digest", () => {
+    // A persisted provision is keyed by a digest, because two sections can be
+    // written under the same words and only their position tells them apart.
+    // A card titled `a7b3cc4423…` is the `p9-E000074` failure in a new
+    // alphabet, so the heading arrives as its own field and is read from it.
+    const assembled = section("7.1. THE EMPLOYMENT CONTRACT", [["p9-E000071", ["a"]]], {
+      key: "a7b3cc44236f9d1e4b0c8a5127e3d6f0",
+    });
+    const card = buildPolicyCards([assembled], [candidate("a")])[0];
+
+    expect(policyTitle(card.policy, card.passages)).toEqual({
+      source: "heading",
+      text: "7.1. THE EMPLOYMENT CONTRACT",
+      rest: [],
+    });
+  });
+
+  it("falls back to the passage's own words when no heading was recorded", () => {
+    // The assembly falls back to the first element's key when evidence records
+    // no section, and a card called `p9-E000072` names nothing. It is here so
+    // that a document read without headings degrades to the previous behaviour
+    // rather than to an element id.
+    const opening = "Employees are entitled to thirty calendar days of annual leave.";
+    const card = buildPolicyCards(
+      [policy("p9-E000072", ["a"])],
+      [
+        candidate("a", {}, {
+          formulation: { canonical: { source_text: opening } },
+        } as Partial<CanonicalRule>),
+      ],
+    )[0];
+
+    expect(policyTitle(card.policy, card.passages)).toEqual({
+      source: "statement",
+      text: opening,
+      rest: [],
+    });
   });
 });
 
@@ -460,14 +700,13 @@ describe("passageTitle", () => {
     expect(title.text).toBe(opening);
     // The words are the document's, in the document's order, and nothing has
     // been added: title and remainder reassemble the passage exactly.
-    expect(`${title.text} ${title.rest}`).toBe(`${opening} ${rest}`);
+    expect(`${title.text} ${title.rest.join(" ")}`).toBe(`${opening} ${rest}`);
   });
 
   it("leaves the rest of the passage to be shown, so the title repeats nothing", () => {
     const title = passageTitle([withSource("a", `${opening} ${rest}`)]);
 
-    expect(title.rest).toBe(rest);
-    expect(title.rest).not.toContain("According to the new organizational structure");
+    expect(title.rest).toEqual([rest]);
   });
 
   it("does not name a card after a list marker", () => {
@@ -503,7 +742,7 @@ describe("passageTitle", () => {
     expect(title.source).toBe("cell");
     expect(title.text).toBe("Late for work, 15 minutes or less without permission");
     // Nothing was taken from the passage, so all of it is still to be shown.
-    expect(title.rest).toContain("1 Time Written Warning");
+    expect(title.rest.join("")).toContain("1 Time Written Warning");
   });
 
   it("falls back to the heading when a row has no cell that says anything", () => {
@@ -513,7 +752,7 @@ describe("passageTitle", () => {
 
     expect(title.source).toBe("section");
     expect(title.text).toBe("Table of Violations and Penalties");
-    expect(title.rest).toContain("20%");
+    expect(title.rest.join("")).toContain("20%");
   });
 
   it("does not name a card after an annotation the extraction wrote in", () => {
@@ -532,7 +771,7 @@ describe("passageTitle", () => {
 
     expect(title.source).toBe("cell");
     expect(title.text).toBe("Inappropriate language and gestures.");
-    expect(title.rest).toContain("(section: Table of Violations and Penalties)");
+    expect(title.rest.join("")).toContain("(section: Table of Violations and Penalties)");
   });
 
   it("keeps a short whole passage as its own title", () => {
@@ -542,7 +781,7 @@ describe("passageTitle", () => {
 
     expect(title.source).toBe("statement");
     expect(title.text).toBe("Alcohol and drugs are strictly forbidden.");
-    expect(title.rest).toBe("");
+    expect(title.rest).toEqual([]);
   });
 
   it("falls back to the passage key only when the document gave neither", () => {
@@ -551,7 +790,7 @@ describe("passageTitle", () => {
     expect(title.source).toBe("unnamed");
     expect(title.text).toBe("");
     // Still shown, in full, below whatever the card is called.
-    expect(title.rest).toBe("1. | 2. | 3.");
+    expect(title.rest).toEqual(["1. | 2. | 3."]);
   });
 
   it("never composes a title out of more than one statement", () => {
@@ -560,7 +799,7 @@ describe("passageTitle", () => {
     ]);
 
     expect(title.text).toBe("Staff must give notice.");
-    expect(title.rest).toBe("Leave accrues monthly. Notice is in writing.");
+    expect(title.rest).toEqual(["Leave accrues monthly. Notice is in writing."]);
   });
 });
 

@@ -1,42 +1,56 @@
 /**
- * The review queue's unit of decision: one passage, one card.
+ * The review queue's unit of decision: one section, one card.
  *
  * THE DEFECT THIS CLOSES
  *
- * A passage stating three rules was drawn as a header over three rows. Each row
- * carried its own checkbox, its own approve, its own reject, its own record id
- * and its own JSON. The header said the three belonged together and the
- * interface then asked the reviewer to decide them one at a time — so the
- * grouping was an annotation on a list rather than a change to what is being
- * decided. A reviewer reads a passage and forms one judgement about it; that
- * judgement is what the card has to be.
+ * Twice over, one level apart. First, a passage stating three rules was drawn
+ * as a header over three rows, each row carrying its own checkbox, approve,
+ * reject, record id and JSON — the grouping was an annotation on a list rather
+ * than a change to what is being decided. Then, once that was fixed, two
+ * consecutive sentences of `7.2. WORK PERMIT (IQAMA) & TRANSFERRING ONES
+ * SPONSORSHIP` still came back as two cards bearing the same name, because the
+ * key was the passage and a policy stated across several sentences can never be
+ * joined by it.
+ *
+ * So the card is the section. Its passages are how the document says it and its
+ * rules are its logic, and a reviewer forms one judgement about the whole.
  *
  * WHY THE GROUPING IS STILL NOT COMPUTED HERE
  *
- * `GET /policy-sets/{key}/policies` decides which rules belong together, on
- * `lineage.source_elements`, in `policy_assembly.py`. Everything below reads
- * that answer and pairs it with the flat candidate list the same fetch already
- * returns. No function here decides membership, order, or count — a second
- * opinion on grouping would be free to disagree with the first, silently, on
- * exactly the records where it matters. This repository already carries the
- * scar of two parsers.
+ * `GET /policy-sets/{key}/policies` decides which rules belong together, on the
+ * heading their evidence records, in `policy_assembly.py`. Everything below
+ * reads that answer — including the inner passage boundary, which arrives from
+ * the same fetch — and pairs it with the flat candidate list. No function here
+ * decides membership, order, or count; a second opinion on grouping would be
+ * free to disagree with the first, silently, on exactly the records where it
+ * matters. This repository already carries the scar of two parsers.
  *
  * WHAT MUST SURVIVE CONTACT
  *
- * A policy of one rule is the ordinary case — 83 of the 155 passages in the
- * live corpus. It is built here by the same code path as a policy of seven and
- * renders as an ordinary card, never as a container with one thing in it.
+ * A policy of one rule is the ordinary case. It is built here by the same code
+ * path as a policy of seventy-two and renders as an ordinary card, never as a
+ * container with one thing in it.
+ *
+ * A bigger card must not mean fewer rules. A section holding fourteen shows
+ * fourteen, each with its own id, route, condition and outcome, and each still
+ * shown under the passage that stated it — because a reviewer reading a long
+ * card has to see which words a rule came from.
  *
  * Route is a property of a rule. A card summarises the routes its rules take
  * for orientation and shows each rule's own route beside that rule; the summary
  * never replaces it, and neither route is a grade.
  *
- * A card must never present a fragment as a whole passage. The assembly is
+ * A card must never present a fragment as a whole policy. The assembly is
  * unfiltered and the flat list is filtered, so the difference between them is
  * the number of rules the current filter is not showing — stated, not inferred.
  */
 
-import type { AssembledPolicy, CandidateRule, CanonicalRule } from "./api";
+import type {
+  AssembledPassage,
+  AssembledPolicy,
+  CandidateRule,
+  CanonicalRule,
+} from "./api";
 import { candidateEditability } from "./candidateEditability";
 
 /** One rule of a policy, as the current filter shows it. */
@@ -49,13 +63,29 @@ export interface PolicyCardRule {
   evaluation_mode: string;
 }
 
+/** One passage of a card: the sentence, and the rules stated in it.
+ *
+ *  Kept because the section is now the card. Fourteen rules run together would
+ *  answer the owner's complaint by making a smaller version of it — the
+ *  reviewer would see one policy and lose which of its words each obligation
+ *  came from. */
+export interface PolicyCardPassage {
+  /** The server's passage, carried whole. */
+  passage: AssembledPassage;
+  /** Its rules that this filter is showing, in the order it states them. */
+  rules: PolicyCardRule[];
+}
+
 export interface PolicyCard {
   /** The server's policy, carried whole so nothing downstream has to
    *  reconstruct it. */
   policy: AssembledPolicy;
-  /** Rules this filter is showing, in the order the passage states them. */
+  /** The passages of this section that have at least one rule in view. */
+  passages: PolicyCardPassage[];
+  /** Every rule on the card, flat, in document order — the same rules the
+   *  passages hold, once each. What one decision writes to. */
   rules: PolicyCardRule[];
-  /** Rules the passage states that this filter is not showing. Zero for the
+  /** Rules the policy states that this filter is not showing. Zero for the
    *  ordinary case; anything else has to be said out loud on the card. */
   hiddenByFilter: number;
   /** Candidate ids on this card that are open to a review decision. One
@@ -64,7 +94,7 @@ export interface PolicyCard {
   /** Every candidate id on the card, reviewable or already decided. */
   allIds: string[];
   /** Distinct review states present, in the order first seen. More than one
-   *  means part of the passage has already been decided. */
+   *  means part of the policy has already been decided. */
   reviewStatuses: string[];
 }
 
@@ -74,7 +104,7 @@ export interface PolicyCard {
  * `candidates` is the filtered flat list, so a card carries only the rules the
  * reviewer can presently see — and reports how many it is therefore not
  * showing. A policy with none of its rules in view produces no card at all
- * rather than an empty one.
+ * rather than an empty one, and a passage with none in view produces no block.
  */
 export function buildPolicyCards(
   policies: readonly AssembledPolicy[],
@@ -87,16 +117,21 @@ export function buildPolicyCards(
 
   const cards: PolicyCard[] = [];
   for (const policy of policies) {
-    const rules: PolicyCardRule[] = [];
-    for (const rule of policy.rules) {
-      const candidate = byRuleId.get(rule.rule_id);
-      if (!candidate) continue;
-      rules.push({
-        rule_id: rule.rule_id,
-        candidate,
-        evaluation_mode: rule.evaluation_mode,
-      });
+    const passages: PolicyCardPassage[] = [];
+    for (const passage of policy.passages ?? []) {
+      const rules: PolicyCardRule[] = [];
+      for (const rule of passage.rules) {
+        const candidate = byRuleId.get(rule.rule_id);
+        if (!candidate) continue;
+        rules.push({
+          rule_id: rule.rule_id,
+          candidate,
+          evaluation_mode: rule.evaluation_mode,
+        });
+      }
+      if (rules.length > 0) passages.push({ passage, rules });
     }
+    const rules = passages.flatMap((passage) => passage.rules);
     if (rules.length === 0) continue;
 
     const reviewStatuses: string[] = [];
@@ -108,6 +143,7 @@ export function buildPolicyCards(
 
     cards.push({
       policy,
+      passages,
       rules,
       // Counted against the policy's own total rather than against the rules
       // it happens to list, so a filter, a page and a stale assembly all read
@@ -156,7 +192,7 @@ function sourceSentence(rule: CanonicalRule): string {
 }
 
 /**
- * The passage, quoted once.
+ * The passage, quoted — one entry per distinct statement, never joined.
  *
  * Each rule of a passage records the source text it was formulated from, and
  * those texts overlap heavily: of the three rules of `p9-E000072`, the second
@@ -165,14 +201,23 @@ function sourceSentence(rule: CanonicalRule): string {
  * has to see past to find what actually differs between the rules.
  *
  * So: exact duplicates collapse, and a text wholly contained in a longer one is
- * dropped in favour of the longer. What remains is joined in the order the
- * passage states it. Nothing is reworded, shortened or summarised — every
- * character shown is a character the document has.
+ * dropped in favour of the longer. What remains is returned in the order the
+ * passage states it.
+ *
+ * WHY A LIST AND NOT A STRING
+ *
+ * This used to join what remained with a space and return one string. Every
+ * character was the document's, but their *adjacency* was not: two texts the
+ * document states as separate records came back as one run of prose, and a
+ * reader had no way to see where one ended. That is composition — the smallest
+ * possible amount of it, which is how it survived review twice — and this
+ * product exists to not do it. A list cannot be joined by accident; a joined
+ * string cannot be unjoined at all.
  *
  * This is not a second opinion on grouping. It arranges the text of a group the
  * server has already decided.
  */
-export function passageStatement(rules: readonly CanonicalRule[]): string {
+export function passageQuotations(rules: readonly CanonicalRule[]): string[] {
   const seen = new Set<string>();
   const texts: string[] = [];
   for (const rule of rules) {
@@ -181,10 +226,9 @@ export function passageStatement(rules: readonly CanonicalRule[]): string {
     seen.add(text);
     texts.push(text);
   }
-  const kept = texts.filter(
+  return texts.filter(
     (text, index) => !texts.some((other, position) => position !== index && other.includes(text)),
   );
-  return kept.join(" ");
 }
 
 /**
@@ -214,6 +258,9 @@ export function passagePageLabel(page: number | null): string | null {
 
 /** Where a card's name came from. Always one of the document's own strings. */
 export type PassageTitleSource =
+  /** The heading the policy is assembled under, quoted whole. The ordinary
+   *  case for a card, and unique per card by construction. */
+  | "heading"
   /** The passage's opening statement, quoted whole. */
   | "statement"
   /** The passage is a row of a table and states no sentence. Named by its own
@@ -229,9 +276,11 @@ export interface PassageTitle {
   source: PassageTitleSource;
   /** The name, verbatim. Empty only when the source is `unnamed`. */
   text: string;
-  /** The passage minus whatever the title took from it. Rendered under the
-   *  title, so title and remainder together are the passage, in order, once. */
-  rest: string;
+  /** The passage minus whatever the title took from it, one entry per
+   *  quotation. Rendered under the title as separate blocks, so title and
+   *  remainder together are the passage, in order, once — and two quotations
+   *  never arrive as one run of prose. */
+  rest: string[];
 }
 
 /**
@@ -303,18 +352,14 @@ function firstCell(passage: string): string | null {
 }
 
 /**
- * What to call this policy.
+ * What to call this passage, inside the card its section makes.
  *
  * MEASURED, NOT ASSUMED
  *
- * The heading was the obvious candidate and the data rules it out on its own:
- * 146 of 155 AIS passages and 175 of 187 GMU passages sit under a heading they
- * share with another passage — 94% on both. 50 passages share "Table of
- * Violations and Penalties". Titling by heading would have swapped one
- * uninformative label ("Stated together in one passage") for another.
- *
- * The passage's own opening statement is unique by construction and names the
- * topic in the document's words: 111 of 155 and 179 of 187 passages have one.
+ * The heading names the card, and cannot also name the passages within it —
+ * they all share it. So a passage block is named by its own words: 111 of 155
+ * AIS passages and 179 of 187 GMU passages open with a statement, which is
+ * unique by construction and names the topic in the document's language.
  *
  * The rest are rows of a table, which state no sentence. Naming those by their
  * heading was tried and measured badly: 50 AIS rows sit under "Table of
@@ -322,27 +367,32 @@ function firstCell(passage: string): string | null {
  * names them instead — "Late for work, 15 minutes or less without permission or
  * a valid reason, if it did not cause delay to other employees" — and every row
  * in the corpus has one: 45 of 45 on AIS (43 distinct) and 8 of 8 on GMU.
- * The heading stays above the title as the section the card sits under.
  *
  * NOTHING IS COMPOSED
  *
  * Every character of a title is a character the document has, in the document's
  * order. The title is not a summary of the passage — it is the passage's first
  * statement, with the remainder rendered directly beneath it. A reader who
- * reads the card top to bottom has read the passage, once, whole.
+ * reads the block top to bottom has read the passage, once, whole.
  *
  * A row is the exception to "once": its title is a cell of the row, and the row
  * is still rendered whole below, so that cell appears twice. Cutting the cell
  * out of the row to avoid that would leave a mangled row, and the row is the
  * evidence. Repetition is the lesser cost.
+ *
+ * The title is drawn from the passage's *first* quotation only. The others are
+ * carried into `rest` unchanged, as separate blocks — a title that spanned two
+ * quotations would be the joined string this function no longer builds.
  */
 export function passageTitle(rules: readonly CanonicalRule[]): PassageTitle {
-  const passage = passageStatement(rules);
+  const quotations = passageQuotations(rules);
+  const passage = quotations[0] ?? "";
+  const others = quotations.slice(1);
   const heading = passageHeading(rules);
   if (!passage) {
     return heading
-      ? { source: "section", text: heading, rest: "" }
-      : { source: "unnamed", text: "", rest: "" };
+      ? { source: "section", text: heading, rest: others }
+      : { source: "unnamed", text: "", rest: others };
   }
   const [statement, rest] = firstStatement(passage.replace(PIPELINE_ANNOTATION, ""));
   const namesSomething = !looksLikeTableRow(statement) && statement.split(/\s+/).length >= 3;
@@ -351,19 +401,62 @@ export function passageTitle(rules: readonly CanonicalRule[]): PassageTitle {
     // it. When it is not — because an annotation stood in front — the whole
     // passage stays below, so that skipping the annotation for naming never
     // amounts to deleting text from the quotation.
+    const head = passage.startsWith(statement) ? rest : passage;
     return {
       source: "statement",
       text: statement,
-      rest: passage.startsWith(statement) ? rest : passage,
+      rest: head ? [head, ...others] : others,
     };
   }
   // Nothing is taken from the passage, so the whole of it stays in view below
   // a title that is honest about where it came from.
   const cell = firstCell(passage.replace(PIPELINE_ANNOTATION, ""));
-  if (cell) return { source: "cell", text: cell, rest: passage };
+  if (cell) return { source: "cell", text: cell, rest: quotations };
   return heading
-    ? { source: "section", text: heading, rest: passage }
-    : { source: "unnamed", text: "", rest: passage };
+    ? { source: "section", text: heading, rest: quotations }
+    : { source: "unnamed", text: "", rest: quotations };
+}
+
+/**
+ * What to call this policy.
+ *
+ * The heading, exactly as the document wrote it — `7.1. THE EMPLOYMENT
+ * CONTRACT`. The card *is* the section now, so the heading names the whole card
+ * and no two cards share it: the collision that ruled the heading out as a
+ * *passage* title is gone, because a heading is no longer above several cards.
+ *
+ * WHY THE HEADING IS READ AND NOT THE KEY
+ *
+ * It used to be both: the assembly keyed a policy by its heading text, so the
+ * key could be shown. A persisted provision is keyed by a digest instead —
+ * because two sections can be written under the same words and only their
+ * position in the document tells them apart — and a digest is not a name. So
+ * the heading arrives as its own field and is read from there. A card titled
+ * `a7b3cc4423…` would be the `p9-E000074` failure again in a new alphabet.
+ *
+ * The card used to be titled "Stated together in one passage", which describes
+ * why the rules were grouped rather than what they are about — a reviewer
+ * scanning a queue of these learns nothing from being told each time that a
+ * passage is a passage.
+ *
+ * A policy assembled without a heading falls back to its single passage's own
+ * title, and says which it used. It exists so that a document read without
+ * headings degrades to the previous behaviour rather than to a card called by
+ * its element id or its digest. The server reports that case by sending no
+ * heading rather than by sending the key it fell back to, so what is read here
+ * is an absence — this never has to guess whether a string is a name.
+ */
+export function policyTitle(
+  policy: Pick<AssembledPolicy, "key" | "heading" | "heading_path">,
+  passages: readonly PolicyCardPassage[],
+): PassageTitle {
+  const heading = policy.heading?.trim() ?? "";
+  const first = passages[0];
+  if (heading) {
+    return { source: "heading", text: heading, rest: [] };
+  }
+  if (!first) return { source: "unnamed", text: "", rest: [] };
+  return passageTitle(first.rules.map((rule) => rule.candidate.rule));
 }
 
 /**
@@ -409,32 +502,57 @@ export function sharedRuleFacets(card: PolicyCard): SharedRuleFacets {
 /**
  * The card as one document.
  *
- * The policy is the object and its rules are nested inside it, so what a
- * reviewer downloads has the same shape as what they decided on — one record,
- * not three that happen to have been listed together.
+ * The policy is the object, its passages are nested inside it and its rules
+ * inside those, so what a reviewer downloads has the same shape as what they
+ * decided on — one record, not three that happen to have been listed together,
+ * and not one that has forgotten which sentence each rule came from.
  *
  * `rules_hidden_by_filter` is present only when there are some. A JSON claiming
- * to be a whole passage while holding part of one is the same fragment-as-whole
+ * to be a whole policy while holding part of one is the same fragment-as-whole
  * failure as on screen, and harder to notice once the file has left the app.
  */
 export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
-  const rules = card.rules.map((rule) => rule.candidate.rule);
-  const heading = passageHeading(rules);
-  const title = passageTitle(rules);
+  const title = policyTitle(card.policy, card.passages);
   const document: Record<string, unknown> = {
     key: card.policy.key,
-    source_elements: card.policy.source_elements,
-    page: card.policy.page,
-    heading: heading || null,
+    // Null rather than absent, and null rather than the key: a policy the
+    // assembly could not file under a heading has no heading, and saying so is
+    // different from silently repeating its element id or its digest as one.
+    heading: title.source === "heading" ? card.policy.heading : null,
+    // The chain of headings that governs this section, outermost first, each
+    // verbatim. An array and not a path string: a separator would be a
+    // character the document never wrote between two of its own headings.
+    heading_path: card.policy.heading_path,
     title: title.text || null,
     // Said in the file as well as on screen: a reader opening this a year from
     // now should not have to guess whether the title is the document's
-    // sentence, the heading above it, or something this app made up.
+    // heading, a sentence of the passage, or something this app made up.
     title_from: title.source,
-    passage: passageStatement(rules),
+    source_elements: card.policy.source_elements,
+    page: card.policy.page,
     rule_count: card.policy.rule_count,
+    passage_count: card.policy.passage_count,
     route: card.policy.route,
-    rules,
+    // Whether the pipeline recorded this grouping or the reader's request
+    // derived it. A file that does not say cannot be told apart later from one
+    // that does.
+    persisted: card.policy.persisted,
+    passages: card.passages.map((block) => {
+      const rules = block.rules.map((rule) => rule.candidate.rule);
+      const passageName = passageTitle(rules);
+      return {
+        key: block.passage.key,
+        source_elements: block.passage.source_elements,
+        page: block.passage.page,
+        title: passageName.text || null,
+        title_from: passageName.source,
+        // A list, one entry per distinct statement. It was a single joined
+        // string; two texts the document states apart came out of the file as
+        // one run of prose, and nothing downstream could separate them again.
+        quotations: passageQuotations(rules),
+        rules,
+      };
+    }),
   };
   if (card.hiddenByFilter > 0) document.rules_hidden_by_filter = card.hiddenByFilter;
   return document;

@@ -1,11 +1,16 @@
 import { Button, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, CodeOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
-import { passageHeading, passagePageLabel, passageStatement, passageTitle, policyJsonDocument } from "../policyCards";
+import {
+  passagePageLabel,
+  passageQuotations,
+  passageTitle,
+  policyJsonDocument,
+  policyTitle,
+} from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { effectActionText, isEmptyCondition, ruleDecisionSummary } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
-import { HEADING_NOT_RECORDED } from "../headingContext";
 import { ConditionView } from "./ConditionView";
 import { DirectionalText } from "./DirectionalText";
 import { JsonView } from "./JsonView";
@@ -14,21 +19,36 @@ import { PolicyEffectBadge } from "./PolicyEffectBadge";
 const { Text, Title } = Typography;
 
 /**
- * The detail of one passage: its text once, its rules in full, and one JSON.
+ * The detail of one policy: its passages once each, its rules in full, one JSON.
  *
  * WHY ONE DOCUMENT AND NOT N
  *
  * The reviewer's question is "is this how contract start dates work". Three
  * JSON documents cannot answer it, because the answer is the relationship
  * between them — a default and the cases that depart from it. So the panel
- * serialises the policy, with its rules nested inside it, and downloads as
- * `{passage key}.json`.
+ * serialises the policy, with its passages and their rules nested inside it,
+ * and downloads as one file.
  *
  * The per-rule canonical JSON has not gone anywhere: opening a rule from here
  * swaps this panel for the rule inspector, which still offers evaluator,
  * canonical and DMN forms of that one rule. It is a drill-down, in the same
  * panel — never a second panel — so the reviewer is never handed three
  * documents where the source stated one policy.
+ *
+ * WHAT THE SOURCE SAYS IS PER PASSAGE
+ *
+ * A section is stated across several sentences, and running them together as
+ * one block of prose would put words next to each other that the document never
+ * did. Each passage is quoted under its own element, in document order, and
+ * within a passage each distinct statement is its own block for the same
+ * reason.
+ *
+ * WHY THE HEADING TRAIL IS A LIST OF ELEMENTS
+ *
+ * The chain of headings above a section is drawn as separate spans with the
+ * separator in the markup, not in a string. A joined path would be text this
+ * app wrote between two of the document's headings, and every such join is how
+ * a system that must never compose starts composing.
  */
 export function PolicyDetailPanel({
   card,
@@ -49,39 +69,58 @@ export function PolicyDetailPanel({
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
   actions?: React.ReactNode;
 }) {
-  const rules = card.rules.map((rule) => rule.candidate.rule);
-  const heading = passageHeading(rules);
-  const title = passageTitle(rules);
-  const passage = passageStatement(rules);
+  const title = policyTitle(card.policy, card.passages);
   const page = passagePageLabel(card.policy.page);
+  // The headings above this one. The innermost is the card's own title, so it
+  // is not repeated here.
+  const trail = card.policy.heading_path.slice(0, -1);
+  let ordinal = 0;
 
   return (
-    <div className="policy-detail-panel" data-testid="policy-detail-panel" data-passage={card.policy.key}>
+    <div
+      className="policy-detail-panel"
+      data-testid="policy-detail-panel"
+      data-policy={card.policy.key}
+      data-passage={card.passages[0]?.passage.key ?? card.policy.key}
+    >
       <div className="policy-detail-panel__head">
         <div className="policy-detail-panel__identity">
-          {title.source !== "section" && (
-            <div className="policy-card__section">
-              {heading ? (
-                <DirectionalText>{heading}</DirectionalText>
-              ) : (
-                <Text type="secondary">{HEADING_NOT_RECORDED}</Text>
-              )}
-            </div>
+          {trail.length > 0 && (
+            <p className="policy-card__trail" data-testid="policy-heading-trail">
+              {trail.map((step, index) => (
+                <span key={`${index}-${step}`}>
+                  {index > 0 && (
+                    <span className="policy-card__dot" aria-hidden>
+                      ·
+                    </span>
+                  )}
+                  <DirectionalText>{step}</DirectionalText>
+                </span>
+              ))}
+            </p>
           )}
           <Title level={5} className="policy-detail-panel__title">
-            <DirectionalText>{title.text || card.policy.source_elements}</DirectionalText>
+            <DirectionalText>{title.text || card.policy.key}</DirectionalText>
           </Title>
-          {title.source !== "statement" && (
+          {title.source !== "heading" && (
             <Text type="secondary" className="policy-card__title-note">
-              {title.source === "cell"
-                ? "This passage is a row of a table, so it is named by its first cell."
-                : title.source === "section"
-                  ? "This passage states no sentence of its own, so it is named by the heading it sits under."
-                  : "Neither a statement nor a heading was recorded for this passage, so it is named by its key."}
+              {title.source === "statement"
+                ? "No heading was recorded for this policy, so it is named by its opening statement."
+                : title.source === "cell"
+                  ? "No heading was recorded for this policy, and it is a row of a table, so it is named by its first cell."
+                  : title.source === "section"
+                    ? "This policy states no sentence of its own, so it is named by the heading in its citations."
+                    : "Neither a heading nor a statement was recorded for this policy, so it is named by its key."}
             </Text>
           )}
           <div className="policy-detail-panel__meta">
             <span>{policyRuleCountLabel(card.policy.rule_count)}</span>
+            <span className="policy-card__dot">·</span>
+            <span>
+              {card.policy.passage_count === 1
+                ? "1 passage"
+                : `${card.policy.passage_count} passages`}
+            </span>
             {page && (
               <>
                 <span className="policy-card__dot">·</span>
@@ -112,108 +151,136 @@ export function PolicyDetailPanel({
         </Space>
       </div>
 
-      <section className="policy-detail-panel__section">
-        <Text type="secondary" className="policy-detail-panel__section-label">
-          What the source says
-        </Text>
-        {passage ? (
-          <p className="policy-card__passage">
-            <DirectionalText>{passage}</DirectionalText>
-          </p>
-        ) : (
-          <Text type="secondary">The source text for this passage was not stored with its rules.</Text>
-        )}
-      </section>
+      {card.passages.map((block) => {
+        const passageRules = block.rules.map((rule) => rule.candidate.rule);
+        const quotations = passageQuotations(passageRules);
+        const name = passageTitle(passageRules);
+        return (
+          <section
+            key={block.passage.key}
+            className="policy-detail-panel__section"
+            data-testid="policy-detail-passage"
+            data-passage={block.passage.key}
+          >
+            <Text type="secondary" className="policy-detail-panel__section-label">
+              What the source says · {block.passage.source_elements}
+              {block.passage.page === null ? "" : ` · page ${block.passage.page}`}
+            </Text>
+            {quotations.length > 0 ? (
+              quotations.map((quotation, index) => (
+                <p
+                  key={`${index}-${quotation.slice(0, 32)}`}
+                  className="policy-card__passage"
+                  data-testid="policy-detail-quotation"
+                >
+                  <DirectionalText>{quotation}</DirectionalText>
+                </p>
+              ))
+            ) : (
+              <Text type="secondary">
+                The source text for this passage was not stored with its rules.
+              </Text>
+            )}
+            {name.source === "cell" && (
+              <Text type="secondary" className="policy-card__title-note">
+                This passage is a row of a table, so it is listed by its first cell.
+              </Text>
+            )}
 
-      <section className="policy-detail-panel__section">
-        <Text type="secondary" className="policy-detail-panel__section-label">
-          {card.rules.length === 1 ? "The rule it states" : `The ${card.rules.length} rules it states`}
+            <ol className="policy-detail-panel__rules">
+              {block.rules.map((rule) => {
+                const canonical = rule.candidate.rule;
+                const decision = ruleDecisionSummary(canonical);
+                ordinal += 1;
+                return (
+                  <li key={rule.rule_id} className="policy-detail-rule" value={ordinal}>
+                    <div className="policy-detail-rule__head">
+                      <span className="policy-card__rule-ordinal" aria-hidden>
+                        {ordinal}
+                      </span>
+                      <span className="policy-card__rule-title">
+                        <DirectionalText>{canonical.title}</DirectionalText>
+                      </span>
+                      <PolicyEffectBadge effect={canonical.effect} size="small" />
+                      <Tag variant="filled">{ruleTypeLabel(canonical.rule_type)}</Tag>
+                      <Tooltip
+                        title={
+                          rule.evaluation_mode === "deterministic"
+                            ? "The source states this test as a comparison between named quantities, so the engine settles a case by evaluating it."
+                            : "The source states this test in words, so a person settles a case by reading it. This is how the document was written, and is a normal way for a rule to arrive."
+                        }
+                      >
+                        <Tag variant="filled" className="policy-card__rule-route">
+                          {policyRouteLabel(rule.evaluation_mode)}
+                        </Tag>
+                      </Tooltip>
+                      <Tag color={statusColor(rule.candidate.review_status)}>
+                        {statusLabel(rule.candidate.review_status)}
+                      </Tag>
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<RightOutlined />}
+                        onClick={() => onOpenRule(rule.rule_id)}
+                      >
+                        Open rule
+                      </Button>
+                    </div>
+                    <div className="policy-decision-line" title={decision.text}>
+                      <span className="policy-decision-key">When</span>
+                      <span
+                        className={
+                          decision.conditionIsStatedOnly
+                            ? "policy-decision-value is-stated-only"
+                            : "policy-decision-value"
+                        }
+                      >
+                        {decision.condition}
+                      </span>
+                      <span className="policy-decision-arrow">→</span>
+                      <span className="policy-decision-key">Then</span>
+                      <span className="policy-decision-result">
+                        {effectActionText(canonical.effect)}
+                      </span>
+                    </div>
+                    {!isEmptyCondition(canonical.condition) && (
+                      <div className="policy-detail-rule__conditions">
+                        <ConditionView node={canonical.condition} />
+                      </div>
+                    )}
+                    <div className="policy-card__rule-meta">
+                      <span className="policy-row-mono">{rule.rule_id}</span>
+                      <span className="policy-card__dot">·</span>
+                      <span>rev {canonical.rule_revision}</span>
+                      <span className="policy-card__dot">·</span>
+                      <span className="policy-row-mono">record {rule.candidate.id}</span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        );
+      })}
+
+      {card.hiddenByFilter > 0 && (
+        <Text type="secondary">
+          {card.hiddenByFilter === 1
+            ? "1 more rule of this policy is outside the current filter and is not shown here or included in the JSON below."
+            : `${card.hiddenByFilter} more rules of this policy are outside the current filter and are not shown here or included in the JSON below.`}
         </Text>
-        <ol className="policy-detail-panel__rules">
-          {card.rules.map((rule, index) => {
-            const canonical = rule.candidate.rule;
-            const decision = ruleDecisionSummary(canonical);
-            return (
-              <li key={rule.rule_id} className="policy-detail-rule">
-                <div className="policy-detail-rule__head">
-                  <span className="policy-card__rule-ordinal" aria-hidden>
-                    {index + 1}
-                  </span>
-                  <span className="policy-card__rule-title">
-                    <DirectionalText>{canonical.title}</DirectionalText>
-                  </span>
-                  <PolicyEffectBadge effect={canonical.effect} size="small" />
-                  <Tag variant="filled">{ruleTypeLabel(canonical.rule_type)}</Tag>
-                  <Tooltip
-                    title={
-                      rule.evaluation_mode === "deterministic"
-                        ? "The source states this test as a comparison between named quantities, so the engine settles a case by evaluating it."
-                        : "The source states this test in words, so a person settles a case by reading it. This is how the document was written, and is a normal way for a rule to arrive."
-                    }
-                  >
-                    <Tag variant="filled" className="policy-card__rule-route">
-                      {policyRouteLabel(rule.evaluation_mode)}
-                    </Tag>
-                  </Tooltip>
-                  <Tag color={statusColor(rule.candidate.review_status)}>
-                    {statusLabel(rule.candidate.review_status)}
-                  </Tag>
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<RightOutlined />}
-                    onClick={() => onOpenRule(rule.rule_id)}
-                  >
-                    Open rule
-                  </Button>
-                </div>
-                <div className="policy-decision-line" title={decision.text}>
-                  <span className="policy-decision-key">When</span>
-                  <span
-                    className={
-                      decision.conditionIsStatedOnly
-                        ? "policy-decision-value is-stated-only"
-                        : "policy-decision-value"
-                    }
-                  >
-                    {decision.condition}
-                  </span>
-                  <span className="policy-decision-arrow">→</span>
-                  <span className="policy-decision-key">Then</span>
-                  <span className="policy-decision-result">{effectActionText(canonical.effect)}</span>
-                </div>
-                {!isEmptyCondition(canonical.condition) && (
-                  <div className="policy-detail-rule__conditions">
-                    <ConditionView node={canonical.condition} />
-                  </div>
-                )}
-                <div className="policy-card__rule-meta">
-                  <span className="policy-row-mono">{rule.rule_id}</span>
-                  <span className="policy-card__dot">·</span>
-                  <span>rev {canonical.rule_revision}</span>
-                  <span className="policy-card__dot">·</span>
-                  <span className="policy-row-mono">record {rule.candidate.id}</span>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-        {card.hiddenByFilter > 0 && (
-          <Text type="secondary">
-            {card.hiddenByFilter === 1
-              ? "1 more rule of this passage is outside the current filter and is not shown here or included in the JSON below."
-              : `${card.hiddenByFilter} more rules of this passage are outside the current filter and are not shown here or included in the JSON below.`}
-          </Text>
-        )}
-      </section>
+      )}
 
       <section className="policy-detail-panel__section">
         <Text type="secondary" className="policy-detail-panel__section-label">
           <CodeOutlined /> This policy as one document — its rules nested inside it
         </Text>
+        {/* The download is named by the policy, not by its key: a persisted
+            provision is keyed by a digest, and a reviewer who downloads three of
+            these wants three filenames they can tell apart. */}
         <JsonView
           value={policyJsonDocument(card)}
-          downloadName={`${card.policy.key}.json`}
+          downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
           maxHeight={420}
         />
       </section>

@@ -89,8 +89,7 @@ export interface WorkspaceCounts {
   decisions: number;
 }
 
-export interface ProjectPortfolioInsight {
-  key: string;
+export interface ProjectPortfolioInsight {  key: string;
   document_count: number;
   review_pending: number;
   /** Live (non-superseded) candidate records held by this project, whether or not
@@ -312,7 +311,7 @@ export interface ConditionProvenance {
    *
    * Two of the route wordings tell the reviewer this figure is shown beside
    * the reason. The server sent it and this interface did not declare it, so
-   * the sentence promised evidence that nothing drew - and a reviewer shown no
+   * the sentence promised evidence that nothing drew — and a reviewer shown no
    * figure concludes the document stated none, which is the opposite of what
    * the refusal recorded.
    */
@@ -992,20 +991,59 @@ export interface AssembledPolicyRule {
 
 /** One passage of the source, carrying every rule stated in it.
  *
- *  A policy holding one rule is the ordinary case and is built exactly like a
- *  policy holding nine -- there is no separate shape for it. */
-export interface AssembledPolicy {
-  /** Grouping key: the document element, stable across extraction runs. */
+ *  The inner boundary of a policy: it is what tells a reviewer which sentence
+ *  each rule came from, which a fourteen-rule card needs and a flat list of
+ *  fourteen would have thrown away. */
+export interface AssembledPassage {
+  /** The anchoring element, e.g. `p9-E000074`. */
   key: string;
   /** Full attribution, verbatim. Differs from `key` when rules cite several
-   *  elements, in which case the policy is anchored to the first. */
+   *  elements, in which case the passage is anchored to the first. */
   source_elements: string;
   page: number | null;
   rule_count: number;
+  rules: AssembledPolicyRule[];
+}
+
+/** One section of the source, carrying every passage stated under it.
+ *
+ *  A policy holding one rule is the ordinary case and is built exactly like a
+ *  policy holding seventy-two — there is no separate shape for it. */
+export interface AssembledPolicy {
+  /** Grouping key. The provision the pipeline recorded when the document was
+   *  read, or — for a rule extracted before provisions existed — the heading
+   *  its evidence records. Opaque either way; `heading` is what to show. */
+  key: string;
+  /** What to call this policy: its own innermost heading, verbatim. The card
+   *  *is* the section, so it is named by the section rather than by a sentence
+   *  lifted out of one of the passages beneath it. */
+  heading: string;
+  /** The governing headings, outermost first, verbatim. For a policy grouped by
+   *  the read-time fallback it holds the one heading that grouping used, so it
+   *  is empty only when the document recorded no heading at all — which is how
+   *  the client tells "unnamed" from "named by its innermost heading" without
+   *  comparing strings. Sent as a list so the client can render a trail without
+   *  the server having had to join it into a string the document never wrote. */
+  heading_path: string[];
+  /** Whether this policy's boundary is the one the pipeline recorded, or one
+   *  inferred at read time from the headings its rules cite. Shown rather than
+   *  hidden: a reviewer approving a policy is entitled to know which. */
+  persisted: boolean;
+  /** Scopes the grouping: two documents may share a heading without thereby
+   *  stating one policy. */
+  document_version_id: string | null;
+  /** The passages under this heading, in document order. */
+  source_elements: string;
+  page: number | null;
+  rule_count: number;
+  passage_count: number;
   /** Summary of the routes its rules take: every rule computable, every rule
-   *  read, or both present. A summary for the header only -- it never replaces
+   *  read, or both present. A summary for the header only — it never replaces
    *  the per-rule mode above. */
   route: string;
+  passages: AssembledPassage[];
+  /** Every rule under this heading, flat, in document order — the same rules
+   *  the passages hold, once each. */
   rules: AssembledPolicyRule[];
 }
 

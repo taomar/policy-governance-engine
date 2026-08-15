@@ -65,7 +65,7 @@ import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
 import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
-import { buildPolicyCards, unplacedCandidates, type PolicyCard } from "../policyCards";
+import { buildPolicyCards, policyTitle, unplacedCandidates, type PolicyCard } from "../policyCards";
 import { type LoadState, describeApiFailure } from "../loadState";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
 import { FamilyReviewConfirm } from "./FamilyReviewConfirm";
@@ -1192,8 +1192,14 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               Back to the policy
             </Button>
             <Text type="secondary">
+              {/* Named by its title rather than by its key: a policy of fifty
+                  passages has fifty element ids and one name, and a persisted
+                  provision's key is a digest. `6e4461b7c9deb997…` names nothing
+                  a reviewer is holding in mind while reading rule 3 of 10. */}
               Rule {openPolicyCard.rules.findIndex((r) => r.candidate.id === selectedCandidate.id) + 1} of{" "}
-              {openPolicyCard.rules.length} in {openPolicyCard.policy.source_elements}
+              {openPolicyCard.rules.length} in{" "}
+              {policyTitle(openPolicyCard.policy, openPolicyCard.passages).text ||
+                openPolicyCard.policy.key}
             </Text>
           </div>
         )}

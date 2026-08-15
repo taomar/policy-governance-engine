@@ -19,6 +19,14 @@ export default defineConfig({
     // contains a space, and the forks pool fails to hand a worker its entry
     // point when it does.
     pool: 'threads',
+    // Vitest stubs stylesheets by default, and the stub also swallows `?raw`:
+    // `import App.css?raw` returns an empty string rather than the file. That is
+    // right for a component test, which does no layout and wants no CSS -- but
+    // `nothingIsClipped.test.ts` reads the stylesheet as its subject, and a
+    // guard handed an empty string finds no violations and passes. Processing is
+    // turned on for that one file so the guard reads what ships. Its own floor
+    // test asserts the parse is non-empty, so this setting cannot quietly lapse.
+    css: { include: [/App\.css/] },
     deps: {
       // antd is thousands of modules. Transforming them one at a time cost
       // roughly four minutes a run, which is how a guard test stops being run.
