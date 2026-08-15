@@ -37,6 +37,7 @@ import {
   PolicyScopePane,
   PolicyTestsPane,
   policyTestRows,
+  candidatePolicyRecord,
 } from "./components/policyTabPanes";
 
 beforeAll(() => {
@@ -148,7 +149,7 @@ function testItem(ruleId: string | null, status: "pass" | "fail" | "error" | nul
 describe("an absent test is never an assurance", () => {
   it("calls a rule with no test untested, not passing", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2" }]);
-    const rows = policyTestRows(card, [testItem("r-1", "pass")]);
+    const rows = policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "pass")]);
     // Control: the covered rule really did come back passing.
     expect(rows.find((r) => r.ruleId === "r-1")?.state).toBe("passing");
     expect(rows.find((r) => r.ruleId === "r-2")?.state).toBe("untested");
@@ -156,7 +157,7 @@ describe("an absent test is never an assurance", () => {
 
   it("does not print a passing word anywhere for a policy with no tests", () => {
     const card = cardOf([{ id: "r-1" }]);
-    render(<PolicyTestsPane card={card} tests={[]} />);
+    render(<PolicyTestsPane record={candidatePolicyRecord(card)} tests={[]} />);
     // Control: the pane rendered the rule at all.
     expect(screen.getByText(/Statement of r-1/)).toBeTruthy();
     expect(screen.queryByText(/Passing/)).toBeNull();
@@ -165,18 +166,18 @@ describe("an absent test is never an assurance", () => {
 
   it("treats a run that errored as unverified rather than failing", () => {
     const card = cardOf([{ id: "r-1" }]);
-    const rows = policyTestRows(card, [testItem("r-1", "error")]);
+    const rows = policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "error")]);
     expect(rows[0].state).toBe("unverified");
   });
 
   it("reports failing when a covering test failed", () => {
     const card = cardOf([{ id: "r-1" }]);
-    expect(policyTestRows(card, [testItem("r-1", "fail")])[0].state).toBe("failing");
+    expect(policyTestRows(candidatePolicyRecord(card), [testItem("r-1", "fail")])[0].state).toBe("failing");
   });
 
   it("ignores a test that targets no rule, because it belongs to no policy", () => {
     const card = cardOf([{ id: "r-1" }]);
-    const rows = policyTestRows(card, [testItem(null, "pass")]);
+    const rows = policyTestRows(candidatePolicyRecord(card), [testItem(null, "pass")]);
     expect(rows[0].state).toBe("untested");
   });
 });
@@ -184,7 +185,7 @@ describe("an absent test is never an assurance", () => {
 describe("a route is never rendered as a shortfall", () => {
   it("lists only the routes the policy's rules take", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2" }]);
-    const { container } = render(<PolicyPartiesAndRoutesPane card={card} />);
+    const { container } = render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
     // Control: the route section rendered something.
     expect(screen.getByText(/How its rules are decided/)).toBeTruthy();
     // No count of a route no rule took can appear, in any wording.
@@ -197,7 +198,7 @@ describe("a route is never rendered as a shortfall", () => {
       { id: "r-1", mode: "deterministic", facts: ["a_named_value"] },
       { id: "r-2" },
     ]);
-    const { container } = render(<PolicyPartiesAndRoutesPane card={card} />);
+    const { container } = render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
     // Control: the fact from the comparing rule is there.
     expect(screen.getByText("a_named_value")).toBeTruthy();
     // The rule that names none is not listed beside it with an empty entry.
@@ -206,7 +207,7 @@ describe("a route is never rendered as a shortfall", () => {
 
   it("says plainly that a policy decided by reading waits on nothing", () => {
     const card = cardOf([{ id: "r-1" }]);
-    render(<PolicyPartiesAndRoutesPane card={card} />);
+    render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
     expect(screen.getByText(/none of them waits on a supplied value/)).toBeTruthy();
   });
 });
@@ -217,7 +218,7 @@ describe("scope disagreements survive being read together", () => {
       { id: "r-1", personas: ["one_named_group"] },
       { id: "r-2", personas: ["another_named_group"] },
     ]);
-    render(<PolicyScopePane card={card} />);
+    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
     // Control: both values survived the union.
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.getByText("another_named_group")).toBeTruthy();
@@ -229,14 +230,14 @@ describe("scope disagreements survive being read together", () => {
       { id: "r-1", personas: ["one_named_group"] },
       { id: "r-2", personas: ["one_named_group"] },
     ]);
-    render(<PolicyScopePane card={card} />);
+    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.queryByText(/Its rules differ here/)).toBeNull();
   });
 
   it("does not let a narrow rule speak for a rule bound to everyone", () => {
     const card = cardOf([{ id: "r-1", personas: ["one_named_group"] }, { id: "r-2" }]);
-    render(<PolicyScopePane card={card} />);
+    render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.getByText(/apply to everyone/)).toBeTruthy();
   });

@@ -36,6 +36,7 @@ import {
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
   PolicyTestsPane,
+  candidatePolicyRecord,
   type PolicySightingView,
 } from "./policyTabPanes";
 import type { PolicyTestListItem } from "../api";
@@ -168,6 +169,7 @@ export function PolicyDetailPanel({
   history?: readonly PolicySightingView[] | null;
   historyLoading?: boolean;
 }) {
+  const record = candidatePolicyRecord(card);
   const title = policyTitle(card.policy, card.passages);
   const page = passagePageLabel(card.policy.page);
   // The headings above this one. The innermost is the card's own title, so it
@@ -356,7 +358,7 @@ export function PolicyDetailPanel({
           {
             key: "overview",
             label: "Overview",
-            children: <PolicyOverviewPane card={card} />,
+            children: <PolicyOverviewPane record={record} />,
           },
           {
             key: "reading",
@@ -587,17 +589,17 @@ export function PolicyDetailPanel({
           {
             key: "parties",
             label: "Parties & routes",
-            children: <PolicyPartiesAndRoutesPane card={card} />,
+            children: <PolicyPartiesAndRoutesPane record={record} />,
           },
           {
             key: "scope",
             label: "Scope",
-            children: <PolicyScopePane card={card} />,
+            children: <PolicyScopePane record={record} />,
           },
           {
             key: "tests",
             label: "Tests",
-            children: <PolicyTestsPane card={card} tests={tests ?? null} loading={testsLoading} />,
+            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} />,
           },
           {
             key: "history",

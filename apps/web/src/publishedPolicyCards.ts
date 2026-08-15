@@ -26,7 +26,7 @@
  * would be free to disagree with the first.
  */
 import type { AssembledPassage, AssembledPolicy, CanonicalRule } from "./api";
-import { passageTitle, type PassageTitle } from "./policyCards";
+import { passageTitle, policyJsonDocument, type PassageTitle, type PolicyCard } from "./policyCards";
 import {
   policyComposition as sharedPolicyComposition,
   type PolicyComposition,
@@ -247,3 +247,67 @@ export function policyComposition(
 
 export { policyCompositionLabel } from "./policyRecordFacts";
 export type { PolicyComposition } from "./policyRecordFacts";
+
+/**
+ * The policies a narrowing answers, each still whole.
+ *
+ * The rule this encodes: a search or a facet filter selects *policies*. It
+ * never selects some of a policy's rules and leaves the rest out, because the
+ * result is a card that looks exactly like a whole policy and is not one — and
+ * a reader has no way to tell the difference, since a policy with three rules
+ * and a nine-rule policy showing three render identically.
+ *
+ * The card objects are returned by identity, not rebuilt, so there is no path
+ * by which a narrowing could alter what a card contains even by accident.
+ */
+export function publishedCardsAnsweringNarrowing(
+  cards: readonly PublishedPolicyCard[],
+  matchedRuleIds: ReadonlySet<string>,
+): PublishedPolicyCard[] {
+  return cards.filter((card) => card.rules.some((entry) => matchedRuleIds.has(entry.rule_id)));
+}
+
+/**
+ * The published policy as one document, with its rules nested inside it.
+ *
+ * This is an adapter and not a serialiser. There is one serialiser —
+ * `policyJsonDocument` — and it already answers the only question this tab
+ * asks: what did the document state here, as one file. Writing a second one
+ * for published records would mean two files claiming to be the same policy,
+ * free to disagree the first time either is changed, which is exactly the
+ * drift the shared panes exist to close.
+ *
+ * What the serialiser wants from each rule is the canonical record; a queue
+ * card reaches it through the candidate that proposes it, a published version
+ * holds it directly. Only that one hop differs, so only that one hop is
+ * bridged here.
+ *
+ * The coupling is real and worth naming: if the serialiser ever reads a field
+ * of the candidate other than its rule, this bridge will hand it nothing.
+ * `publishedPolicyDocumentHoldsEveryRule` in the tests fails the moment that
+ * stops being true for the rules, and the standing request to give the
+ * serialiser a record-shaped parameter would remove the bridge entirely.
+ */
+export function publishedPolicyJsonDocument(
+  card: PublishedPolicyCard,
+): Record<string, unknown> {
+  return policyJsonDocument({
+    policy: card.policy,
+    passages: card.passages.map((block) => ({
+      passage: block.passage,
+      rules: block.rules.map((entry) => ({
+        rule_id: entry.rule_id,
+        candidate: { rule: entry.rule },
+        evaluation_mode: entry.evaluation_mode,
+      })),
+    })),
+    rules: card.rules.map((entry) => ({
+      rule_id: entry.rule_id,
+      candidate: { rule: entry.rule },
+      evaluation_mode: entry.evaluation_mode,
+    })),
+    hiddenByFilter: card.hiddenByFilter,
+    reviewableIds: [],
+    allIds: card.rules.map((entry) => entry.rule_id),
+  } as unknown as PolicyCard);
+}

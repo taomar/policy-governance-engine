@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Checkbox, Space, Tabs, Tag, Tooltip, Typography } from "antd";
-import type { AggregateLimit, CanonicalRule } from "../api";
+import type { AggregateLimit, CanonicalRule, PolicyTestListItem } from "../api";
 import {
   passagePageLabel,
   passageQuotations,
@@ -11,6 +11,7 @@ import { readPassage } from "../policyReading";
 import {
   policyComposition,
   policyCompositionLabel,
+  publishedPolicyJsonDocument,
   publishedPolicyTitle,
   publishedSharedFacets,
   type PublishedPolicyCard as PublishedPolicyCardModel,
@@ -18,6 +19,15 @@ import {
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
+import {
+  PolicyHistoryPane,
+  PolicyOverviewPane,
+  PolicyPartiesAndRoutesPane,
+  PolicyScopePane,
+  PolicyTestsPane,
+  publishedPolicyRecord,
+  type PolicySightingView,
+} from "./policyTabPanes";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PublishedRecordActions } from "./PublishedRecordActions";
@@ -72,6 +82,10 @@ export function PublishedPolicyCard({
   onToggleRule,
   onRevise,
   onViewHistory,
+  tests,
+  testsLoading,
+  history,
+  historyLoading,
 }: {
   card: PublishedPolicyCardModel;
   /** This policy is the one showing in the detail panel. */
@@ -90,8 +104,19 @@ export function PublishedPolicyCard({
   /** Present only when this version is the one a revision may start from. */
   onRevise?: (rule: CanonicalRule) => void;
   onViewHistory?: (rule: CanonicalRule) => void;
+  /** The policy set's tests, whole. Filtered to this policy's rules here, for
+   *  the same reason the queue does it: a policy's tests are the ones aimed at
+   *  rules it holds, and that is answered from the card rather than by asking a
+   *  server to re-derive the grouping. `null` means not loaded, which is not
+   *  the same as none. */
+  tests?: readonly PolicyTestListItem[] | null;
+  testsLoading?: boolean;
+  /** This policy's sightings across published versions, newest last. */
+  history?: readonly PolicySightingView[] | null;
+  historyLoading?: boolean;
 }) {
   const [tab, setTab] = useState<string>("reading");
+  const record = publishedPolicyRecord(card);
   const title = publishedPolicyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy);
   const page = passagePageLabel(card.policy.page);
@@ -399,8 +424,39 @@ export function PublishedPolicyCard({
         onChange={setTab}
         className="policy-card__tabs"
         items={[
+          { key: "overview", label: "Overview", children: <PolicyOverviewPane record={record} /> },
           { key: "reading", label: "Reading", children: reading },
           { key: "logic", label: "Logic", children: logic },
+          {
+            key: "parties",
+            label: "Parties & routes",
+            children: <PolicyPartiesAndRoutesPane record={record} />,
+          },
+          { key: "scope", label: "Scope", children: <PolicyScopePane record={record} /> },
+          {
+            key: "tests",
+            label: "Tests",
+            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} />,
+          },
+          {
+            key: "history",
+            label: "History",
+            children: <PolicyHistoryPane sightings={history ?? null} loading={historyLoading} />,
+          },
+          {
+            key: "json",
+            label: "JSON",
+            children: (
+              <section className="policy-card__json" data-testid="published-policy-json">
+                <Text type="secondary" className="policy-card__json-label">
+                  This policy as one document — its rules nested inside it
+                </Text>
+                <pre className="policy-card__json-body">
+                  {JSON.stringify(publishedPolicyJsonDocument(card), null, 2)}
+                </pre>
+              </section>
+            ),
+          },
         ]}
       />
 
@@ -410,8 +466,8 @@ export function PublishedPolicyCard({
               at all, so the gap is stated rather than left to be read off two
               numbers that do not agree. */}
           {card.hiddenByFilter === 1
-            ? "1 more rule of this policy is outside the current search and filters."
-            : `${card.hiddenByFilter} more rules of this policy are outside the current search and filters.`}
+            ? "1 more rule of this policy is not served by this version, so it is not on this card."
+            : `${card.hiddenByFilter} more rules of this policy are not served by this version, so they are not on this card.`}
         </Text>
       )}
     </article>

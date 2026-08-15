@@ -42,3 +42,25 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* The policy as one document. Monospaced and scrolled rather than wrapped:
+   wrapping a serialised record puts line breaks the file does not have into
+   something a reader may copy out of. */
+.policy-card__json-label {
+  display: block;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+.policy-card__json-body {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 12px;
+  line-height: 1.5;
+}

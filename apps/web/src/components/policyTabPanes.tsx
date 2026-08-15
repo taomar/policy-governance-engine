@@ -25,7 +25,7 @@
  */
 
 import { Empty, Table, Tag, Tooltip, Typography } from "antd";
-import type { CanonicalRule, PolicyTestListItem } from "../api";
+import type { AssembledPolicy, CanonicalRule, PolicyTestListItem } from "../api";
 import type { PolicyCard } from "../policyCards";
 import {
   policyAuthorities,
@@ -36,14 +36,54 @@ import {
   policyScope,
   type PolicyScopeDimension,
 } from "../policyRecordFacts";
+import type { PublishedPolicyCard } from "../publishedPolicyCards";
 import { DirectionalText } from "./DirectionalText";
 import "./policyTabPanes.css";
 
 const { Text, Paragraph } = Typography;
 
-/** The rules of a card, as the canonical records the panes reason about. */
-export function cardRules(card: PolicyCard): CanonicalRule[] {
-  return card.rules.map((entry) => entry.candidate.rule);
+/**
+ * A policy as these panes need it, with nothing in it about who may act on it.
+ *
+ * The review queue and the published version hold a policy in two different
+ * shapes, for a real reason: one carries a candidate that may still be edited,
+ * the other carries a sealed record. Neither difference is visible in anything
+ * these panes say. So the panes read this, and each surface supplies it — which
+ * is what keeps there being one set of panes rather than a published copy that
+ * drifts from the review one within weeks.
+ *
+ * There is deliberately no status, no editability and no permission on this
+ * type. A pane that could see them could branch on them.
+ */
+export interface PolicyRecordView {
+  policy: AssembledPolicy;
+  /** How many passages of its source document the policy quotes. */
+  passageCount: number;
+  /** Every rule the policy holds, in document order, with the id it is known by. */
+  rules: { rule_id: string; rule: CanonicalRule }[];
+}
+
+/** A queue card as a policy record. */
+export function candidatePolicyRecord(card: PolicyCard): PolicyRecordView {
+  return {
+    policy: card.policy,
+    passageCount: card.passages.length,
+    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.candidate.rule })),
+  };
+}
+
+/** A published card as a policy record. */
+export function publishedPolicyRecord(card: PublishedPolicyCard): PolicyRecordView {
+  return {
+    policy: card.policy,
+    passageCount: card.passages.length,
+    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
+  };
+}
+
+/** The rules of a record, as the canonical records the panes reason about. */
+export function recordRules(record: PolicyRecordView): CanonicalRule[] {
+  return record.rules.map((entry) => entry.rule);
 }
 
 /** How many rules named this, of how many — the shape every pane counts in. */
@@ -62,11 +102,11 @@ function share(named: number, total: number): string {
  * here, so that this app's words never sit above the document's without being
  * marked as this app's.
  */
-export function PolicyOverviewPane({ card }: { card: PolicyCard }) {
-  const rules = cardRules(card);
+export function PolicyOverviewPane({ record }: { record: PolicyRecordView }) {
+  const rules = recordRules(record);
   const composition = policyCompositionLabel(policyComposition(rules));
   const authorities = policyAuthorities(rules);
-  const passages = card.passages.length;
+  const passages = record.passageCount;
 
   return (
     <div className="policy-pane">
@@ -74,16 +114,16 @@ export function PolicyOverviewPane({ card }: { card: PolicyCard }) {
         <Text type="secondary" className="policy-pane__label">
           Where this policy sits
         </Text>
-        {card.policy.heading_path.length > 1 ? (
+        {record.policy.heading_path.length > 1 ? (
           <Paragraph className="policy-pane__trail">
-            <DirectionalText>{card.policy.heading_path.slice(0, -1).join(" › ")}</DirectionalText>
+            <DirectionalText>{record.policy.heading_path.slice(0, -1).join(" › ")}</DirectionalText>
           </Paragraph>
         ) : (
           <Paragraph type="secondary">
             The document places this policy at its top level, under no heading above it.
           </Paragraph>
         )}
-        {card.policy.page != null && <Tag>Page {card.policy.page}</Tag>}
+        {record.policy.page != null && <Tag>Page {record.policy.page}</Tag>}
         <Tag>
           {passages === 1 ? "1 passage" : `${passages} passages`}
         </Tag>
@@ -147,8 +187,8 @@ export function PolicyOverviewPane({ card }: { card: PolicyCard }) {
  * reads as an omission. Those rules are therefore not in the table at all;
  * what the reviewer is told about them is which route they take, above.
  */
-export function PolicyPartiesAndRoutesPane({ card }: { card: PolicyCard }) {
-  const rules = cardRules(card);
+export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordView }) {
+  const rules = recordRules(record);
   const routes = policyRoutes(rules);
   const facts = policyRequiredFacts(rules);
   const ruleIdsNamingFacts = new Set(facts.flatMap((entry) => entry.ruleIds));
@@ -230,8 +270,8 @@ export function PolicyPartiesAndRoutesPane({ card }: { card: PolicyCard }) {
  * different people depending which of its rules is being applied. That is a
  * finding for the reviewer, not a rendering inconvenience to be smoothed over.
  */
-export function PolicyScopePane({ card }: { card: PolicyCard }) {
-  const rules = cardRules(card);
+export function PolicyScopePane({ record }: { record: PolicyRecordView }) {
+  const rules = recordRules(record);
   const dimensions = policyScope(rules);
   const stated = dimensions.filter(
     (d) => d.values.length > 0 || d.agreement === "mixed",
@@ -328,7 +368,7 @@ const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: st
  * outcome this pane exists to make impossible.
  */
 export function policyTestRows(
-  card: PolicyCard,
+  record: PolicyRecordView,
   tests: readonly PolicyTestListItem[],
 ): RuleTestRow[] {
   const byRule = new Map<string, PolicyTestListItem[]>();
@@ -340,7 +380,7 @@ export function policyTestRows(
     else byRule.set(target, [item]);
   }
 
-  return card.rules.map((entry) => {
+  return record.rules.map((entry) => {
     const covering = byRule.get(entry.rule_id) ?? [];
     const runs = covering
       .map((item) => item.latest_run)
@@ -357,7 +397,7 @@ export function policyTestRows(
 
     return {
       ruleId: entry.rule_id,
-      title: entry.candidate.rule.title,
+      title: entry.rule.title,
       state,
       tests: covering.length,
     };
@@ -365,15 +405,15 @@ export function policyTestRows(
 }
 
 export function PolicyTestsPane({
-  card,
+  record,
   tests,
   loading,
 }: {
-  card: PolicyCard;
+  record: PolicyRecordView;
   tests: readonly PolicyTestListItem[] | null;
   loading?: boolean;
 }) {
-  const rows = policyTestRows(card, tests ?? []);
+  const rows = policyTestRows(record, tests ?? []);
   const covered = rows.filter((row) => row.state !== "untested").length;
 
   return (

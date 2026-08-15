@@ -24,6 +24,8 @@ import {
   type ApprovedPolicyVersion,
   type AssembledPolicy,
   type CanonicalRule,
+  type PolicyTestListItem,
+  policyTestApi,
 } from "../api";
 import { EditRuleModal } from "./EditRuleModal";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
@@ -34,6 +36,7 @@ import { PublishedRecordActions } from "./PublishedRecordActions";
 import {
   buildPublishedPolicyCards,
   listVersionPolicies,
+  publishedCardsAnsweringNarrowing,
   unplacedPublishedRules,
 } from "../publishedPolicyCards";
 import {
@@ -105,6 +108,34 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [workspaceMode, setWorkspaceMode] = useState<PoliciesWorkspaceMode>("split");
   const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
+  /** The set's tests, loaded once for the page so every policy's Tests tab
+   *  reads the same answer. `null` while unknown — a failed load must not read
+   *  as "this set has no tests", which is a claim about coverage. */
+  const [tests, setTests] = useState<PolicyTestListItem[] | null>(null);
+  const [testsLoading, setTestsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!policySetKey) {
+      setTests(null);
+      return;
+    }
+    let cancelled = false;
+    setTestsLoading(true);
+    policyTestApi
+      .list(policySetKey)
+      .then((rows) => {
+        if (!cancelled) setTests(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setTests(null);
+      })
+      .finally(() => {
+        if (!cancelled) setTestsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [policySetKey]);
 
   useEffect(() => {
     setError(null);
@@ -263,17 +294,41 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     });
   }, [searched, filters, focusedFamily, clusterMap]);
 
-  /** The rules that survive the current narrowing, in the order the version
+  /** The rules that answer the current narrowing, in the order the version
    *  serves them. Not re-sorted: a policy's rules are read in the order the
    *  document states them, and reordering them by an attribute would take the
    *  one arrangement the source actually chose and replace it with one it
    *  didn't. */
   const shownRules = filtered;
 
-  /** Whole policies, each holding whichever of its rules are still in view.
-   *  A policy showing fewer rules than it holds says so on its own head, so
-   *  narrowing never turns a policy into a fragment presented as the whole. */
-  const cards = useMemo(() => buildPublishedPolicyCards(policies, shownRules), [policies, shownRules]);
+  /** Every policy this version publishes, whole.
+   *
+   *  Built from all of the version's rules, before any narrowing runs, so a
+   *  card always holds every rule its policy states. Building them from the
+   *  narrowed set instead produced cards that looked like whole policies and
+   *  were not: a reader who searched for one term got a policy showing three
+   *  of its nine rules with the other six silently absent, and nothing on
+   *  screen distinguishes that from a policy that only has three. */
+  const allCards = useMemo(
+    () => buildPublishedPolicyCards(policies, rules),
+    [policies, rules],
+  );
+
+  const matchedRuleIds = useMemo(
+    () => new Set(shownRules.map((rule) => rule.rule_id)),
+    [shownRules],
+  );
+
+  /** The policies the narrowing answers, each still whole.
+   *
+   *  A search selects policies; it never subsets one. This is the same rule the
+   *  review queue follows, and it has to be the same rule, because the two
+   *  surfaces are meant to read alike and a fragment on one of them is a
+   *  different claim about the document than a whole policy on the other. */
+  const cards = useMemo(
+    () => publishedCardsAnsweringNarrowing(allCards, matchedRuleIds),
+    [allCards, matchedRuleIds],
+  );
 
   /** Rules the version serves that no policy claims — always rendered, below
    *  the policies, so a grouping gap loses a rule from its policy but never
@@ -631,6 +686,8 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             }
                             onRevise={canRevise ? setReviseTarget : undefined}
                             onViewHistory={handleViewHistory}
+                            tests={tests}
+                            testsLoading={testsLoading}
                           />
                         );
                       })}
