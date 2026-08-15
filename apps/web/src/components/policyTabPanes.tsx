@@ -165,6 +165,16 @@ export function PolicyOverviewPane({ record }: { record: PolicyRecordView }) {
 /* --------------------------------------------------- Parties and the routes */
 
 /**
+ * The one place this tab is named.
+ *
+ * It was three: the review panel, the published card and the rule inspector
+ * each held their own string, and the third had drifted to a word the other
+ * two had deliberately dropped. A label is an interface a reader learns, so
+ * two names for one tab teaches them there are two tabs.
+ */
+export const PARTIES_AND_ROUTES_TAB_LABEL = "Parties & routes";
+
+/**
  * Who the policy binds, and how each of its rules reaches a decision.
  *
  * Named "Parties & routes" rather than "readiness". A route is how a rule is
@@ -238,7 +248,8 @@ export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordVie
             </ul>
             <Paragraph type="secondary">
               Counted against the rules that state a comparison, not against the policy. A rule
-              decided by reading its source names no facts, and is not missing any.
+              its source states in words is decided by reading it, so it names no facts and
+              waits on nothing.
             </Paragraph>
           </>
         )}
@@ -455,16 +466,35 @@ export function PolicyTestsPane({
 
 /* ------------------------------------------------------------------ History */
 
-/** One sighting of this policy, in one published version. */
+/**
+ * One sighting of this policy, in one published version.
+ *
+ * The field names are the server's, from `PolicySighting` in
+ * `infrastructure/assembly/provision_history.py`, and are not renamed on the
+ * way in. A view type that renames them reads plausibly and then hands the
+ * table `undefined` for anything it guessed wrong — which is exactly what
+ * happened here: this interface first said `rules_changed` and `rule_count`,
+ * the server says `rules_reworded` and sends `rules`, and the tab crashed on
+ * the first real payload while every test passed against the invented shape.
+ */
+export interface PolicyRuleSightingView {
+  rule_id: string;
+  title: string;
+  fingerprint: string;
+}
+
 export interface PolicySightingView {
   version_id: string;
   version_number: number | null;
-  effective_from: string | null;
+  is_active: boolean;
+  approved_by: string | null;
+  approved_at: string | null;
+  heading_path: string[];
   change: string;
-  rule_count: number;
+  rules: PolicyRuleSightingView[];
   rules_added: string[];
   rules_removed: string[];
-  rules_changed: string[];
+  rules_reworded: string[];
 }
 
 /**
@@ -513,16 +543,31 @@ export function PolicyHistoryPane({
           {
             title: "Version",
             dataIndex: "version_number",
-            width: 100,
-            render: (n: number | null) => (n == null ? <Text type="secondary">—</Text> : `v${n}`),
+            width: 110,
+            render: (n: number | null, row) => (
+              <>
+                {n == null ? <Text type="secondary">—</Text> : `v${n}`}
+                {row.is_active && <Tag className="policy-pane__active-tag">active</Tag>}
+              </>
+            ),
           },
           {
-            title: "Effective from",
-            dataIndex: "effective_from",
-            width: 150,
-            render: (d: string | null) => d ?? <Text type="secondary">not stated</Text>,
+            title: "Approved",
+            dataIndex: "approved_at",
+            width: 190,
+            render: (at: string | null, row) => (
+              <>
+                {at ? at.slice(0, 10) : <Text type="secondary">not recorded</Text>}
+                {row.approved_by && <Text type="secondary"> · {row.approved_by}</Text>}
+              </>
+            ),
           },
-          { title: "Rules", dataIndex: "rule_count", width: 80 },
+          {
+            title: "Rules",
+            dataIndex: "rules",
+            width: 80,
+            render: (rules: PolicyRuleSightingView[]) => rules.length,
+          },
           {
             title: "Against the version before it",
             dataIndex: "change",
@@ -535,8 +580,8 @@ export function PolicyHistoryPane({
                 {row.rules_removed.length > 0 && (
                   <Text type="secondary"> · {row.rules_removed.length} gone</Text>
                 )}
-                {row.rules_changed.length > 0 && (
-                  <Text type="secondary"> · {row.rules_changed.length} reworded</Text>
+                {row.rules_reworded.length > 0 && (
+                  <Text type="secondary"> · {row.rules_reworded.length} reworded</Text>
                 )}
               </>
             ),

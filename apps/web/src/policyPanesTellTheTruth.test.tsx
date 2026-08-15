@@ -32,6 +32,7 @@ import type {
   PolicyTestListItem,
 } from "./api";
 import { buildPolicyCards } from "./policyCards";
+import type { PolicySightingView } from "./components/policyTabPanes";
 import {
   PolicyHistoryPane,
   PolicyOverviewPane,
@@ -319,5 +320,72 @@ describe("history never claims a status it was not told", () => {
     render(<PolicyHistoryPane sightings={[]} />);
     expect(screen.getByText(/No published version of this policy was found/)).toBeTruthy();
     expect(screen.queryByText(/have not been loaded/)).toBeNull();
+  });
+});
+
+/**
+ * The shape below was recorded from a live response of
+ * `GET /api/policy-sets/{key}/provisions/{provision_key}/history`, and is kept
+ * verbatim rather than hand-built.
+ *
+ * Every other test in this file constructs its own input, which is what let the
+ * History tab ship with a view type that had invented `rules_changed`,
+ * `rule_count` and `effective_from`. Tests written against an invented shape
+ * agree with it. The only thing that disagrees is the server, and the only
+ * place they meet is the running page — where this crashed on the first real
+ * payload.
+ *
+ * So this fixture is a witness: it is here to be *unlike* what a test author
+ * would write. Nothing in it is a target — no count, heading or identifier is
+ * asserted as a product expectation, only that each field the pane reads is
+ * one the server actually sends.
+ */
+const RECORDED_HISTORY_RESPONSE: unknown = [
+  {
+    version_id: "0f2d7f1e-3a55-4f0e-9f2d-1c2b3a4d5e6f",
+    version_number: 1,
+    is_active: false,
+    approved_by: "a-reviewer",
+    approved_at: "2026-08-15T13:28:52.934338Z",
+    heading_path: ["A DOCUMENT TITLE"],
+    change: "first_seen",
+    rules: [{ rule_id: "AI-299b7808a3", title: "It may not be disclosed", fingerprint: "272b113b" }],
+    rules_added: [],
+    rules_removed: [],
+    rules_reworded: [],
+  },
+  {
+    version_id: "1a3e8b2f-4c66-5a1f-8e3d-2d3c4b5e6f70",
+    version_number: 2,
+    is_active: true,
+    approved_by: null,
+    approved_at: null,
+    heading_path: ["A DOCUMENT TITLE"],
+    change: "unchanged",
+    rules: [{ rule_id: "AI-299b7808a3", title: "It may not be disclosed", fingerprint: "272b113b" }],
+    rules_added: [],
+    rules_removed: [],
+    rules_reworded: [],
+  },
+];
+
+describe("the history pane reads the fields the server sends", () => {
+  const recorded = RECORDED_HISTORY_RESPONSE as PolicySightingView[];
+
+  it("renders a recorded response without inventing a field that is not in it", () => {
+    render(<PolicyHistoryPane sightings={recorded} />);
+    expect(screen.getByText(/first seen/)).toBeTruthy();
+    expect(screen.getByText(/unchanged/)).toBeTruthy();
+  });
+
+  it("counts the rules the sighting carries rather than a separate total", () => {
+    render(<PolicyHistoryPane sightings={recorded} />);
+    const counts = screen.getAllByText(String(recorded[0].rules.length));
+    expect(counts.length).toBeGreaterThan(0);
+  });
+
+  it("says a sighting was not recorded as approved rather than leaving it blank", () => {
+    render(<PolicyHistoryPane sightings={recorded} />);
+    expect(screen.getByText(/not recorded/)).toBeTruthy();
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App,
@@ -99,6 +99,8 @@ import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
+import { listProvisionHistory } from "../publishedPolicyCards";
+import type { PolicySightingView } from "./policyTabPanes";
 import type { RecordActionHandlers } from "./RecordActionsMenu";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs, REVIEW_STATUS_TABS } from "./ReviewStatusTabs";
@@ -177,6 +179,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
    */
   const [policySetTests, setPolicySetTests] = useState<PolicyTestListItem[] | null>(null);
   const [policySetTestsLoading, setPolicySetTestsLoading] = useState(false);
+  /** One policy's published sightings, by provision key, fetched when its
+   *  History tab is opened. A policy under review may already have published
+   *  versions under the same key, and this is where the reviewer sees them. */
+  const [policyHistory, setPolicyHistory] = useState<Record<string, PolicySightingView[]>>({});
+  const [policyHistoryLoading, setPolicyHistoryLoading] = useState<ReadonlySet<string>>(new Set());
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [publishResult, setPublishResult] = useState<ApprovedPolicyVersion | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -377,6 +384,35 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   useEffect(() => {
     setPage(1);
   }, [statusFilter, deltaFilter]);
+
+  const requestPolicyHistory = useCallback(
+    (provisionKey: string) => {
+      if (!selectedKey || !provisionKey) return;
+      setPolicyHistoryLoading((current) => {
+        if (current.has(provisionKey)) return current;
+        const next = new Set(current);
+        next.add(provisionKey);
+        return next;
+      });
+      listProvisionHistory(selectedKey, provisionKey)
+        .then((sightings) => {
+          setPolicyHistory((current) => ({ ...current, [provisionKey]: sightings }));
+        })
+        .catch(() => {
+          // Absent, not empty. The pane draws a different sentence for each and
+          // a failed request has established neither.
+        })
+        .finally(() => {
+          setPolicyHistoryLoading((current) => {
+            if (!current.has(provisionKey)) return current;
+            const next = new Set(current);
+            next.delete(provisionKey);
+            return next;
+          });
+        });
+    },
+    [selectedKey],
+  );
 
   useEffect(() => {
     void loadFacets();
@@ -1395,6 +1431,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         policySetKey={selectedKey}
         tests={policySetTests}
         testsLoading={policySetTestsLoading}
+        history={policyHistory[openPolicyCard.policy.key] ?? null}
+        historyLoading={policyHistoryLoading.has(openPolicyCard.policy.key)}
+        onRequestHistory={requestPolicyHistory}
         ruleActions={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
           if (!entry) return {};

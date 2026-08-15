@@ -26,6 +26,7 @@
  * would be free to disagree with the first.
  */
 import type { AssembledPassage, AssembledPolicy, CanonicalRule } from "./api";
+import type { PolicySightingView } from "./components/policyTabPanes";
 import { passageTitle, policyJsonDocument, type PassageTitle, type PolicyCard } from "./policyCards";
 import {
   policyComposition as sharedPolicyComposition,
@@ -33,6 +34,31 @@ import {
 } from "./policyRecordFacts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
+
+/**
+ * One GET, shaped the way the rest of this module needs it.
+ *
+ * `api.ts` has a private helper doing exactly this and these functions belong
+ * beside it; they are here only because that module is being edited elsewhere.
+ * Written once rather than per call so that when they move, one thing moves.
+ */
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Fall back to the status line; a body that will not parse is not a
+      // better sentence than the one the transport already gave.
+    }
+    throw new Error(`${res.status} ${detail}`);
+  }
+  return (await res.json()) as T;
+}
 
 /**
  * The published version as policies.
@@ -49,21 +75,30 @@ export async function listVersionPolicies(
   const path = `/api/policy-sets/${encodeURIComponent(policySetKey)}/versions/${encodeURIComponent(
     versionId,
   )}/policies`;
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      if (typeof body?.detail === "string") detail = body.detail;
-    } catch {
-      // Fall back to the status line; a body that will not parse is not a
-      // better sentence than the one the transport already gave.
-    }
-    throw new Error(`${res.status} ${detail}`);
-  }
-  return (await res.json()) as AssembledPolicy[];
+  return await getJson<AssembledPolicy[]>(path);
+}
+
+/**
+ * Every version this policy has been seen in, oldest first.
+ *
+ * Keyed by the provision key rather than by a row id, because a policy is not a
+ * row: `document_provisions.id` belongs to one document version and cannot
+ * follow a policy through a re-extraction, while the key does. That is what
+ * makes a history derivable at all.
+ *
+ * A failure is raised, not swallowed into an empty list. The pane draws a
+ * different sentence for "not loaded" than for "no other version was found",
+ * and turning the first into the second would have it claim a fact about the
+ * record that this call never established.
+ */
+export async function listProvisionHistory(
+  policySetKey: string,
+  provisionKey: string,
+): Promise<PolicySightingView[]> {
+  const path = `/api/policy-sets/${encodeURIComponent(policySetKey)}/provisions/${encodeURIComponent(
+    provisionKey,
+  )}/history`;
+  return await getJson<PolicySightingView[]>(path);
 }
 
 export interface PublishedPolicyCardRule {

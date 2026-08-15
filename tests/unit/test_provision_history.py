@@ -7,6 +7,9 @@ evidence.
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from policy_platform.infrastructure.assembly.provision_history import (
@@ -92,3 +95,63 @@ def test_the_first_sighting_defaults_to_first_seen_not_added() -> None:
     )
     assert sighting.change == "first_seen"
     assert sighting.change != "added"
+
+
+# --------------------------------------------------------------------------- #
+# The wire contract
+# --------------------------------------------------------------------------- #
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_ENDPOINT = _REPO_ROOT / "src" / "policy_platform" / "api" / "routers" / "policy_sets.py"
+_WEB_VIEW = _REPO_ROOT / "apps" / "web" / "src" / "components" / "policyTabPanes.tsx"
+
+
+def _endpoint_keys() -> set[str]:
+    """The key names this endpoint puts on the wire."""
+    source = _ENDPOINT.read_text(encoding="utf-8")
+    start = source.index("async def get_provision_history")
+    end = source.find("\n@router", start)
+    body = source[start:] if end == -1 else source[start:end]
+    return set(re.findall(r'"([a-z_]+)":', body))
+
+
+def _web_view_fields() -> set[str]:
+    """The field names the web history pane reads off that wire."""
+    source = _WEB_VIEW.read_text(encoding="utf-8")
+    fields: set[str] = set()
+    for name in ("PolicySightingView", "PolicyRuleSightingView"):
+        start = source.index(f"export interface {name} {{")
+        body = source[start : source.index("}", start)]
+        fields |= set(re.findall(r"^\s{2}([a-z_]+)\??:", body, flags=re.MULTILINE))
+    return fields
+
+
+def test_the_history_endpoint_and_its_only_reader_agree_on_names() -> None:
+    """A field the pane reads but the server never sends is `undefined` at runtime.
+
+    This is not hypothetical. The pane shipped declaring `rules_changed`,
+    `rule_count` and `effective_from` against a server sending `rules_reworded`
+    and a `rules` list, and the tab threw on the first real payload while every
+    test on both sides passed — because each side tested against its own idea of
+    the shape, and the two ideas never met until the page ran.
+
+    Nothing here checks a value. Only that the two vocabularies are the same
+    one, which is the single fact neither suite could see alone.
+    """
+    emitted = _endpoint_keys()
+    read = _web_view_fields()
+    assert read, "the web view declares no fields; the parse is wrong, not the code"
+    assert not (read - emitted), (
+        f"the history pane reads fields the endpoint does not send: {sorted(read - emitted)}"
+    )
+
+
+def test_the_endpoint_sends_nothing_the_reader_has_no_name_for() -> None:
+    """Sent-but-unread is a weaker fault than read-but-unsent, and still a fault.
+
+    It means either the pane is missing something the server thought worth
+    reporting, or the server is paying to serialise something nobody wanted.
+    Both deserve a decision rather than a silence.
+    """
+    unread = _endpoint_keys() - _web_view_fields()
+    assert not unread, f"the endpoint sends fields nothing reads: {sorted(unread)}"

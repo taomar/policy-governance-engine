@@ -20,6 +20,7 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
 import {
+  PARTIES_AND_ROUTES_TAB_LABEL,
   PolicyHistoryPane,
   PolicyOverviewPane,
   PolicyPartiesAndRoutesPane,
@@ -86,6 +87,7 @@ export function PublishedPolicyCard({
   testsLoading,
   history,
   historyLoading,
+  onRequestHistory,
 }: {
   card: PublishedPolicyCardModel;
   /** This policy is the one showing in the detail panel. */
@@ -114,6 +116,10 @@ export function PublishedPolicyCard({
   /** This policy's sightings across published versions, newest last. */
   history?: readonly PolicySightingView[] | null;
   historyLoading?: boolean;
+  /** Asked for when the reader opens History, not before. A version holds many
+   *  policies and each has its own history; fetching all of them to render one
+   *  card's tab spends a request per policy on a tab most readers never open. */
+  onRequestHistory?: (provisionKey: string) => void;
 }) {
   const [tab, setTab] = useState<string>("reading");
   const record = publishedPolicyRecord(card);
@@ -421,7 +427,12 @@ export function PublishedPolicyCard({
       <Tabs
         size="small"
         activeKey={tab}
-        onChange={setTab}
+        onChange={(next) => {
+          setTab(next);
+          if (next === "history" && history == null && !historyLoading) {
+            onRequestHistory?.(card.policy.key);
+          }
+        }}
         className="policy-card__tabs"
         items={[
           { key: "overview", label: "Overview", children: <PolicyOverviewPane record={record} /> },
@@ -429,7 +440,7 @@ export function PublishedPolicyCard({
           { key: "logic", label: "Logic", children: logic },
           {
             key: "parties",
-            label: "Parties & routes",
+            label: PARTIES_AND_ROUTES_TAB_LABEL,
             children: <PolicyPartiesAndRoutesPane record={record} />,
           },
           { key: "scope", label: "Scope", children: <PolicyScopePane record={record} /> },

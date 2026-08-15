@@ -35,14 +35,18 @@
  * measurement of one.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AssembledPolicy, CanonicalRule } from "../api";
 import {
   buildPublishedPolicyCards,
   publishedCardsAnsweringNarrowing,
   publishedPolicyJsonDocument,
 } from "../publishedPolicyCards";
-import { publishedPolicyRecord } from "./policyTabPanes";
+import {
+  PARTIES_AND_ROUTES_TAB_LABEL,
+  publishedPolicyRecord,
+  type PolicySightingView,
+} from "./policyTabPanes";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
 
 // jsdom implements neither, and the component library measures its own layout.
@@ -155,8 +159,22 @@ function cardsFor(spec: Record<string, string[]>) {
 
 /** The questions a reviewer can ask of a policy, named as a reader sees them.
  *  Not a count: the assertion is that each is reachable, and a count would pass
- *  while any two were swapped for each other. */
-const QUESTIONS = ["Overview", "Reading", "Logic", "Parties & routes", "Scope", "Tests", "History", "JSON"];
+ *  while any two were swapped for each other.
+ *
+ *  One of them is read from the constant the surfaces import rather than
+ *  written out here, because that tab had three spellings across three files
+ *  and the third had drifted back to the word the first two dropped. A literal
+ *  in this list would have agreed with whichever spelling it was copied from. */
+const QUESTIONS = [
+  "Overview",
+  "Reading",
+  "Logic",
+  PARTIES_AND_ROUTES_TAB_LABEL,
+  "Scope",
+  "Tests",
+  "History",
+  "JSON",
+];
 
 function renderOne(ruleIds: string[] = ["r1", "r2"]) {
   const [card] = cardsFor({ "a-policy": ruleIds });
@@ -173,6 +191,31 @@ function renderOne(ruleIds: string[] = ["r1", "r2"]) {
       onViewHistory={() => {}}
     />,
   );
+}
+
+function renderWithHistory(props: {
+  onRequestHistory: (provisionKey: string) => void;
+  history?: readonly PolicySightingView[] | null;
+  historyLoading?: boolean;
+}) {
+  const [card] = cardsFor({ "a-policy": ["r1"] });
+  render(
+    <PublishedPolicyCard
+      card={card}
+      open={false}
+      selectedForExport={false}
+      indeterminateForExport={false}
+      onToggleExportSelection={() => {}}
+      onOpen={() => {}}
+      onSelectRule={() => {}}
+      onToggleRule={() => {}}
+      onViewHistory={() => {}}
+      history={props.history ?? null}
+      historyLoading={props.historyLoading}
+      onRequestHistory={props.onRequestHistory}
+    />,
+  );
+  return { card };
 }
 
 describe("a published policy answers the same questions the queue does", () => {
@@ -251,5 +294,43 @@ describe("the neutral view a shared pane reads", () => {
     for (const forbidden of ["editable", "canReview", "readOnly", "status", "reviewStatus"]) {
       expect(record[forbidden]).toBeUndefined();
     }
+  });
+});
+
+/**
+ * History is the one tab whose data is fetched per policy rather than per page.
+ * A version holds many policies; loading every one of their histories to render
+ * a tab most readers never open spends a request per policy on nothing. So the
+ * card asks when the reader asks, and these fix that contract.
+ */
+describe("history is asked for when it is opened, and only then", () => {
+  it("does not ask before the reader opens the tab", () => {
+    const asked: string[] = [];
+    renderWithHistory({ onRequestHistory: (key) => asked.push(key) });
+    expect(asked).toEqual([]);
+  });
+
+  it("asks for this policy by the key that survives a re-extraction", () => {
+    const asked: string[] = [];
+    const { card } = renderWithHistory({ onRequestHistory: (key) => asked.push(key) });
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(asked).toEqual([card.policy.key]);
+  });
+
+  it("does not ask again for a history it already holds", () => {
+    const asked: string[] = [];
+    renderWithHistory({
+      onRequestHistory: (key) => asked.push(key),
+      history: [],
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(asked).toEqual([]);
+  });
+
+  it("does not ask while a request for it is already out", () => {
+    const asked: string[] = [];
+    renderWithHistory({ onRequestHistory: (key) => asked.push(key), historyLoading: true });
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(asked).toEqual([]);
   });
 });

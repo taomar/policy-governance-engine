@@ -29,6 +29,7 @@ import { withRuleIdentity } from "../ruleIdentity";
 import { NotesPanel } from "./NotesPanel";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { PARTIES_AND_ROUTES_TAB_LABEL } from "./policyTabPanes";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { RuleVersionHistory } from "./RuleVersionHistory";
 import {
@@ -654,7 +655,7 @@ export function PolicyInspector({
             review actions. This was previously reachable only by hovering the
             warning glyph in the title row, which a keyboard user never sees.
             Renders only for a status worth interrupting for; the complete
-            field, including "reads one way", is on the Parties & readiness
+            field, including "reads one way", is on the parties and routes
             tab so it is never invisible. */}
         <AmbiguityNoteView status={rule.ambiguity_status} variant="banner" />
         <Space size={8} className="policy-inspector-actions">
@@ -705,7 +706,7 @@ export function PolicyInspector({
             key: "readiness",
             label: (
               <span>
-                Parties &amp; readiness
+                {PARTIES_AND_ROUTES_TAB_LABEL}
                 {(rule.decision_readiness?.parties.length ?? 0) > 0 && (
                   <Tag className="inspector-tab-count">
                     {rule.decision_readiness?.parties.length}

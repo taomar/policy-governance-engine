@@ -31,6 +31,7 @@ import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyLogicTable } from "./PolicyLogicTable";
 import { RecordActionsMenu, type RecordActionHandlers } from "./RecordActionsMenu";
 import {
+  PARTIES_AND_ROUTES_TAB_LABEL,
   PolicyHistoryPane,
   PolicyOverviewPane,
   PolicyPartiesAndRoutesPane,
@@ -119,6 +120,7 @@ export function PolicyDetailPanel({
   testsLoading,
   history,
   historyLoading,
+  onRequestHistory,
 }: {
   card: PolicyCard;
   statusColor: (status: string) => string;
@@ -168,6 +170,10 @@ export function PolicyDetailPanel({
    *  has not simply passes nothing and the tab says so. */
   history?: readonly PolicySightingView[] | null;
   historyLoading?: boolean;
+  /** Asked for when the reader opens History, not before. The same policy key
+   *  serves a candidate and its published sightings, so a policy under review
+   *  can show what has already been published of it. */
+  onRequestHistory?: (provisionKey: string) => void;
 }) {
   const record = candidatePolicyRecord(card);
   const title = policyTitle(card.policy, card.passages);
@@ -354,6 +360,11 @@ export function PolicyDetailPanel({
       <Tabs
         className="policy-detail-panel__tabs"
         defaultActiveKey="overview"
+        onChange={(next) => {
+          if (next === "history" && history == null && !historyLoading) {
+            onRequestHistory?.(card.policy.key);
+          }
+        }}
         items={[
           {
             key: "overview",
@@ -588,7 +599,7 @@ export function PolicyDetailPanel({
           },
           {
             key: "parties",
-            label: "Parties & routes",
+            label: PARTIES_AND_ROUTES_TAB_LABEL,
             children: <PolicyPartiesAndRoutesPane record={record} />,
           },
           {

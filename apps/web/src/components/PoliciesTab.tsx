@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -31,10 +31,12 @@ import { EditRuleModal } from "./EditRuleModal";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
 import { PolicyInspector } from "./PolicyInspector";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import type { PolicySightingView } from "./policyTabPanes";
 import { RuleCard } from "./RuleCard";
 import { PublishedRecordActions } from "./PublishedRecordActions";
 import {
   buildPublishedPolicyCards,
+  listProvisionHistory,
   listVersionPolicies,
   publishedCardsAnsweringNarrowing,
   unplacedPublishedRules,
@@ -113,6 +115,41 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  as "this set has no tests", which is a claim about coverage. */
   const [tests, setTests] = useState<PolicyTestListItem[] | null>(null);
   const [testsLoading, setTestsLoading] = useState(false);
+  /** One policy's sightings, kept by provision key and fetched when its History
+   *  tab is first opened. Keyed rather than held singly because several cards
+   *  are on the page at once and each is a different policy. */
+  const [historyByKey, setHistoryByKey] = useState<Record<string, PolicySightingView[]>>({});
+  const [historyLoadingKeys, setHistoryLoadingKeys] = useState<ReadonlySet<string>>(new Set());
+
+  const requestHistory = useCallback(
+    (provisionKey: string) => {
+      if (!policySetKey || !provisionKey) return;
+      setHistoryLoadingKeys((current) => {
+        if (current.has(provisionKey)) return current;
+        const next = new Set(current);
+        next.add(provisionKey);
+        return next;
+      });
+      listProvisionHistory(policySetKey, provisionKey)
+        .then((sightings) => {
+          setHistoryByKey((current) => ({ ...current, [provisionKey]: sightings }));
+        })
+        .catch(() => {
+          // Left absent rather than stored as an empty list. The pane says
+          // "not loaded" for absent and "no other version was found" for empty,
+          // and a failed request establishes neither.
+        })
+        .finally(() => {
+          setHistoryLoadingKeys((current) => {
+            if (!current.has(provisionKey)) return current;
+            const next = new Set(current);
+            next.delete(provisionKey);
+            return next;
+          });
+        });
+    },
+    [policySetKey],
+  );
 
   useEffect(() => {
     if (!policySetKey) {
@@ -688,6 +725,9 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             onViewHistory={handleViewHistory}
                             tests={tests}
                             testsLoading={testsLoading}
+                            history={historyByKey[card.policy.key] ?? null}
+                            historyLoading={historyLoadingKeys.has(card.policy.key)}
+                            onRequestHistory={requestHistory}
                           />
                         );
                       })}
