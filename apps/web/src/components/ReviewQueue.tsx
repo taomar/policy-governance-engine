@@ -79,6 +79,12 @@ import {
 } from "../conditionRows";
 import { machineExecutableFor } from "../ruleExecutability";
 import { reviewQueueIsEmpty } from "../reviewQueueEmptiness";
+import {
+  candidateAnswersSearch,
+  cardsAnsweringSearch,
+  matchedCandidateIds,
+  placeableCandidates,
+} from "../queueCardSelection";
 import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
@@ -147,7 +153,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [deltaFilter, setDeltaFilter] = useState<string>("all");
   const [facets, setFacets] = useState<ReviewFacets | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
-  const [contentKind, setContentKind] = useState<"policies" | "definitions">("policies");
   const [searchText, setSearchText] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [publishResult, setPublishResult] = useState<ApprovedPolicyVersion | null>(null);
@@ -459,48 +464,47 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       return next;
     });
 
-  // Definitions/glossary entries (rule_type "definition" — both the AI's
-  // "definition" and "classification" canonical types map here in
-  // formulation_mapping.py) describe terms, not obligations: they have no
-  // real condition/effect to evaluate and read very differently from
-  // operative rules. Reviewing them interleaved with obligations/
-  // prohibitions/eligibility rules buried both — a glossary entry's "Approve"
-  // looks identical to a real policy's, so a reviewer scanning for
-  // enforceable rules had to mentally filter dozens of "X is defined as Y"
-  // rows out of the list. Splitting by content kind lets a reviewer clear
-  // the glossary in one pass, then focus entirely on rules that actually
-  // constrain behavior.
-  const isDefinitionKind = (ruleType: string) => ruleType === "definition";
+  // WHY THERE IS NO CONTENT-KIND LANE HERE ANY MORE
+  //
+  // The distinction was real. A glossary entry describes a term and has no
+  // condition or effect to weigh, yet its Approve button is identical to the
+  // one on a rule that constrains what people may do — and in a flat list the
+  // enforceable rules were buried among "X means Y" rows, so a reviewer had to
+  // filter dozens of them out by eye before finding anything to decide.
+  //
+  // What was wrong was the level, not the observation. A lane splits the queue
+  // above the policy, and a policy is the unit a reviewer approves: a policy
+  // that states a term and then constrains its use has rules on both sides of
+  // that line, so the lane cut it in half and showed each half as though it
+  // were whole. Measured across four extraction runs, at most one policy per
+  // run is purely definitional, so the definitions lane would hold a single
+  // card while quietly making every mixed policy a fragment on the other side.
+  //
+  // The burying is answered inside the card instead, by ordering: a card puts
+  // what it decides before what it defines, so a reviewer reaches the operative
+  // rules first without any record being taken off the screen to do it.
 
-  const contentKindCounts = useMemo(() => {
-    let definitions = 0;
-    for (const c of candidates) if (isDefinitionKind(c.rule_type)) definitions += 1;
-    return { definitions, policies: candidates.length - definitions };
-  }, [candidates]);
+  /** True when this candidate's own text answers the search. */
+  const matchesSearch = useMemo(
+    () => (c: CandidateRule) => candidateAnswersSearch(c, searchText),
+    [searchText],
+  );
 
-  const filteredCandidates = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-    return candidates.filter((c) => {
-      // Only the latest reading of each sentence. A later run records the one
-      // it replaces, and both stay in the queue — publishing v1, extracting
-      // again and publishing v2 left two cards for one policy with nothing to
-      // order them. The predecessor is still reachable from the card that
-      // replaced it.
-      if (c.superseded_by_candidate_id) return false;
-      if (isDefinitionKind(c.rule_type) !== (contentKind === "definitions")) return false;
-      if (!q) return true;
-      const r = c.rule;
-      return (
-        r.title.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.rule_id.toLowerCase().includes(q) ||
-        r.effect.action.toLowerCase().includes(q) ||
-        (r.category ?? "").toLowerCase().includes(q) ||
-        (r.tags ?? []).some((t) => t.toLowerCase().includes(q)) ||
-        (r.group_label ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [candidates, searchText, contentKind]);
+  /**
+   * Every candidate a policy can be built from, whatever the search says.
+   *
+   * A search narrows which policies are worth looking at. It is not a statement
+   * about what a policy contains, so it must not decide that either: a card
+   * built from the matches alone would show three rules of a policy that has
+   * nine and offer one Approve over the three, which decides all nine. The
+   * search picks the cards; the policy supplies their contents.
+   */
+  const placeable = useMemo(() => placeableCandidates(candidates), [candidates]);
+
+  const filteredCandidates = useMemo(
+    () => placeable.filter(matchesSearch),
+    [placeable, matchesSearch],
+  );
 
   /** The reading this one replaced, when it is still in the payload. */
   const previousOf = useMemo(() => {
@@ -509,18 +513,31 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       candidate.baseline_candidate_id ? byId.get(candidate.baseline_candidate_id) ?? null : null;
   }, [candidates]);
 
-  // Reset to page 1 whenever the search or content-kind tab narrows/widens
-  // the filtered set, so the reviewer never lands on a now-empty trailing page.
+  // Reset to page 1 whenever the search narrows/widens what is shown, so the
+  // reviewer never lands on a now-empty trailing page.
   useEffect(() => {
     setPage(1);
-  }, [searchText, contentKind]);
+  }, [searchText]);
 
   // The queue's rows are policies, not rules. The server decided which rules a
-  // passage states; this pairs that answer with the records the current filter
-  // is showing. Nothing here re-decides membership or order.
+  // passage states; this pairs that answer with every record that could be
+  // placed. Nothing here re-decides membership or order.
+  //
+  // Cards are built before the search is applied, so a card always holds the
+  // whole policy. The search then chooses which of those whole cards to show.
+  const allPolicyCards = useMemo(
+    () => buildPolicyCards(policies, placeable),
+    [policies, placeable]
+  );
+
+  const matchedIds = useMemo(
+    () => matchedCandidateIds(placeable, searchText),
+    [placeable, searchText],
+  );
+
   const policyCards = useMemo(
-    () => buildPolicyCards(policies, filteredCandidates),
-    [policies, filteredCandidates]
+    () => cardsAnsweringSearch(allPolicyCards, searchText, matchedIds),
+    [allPolicyCards, searchText, matchedIds]
   );
 
   // Rules the assembly did not place — reachable when a historical run is open,
@@ -597,8 +614,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   }, [candidates]);
 
   const selectedCandidate = useMemo(
-    () => filteredCandidates.find((candidate) => candidate.id === selectedCandidateId) ?? null,
-    [filteredCandidates, selectedCandidateId],
+    () => placeable.find((candidate) => candidate.id === selectedCandidateId) ?? null,
+    [placeable, selectedCandidateId],
   );
 
   /** The passage in the detail panel. */
@@ -653,9 +670,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     }
   };
 
-  /** Drill from the open policy into one of its rules, in the same panel. */
+  /** Drill from the open policy into one of its rules, in the same panel.
+   *
+   *  Looked up among everything placeable, not among the search matches: a card
+   *  shows the whole policy, so a rule the search did not match is on screen and
+   *  must open like any other. */
   const openRuleWithinPolicy = (ruleId: string) => {
-    const candidate = filteredCandidates.find((item) => item.rule.rule_id === ruleId);
+    const candidate = placeable.find((item) => item.rule.rule_id === ruleId);
     if (!candidate) return;
     setSelectedCandidateId(candidate.id);
     setInspectorTab("overview");
@@ -696,7 +717,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   });
 
   const selectCandidateRule = (rule: CanonicalRule) => {
-    const candidate = filteredCandidates.find((item) => item.rule.rule_id === rule.rule_id);
+    const candidate = placeable.find((item) => item.rule.rule_id === rule.rule_id);
     if (!candidate) return;
     if (grouped) {
       const card = policyCards.find((c) => c.rules.some((r) => r.rule_id === rule.rule_id));
@@ -728,7 +749,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setWorkspaceMode("list");
   };
 
-  const selectableIds = filteredCandidates
+  /** Every reviewable record currently on screen.
+   *
+   *  In grouped mode a card shows the whole policy, including rules the search
+   *  did not match, so "select all" has to reach them too: a bulk decision must
+   *  cover what the reviewer can see, or narrowing the view would quietly
+   *  change what the action decides. */
+  const selectableIds = (
+    grouped
+      ? policyCards.flatMap((card) => card.rules.map((entry) => entry.candidate))
+      : filteredCandidates
+  )
     .filter((c) => candidateEditability(c.review_status).canReview)
     .map((c) => c.id);
 
@@ -1654,16 +1685,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 void loadCandidates();
                 void loadFacets();
               }}
-            />
-
-            <Segmented
-              value={contentKind}
-              onChange={(v) => setContentKind(v as typeof contentKind)}
-              style={{ marginBottom: 16, marginTop: 16 }}
-              options={[
-                { label: `Policies & Rules (${contentKindCounts.policies})`, value: "policies" },
-                { label: `Definitions & Glossary (${contentKindCounts.definitions})`, value: "definitions" },
-              ]}
             />
 
             <Space size={16} wrap className="review-controls-bar" style={{ marginBottom: 16 }}>
