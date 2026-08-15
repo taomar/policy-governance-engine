@@ -310,6 +310,117 @@ class TestRealPdf:
         assert len(attributed) / len(paragraphs) > 0.5
 
 
+class TestDocxHeaderRowIsEvidencedToo:
+    """The standard `fa27428` established held on one parser only.
+
+    A DOCX table's row 0 was read as the header whenever any of its cells held
+    text, then dropped with `rows[1:]` -- the same content-loss defect, on the
+    other path, with no diagnostic anywhere in it, so a reviewer had no way to
+    discover that a row had been consumed or why.
+
+    These grids are synthetic and carry no words from any document. They vary
+    only in form, which is the only thing the decision is allowed to read.
+    """
+
+    @staticmethod
+    def _docx(tmp_path, grid: list[list[str]], name: str = "g.docx"):
+        from docx import Document as DocxDocument
+
+        document = DocxDocument()
+        table = document.add_table(rows=len(grid), cols=len(grid[0]))
+        for row_index, row in enumerate(grid):
+            for column_index, cell in enumerate(row):
+                table.cell(row_index, column_index).text = cell
+        path = tmp_path / name
+        document.save(str(path))
+        return ingestion.ingest_docx(str(path), "g")
+
+    @staticmethod
+    def _rows(document):
+        return [e for e in document.elements if e.element_type == "table_row"]
+
+    def test_a_row_whose_cells_recur_below_is_kept_as_content(self, tmp_path):
+        """Absence before, presence after: row 0 survives instead of vanishing."""
+
+        grid = [["repeated", "shared"], ["repeated", "shared"], ["other", "shared"]]
+        document = self._docx(tmp_path, grid)
+
+        assert " | ".join(grid[0]) in {row.text for row in self._rows(document)}
+
+    def test_an_unevidenced_grid_carries_no_labels_at_all(self, tmp_path):
+        """Absent, not empty. `None` says no row stated labels; `[]` would not."""
+
+        grid = [["repeated", "shared"], ["repeated", "shared"], ["other", "shared"]]
+        document = self._docx(tmp_path, grid)
+
+        for row in self._rows(document):
+            assert row.table_headers is None
+
+    def test_a_docx_reviewer_can_discover_that_no_row_stated_labels(self, tmp_path):
+        """The diagnostic had exactly one call site, inside the PDF function."""
+
+        grid = [["repeated", "shared"], ["repeated", "shared"], ["other", "shared"]]
+        document = self._docx(tmp_path, grid)
+
+        reported = [
+            d
+            for d in document.diagnostics
+            if d.code == "table_header_row_not_identified"
+        ]
+        assert reported, "a DOCX table's headerless verdict reached no reviewer"
+        assert "recur further down" in reported[0].detail
+        assert reported[0].severity == "warning"
+
+    def test_a_banner_row_is_not_read_as_labels(self, tmp_path):
+        grid = [["banner", "", ""], ["a", "b", "c"], ["d", "e", "f"]]
+        document = self._docx(tmp_path, grid)
+
+        assert " | ".join(grid[0]) in {row.text for row in self._rows(document)}
+
+    def test_an_evidenced_header_is_still_consumed_and_still_carried(self, tmp_path):
+        """The reluctance must not become refusal: real headers still work."""
+
+        grid = [["alpha", "beta"], ["a1", "b1"], ["a2", "b2"]]
+        document = self._docx(tmp_path, grid)
+
+        rows = self._rows(document)
+        assert " | ".join(grid[0]) not in {row.text for row in rows}
+        for row in rows:
+            assert row.table_headers == grid[0]
+        assert not [
+            d
+            for d in document.diagnostics
+            if d.code == "table_header_row_not_identified"
+        ]
+
+
+def test_both_parsers_ask_the_same_question_in_one_place():
+    """A second copy of this decision is how it came to hold on one path only.
+
+    The verdict is reached once, in `_column_labels_for`, so the two parsers
+    cannot drift again: a new call to the underlying test elsewhere in the
+    module means someone has begun forking it.
+    """
+
+    import ast
+
+    source = Path(ingestion.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    holders = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call.func, ast.Name)
+            and call.func.id == "_row_states_column_labels"
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+        )
+    }
+    assert holders == {"_column_labels_for"}
+
+
 class TestRealDocx:
     @pytest.fixture(scope="class")
     def document(self):

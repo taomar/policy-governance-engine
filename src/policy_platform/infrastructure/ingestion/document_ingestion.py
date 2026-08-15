@@ -728,7 +728,9 @@ def _table_to_blocks(
     if not _is_genuine_table(rows):
         return [], diagnostics
 
-    has_headers, why_not = _row_states_column_labels(rows)
+    has_headers, header_diagnostic = _column_labels_for(
+        rows, table_id=table_id, page=page_index
+    )
     headers = (
         [
             _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
@@ -738,23 +740,8 @@ def _table_to_blocks(
         else []
     )
 
-    if not has_headers:
-        # Reported at `warning`, not `info`. A reader uses `info` to decide what
-        # to skip, and this is not the benign common case wearing an unusual
-        # hat: every row of this grid reaches extraction with no column labels
-        # at all, and a reviewer judging coverage cannot discover that from the
-        # rows themselves, which look complete.
-        diagnostics.append(
-            IngestionDiagnostic(
-                code="table_header_row_not_identified",
-                severity="warning",
-                page=page_index,
-                detail=(
-                    f"table {table_id}: no row states column labels ({why_not}); "
-                    f"{len(rows)} row(s) carry no headers and row 0 is read as content"
-                ),
-            )
-        )
+    if header_diagnostic is not None:
+        diagnostics.append(header_diagnostic)
 
     data_rows = list(enumerate(rows))[1:] if has_headers else list(enumerate(rows))
 
@@ -864,6 +851,44 @@ def _row_states_column_labels(rows: list[list[str | None]]) -> tuple[bool, str]:
         )
 
     return True, ""
+
+
+def _column_labels_for(
+    rows: list[list[str | None]], *, table_id: str, page: int | None
+) -> tuple[bool, IngestionDiagnostic | None]:
+    """Decide whether row 0 states column labels, and report it when it does not.
+
+    Both parsers call this. The decision itself is `_row_states_column_labels`,
+    and the wording of the report lives here, so neither can drift from the
+    other: the standard was established once, on a PDF, and then held on one
+    path only while the other went on consuming row 0 on an assumption. A
+    reviewer must be able to discover that a table's header was not evidenced,
+    and why, whichever parser read the document.
+
+    Only the report is shared. How a header row's cells are *read* is properly
+    per-parser -- a PDF cell has geometry and may need its right-to-left run
+    recovered, a DOCX cell arrives as characters already -- so this returns the
+    verdict and leaves each caller to take the cells its own way.
+    """
+
+    has_headers, why_not = _row_states_column_labels(rows)
+    if has_headers:
+        return True, None
+
+    # Reported at `warning`, not `info`. A reader uses `info` to decide what to
+    # skip, and this is not the benign common case wearing an unusual hat: every
+    # row of this grid reaches extraction with no column labels at all, and a
+    # reviewer judging coverage cannot discover that from the rows themselves,
+    # which look complete.
+    return False, IngestionDiagnostic(
+        code="table_header_row_not_identified",
+        severity="warning",
+        page=page,
+        detail=(
+            f"table {table_id}: no row states column labels ({why_not}); "
+            f"{len(rows)} row(s) carry no headers and row 0 is read as content"
+        ),
+    )
 
 
 def _cell_in_reading_order(
@@ -1837,10 +1862,24 @@ def ingest_docx(storage_path: str | Path, document_id: str = "") -> CanonicalDoc
                 continue
             if not rows:
                 continue
-            headers = rows[0]
-            has_headers = any(headers)
             genuine = _is_genuine_table(rows)
-            data_rows = rows[1:] if (has_headers and genuine) else rows
+            # Evidenced, not assumed. This path used to read row 0 as the header
+            # whenever any of its cells held text and then drop it with
+            # `rows[1:]` -- the exact defect fa27428 removed from the PDF path,
+            # left live here, deleting a row of every DOCX table on no evidence
+            # and telling nobody. The verdict and its reason now come from the
+            # one place both parsers ask.
+            has_headers = False
+            if genuine:
+                has_headers, header_diagnostic = _column_labels_for(
+                    rows, table_id=table_id, page=1
+                )
+                if header_diagnostic is not None:
+                    diagnostics.append(header_diagnostic)
+            # `None` rather than `[]`: no row stated column labels, which is not
+            # the same as a header row that was blank.
+            headers = rows[0] if has_headers else None
+            data_rows = rows[1:] if has_headers else rows
             for row in data_rows:
                 if not any(row):
                     continue
@@ -1849,7 +1888,7 @@ def ingest_docx(storage_path: str | Path, document_id: str = "") -> CanonicalDoc
                         " | ".join(row),
                         "table_row",
                         table_id=table_id,
-                        headers=headers if has_headers else None,
+                        headers=headers,
                         transformations=["table_cell_join"],
                     )
                 else:
