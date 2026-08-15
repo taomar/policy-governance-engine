@@ -997,6 +997,45 @@ export interface RuleChangeExplanation {
   narrative: string | null;
 }
 
+/**
+ * A plain-language reading of one policy's extracted record.
+ *
+ * `rules` is the deterministic half and is always populated: it is what the
+ * reviewer checks. `stated_text` on each is the document's own sentence and was
+ * never sent to the model — see the server module for why that omission is the
+ * design rather than an economy.
+ *
+ * Three outcomes are distinguishable and must stay so:
+ *
+ * - `explanation` set — this is the reading;
+ * - `unavailable_code` set — it was asked for and none came back;
+ * - both null — nobody asked, because the model is not configured here.
+ */
+export interface PolicyExplanation {
+  provision_id: string;
+  heading_path: string[];
+  rule_count: number;
+  rules: {
+    rule_id: string;
+    title: string;
+    /** The parts the extraction identified. What the model was shown. */
+    states: Record<string, string>;
+    effect: string;
+    /** The document's own words. Never sent to the model. */
+    stated_text: string;
+  }[];
+  /** False when a budget stopped some rules reaching the model. */
+  covers_every_rule: boolean;
+  explanation: string | null;
+  unavailable_code: string | null;
+  generated_at: string | null;
+  model_deployment: string | null;
+  prompt_version: string;
+  source_digest: string;
+  /** True when this came from an earlier generation of the same record. */
+  generated_earlier?: boolean;
+}
+
 export interface CandidateRuleFilters {
   status?: string;
   document_id?: string;
@@ -2152,6 +2191,19 @@ export const aiApi = {
   explainChange: (candidateId: string, narrative = true) =>
     request<RuleChangeExplanation>(
       `/api/ai/candidate-rules/${encodeURIComponent(candidateId)}/explain-change?narrative=${narrative}`,
+    ),
+
+  /**
+   * Ask for a plain-language reading of one policy's extracted record.
+   *
+   * POST because it may spend a model call. It writes nothing, and asking twice
+   * for an unchanged record costs one call — the server keeps the answer
+   * against a digest of the record it explains.
+   */
+  explainPolicy: (provisionId: string, regenerate = false) =>
+    request<PolicyExplanation>(
+      `/api/ai/provisions/${encodeURIComponent(provisionId)}/explain?regenerate=${regenerate}`,
+      { method: "POST" },
     ),
 
   ask: (question: string, policySetKey?: string, history: ChatTurn[] = [], focusCandidateRuleId?: string) =>

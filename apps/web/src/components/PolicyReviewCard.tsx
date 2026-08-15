@@ -14,6 +14,7 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
+import { PolicyExplainButton } from "./PolicyExplainButton";
 
 const { Text } = Typography;
 
@@ -296,6 +297,17 @@ export function PolicyReviewCard({
           </div>
         </div>
         <Space size={4} className="policy-card__actions">
+          {/* Offered only where there is a persisted grouping to explain. A
+              policy assembled without one has no stable identity for the server
+              to read a record back from, and a button that could only report
+              that is a button that should not be drawn. The card is unchanged
+              and complete either way — this adds a reading, never a fact. */}
+          {card.policy.provision_id && (
+            <PolicyExplainButton
+              provisionId={card.policy.provision_id}
+              policyKey={card.policy.key}
+            />
+          )}
           {onApprove && onReject && (
             <>
               <Tooltip

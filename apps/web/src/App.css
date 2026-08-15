@@ -11177,6 +11177,95 @@
   color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
 }
 
+/* A READING OF THE RECORD, AND THE DOCUMENT'S WORDS TO CHECK IT AGAINST.
+   The two halves of this dialog are styled apart on purpose. The reading is
+   ours, so it takes the same mark and the same tertiary voice the generated
+   subject label established on the card; the source keeps the left rule and the
+   quieter face that means "the document said this" everywhere else here. A
+   reader who cannot tell them apart at a glance has been handed our sentences
+   with the authority of the document's. */
+.policy-explain {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.policy-explain__scope {
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+  border: none;
+}
+
+.policy-explain__pending {
+  margin: 0;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+/* Deliberately not `MarkedQuotation`'s treatment. No left rule and no quotation
+   marks — both say "source" in this interface, and this is not source. */
+.policy-explain__reading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+}
+
+.policy-explain__what {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.policy-explain__mark {
+  opacity: 0.55;
+}
+
+.policy-explain__text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.policy-explain__provenance {
+  margin: 0;
+  font-size: 11px;
+}
+
+.policy-explain__source-heading {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.policy-explain__rules {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.policy-explain__rule-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The left rule is the signal that carries "these are the document's words"
+   throughout this interface, and it belongs to this block and not to the one
+   above it. */
+.policy-explain__quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--ant-color-border, rgba(0, 0, 0, 0.15));
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 /* Absent and unavailable read as prose rather than as a name, so neither can
    be mistaken for a label the model produced. */
 .policy-card__topic-none {

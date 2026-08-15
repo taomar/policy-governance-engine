@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from policy_platform.infrastructure.assistants import ai_chat
 from policy_platform.infrastructure.assistants import ai_compare
 from policy_platform.infrastructure.assistants import ai_draft
+from policy_platform.infrastructure.assistants import policy_explainer
 from policy_platform.infrastructure.extraction import ai_extraction
 from policy_platform.infrastructure.quality import ai_quality
 from policy_platform.infrastructure.assistants import ai_rewrite
@@ -204,6 +205,44 @@ async def generate_topic_labels(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     await session.commit()
     return result
+
+
+@router.post("/provisions/{provision_id}/explain")
+async def explain_provision(
+    provision_id: uuid.UUID,
+    regenerate: bool = False,
+    narrative: bool = True,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Say in plain words what one policy's extracted record requires.
+
+    Answers the question a reviewer faces on a card holding several rules: the
+    record is complete but is a decomposition, and reassembling it into a
+    sentence is work they should not have to do by hand.
+
+    The deterministic half — every rule, the parts the extraction identified,
+    and the document's own sentence for each — is always returned and is the
+    substance. The explanation is an aid to reading it and is omitted rather
+    than guessed when the model is unavailable, unconfigured or unwilling.
+
+    The model is shown the extracted record and never the document's verbatim
+    text. That is deliberate and is set out at length on the module: an
+    explanation written from the source would reconcile the two and hide the
+    extraction error the reviewer is here to find. What comes back describes
+    what was extracted, which is the thing under review.
+
+    A POST because it may spend a model call. It writes nothing.
+    """
+
+    try:
+        return await policy_explainer.explain_provision(
+            session,
+            provision_id=provision_id,
+            use_ai=narrative,
+            regenerate=regenerate,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/candidate-rules/{candidate_id}/explain-change")
