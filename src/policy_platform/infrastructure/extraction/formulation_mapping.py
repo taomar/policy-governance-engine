@@ -1370,7 +1370,7 @@ def _decision_readiness_for(policy: CanonicalPolicy) -> DecisionReadiness:
     )
 
 
-def _merged_verb_phrase(rule: CanonicalPolicyRule | None) -> str | None:
+def _merged_verb_phrase(rule: CanonicalPolicyRule | None, source_text: str = "") -> str | None:
     """The whole verb phrase, when the decomposition split one phrase in two.
 
     Returns `None` in the ordinary case, where `modality` and `predicate` hold
@@ -1413,6 +1413,19 @@ def _merged_verb_phrase(rule: CanonicalPolicyRule | None) -> str | None:
     The test is therefore not containment alone but whether merging repeats
     words at the join — which is the same duplication this exists to remove,
     and it must not be introduced while removing it.
+
+    Containment against the modality alone is too narrow, because the smaller
+    copy does not always shrink. It is just as common for it to keep a word the
+    modality never held — the copula the sentence put *before* the modality:
+
+        "Slippers are strictly not allowed."   modality="strictly not allowed"
+                                               predicate="are allowed"
+
+    "are allowed" is not inside "strictly not allowed", so containment sees two
+    fields and lets both through, and the same inversion reaches the reviewer.
+    The second test is therefore anchored on the source rather than on the two
+    fields: `_span_the_predicate_was_copied_from`. Neither test asks which words
+    are negative; both ask only where a constituent ends.
     """
 
     if rule is None:
@@ -1421,20 +1434,97 @@ def _merged_verb_phrase(rule: CanonicalPolicyRule | None) -> str | None:
     predicate = " ".join((rule.predicate or "").split())
     if not modality or not predicate:
         return None
+    following = " ".join((rule.object or "").split()).casefold().split()
     haystack = modality.casefold().split()
     needle = predicate.casefold().split()
-    if not needle or len(needle) > len(haystack):
+    if not needle:
         return None
-    contained = any(
-        haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1)
-    )
-    if not contained:
+    if len(needle) <= len(haystack) and _contains_run(haystack, needle):
+        overlap = min(len(haystack), len(following))
+        if any(haystack[-n:] == following[:n] for n in range(1, overlap + 1)):
+            return None
+        return modality
+    span = _span_the_predicate_was_copied_from(modality, predicate, source_text)
+    if span is None:
         return None
-    following = " ".join((rule.object or "").split()).casefold().split()
-    overlap = min(len(haystack), len(following))
-    if any(haystack[-n:] == following[:n] for n in range(1, overlap + 1)):
+    span_words = span.casefold().split()
+    overlap = min(len(span_words), len(following))
+    if any(span_words[-n:] == following[:n] for n in range(1, overlap + 1)):
         return None
-    return modality
+    return span
+
+
+def _span_the_predicate_was_copied_from(
+    modality: str, predicate: str, source_text: str
+) -> str | None:
+    """The one span of the source that both fields were drawn from, if there is one.
+
+    Answers a question about constituent boundaries, not about meaning: did the
+    source write the predicate, or was the predicate assembled by reading a span
+    the source wrote and leaving some of it out?
+
+    A constituent is a run of the sentence. A field holding a genuine second
+    constituent can be found in the source as a contiguous run of whole words.
+    A field holding a lossy copy of a neighbouring constituent cannot — its
+    words are all present, in order, inside the span the neighbour occupies, but
+    with something skipped between them. That skip is the boundary drawn in the
+    wrong place, and the words it stepped over are the ones the source wrote and
+    the record lost.
+
+    So the span is returned when, and only when, some window of the source
+
+      * contains the modality as a contiguous run — the window is the phrase the
+        modality was taken from, not an unrelated part of the sentence;
+      * spells the predicate in order but *not* contiguously — the predicate can
+        be read off the window only by skipping, so it is a copy of the window
+        rather than a run of its own;
+      * is no longer than the two fields put together — one phrase written twice
+        cannot need more room than its two writings. This bounds the search by
+        the shape of the comparison rather than by any measured corpus.
+
+    The smallest such window is returned, in the source's own characters, so
+    what replaces the two fragments is what the document actually says. Nothing
+    is composed: the return value is a substring of `source_text`.
+
+    Whole words throughout, case-folded, punctuation discarded on both sides, so
+    the test is about word order rather than about spelling or script. Nothing
+    here reads a word list, so it behaves the same in any language the source is
+    written in.
+    """
+
+    if not source_text:
+        return None
+    tokens = [(m.group(0), m.start(), m.end()) for m in re.finditer(r"[\w']+", source_text)]
+    if not tokens:
+        return None
+    source = [word.casefold() for word, _, _ in tokens]
+    mod = _bare_words(modality)
+    pred = _bare_words(predicate)
+    if not mod or not pred:
+        return None
+    budget = len(mod) + len(pred)
+    for start in range(len(source) - len(mod) + 1):
+        if source[start : start + len(mod)] != mod:
+            continue
+        end = start + len(mod)
+        for size in range(len(mod), budget + 1):
+            if size > len(source):
+                break
+            for low in range(max(0, end - size), min(start, len(source) - size) + 1):
+                window = source[low : low + size]
+                if not _reads_off_in_order(window, pred):
+                    continue
+                if _contains_run(window, pred):
+                    continue
+                return source_text[tokens[low][1] : tokens[low + size - 1][2]]
+    return None
+
+
+def _reads_off_in_order(haystack: Sequence[str], needle: Sequence[str]) -> bool:
+    """Whether every word of `needle` appears in `haystack`, in order, skipping allowed."""
+
+    remaining = iter(haystack)
+    return all(any(word == candidate for candidate in remaining) for word in needle)
 
 
 def _contains_run(haystack: Sequence[str], needle: Sequence[str]) -> bool:
@@ -1723,7 +1813,7 @@ def _title_for(policy: CanonicalPolicy) -> str:
     parts: list[str] = []
     if rule is not None:
         predicate = rule.predicate or ""
-        merged = _merged_verb_phrase(rule)
+        merged = _merged_verb_phrase(rule, policy.source_text)
         if _is_separator_predicate(predicate):
             parts = [p for p in (rule.subject, rule.object) if p]
         elif merged is not None:
@@ -1760,7 +1850,7 @@ def _effect_action(policy: CanonicalPolicy) -> str:
     rule = policy.rule
     if rule is None:
         return ""
-    predicate = _merged_verb_phrase(rule) or rule.predicate or ""
+    predicate = _merged_verb_phrase(rule, policy.source_text) or rule.predicate or ""
     obj = rule.object or ""
     parts = [obj] if _is_separator_predicate(predicate) else [p for p in (predicate, obj) if p]
     return " ".join(" ".join(parts).split())
