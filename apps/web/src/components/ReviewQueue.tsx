@@ -704,6 +704,33 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [allPolicyCards, searchText, matchedIds, ruleFilters, filterMatchedIds]
   );
 
+  /**
+   * What the document a policy was read out of is called.
+   *
+   * Read off the run facets, which already carry a title for every document
+   * version this queue can show, and keyed by version so a policy is attributed
+   * to the document it actually came from rather than to whichever one happens
+   * to be selected. Empty when the facets did not load — and then a card asks
+   * the narrower question about its label, which is the answer it had before
+   * this existed.
+   */
+  const documentNameByVersion = useMemo(() => {
+    const byVersion = new Map<string, string>();
+    for (const run of facets?.runs ?? []) {
+      const title = run.document_title?.trim();
+      if (title && !byVersion.has(run.document_version_id)) {
+        byVersion.set(run.document_version_id, title);
+      }
+    }
+    return byVersion;
+  }, [facets]);
+
+  const documentNameOf = useCallback(
+    (versionId: string | null | undefined) =>
+      (versionId && documentNameByVersion.get(versionId)) || null,
+    [documentNameByVersion],
+  );
+
   // Rules the assembly did not place — reachable when a historical run is open,
   // because the flat list then asks for superseded rows the assembly does not
   // return. Shown as unplaced rather than dressed up as passages of one rule.
@@ -1449,6 +1476,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     grouped && openPolicyCard && !selectedCandidate ? (
       <PolicyDetailPanel
         card={openPolicyCard}
+        documentName={documentNameOf(openPolicyCard.policy.document_version_id)}
         statusColor={(status) => STATUS_COLOR[status] ?? "default"}
         statusLabel={(status) => STATUS_LABEL[status] ?? status}
         ruleDetail={(ruleId) => {
@@ -2087,6 +2115,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               }
                               onSelectRule={selectCandidateRuleById}
                               selectedRuleId={selectedCandidateId}
+                              documentName={documentNameOf(card.policy.document_version_id)}
                             />
                           );
                         })}

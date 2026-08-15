@@ -701,6 +701,26 @@ function words(text: string): string[] {
  * section rather than naming it, and the instruction forbids the label to carry
  * a number at all.
  *
+ * THE DOCUMENT'S OWN NAME IS A GOVERNING NAME TOO.
+ *
+ * The heading chain is not the whole of what already names a card. One level
+ * further out sits the document, and every policy in a document is part of it —
+ * so a label repeating the document's name distinguishes nothing, for exactly
+ * the reason a label repeating the heading distinguishes nothing. It is the
+ * worse of the two failures, because it occupies the card's most prominent line
+ * to restate the one fact a reviewer cannot be unaware of.
+ *
+ * Passed in rather than read here, and optional: a surface that does not know
+ * which document a policy came from asks the narrower question and gets the
+ * answer it had before. It joins the front of the chain because it governs
+ * everything under it, and it goes through the same comparison as any heading —
+ * there is no separate rule for it, and nothing here knows a document from a
+ * section beyond where it sits in the chain.
+ *
+ * Widening it can only withhold more, never less: another governing name can
+ * only match more of the label's words, and the connective allowance is counted
+ * over the same text that is matched against.
+ *
  * There is no threshold, no list of headings, no vocabulary, and nothing that
  * knows what a subject is. Compared against the whole chain rather than the
  * innermost heading because the card shows the whole chain, and a label
@@ -710,8 +730,15 @@ function words(text: string): string[] {
  * two strings that can each change — a heading corrected, a label regenerated —
  * and a stored answer would go stale silently against both.
  */
-export function labelAddsNothing(text: string, headingPath: readonly string[]): boolean {
-  const heading = headingPath.join(" ");
+export function labelAddsNothing(
+  text: string,
+  headingPath: readonly string[],
+  documentName?: string | null,
+): boolean {
+  const governing = [documentName?.trim() || null, ...headingPath].filter(
+    (name): name is string => Boolean(name),
+  );
+  const heading = governing.join(" ");
   const headingWords = words(heading).filter(isNotJustDigits);
   const labelWords = words(text).filter(isNotJustDigits);
   if (labelWords.length === 0) return true;
@@ -755,15 +782,23 @@ function joiningSymbolCount(heading: string): number {
  * `generated` is required to be true on the payload before the text is used. It
  * is the server's assertion that these words are ours, and a payload arriving
  * without it is not something this may present as a label.
+ *
+ * `documentName` is the name of the document the policy was read out of, where
+ * the surface knows it. Omitting it asks the narrower redundancy question and
+ * is always safe; supplying it lets the answer account for the outermost name
+ * governing the card.
  */
 export function policyTopicLabel(
   policy: Pick<AssembledPolicy, "topic_label" | "heading_path">,
+  documentName?: string | null,
 ): PolicyTopicLabelState {
   const label = policy.topic_label;
   if (!label || label.generated !== true) return { state: "absent" };
   const text = label.text?.trim() ?? "";
   if (!text) return { state: "unavailable" };
-  if (labelAddsNothing(text, policy.heading_path ?? [])) return { state: "redundant", text };
+  if (labelAddsNothing(text, policy.heading_path ?? [], documentName)) {
+    return { state: "redundant", text };
+  }
   // Provenance travels with the words, not in a lookup somewhere else. A reader
   // asking "where did this come from" is asking about the string in front of
   // them, and the answer has to be reachable from it.
@@ -827,7 +862,10 @@ export function sharedRuleFacets(card: PolicyCard): SharedRuleFacets {
  * to be a whole policy while holding part of one is the same fragment-as-whole
  * failure as on screen, and harder to notice once the file has left the app.
  */
-export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
+export function policyJsonDocument(
+  card: PolicyCard,
+  documentName?: string | null,
+): Record<string, unknown> {
   const title = policyTitle(card.policy, card.passages);
   const document: Record<string, unknown> = {
     key: card.policy.key,
@@ -859,10 +897,12 @@ export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
             prompt_version: card.policy.topic_label.prompt_version,
             generated_at: card.policy.topic_label.generated_at,
             // Whether the card showed it. A label that only repeats the
-            // heading is withheld on screen but kept here: the file records
-            // what was generated, and separately what a reader was shown, so
-            // neither can be inferred wrongly from the other.
-            shown_on_card: policyTopicLabel(card.policy).state === "named",
+            // heading, or the document's own name, is withheld on screen but
+            // kept here: the file records what was generated, and separately
+            // what a reader was shown, so neither can be inferred wrongly from
+            // the other. Asked with the same document name the card had, so the
+            // two answers cannot disagree.
+            shown_on_card: policyTopicLabel(card.policy, documentName).state === "named",
           }
         : null,
     source_elements: card.policy.source_elements,

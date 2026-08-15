@@ -81,7 +81,11 @@ afterEach(() => {
   cleanup();
 });
 
-function renderCard(topic: PolicyTopicLabel | null, headingPath?: string[]) {
+function renderCard(
+  topic: PolicyTopicLabel | null,
+  headingPath?: string[],
+  documentName?: string | null,
+) {
   return render(
     <PolicyReviewCard
       card={card(topic, headingPath)}
@@ -93,6 +97,7 @@ function renderCard(topic: PolicyTopicLabel | null, headingPath?: string[]) {
       findingsFor={() => 0}
       onToggleSelect={() => {}}
       onOpen={() => {}}
+      documentName={documentName}
     />,
   );
 }
@@ -353,5 +358,97 @@ describe("a label earns its line only by saying something the heading did not", 
     const label = doc.generated_topic_label as Record<string, unknown>;
     expect(label.text).toBe("Section one");
     expect(label.shown_on_card).toBe(false);
+  });
+});
+
+describe("a label naming the container names nothing", () => {
+  // The document is the outermost thing governing a card. Every policy in it is
+  // part of it, so a label repeating its name separates that card from none of
+  // its neighbours -- the same failure as repeating the heading, one level out,
+  // and worse for occupying the card's most prominent line to restate the one
+  // fact a reviewer cannot be unaware of.
+  //
+  // No document is named here and no container word is listed anywhere. What
+  // makes a name a container's name is where it sits in the chain, which the
+  // caller decides and this file only exercises.
+  const DOCUMENT = "Outer Compendium 2024";
+
+  it("withholds a label the document's own name already carries", () => {
+    expect(labelAddsNothing("Compendium", ["Preamble"], DOCUMENT)).toBe(true);
+    expect(labelAddsNothing("outer compendium", ["Preamble"], DOCUMENT)).toBe(true);
+    // And the same words are kept when the surface did not know the document,
+    // which is the answer this had before: the narrower question is still a
+    // question about the heading alone.
+    expect(labelAddsNothing("Compendium", ["Preamble"])).toBe(false);
+  });
+
+  it("does not withhold a subject merely for sharing a word with the document", () => {
+    // The test is unchanged in kind: every content word must already be known.
+    // A label that says something the container did not is still new, and this
+    // must not become a rule that empties the feature out.
+    expect(labelAddsNothing("Compendium of stated arrangements", ["Preamble"], DOCUMENT)).toBe(
+      false,
+    );
+    expect(labelAddsNothing(GENERATED, ["Preamble"], DOCUMENT)).toBe(false);
+  });
+
+  it("reads the document's name as one more governing name, under the same rule", () => {
+    // Inflection and the symbol allowance are not re-implemented for it, and
+    // numbering in the document's name names no subject there either.
+    expect(labelAddsNothing("compendium", ["Preamble"], "Outer Compendiums")).toBe(true);
+    expect(labelAddsNothing("2024", ["Preamble"], DOCUMENT)).toBe(true);
+    expect(labelAddsNothing("Outer and compendium", ["Preamble"], "Outer & Compendium")).toBe(true);
+  });
+
+  it("treats an unknown document name as a question not asked", () => {
+    // Absent is not empty and neither is a match. A surface that cannot say
+    // which document a policy came from asks the narrower question rather than
+    // withholding on a guess.
+    for (const unknown of [undefined, null, "", "   "]) {
+      expect(labelAddsNothing("Compendium", ["Preamble"], unknown)).toBe(false);
+    }
+  });
+
+  it("can only withhold more, never less, than the question without it", () => {
+    // Structural, not a sample: another governing name can only match more of
+    // the label's words, and the connective allowance is counted over the same
+    // text that is matched against. So no document name can rescue a label the
+    // heading alone already withheld.
+    const cases: Array<[string, string[], string]> = [
+      ["Section one", ["Outer", "Section one"], DOCUMENT],
+      ["Overtime", ["7.9. OVERTIME"], "Some Other Name"],
+      ["Absence and leave", ["7.10. ABSENCE, LATENESS, TARDINESS & LEAVE"], DOCUMENT],
+      [GENERATED, ["Outer", "Section one"], DOCUMENT],
+    ];
+    for (const [text, heading, name] of cases) {
+      if (labelAddsNothing(text, heading)) {
+        expect(labelAddsNothing(text, heading, name)).toBe(true);
+      }
+    }
+  });
+
+  it("withholds it on the card, and says so in the export the same way", () => {
+    // One answer, asked once with the same argument on both surfaces. A file
+    // reporting that a reader was shown a label the card withheld would be two
+    // sources for one fact.
+    renderCard(labelPayload({ text: "Compendium" }), ["Preamble"], DOCUMENT);
+    expect(screen.queryByTestId("policy-topic-label")).toBeNull();
+    const doc = policyJsonDocument(card(labelPayload({ text: "Compendium" }), ["Preamble"]), DOCUMENT);
+    const label = doc.generated_topic_label as Record<string, unknown>;
+    expect(label.text).toBe("Compendium");
+    expect(label.shown_on_card).toBe(false);
+
+    cleanup();
+    renderCard(labelPayload({ text: "Compendium" }), ["Preamble"]);
+    expect(screen.getByTestId("policy-topic-label")).toBeTruthy();
+  });
+
+  it("leaves the card readable when the label is the line that goes", () => {
+    // A card whose label is withheld still has to stand up. The heading and the
+    // line below it carry it, and nothing that was above them leaves a gap, a
+    // placeholder or an apology behind.
+    const { container } = renderCard(labelPayload({ text: "Compendium" }), ["Preamble"], DOCUMENT);
+    expect(container.querySelector(".policy-card__title")?.textContent).toBe("Preamble");
+    expect(container.querySelector(".policy-card__meta")?.textContent?.trim()).toBeTruthy();
   });
 });

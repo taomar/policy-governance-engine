@@ -126,6 +126,7 @@ export function PolicyDetailPanel({
   history,
   historyLoading,
   onRequestHistory,
+  documentName,
 }: {
   card: PolicyCard;
   statusColor: (status: string) => string;
@@ -181,6 +182,12 @@ export function PolicyDetailPanel({
    *  serves a candidate and its published sightings, so a policy under review
    *  can show what has already been published of it. */
   onRequestHistory?: (provisionKey: string) => void;
+  /** The name of the document this policy was read out of, where the surface
+   *  knows it. Passed through to the JSON view for one reason: whether the card
+   *  showed the generated subject label is reported there, and that answer
+   *  depends on this. Asking it here with a different argument than the card
+   *  used would make the file disagree with the screen. */
+  documentName?: string | null;
 }) {
   const record = candidatePolicyRecord(card);
   const title = policyTitle(card.policy, card.passages);
@@ -695,7 +702,7 @@ export function PolicyDetailPanel({
                     provision is keyed by a digest, and a reviewer who downloads three of
                     these wants three filenames they can tell apart. */}
                 <JsonView
-                  value={policyJsonDocument(card)}
+                  value={policyJsonDocument(card, documentName)}
                   downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
                   maxHeight={420}
                 />

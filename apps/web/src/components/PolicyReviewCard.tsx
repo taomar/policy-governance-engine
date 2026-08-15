@@ -128,6 +128,7 @@ export function PolicyReviewCard({
   onReject,
   onSelectRule,
   selectedRuleId,
+  documentName,
 }: {
   card: PolicyCard;
   /** Every reviewable rule of this policy is in the bulk selection. */
@@ -161,9 +162,15 @@ export function PolicyReviewCard({
   /** Which rule the panel is currently showing, so the row can say so. Absent
    *  and "none selected" are the same here: neither marks a row. */
   selectedRuleId?: string | null;
+  /** The name of the document this policy was read out of, where the surface
+   *  knows it. Used for one thing: a generated subject label that only repeats
+   *  it names the container rather than the policy, and is withheld. Optional
+   *  because a surface that cannot attribute a policy to a document should ask
+   *  the narrower question rather than guess at the answer. */
+  documentName?: string | null;
 }) {
   const title = policyTitle(card.policy, card.passages);
-  const topicLabel = policyTopicLabel(card.policy);
+  const topicLabel = policyTopicLabel(card.policy, documentName);
   const page = passagePageLabel(card.policy.page);
   const shared = sharedRuleFacets(card);
   // Shown only when the rule-type badge is not. Measured across both documents,
