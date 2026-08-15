@@ -1,5 +1,5 @@
 import { Button, Space, Tabs, Tag, Tooltip, Typography } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckOutlined,
   CloseOutlined,
@@ -26,6 +26,8 @@ import { ConditionView } from "./ConditionView";
 import { DirectionalText } from "./DirectionalText";
 import { JsonView } from "./JsonView";
 import { PolicyAskAiButton } from "./PolicyAskAiButton";
+import { PolicyCompositionChips } from "./PolicyCompositionChips";
+import { composeFocus, recordStance, type RecordStance } from "../recordStance";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyLogicTable } from "./PolicyLogicTable";
@@ -189,6 +191,33 @@ export function PolicyDetailPanel({
       return next;
     });
   let ordinal = 0;
+
+  /**
+   * Which kind of rule the reviewer has chosen to look at, within this policy.
+   *
+   * View state, and only that. It is never read by approve, reject, export or
+   * the JSON pane, it never reaches a URL or storage, and it is dropped the
+   * moment a different policy is opened — so a reviewer cannot arrive at a
+   * policy already narrowed by a choice they made about another one.
+   */
+  const [focus, setFocus] = useState<RecordStance | null>(null);
+  useEffect(() => setFocus(null), [card.policy.key]);
+
+  /**
+   * The narrowing, derived once from the same component that draws the chips.
+   *
+   * The ordinal each rule carries is assigned over every rule of the policy
+   * before this is applied, so narrowing never renumbers anything: rule 7 is
+   * the seventh rule of the document whether or not rules 1 to 6 are on screen.
+   * A number that changed with a view control would be a worse lie than the
+   * fragment warning we just deleted, because nothing would announce it.
+   */
+  const focusView = composeFocus(
+    card.rules,
+    (rule) => recordStance(rule.rule),
+    focus,
+  );
+  const shownRuleIds = new Set(focusView.shown.map((rule) => rule.rule_id));
 
   // Both read the policy and neither writes to it, so they belong together and
   // apart from the two that decide it. Each is present only when it has what it
@@ -376,12 +405,31 @@ export function PolicyDetailPanel({
             label: "Reading",
             children: (
               <>
+                <PolicyCompositionChips
+                  composition={focusView}
+                  onFocus={setFocus}
+                />
                 {card.passages.map((block) => {
                   const passageRules = block.rules.map(
                     (rule) => rule.rule,
                   );
                   const quotations = passageQuotations(passageRules);
                   const name = passageTitle(passageRules);
+                  // Ordinals are spent on every rule of the passage, shown or
+                  // not, so the numbering is the document's and not the view's.
+                  const numbered = block.rules.map((rule) => {
+                    ordinal += 1;
+                    return { rule, ordinal };
+                  });
+                  const visible = numbered.filter((entry) =>
+                    shownRuleIds.has(entry.rule.rule_id),
+                  );
+                  // A passage none of whose rules are in focus is dropped whole
+                  // rather than left as a quotation with nothing under it. The
+                  // quotation is evidence for its rules; with those rules off
+                  // screen it is evidence for nothing, and it would push the
+                  // rules the reviewer asked for further down the page.
+                  if (visible.length === 0) return null;
                   return (
                     <section
                       key={block.passage.key}
@@ -425,10 +473,9 @@ export function PolicyDetailPanel({
                       )}
 
                       <ol className="policy-detail-panel__rules">
-                        {block.rules.map((rule) => {
+                        {visible.map(({ rule, ordinal }) => {
                           const canonical = rule.rule;
                           const decision = ruleDecisionSummary(canonical);
-                          ordinal += 1;
                           return (
                             <li
                               key={rule.rule_id}
