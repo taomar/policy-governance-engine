@@ -217,7 +217,7 @@ export function notShownSentence(shown: RecordsNotShown): string {
   // count in the subject already says how many are unaccounted for. The reviewer
   // still learns the number and the consequence, which is what the sentence is
   // for. Saying "3, and this view has not loaded 3" would only repeat it.
-  if (shown.groups.length === 0) return `${subject} not shown by the current filters.`;
+  if (shown.groups.length === 0) return `${subject} not on this card.`;
 
   // One kind and nothing unaccounted for: the subject already carries the
   // count, so repeating it would read "15 more rules ... are 15 definitions".
@@ -237,11 +237,13 @@ export function notShownSentence(shown: RecordsNotShown): string {
     const named = `${subject} ${listed(parts)}`;
 
   if (shown.destinations.length === 0) {
-    // No surface has said what filters it is offering, so no name can be given
-    // without inventing one — and a filter named wrongly sends the reviewer
-    // somewhere the records are not. The control is still pointed at, because
-    // a record out of view by a filter is in view under another one.
-    return `${named}. A different filter on this page shows them.`;
+    // No surface has said what filters it is offering. That is now the ordinary
+    // case on the review queue, whose content-kind filter was retired once cards
+    // stopped being fragments -- so pointing at "a different filter" would send
+    // the reviewer to a control that is not there. Say instead what is true of
+    // every surface: the records belong to this policy and this view does not
+    // hold them, with the two reasons a view ends up short.
+    return `${named}. This view does not hold them: a later extraction run may have replaced the reading of a rule, or the record may not be among those loaded here.`;
   }
   const where = listed(shown.destinations.map((destination) => destination.label));
   return `${named}. Read them under ${where}.`;

@@ -45,7 +45,7 @@ describe("naming what a card is not showing", () => {
     expect(shown.groups).toEqual([{ kind: "definition", phrase: "definitions", count: 2 }]);
     expect(shown.unnamed).toBe(0);
     expect(notShownSentence(shown)).toBe(
-      "2 more rules of this policy are definitions. A different filter on this page shows them.",
+      "2 more rules of this policy are definitions. This view does not hold them: a later extraction run may have replaced the reading of a rule, or the record may not be among those loaded here.",
     );
   });
 
@@ -64,7 +64,7 @@ describe("naming what a card is not showing", () => {
 
     expect(sentence).toBe(
       "3 more rules of this policy are 2 definitions and 1 prohibition. " +
-        "A different filter on this page shows them.",
+        "This view does not hold them: a later extraction run may have replaced the reading of a rule, or the record may not be among those loaded here.",
     );
   });
 
@@ -79,7 +79,7 @@ describe("naming what a card is not showing", () => {
     expect(shown.unnamed).toBe(2);
     expect(notShownSentence(shown)).toBe(
       "3 more rules of this policy are 1 definition and 2 whose kind this view has not loaded. " +
-        "A different filter on this page shows them.",
+        "This view does not hold them: a later extraction run may have replaced the reading of a rule, or the record may not be among those loaded here.",
     );
   });
 
@@ -88,11 +88,33 @@ describe("naming what a card is not showing", () => {
     // knowing nothing else.
     const sentence = notShownSentence(recordsNotShown(card(["a"], ["a", "b", "c"])));
 
-    expect(sentence).toBe("2 more rules of this policy are not shown by the current filters.");
+    expect(sentence).toBe("2 more rules of this policy are not on this card.");
   });
 
   it("says nothing at all when the card shows the whole policy", () => {
     expect(notShownSentence(recordsNotShown(card(["a", "b"], ["a", "b"])))).toBe("");
+  });
+
+  it("never sends the reviewer to a control that is not on the screen", () => {
+    // The review queue's content-kind filter was retired once cards stopped
+    // being fragments. A sentence that still points at "a different filter"
+    // outlives the control it names, and a reviewer who goes looking for it
+    // finds nothing -- which is the same failure as the original "outside the
+    // current filter", one step further on. When no surface has said what it is
+    // offering, the sentence may say what is true of the records and no more.
+    const bare = ["a"];
+    const whole = ["a", "b", "c"];
+    noteRecordKinds([record("a", "obligation"), record("b", "definition"), record("c", "definition")]);
+    const withKinds = notShownSentence(recordsNotShown(card(bare, whole)));
+    forgetRecordKinds();
+    const withoutKinds = notShownSentence(recordsNotShown(card(bare, whole)));
+
+    for (const sentence of [withKinds, withoutKinds]) {
+      expect(sentence).not.toMatch(/\bfilter/i);
+      expect(sentence).not.toMatch(/\btab\b/i);
+      // Still says how many, which is the part a reviewer cannot do without.
+      expect(sentence).toContain("2 more rules of this policy");
+    }
   });
 
   it("names every kind in the taxonomy in words, not by appending an s to it", () => {
@@ -122,7 +144,7 @@ describe("naming what a card is not showing", () => {
     noteRecordKinds([record("a", "obligation"), record("b", "definition")]);
 
     expect(notShownSentence(recordsNotShown(card(["a"], ["a", "b"])))).toBe(
-      "1 more rule of this policy is a definition. A different filter on this page shows them.",
+      "1 more rule of this policy is a definition. This view does not hold them: a later extraction run may have replaced the reading of a rule, or the record may not be among those loaded here.",
     );
   });
 });
@@ -216,7 +238,7 @@ describe("the count on the card and the count in the sentence", () => {
     const bare: PolicyLikeCard = { hiddenByFilter: 3, rules: [], policy: {} };
 
     expect(notShownSentence(recordsNotShown(bare))).toBe(
-      "3 more rules of this policy are not shown by the current filters.",
+      "3 more rules of this policy are not on this card.",
     );
   });
 });
