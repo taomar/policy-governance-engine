@@ -11479,6 +11479,158 @@
   font-size: 12px;
 }
 
+/* Identifiers a reviewer opens a rule to find, and never has to read past.
+   Two columns so the label and the value stay on one line each; the values are
+   monospaced by `.policy-row-mono` and must not be truncated -- a record id with
+   its middle elided is not a record id. */
+.policy-detail-rule__ids {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.policy-detail-rule__ids > div {
+  display: contents;
+}
+
+.policy-detail-rule__ids dt {
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-detail-rule__ids dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The policy's rules compared, rules down and attributes across.
+
+   The table can be wider than the panel -- sixteen attributes across twenty
+   rules on the largest measured policy -- and it scrolls sideways rather than
+   shrinking its cells, because every cell holds a run of the document and a
+   document's words are not a thing to abbreviate. Nothing here clips: cells
+   wrap, and `nothingIsClipped` asserts it. */
+.policy-logic {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.policy-logic__shared {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.policy-logic__shared-item {
+  display: contents;
+}
+
+.policy-logic__shared dt {
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__shared dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.policy-logic__note {
+  font-size: 12px;
+}
+
+.policy-logic__scroll {
+  overflow-x: auto;
+}
+
+.policy-logic__table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.policy-logic__table th,
+.policy-logic__table td {
+  border: 1px solid var(--app-border, #e5e7eb);
+  padding: 6px 8px;
+  text-align: start;
+  vertical-align: top;
+  min-width: 120px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.policy-logic__table thead th {
+  background: var(--app-surface-muted, #f8fafc);
+  font-weight: 600;
+}
+
+.policy-logic__col-label {
+  display: block;
+}
+
+/* How many rules of the policy state this attribute. A count and never a
+   proportion: "1 of 20" is what the document did, where "5%" reads as a
+   shortfall in the one rule that differs. */
+.policy-logic__col-count {
+  display: block;
+  font-weight: 400;
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__rule-head,
+.policy-logic__rule-cell {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--app-surface, #ffffff);
+  min-width: 150px;
+}
+
+.policy-logic__rule-head {
+  background: var(--app-surface-muted, #f8fafc);
+}
+
+.policy-logic__rule-cell {
+  font-weight: 400;
+}
+
+/* Which sentence the rule came from. Merging a section's rules onto one card
+   must not merge its sentences into one. */
+.policy-logic__passage {
+  display: block;
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__stated {
+  display: block;
+}
+
+/* The rule states no such component. A fact about the rule, in words, because
+   a blank cell says nothing and an em dash in this app means "we could not
+   ask". */
+.policy-logic__absent {
+  color: var(--app-text-muted, #6b7280);
+  font-style: italic;
+}
+
+/* Nothing is recorded either way. The mark this app reserves for unknown. */
+.policy-logic__unknown {
+  color: var(--app-text-muted, #6b7280);
+}
+
 .policy-detail-panel__breadcrumb {
   display: flex;
   align-items: center;

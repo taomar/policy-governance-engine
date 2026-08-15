@@ -156,6 +156,23 @@ const CARD_DECISION_PARTS = [
 const CARD = ["policy-card", "policy-card__rules", "policy-card__rule", "policy-card__rule-body"];
 const DETAIL = ["policy-detail-panel", "policy-detail-rule", "policy-detail-rule__conditions"];
 
+/**
+ * The comparison table, where clipping would be worst of all.
+ *
+ * Every cell holds a run of the document under the name it was recorded as, and
+ * the table is wider than the panel on any large policy. The tempting fix is a
+ * fixed column width with an ellipsis, which would abbreviate the document's
+ * words -- the one thing this screen exists to show unaltered. It scrolls
+ * sideways instead, and these classes are held to the same floor as the rest.
+ */
+const LOGIC_PARTS = [
+  "policy-logic__stated",
+  "policy-logic__absent",
+  "policy-logic__passage",
+  "policy-logic__col-label",
+];
+const LOGIC = ["policy-logic", "policy-logic__scroll", "policy-logic__table"];
+
 describe("the stylesheet guard is reading a stylesheet", () => {
   it("parsed App.css into declaration blocks", () => {
     expect(Object.keys(stylesheets)).toHaveLength(1);
@@ -167,6 +184,7 @@ describe("the stylesheet guard is reading a stylesheet", () => {
     const mentions = (needle: string) => [...named].some((s) => s.includes(needle));
     for (const part of DECISION_PARTS) expect(mentions(part)).toBe(true);
     for (const part of CARD_DECISION_PARTS) expect(mentions(part)).toBe(true);
+    for (const part of LOGIC_PARTS) expect(mentions(part)).toBe(true);
     expect(mentions("policy-card__rule")).toBe(true);
     expect(mentions("policy-detail-rule")).toBe(true);
   });
@@ -192,6 +210,7 @@ describe("nothing a reviewer approves is clipped", () => {
   for (const [surface, scope, parts] of [
     ["the review card", CARD, CARD_DECISION_PARTS],
     ["the detail panel", DETAIL, DECISION_PARTS],
+    ["the logic comparison", LOGIC, LOGIC_PARTS],
   ] as const) {
     for (const part of parts) {
       it(`shows ${part} whole on ${surface}`, () => {
