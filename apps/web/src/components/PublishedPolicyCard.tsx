@@ -34,7 +34,7 @@ import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyAskAiButton } from "./PolicyAskAiButton";
 import { PublishedRuleAskAiButton } from "./PublishedRuleAskAiButton";
-import { PublishedRecordActions } from "./PublishedRecordActions";
+import { RecordActionsMenu } from "./RecordActionsMenu";
 import { RuleCard } from "./RuleCard";
 import { RuleName } from "./RuleName";
 
@@ -160,7 +160,16 @@ export function PublishedPolicyCard({
         aggregateLimits={aggregateLimits}
         onRevise={onRevise}
         headerActions={
-          <PublishedRecordActions rule={rule} onRevise={onRevise} onViewHistory={onViewHistory} />
+          <RecordActionsMenu
+            scope="rule"
+            recordId={rule.rule_id}
+            recordName={rule.rule_id}
+            reviewStatuses={["published"]}
+            on={{
+              revise: onRevise ? () => onRevise(rule) : undefined,
+              "view-history": onViewHistory ? () => onViewHistory(rule) : undefined,
+            }}
+          />
         }
       />
     </div>
@@ -298,10 +307,17 @@ export function PublishedPolicyCard({
                         policySetKey={policySetKey}
                         policyVersionId={policyVersionId}
                       />
-                      <PublishedRecordActions
-                        rule={entry.rule}
-                        onRevise={onRevise}
-                        onViewHistory={onViewHistory}
+                      <RecordActionsMenu
+                        scope="rule"
+                        recordId={entry.rule.rule_id}
+                        recordName={entry.rule.rule_id}
+                        reviewStatuses={["published"]}
+                        on={{
+                          revise: onRevise ? () => onRevise(entry.rule) : undefined,
+                          "view-history": onViewHistory
+                            ? () => onViewHistory(entry.rule)
+                            : undefined,
+                        }}
                       />
                     </Space>
                   </li>
@@ -325,10 +341,15 @@ export function PublishedPolicyCard({
             aggregateLimits={aggregateLimits}
             onRevise={onRevise}
             headerActions={
-              <PublishedRecordActions
-                rule={entry.rule}
-                onRevise={onRevise}
-                onViewHistory={onViewHistory}
+              <RecordActionsMenu
+                scope="rule"
+                recordId={entry.rule.rule_id}
+                recordName={entry.rule.rule_id}
+                reviewStatuses={["published"]}
+                on={{
+                  revise: onRevise ? () => onRevise(entry.rule) : undefined,
+                  "view-history": onViewHistory ? () => onViewHistory(entry.rule) : undefined,
+                }}
               />
             }
           />

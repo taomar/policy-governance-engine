@@ -32,7 +32,7 @@
  * measurement of one.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { AssembledPolicy, CanonicalRule } from "../api";
 import { buildPublishedPolicyCards } from "../publishedPolicyCards";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
@@ -211,7 +211,14 @@ describe("a published policy on the page that reads published versions", () => {
     // removing this one: revising does not change the published record, it
     // starts a new draft beside it.
     renderCard({ onRevise: () => {} });
-    expect(screen.getAllByTestId("record-actions").length).toBeGreaterThan(0);
+    const kebabs = screen.getAllByTestId("record-actions-menu");
+    expect(kebabs.length).toBeGreaterThan(0);
+    // Opened, because a kebab that exists proves nothing about what is in it.
+    fireEvent.click(kebabs[0]);
+    const offered = within(screen.getByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("data-action"));
+    expect(offered).toContain("revise");
   });
 
   it("does not invent an action when no revision can be started from this version", () => {
@@ -219,7 +226,13 @@ describe("a published policy on the page that reads published versions", () => {
     // id and reading a history are reads — but it must not offer a route the
     // caller did not supply.
     renderCard();
-    expect(screen.getAllByTestId("record-actions").length).toBeGreaterThan(0);
+    const kebabs = screen.getAllByTestId("record-actions-menu");
+    expect(kebabs.length).toBeGreaterThan(0);
+    fireEvent.click(kebabs[0]);
+    const offered = within(screen.getByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("data-action"));
+    expect(offered).not.toContain("revise");
   });
 });
 
