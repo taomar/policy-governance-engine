@@ -315,6 +315,174 @@ class TestRealDocx:
             assert "; " not in row.text or " | " in row.text
 
 
+class TestHeaderRowIsEvidencedNotAssumed:
+    """`page.find_tables()` is a per-page API: it has no cross-page concept, so a
+    table running onto the next page is re-discovered there as a fresh grid whose
+    row 0 is *content*, not labels.
+
+    Ingestion used to treat row 0 as the header row whenever it held any non-empty
+    cell, then drop it with `rows[1:]`. On a continuation page that deleted a row
+    of the schedule outright and stamped its text onto the surviving rows as their
+    column headers -- so the field was populated on every row and correct on none.
+
+    These cases are written on cell *form* only. Nothing keys on a heading, a
+    numbering scheme or a layout, so they hold for any document.
+    """
+
+    def test_short_distinct_labels_are_accepted_as_a_header_row(self):
+        rows = [
+            ["Grade", "Basic Salary", "Housing"],
+            ["A", "10,000", "2,000"],
+            ["B", "8,000", "1,600"],
+        ]
+        accepted, reason = ingestion._row_states_column_labels(rows)
+        assert accepted, reason
+        assert reason == ""
+
+    def test_a_continuation_pages_first_row_is_content_not_a_header(self):
+        # The distinguishing mark is length: a label names a column, a cell of a
+        # schedule states a provision. Nothing here depends on what it says.
+        rows = [
+            ["7", "Absence without written permission for seven to ten days "
+                  "within a single contract year.", "Final written warning"],
+            ["8", "Departing early without permission.", "Verbal warning"],
+        ]
+        accepted, reason = ingestion._row_states_column_labels(rows)
+        assert not accepted
+        assert "longer than" in reason
+
+    def test_a_row_spanned_by_one_banner_cell_is_not_a_header(self):
+        # A merged family banner paints into one cell of a wide grid. It labels
+        # nothing; it announces the block beneath it.
+        rows = [
+            ["Working hours", "", "", "", ""],
+            ["1", "Late arrival", "Warning", "5%", "10%"],
+        ]
+        accepted, reason = ingestion._row_states_column_labels(rows)
+        assert not accepted
+        assert "1 of 5" in reason
+
+    def test_a_row_whose_values_recur_below_is_not_a_header(self):
+        # Labels are distinct from the values under them; values repeat. A grid
+        # that opens mid-block can look label-shaped by length alone, so this
+        # catches the short-celled continuation the length rule cannot.
+        rows = [
+            ["Warning", "5%", "10%"],
+            ["Warning", "5%", "10%"],
+            ["Dismissal", "5%", "10%"],
+        ]
+        accepted, reason = ingestion._row_states_column_labels(rows)
+        assert not accepted
+        assert "recur further down" in reason
+
+    def test_a_single_celled_row_is_not_a_header(self):
+        rows = [["Section 4"], ["Some provision"]]
+        accepted, reason = ingestion._row_states_column_labels(rows)
+        assert not accepted
+        assert "1 of 1" in reason
+
+    def test_an_empty_grid_states_no_labels(self):
+        assert ingestion._row_states_column_labels([]) == (False, "the grid has no rows")
+
+
+class _StubRow:
+    def __init__(self, top: float, cell_count: int):
+        self.bbox = (0.0, top, 100.0, top + 10.0)
+        self.cells = [(0.0, top, 100.0, top + 10.0)] * cell_count
+
+
+class _StubPage:
+    width = 200.0
+    height = 800.0
+
+
+class _StubTable:
+    """The narrowest surface `_table_to_blocks` touches, so the case can be run
+    without a PDF. `data/documents/` is gitignored, so a corpus-backed guard
+    would skip silently in a clean checkout -- which is the failure this
+    repository has already absorbed five times."""
+
+    page = _StubPage()
+
+    def __init__(self, grid):
+        self._grid = grid
+        self.rows = [_StubRow(i * 10.0, len(r)) for i, r in enumerate(grid)]
+        self.bbox = (0.0, 0.0, 100.0, len(grid) * 10.0)
+
+    def extract(self):
+        return self._grid
+
+
+def _blocks_for(grid):
+    table = _StubTable(grid)
+    lines = [
+        _line(" ".join(c for c in row if c), top=i * 10.0)
+        for i, row in enumerate(grid)
+    ]
+    return ingestion._table_to_blocks(table, "p22-t1", 22, lines)
+
+
+class TestContinuationRowSurvivesAndSaysSo:
+    """Two obligations. The row must not be lost -- content loss is the defect.
+    And a table whose header row could not be identified must be *discoverable*,
+    because a reviewer judging coverage cannot see an absence that nothing reports.
+    """
+
+    CONTINUATION = [
+        ["7", "Absence without written permission for seven to ten days within a contract year.", "Final warning"],
+        ["8", "Departing from work fifteen minutes early without a valid reason.", "Verbal warning"],
+        ["9", "Sleeping while on duty in a manner that endangers others.", "Suspension"],
+    ]
+
+    HEADED = [
+        ["No.", "Violation", "Penalty"],
+        ["1", "Late arrival without permission.", "Warning"],
+        ["2", "Leaving the site without notice.", "Warning"],
+    ]
+
+    def test_the_first_row_of_a_continuation_page_is_emitted_as_content(self):
+        blocks, _ = _blocks_for(self.CONTINUATION)
+        emitted = "\n".join(b.cell_text or "" for b in blocks)
+        assert "Absence without written permission" in emitted, (
+            "the continuation page's leading row was consumed as a header and lost"
+        )
+        assert len(blocks) == 3
+
+    def test_no_row_is_labelled_with_another_rows_text(self):
+        blocks, _ = _blocks_for(self.CONTINUATION)
+        assert [b.table_headers for b in blocks] == [None, None, None], (
+            "an unidentified header row must leave the field empty; a wrong value "
+            "invites trust where an empty one invites a question"
+        )
+
+    def test_the_failure_is_reported_rather_than_passed_over(self):
+        _, diagnostics = _blocks_for(self.CONTINUATION)
+        assert len(diagnostics) == 1
+        diagnostic = diagnostics[0]
+        assert diagnostic.code == "table_header_row_not_identified"
+        assert diagnostic.severity == "warning"
+        assert diagnostic.page == 22
+        assert "p22-t1" in diagnostic.detail
+        assert "longer than" in diagnostic.detail, (
+            "the diagnostic must name what disqualified the row, not merely that "
+            "something did"
+        )
+
+    def test_a_real_header_row_is_still_lifted_and_reports_nothing(self):
+        blocks, diagnostics = _blocks_for(self.HEADED)
+        assert diagnostics == []
+        assert len(blocks) == 2, "the label row is carried structurally, not emitted"
+        assert all(b.table_headers == ["No.", "Violation", "Penalty"] for b in blocks)
+        assert "Late arrival" in (blocks[0].cell_text or "")
+
+    def test_cells_are_still_joined_by_the_separator_the_safety_gate_reads(self):
+        # `formulation_mapping.states_a_flattened_row` keys on " | " to recognise a
+        # flattened table row. Recovering rows makes that marker appear on *more*
+        # records, never fewer, so the gate holds wider rather than narrower.
+        blocks, _ = _blocks_for(self.CONTINUATION)
+        assert all(" | " in (b.cell_text or "") for b in blocks)
+
+
 class TestWithinPageContinuation:
     """Merging used to be gated on `index == 0`, so only a page-leading block
     could ever be joined and a sentence cut mid-page stayed cut.

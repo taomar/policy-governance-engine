@@ -475,12 +475,13 @@ def _read_page(page, page_index: int) -> tuple[list[_Line], list[_Block], list[I
         found = []
     for table_index, table in enumerate(found, start=1):
         table_id = f"p{page_index}-t{table_index}"
-        blocks = _table_to_blocks(table, table_id, page_index, lines)
+        blocks, table_diagnostics = _table_to_blocks(table, table_id, page_index, lines)
         if not blocks:
             # Not a genuine table (see _is_genuine_table). Leaving the region
             # unregistered is the whole point: the lines then flow through
             # normal paragraph grouping and get reassembled correctly.
             continue
+        diagnostics.extend(table_diagnostics)
         table_regions.append((table_id, table.bbox))
         table_blocks.extend(blocks)
 
@@ -691,7 +692,9 @@ def _containing_table(
     return None
 
 
-def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) -> list[_Block]:
+def _table_to_blocks(
+    table, table_id: str, page_index: int, lines: list[_Line]
+) -> tuple[list[_Block], list[IngestionDiagnostic]]:
     """Preserve table structure rather than flattening it into prose.
 
     Spec section 31: approval matrices, penalty schedules and expense limits
@@ -703,24 +706,55 @@ def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) 
     Each row's provenance is the set of real source lines its bounding box
     covers, so the canonical row text is a *recorded transformation* of genuine
     source spans (``table_cell_join``) rather than a free-floating string.
+
+    ``find_tables`` is a per-page API, so what arrives here is one page's grid,
+    never a whole table. Row 0 of a page's grid is the table's header row only
+    on the page the table starts on; on a continuation page it is content, and
+    on a page whose table opens with a banner it is neither. Deciding those
+    three cases by position alone -- which is what "row 0 is the header" does --
+    both mislabels the rows beneath it and discards the row itself. See
+    `_row_states_column_labels`.
     """
 
+    diagnostics: list[IngestionDiagnostic] = []
     try:
         rows = table.extract()
         row_objects = list(table.rows)
     except Exception:  # pragma: no cover
-        return []
+        return [], diagnostics
     if not rows:
-        return []
-
-    headers = [
-        _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
-        for column_index, cell in enumerate(rows[0])
-    ]
-    has_headers = any(headers)
+        return [], diagnostics
 
     if not _is_genuine_table(rows):
-        return []
+        return [], diagnostics
+
+    has_headers, why_not = _row_states_column_labels(rows)
+    headers = (
+        [
+            _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
+            for column_index, cell in enumerate(rows[0])
+        ]
+        if has_headers
+        else []
+    )
+
+    if not has_headers:
+        # Reported at `warning`, not `info`. A reader uses `info` to decide what
+        # to skip, and this is not the benign common case wearing an unusual
+        # hat: every row of this grid reaches extraction with no column labels
+        # at all, and a reviewer judging coverage cannot discover that from the
+        # rows themselves, which look complete.
+        diagnostics.append(
+            IngestionDiagnostic(
+                code="table_header_row_not_identified",
+                severity="warning",
+                page=page_index,
+                detail=(
+                    f"table {table_id}: no row states column labels ({why_not}); "
+                    f"{len(rows)} row(s) carry no headers and row 0 is read as content"
+                ),
+            )
+        )
 
     data_rows = list(enumerate(rows))[1:] if has_headers else list(enumerate(rows))
 
@@ -757,7 +791,79 @@ def _table_to_blocks(table, table_id: str, page_index: int, lines: list[_Line]) 
                 cell_text=cell_text,
             )
         )
-    return blocks
+    return blocks, diagnostics
+
+
+#: The longest a cell may be and still be read as a column label. A header names
+#: a column; content states something about one. The bound is generous for a
+#: label rather than fitted to any document: across the two corpora held here
+#: the longest genuine header cell is 24 characters ("Abbreviations / Acronyms")
+#: and the shortest content cell that a page-0 rule mislabelled as a header is
+#: 58 ("Eating in an unauthorized place or at an unauthorized time."), so the
+#: bound sits between them with room on both sides rather than against either.
+_MAX_HEADER_CELL_CHARS = 40
+
+
+def _row_states_column_labels(rows: list[list[str | None]]) -> tuple[bool, str]:
+    """Whether row 0 of this grid states column labels, and if not, why not.
+
+    `find_tables` runs per page, so "row 0" means "the first row of this page's
+    grid" and nothing more. Treating it as the header row unconditionally is
+    wrong in three ways that were all measured on real documents:
+
+    * on a **continuation page** row 0 is an ordinary data row. Consuming it
+      deletes a provision -- the row is emitted as no element at all -- and
+      hands its text to every row beneath it as their column labels, so a
+      reviewer is shown one offence's wording as the heading of another;
+    * on a page whose table opens with a **merged banner**, row 0 is a single
+      spanning cell naming a family of provisions, not a set of labels;
+    * on a page whose table has a **two-row header**, row 0 is half of one.
+
+    The test is on the form of the cells, never on their content, so it keys on
+    nothing document-specific -- no heading text, no numbering scheme, no
+    layout. A row states column labels when several cells are filled, each is
+    short enough to be a label, and none of them recurs further down the grid,
+    because labels are distinct by construction and values repeat.
+
+    The failure directions are deliberately asymmetric. Judging a real header
+    to be content emits it as a row: the text survives and a diagnostic says
+    the headers are unknown. Judging content to be a header deletes it. Only
+    one of those loses a provision, so the test is written to be reluctant.
+    """
+
+    if not rows:
+        return False, "the grid has no rows"
+
+    first = [(cell or "").strip() for cell in rows[0]]
+    filled = [cell for cell in first if cell]
+
+    if len(filled) < 2:
+        return False, (
+            f"row 0 fills {len(filled)} of {len(first)} cells, which is a banner "
+            "or a spanning title rather than a set of labels"
+        )
+
+    longest = max(filled, key=len)
+    if len(longest) > _MAX_HEADER_CELL_CHARS:
+        return False, (
+            f"row 0 carries a {len(longest)}-character cell, longer than a "
+            f"column label ({_MAX_HEADER_CELL_CHARS}), so it states content"
+        )
+
+    below = {
+        (cell or "").strip()
+        for row in rows[1:]
+        for cell in row
+        if (cell or "").strip()
+    }
+    recurring = sorted(set(filled) & below)
+    if recurring:
+        return False, (
+            f"{len(recurring)} of row 0's cells recur further down the grid, "
+            "so they are values rather than labels"
+        )
+
+    return True, ""
 
 
 def _cell_in_reading_order(
