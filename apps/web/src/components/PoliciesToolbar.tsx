@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { Button, Input, Popover, Segmented, Select, Tag, Tooltip } from "antd";
-import { AppstoreOutlined, BarsOutlined, ClusterOutlined, FilterOutlined, SearchOutlined } from "@ant-design/icons";
+import { Button, Input, Popover, Select, Tag, Tooltip } from "antd";
+import { ClusterOutlined, FilterOutlined, SearchOutlined } from "@ant-design/icons";
 import { ruleTypeLabel } from "../ruleTypes";
-import type { PolicyDensity } from "./PolicyRow";
 
 /** How many family chips show before collapsing behind a "+N more" toggle. */
 const FAMILY_CHIP_LIMIT = 12;
@@ -37,9 +36,6 @@ export const EMPTY_POLICY_FILTERS: PolicyFilters = {
   owners: [],
 };
 
-export type PolicyGroupBy = "type" | "category" | "family" | "none";
-export type PolicySortBy = "title" | "priority" | "ruleId" | "effectiveFrom";
-
 /** One selectable variation family shown in the at-a-glance strip. */
 export interface PolicyFamilyChip {
   id: string;
@@ -69,15 +65,12 @@ export function activeFilterCount(filters: PolicyFilters): number {
 interface PoliciesToolbarProps {
   search: string;
   onSearchChange: (v: string) => void;
-  groupBy: PolicyGroupBy;
-  onGroupByChange: (v: PolicyGroupBy) => void;
-  sortBy: PolicySortBy;
-  onSortByChange: (v: PolicySortBy) => void;
-  density: PolicyDensity;
-  onDensityChange: (v: PolicyDensity) => void;
   filters: PolicyFilters;
   onFiltersChange: (f: PolicyFilters) => void;
   facetOptions: PolicyFacetOptions;
+  /** How many whole policies the current narrowing leaves. */
+  policyCount: number;
+  /** How many individual rules those policies hold. */
   resultCount: number;
   totalCount: number;
   /** Every variation family in the current version, largest first. Rendered as a
@@ -90,22 +83,26 @@ interface PoliciesToolbarProps {
 }
 
 /**
- * Search + filter + group/sort/density controls above the policy list.
- * Filter options are always built from the *whole* dataset (not the
- * already-filtered subset) so choices never disappear as you narrow down.
+ * Search and filter controls above the policy list. Filter options are always
+ * built from the *whole* dataset (not the already-filtered subset) so choices
+ * never disappear as you narrow down.
+ *
+ * There is no grouping control here any more. It offered to file rules under
+ * the kind of rule each one is, or the category assigned to it — arrangements
+ * this system invents — and choosing any of them broke the document's own
+ * sections apart, so a policy stated in one place appeared as pieces in several.
+ * The list is now arranged the way the source is, which is not one option
+ * among several. Sorting went with it for the same reason: reordering a
+ * document's sections by an attribute discards the only ordering the document
+ * actually chose.
  */
 export function PoliciesToolbar({
   search,
   onSearchChange,
-  groupBy,
-  onGroupByChange,
-  sortBy,
-  onSortByChange,
-  density,
-  onDensityChange,
   filters,
   onFiltersChange,
   facetOptions,
+  policyCount,
   resultCount,
   totalCount,
   families = [],
@@ -185,36 +182,6 @@ export function PoliciesToolbar({
             Filters{activeCount > 0 ? ` (${activeCount})` : ""}
           </Button>
         </Popover>
-        <Select
-          value={groupBy}
-          onChange={onGroupByChange}
-          className="policies-toolbar-select"
-          options={[
-            { value: "type", label: "Group: Type" },
-            { value: "category", label: "Group: Category" },
-            { value: "family", label: "Group: Related family" },
-            { value: "none", label: "No grouping" },
-          ]}
-        />
-        <Select
-          value={sortBy}
-          onChange={onSortByChange}
-          className="policies-toolbar-select"
-          options={[
-            { value: "title", label: "Sort: Title A–Z" },
-            { value: "priority", label: "Sort: Priority" },
-            { value: "ruleId", label: "Sort: Rule ID" },
-            { value: "effectiveFrom", label: "Sort: Effective date" },
-          ]}
-        />
-        <Segmented
-          value={density}
-          onChange={(v) => onDensityChange(v as PolicyDensity)}
-          options={[
-            { value: "comfortable", icon: <AppstoreOutlined />, title: "Comfortable" },
-            { value: "compact", icon: <BarsOutlined />, title: "Compact" },
-          ]}
-        />
       </div>
 
       {families.length > 0 && onFocusFamily && (
@@ -262,8 +229,14 @@ export function PoliciesToolbar({
         </div>
       )}
 
-      <div className="policies-toolbar-count">
-        {resultCount} of {totalCount} polic{totalCount === 1 ? "y" : "ies"} shown
+      <div className="policies-toolbar-count" data-testid="policies-count">
+        {/* Two counts, because the page shows two things: a policy is the unit
+            you read, a rule is the unit you filter and export. Reporting rules
+            under the word "policies" is what let a page of fragments look
+            complete. */}
+        {policyCount} polic{policyCount === 1 ? "y" : "ies"}
+        {" · "}
+        {resultCount} of {totalCount} rule{totalCount === 1 ? "" : "s"} shown
         {focusedFamily && onFocusFamily && (
           <>
             {" · "}

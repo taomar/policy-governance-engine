@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Checkbox, Drawer, Empty, Grid, Segmented, Select, Space, Tag, Typography, message } from "antd";
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Drawer,
+  Empty,
+  Grid,
+  Pagination,
+  Segmented,
+  Select,
+  Space,
+  Tag,
+  Typography,
+  message,
+} from "antd";
 import { DownloadOutlined, FileSearchOutlined, LayoutOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import {
   api,
@@ -7,36 +22,37 @@ import {
   PolicyPlatformApiError,
   type AggregateLimit,
   type ApprovedPolicyVersion,
+  type AssembledPolicy,
   type CanonicalRule,
 } from "../api";
 import { EditRuleModal } from "./EditRuleModal";
-import { RULE_TYPES, ruleTypeLabel } from "../ruleTypes";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
-import { PolicyList, type PolicyGroup } from "./PolicyList";
 import { PolicyInspector } from "./PolicyInspector";
+import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import { RuleCard } from "./RuleCard";
+import { PublishedRecordActions } from "./PublishedRecordActions";
+import {
+  buildPublishedPolicyCards,
+  listVersionPolicies,
+  unplacedPublishedRules,
+} from "../publishedPolicyCards";
 import {
   PoliciesToolbar,
   EMPTY_POLICY_FILTERS,
   type PolicyFacetOptions,
   type PolicyFilters,
-  type PolicyGroupBy,
-  type PolicySortBy,
 } from "./PoliciesToolbar";
-import type { PolicyDensity } from "./PolicyRow";
 
 const { Title, Text } = Typography;
 
-const DENSITY_STORAGE_KEY = "policyPlatform.policiesDensity";
 type PoliciesWorkspaceMode = "list" | "split" | "detail";
 
-function loadStoredDensity(): PolicyDensity {
-  try {
-    const v = localStorage.getItem(DENSITY_STORAGE_KEY);
-    return v === "compact" ? "compact" : "comfortable";
-  } catch {
-    return "comfortable";
-  }
-}
+/** How many policies are drawn at once. A whole policy is a much taller thing
+ *  than a row, so the list is paged rather than virtualized — the same choice
+ *  the review queue makes, and for the same reason: a card's height depends on
+ *  how much the document said, which a windowing calculation cannot know in
+ *  advance without measuring every card first. */
+const PAGE_SIZE = 20;
 
 interface PoliciesTabProps {
   policySetKey: string;
@@ -44,15 +60,19 @@ interface PoliciesTabProps {
 }
 
 /**
- * Read-oriented master/detail view of a project's *approved* policy rules: a compact,
- * virtualized, filterable/sortable list on one side and a full-depth inspector (Overview /
- * Logic / Scope / History / Notes) on the other — replacing the old accordion-of-accordions
- * so browsing hundreds of rules stays fast and a single selected rule can show its full
- * detail without forcing every other row to expand too. This is deliberately separate from
- * the Review tab, which is about the draft/approve/publish workflow for candidate rules;
- * Policies shows the result of that workflow, organized for reading. Defaults to the active
- * published version; older versions can be selected to see how policies looked at an earlier
- * point in time.
+ * Read-oriented view of a project's *published* policies. A published version is a sealed
+ * snapshot, so nothing here decides anything: no approve, no reject, no edit, no drafting.
+ * What it does offer is the same reading the review queue offers, because a policy does not
+ * change shape when it is approved — the document's own sections, each holding all its rules,
+ * with the passage they were read from beside them.
+ *
+ * It used to list rules individually, grouped by the kind of rule each one was. That is a
+ * label this system assigns rather than a structure the document has, and it broke every
+ * multi-rule policy into pieces filed under headings the source never wrote. Grouping is now
+ * by the document's own provisions, which the publish step already records on each rule.
+ *
+ * Defaults to the active published version; older versions can be selected to see how
+ * policies looked at an earlier point in time.
  */
 export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const screens = Grid.useBreakpoint();
@@ -61,22 +81,24 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
   const [versionId, setVersionId] = useState<string>("");
   const [rules, setRules] = useState<CanonicalRule[]>([]);
+  const [policies, setPolicies] = useState<AssembledPolicy[]>([]);
   const [aggregateLimits, setAggregateLimits] = useState<AggregateLimit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<PolicyFilters>(EMPTY_POLICY_FILTERS);
-  const [groupBy, setGroupBy] = useState<PolicyGroupBy>("type");
-  const [sortBy, setSortBy] = useState<PolicySortBy>("title");
-  const [density, setDensity] = useState<PolicyDensity>(loadStoredDensity);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
   /** When set, the list is narrowed to a single variation family (by
    * `clusterIdentity`) — the "show me only these related rules" affordance,
-   * since family members are otherwise scattered by title/type ordering. */
+   * since family members are otherwise scattered across the document. */
   const [focusedFamily, setFocusedFamily] = useState<string | null>(null);
 
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
+  /** The rule whose detail is open inside its policy. Distinct from the
+   *  selection, which drives the inspector: a reader can be looking at one
+   *  rule in place while the panel still shows the one they arrived on. */
+  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState("overview");
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [reviseTarget, setReviseTarget] = useState<CanonicalRule | null>(null);
@@ -100,14 +122,24 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   useEffect(() => {
     if (!versionId) {
       setRules([]);
+      setPolicies([]);
       setAggregateLimits([]);
       return;
     }
     setLoading(true);
-    Promise.all([api.getVersionRules(policySetKey, versionId), api.getVersionAggregateLimits(policySetKey, versionId)])
-      .then(([rs, aggs]) => {
+    Promise.all([
+      api.getVersionRules(policySetKey, versionId),
+      api.getVersionAggregateLimits(policySetKey, versionId),
+      // A policy's own boundaries are recorded at publish time, so this is a
+      // read of what the version already knows rather than anything inferred
+      // here. It is fetched separately so a failure to group still leaves the
+      // rules readable rather than blanking the page.
+      listVersionPolicies(policySetKey, versionId).catch(() => [] as AssembledPolicy[]),
+    ])
+      .then(([rs, aggs, ps]) => {
         setRules(rs);
         setAggregateLimits(aggs);
+        setPolicies(ps);
       })
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
       .finally(() => setLoading(false));
@@ -143,20 +175,12 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     };
   }, [policySetKey, versions.length]);
 
+  // Paging is over a list whose contents and order change with the version and
+  // with every narrowing, so a page number held across either would land the
+  // reader somewhere they did not ask to be — often past the end.
   useEffect(() => {
-    try {
-      localStorage.setItem(DENSITY_STORAGE_KEY, density);
-    } catch {
-      // localStorage unavailable (e.g. private browsing) — density preference just won't persist.
-    }
-  }, [density]);
-
-  // Reset manual group-collapse choices whenever a new version's rules load or the grouping
-  // mode changes — the group *keys* change meaning at that point, so stale collapse state
-  // could otherwise hide an unrelated group under the same key.
-  useEffect(() => {
-    setCollapsedGroups(new Set());
-  }, [versionId, groupBy]);
+    setPage(1);
+  }, [versionId, search, filters, focusedFamily]);
 
   // Cluster identities are derived from the loaded rule set, so a focus held across a
   // version switch could silently resolve to nothing and show an empty list with no
@@ -193,54 +217,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       .map(([id, cluster]) => ({ id, cluster }))
       .sort((a, b) => b.cluster.members.length - a.cluster.members.length || a.id.localeCompare(b.id));
   }, [clusterMap]);
-
-  /** Sentinel group key for rules that belong to no family, so they still render
-   * (collected under one trailing group) rather than silently disappearing. */
-  const NO_FAMILY = "__nofamily__";
-
-  const keyFor = (rule: CanonicalRule): string => {
-    if (groupBy === "category") return rule.category || "Uncategorized";
-    if (groupBy === "family") {
-      const cluster = clusterMap.get(rule.rule_id);
-      return cluster ? clusterIdentity(cluster) : NO_FAMILY;
-    }
-    return rule.rule_type || "uncategorized";
-  };
-
-  const labelFor = (key: string): string => {
-    if (groupBy === "type") return ruleTypeLabel(key);
-    if (groupBy === "family") {
-      if (key === NO_FAMILY) return "No related rules";
-      const match = families.find((f) => f.id === key);
-      return match ? clusterLabel(match.cluster) : key;
-    }
-    return key;
-  };
-
-  // Group keys present across the *full* (unfiltered) rule set, so the group list — and its
-  // order — stays stable as search/filters narrow which rules appear within each group.
-  const allGroupKeys = useMemo(() => {
-    if (groupBy === "none") return [];
-    const present = new Set(rules.map(keyFor));
-    if (groupBy === "type") {
-      const known = RULE_TYPES.filter((t) => present.has(t));
-      const extra = [...present].filter((t) => !RULE_TYPES.includes(t)).sort();
-      return [...known, ...extra];
-    }
-    if (groupBy === "family") {
-      // Biggest families first (they carry the most "these decide the same thing
-      // differently" signal), unfamilied rules always last.
-      const ordered = families.map((f) => f.id).filter((id) => present.has(id));
-      return present.has(NO_FAMILY) ? [...ordered, NO_FAMILY] : ordered;
-    }
-    return [...present].sort((a, b) => {
-      const aFallback = a === "Uncategorized" || a === "Ungrouped";
-      const bFallback = b === "Uncategorized" || b === "Ungrouped";
-      if (aFallback !== bFallback) return aFallback ? 1 : -1;
-      return a.localeCompare(b);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rules, groupBy, families]);
 
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -287,36 +263,27 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     });
   }, [searched, filters, focusedFamily, clusterMap]);
 
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      switch (sortBy) {
-        case "priority":
-          return b.priority - a.priority;
-        case "ruleId":
-          return a.rule_id.localeCompare(b.rule_id);
-        case "effectiveFrom":
-          return b.effective_from.localeCompare(a.effective_from);
-        default:
-          return a.title.localeCompare(b.title);
-      }
-    });
-    return arr;
-  }, [filtered, sortBy]);
+  /** The rules that survive the current narrowing, in the order the version
+   *  serves them. Not re-sorted: a policy's rules are read in the order the
+   *  document states them, and reordering them by an attribute would take the
+   *  one arrangement the source actually chose and replace it with one it
+   *  didn't. */
+  const shownRules = filtered;
 
-  const policyGroups = useMemo<PolicyGroup[]>(() => {
-    if (groupBy === "none") {
-      return [{ key: "__all__", label: "", rules: sorted }];
-    }
-    const map = new Map<string, CanonicalRule[]>();
-    for (const rule of sorted) {
-      const key = keyFor(rule);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(rule);
-    }
-    return allGroupKeys.filter((k) => map.has(k)).map((k) => ({ key: k, label: labelFor(k), rules: map.get(k)! }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sorted, groupBy, allGroupKeys]);
+  /** Whole policies, each holding whichever of its rules are still in view.
+   *  A policy showing fewer rules than it holds says so on its own head, so
+   *  narrowing never turns a policy into a fragment presented as the whole. */
+  const cards = useMemo(() => buildPublishedPolicyCards(policies, shownRules), [policies, shownRules]);
+
+  /** Rules the version serves that no policy claims — always rendered, below
+   *  the policies, so a grouping gap loses a rule from its policy but never
+   *  from the page. */
+  const unplaced = useMemo(() => unplacedPublishedRules(policies, shownRules), [policies, shownRules]);
+
+  const pagedCards = useMemo(
+    () => cards.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [cards, page]
+  );
 
   /** Display-ready chips for the family strip. Colors come from the same
    * `clusterColor` used by the row bands, so a chip and its rows always read as
@@ -367,15 +334,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const selectedRule = useMemo(() => rules.find((r) => r.rule_id === selectedRuleId) ?? null, [rules, selectedRuleId]);
   const canRevise = !!selectedVersion?.is_active;
 
-  const handleToggleGroup = (key: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
   const handleSelectRule = (rule: CanonicalRule) => {
     setSelectedRuleId(rule.rule_id);
     if (isDesktop) {
@@ -407,26 +365,20 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     setWorkspaceMode("list");
   };
 
-  const toggleExportSelection = (ruleId: string) => {
+  const toggleExportSelection = (ruleIds: readonly string[]) => {
     setSelectedExportIds((current) => {
       const next = new Set(current);
-      if (next.has(ruleId)) next.delete(ruleId);
-      else next.add(ruleId);
+      const allSelected = ruleIds.length > 0 && ruleIds.every((id) => next.has(id));
+      for (const id of ruleIds) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
       return next;
     });
   };
 
   const selectAllShownForExport = () => {
-    const visibleIds = sorted.map((rule) => rule.rule_id);
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedExportIds.has(id));
-    setSelectedExportIds((current) => {
-      const next = new Set(current);
-      for (const id of visibleIds) {
-        if (allVisibleSelected) next.delete(id);
-        else next.add(id);
-      }
-      return next;
-    });
+    toggleExportSelection(shownRules.map((rule) => rule.rule_id));
   };
 
   const downloadJsonl = (scope: "selected" | "all") => {
@@ -616,16 +568,11 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                 <PoliciesToolbar
                   search={search}
                   onSearchChange={setSearch}
-                  groupBy={groupBy}
-                  onGroupByChange={setGroupBy}
-                  sortBy={sortBy}
-                  onSortByChange={setSortBy}
-                  density={density}
-                  onDensityChange={setDensity}
                   filters={filters}
                   onFiltersChange={setFilters}
                   facetOptions={facetOptions}
-                  resultCount={sorted.length}
+                  policyCount={cards.length}
+                  resultCount={shownRules.length}
                   totalCount={rules.length}
                   families={familyChips}
                   focusedFamily={focusedFamily}
@@ -633,14 +580,14 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                 />
                 <div className="policy-export-bar">
                   <Checkbox
-                    checked={sorted.length > 0 && sorted.every((rule) => selectedExportIds.has(rule.rule_id))}
+                    checked={shownRules.length > 0 && shownRules.every((rule) => selectedExportIds.has(rule.rule_id))}
                     indeterminate={
-                      sorted.some((rule) => selectedExportIds.has(rule.rule_id)) &&
-                      !sorted.every((rule) => selectedExportIds.has(rule.rule_id))
+                      shownRules.some((rule) => selectedExportIds.has(rule.rule_id)) &&
+                      !shownRules.every((rule) => selectedExportIds.has(rule.rule_id))
                     }
                     onChange={selectAllShownForExport}
                   >
-                    Select all {sorted.length} shown
+                    Select all {shownRules.length} shown
                   </Checkbox>
                   <span className="policy-export-count">{selectedExportIds.size} selected</span>
                   <span className="policy-export-spacer" />
@@ -656,24 +603,84 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                     Export all {rules.length} JSONL
                   </Button>
                 </div>
-                <PolicyList
-                  groups={policyGroups}
-                  showGroupHeaders={groupBy !== "none"}
-                  collapsedGroups={collapsedGroups}
-                  onToggleGroup={handleToggleGroup}
-                  selectedRuleId={selectedRule?.rule_id}
-                  density={density}
-                  searchQuery={search}
-                  onSelectRule={handleSelectRule}
-                  onReviseRule={canRevise ? setReviseTarget : undefined}
-                  onViewHistory={handleViewHistory}
-                  emptyMessage={emptyMessage}
-                  clusterMap={clusterMap}
-                  focusedFamily={focusedFamily}
-                  onFocusFamily={setFocusedFamily}
-                  selectedForExport={selectedExportIds}
-                  onToggleExportSelection={toggleExportSelection}
-                />
+                <div className="published-policy-list" data-testid="published-policy-list">
+                  {cards.length === 0 && unplaced.length === 0 ? (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyMessage} />
+                  ) : (
+                    <>
+                      {pagedCards.map((card) => {
+                        const ids = card.rules.map((entry) => entry.rule_id);
+                        const selectedCount = ids.filter((id) => selectedExportIds.has(id)).length;
+                        return (
+                          <PublishedPolicyCard
+                            key={card.policy.key}
+                            card={card}
+                            open={ids.some((id) => id === selectedRuleId)}
+                            selectedForExport={ids.length > 0 && selectedCount === ids.length}
+                            indeterminateForExport={selectedCount > 0 && selectedCount < ids.length}
+                            aggregateLimits={aggregateLimits}
+                            expandedRuleId={expandedRuleId}
+                            onToggleExportSelection={() => toggleExportSelection(ids)}
+                            onOpen={() => {
+                              const first = card.rules[0];
+                              if (first) handleSelectRule(first.rule);
+                            }}
+                            onSelectRule={handleSelectRule}
+                            onToggleRule={(rule) =>
+                              setExpandedRuleId((prev) => (prev === rule.rule_id ? null : rule.rule_id))
+                            }
+                            onRevise={canRevise ? setReviseTarget : undefined}
+                            onViewHistory={handleViewHistory}
+                          />
+                        );
+                      })}
+
+                      {cards.length > PAGE_SIZE && (
+                        <div className="candidate-pagination">
+                          <Pagination
+                            current={page}
+                            pageSize={PAGE_SIZE}
+                            total={cards.length}
+                            onChange={setPage}
+                            showSizeChanger={false}
+                            showTotal={(total, range) =>
+                              `${range[0]}–${range[1]} of ${total} polic${total === 1 ? "y" : "ies"}`
+                            }
+                          />
+                        </div>
+                      )}
+
+                      {unplaced.length > 0 && (
+                        <section className="published-policy-unplaced" data-testid="published-unplaced">
+                          <Text type="secondary">
+                            {/* A rule the version serves but no policy claims is a
+                                gap in the grouping, not a reason to drop it. It is
+                                shown on its own and labelled as such. */}
+                            {unplaced.length === 1
+                              ? "1 rule of this version is not recorded against a section of its source document, so it is shown on its own."
+                              : `${unplaced.length} rules of this version are not recorded against a section of their source document, so they are shown on their own.`}
+                          </Text>
+                          {unplaced.map((rule) => (
+                            <RuleCard
+                              key={rule.rule_id}
+                              rule={rule}
+                              hideNotes
+                              aggregateLimits={aggregateLimits}
+                              onRevise={canRevise ? setReviseTarget : undefined}
+                              headerActions={
+                                <PublishedRecordActions
+                                  rule={rule}
+                                  onRevise={canRevise ? setReviseTarget : undefined}
+                                  onViewHistory={handleViewHistory}
+                                />
+                              }
+                            />
+                          ))}
+                        </section>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>}
               {isDesktop && workspaceMode !== "list" && (
                 <>

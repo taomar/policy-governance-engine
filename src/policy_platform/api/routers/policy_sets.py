@@ -35,6 +35,11 @@ from policy_platform.contracts.policy import AggregateLimit, CanonicalRule
 from policy_platform.infrastructure.aggregates.aggregate_eligibility import assess_rules
 from policy_platform.infrastructure.aggregates.aggregate_preview import preview_aggregate_limit
 from policy_platform.infrastructure.aggregates.ai_aggregate_proposal import propose_aggregate_limits
+from policy_platform.infrastructure.assembly.approved_provision_lookup import (
+    approved_provision_groupings,
+)
+from policy_platform.infrastructure.assembly.policy_assembly import assemble
+from policy_platform.infrastructure.assembly.topic_label_lookup import labels_for_policy_set
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.projection.export import (
     ExportFormat,
@@ -563,6 +568,88 @@ async def get_policy_version_rules(
 
     package = approved_policy_version_to_package(version)
     return package.rules
+
+
+@router.get("/{key}/versions/{version_id}/policies")
+async def get_policy_version_policies(
+    key: str, version_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[dict]:
+    """One published version as policies rather than as loose rules.
+
+    The published counterpart of `/policy-sets/{key}/policies`, and deliberately
+    the same payload: a reviewer who has read a policy in the queue and a reader
+    who looks it up after publication are looking at the same thing, and the
+    second surface should not have to reconstruct from a flat list what the
+    first was handed. `/versions/{version_id}/rules` returns the records, which
+    is what an evaluator consumes; this returns those same records arranged
+    under the provision that states them, which is what a person reads. The rule
+    ids here index into the ids there, so a client holding both needs no third
+    fetch.
+
+    Nothing is re-grouped. Publishing copies the provision key and its heading
+    chain onto each rule, so the boundary a reviewer approved is the boundary
+    shown here — this reads it back rather than deriving a second opinion on it.
+    A rule published before that link existed falls through to the same heading
+    fallback the queue uses, which keeps it grouped rather than dropped.
+    """
+
+    policy_set_repo = PolicySetRepository(session)
+    policy_set = await policy_set_repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    version_repo = ApprovedPolicyVersionRepository(session)
+    version = await version_repo.get_by_id(version_id)
+    if version is None or version.policy_set_id != policy_set.id:
+        raise HTTPException(status_code=404, detail=f"version '{version_id}' not found")
+
+    package = approved_policy_version_to_package(version)
+    groupings = await approved_provision_groupings(session, policy_set.id, version.rules)
+    policies = assemble(package.rules, provisions=groupings)
+    # One query for the whole page, read and never generated — the same
+    # contract the queue holds. A published policy with no stored label carries
+    # none rather than acquiring one on the way to the screen.
+    topic_labels = await labels_for_policy_set(session, policy_set.id)
+
+    def _rule(rule) -> dict:
+        return {
+            "rule_id": rule.rule_id,
+            "title": rule.title,
+            "evaluation_mode": rule.evaluation_mode.value,
+        }
+
+    return [
+        {
+            "key": policy.key,
+            "heading": policy.heading,
+            "heading_path": list(policy.heading_path),
+            "topic_label": (
+                topic_labels[policy.key].as_payload()
+                if policy.key in topic_labels
+                else None
+            ),
+            "persisted": policy.persisted,
+            "provision_id": policy.provision_id,
+            "document_version_id": policy.document_version_id,
+            "source_elements": policy.source_elements,
+            "page": policy.page,
+            "rule_count": policy.rule_count,
+            "passage_count": policy.passage_count,
+            "route": policy.route,
+            "passages": [
+                {
+                    "key": passage.key,
+                    "source_elements": passage.source_elements,
+                    "page": passage.page,
+                    "rule_count": passage.rule_count,
+                    "rules": [_rule(rule) for rule in passage.rules],
+                }
+                for passage in policy.passages
+            ],
+            "rules": [_rule(rule) for rule in policy.rules],
+        }
+        for policy in policies
+    ]
 
 
 @router.get("/{key}/versions/{version_id}/aggregate-limits", response_model=list[AggregateLimit])
