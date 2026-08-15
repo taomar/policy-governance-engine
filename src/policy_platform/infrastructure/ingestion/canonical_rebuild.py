@@ -58,6 +58,19 @@ def canonical_from_clauses(document_id: str, clauses: list[Clause]) -> Canonical
                 text=clause.text,
                 section=clause.section,
                 source_fragments=fragments,
+                # Restored, so a rebuilt document still knows which grid a row
+                # belongs to and what that grid's columns are called. Passed
+                # through untouched, and deliberately not guarded: `None` means
+                # the converter found no row stating column labels, and mapping
+                # anything else onto `None` here would make a corrupt value
+                # indistinguishable from that fact. A value this projection did
+                # not write fails validation loudly instead.
+                #
+                # Row identity only. `table_cell` is deliberately not set,
+                # because no cell coordinate is stored to set it from — see
+                # `structural_graph._add_table_edges`, which needs one.
+                table_id=clause.table_id,
+                table_headers=clause.table_headers,
             )
         )
         for fragment in fragments:

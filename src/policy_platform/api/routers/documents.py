@@ -202,6 +202,8 @@ async def upload_document(
                     "element_id": c.element_id,
                     "element_type": c.element_type,
                     "source_fragments": c.source_fragments,
+                    "table_id": c.table_id,
+                    "table_headers": c.table_headers,
                 }
                 for c in extracted
             ],

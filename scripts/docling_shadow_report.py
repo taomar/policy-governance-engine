@@ -391,7 +391,16 @@ def _persistence_round_trip(document: CanonicalDocument) -> dict[str, Any]:
     )
 
     class _StoredClause:
-        __slots__ = ("element_id", "element_type", "sequence", "text", "section", "source_fragments")
+        __slots__ = (
+            "element_id",
+            "element_type",
+            "sequence",
+            "text",
+            "section",
+            "source_fragments",
+            "table_id",
+            "table_headers",
+        )
 
         def __init__(self, data: Any, sequence: int) -> None:
             self.element_id = data.element_id
@@ -400,6 +409,8 @@ def _persistence_round_trip(document: CanonicalDocument) -> dict[str, Any]:
             self.text = data.text
             self.section = data.section
             self.source_fragments = data.source_fragments
+            self.table_id = data.table_id
+            self.table_headers = data.table_headers
 
     stored = [
         _StoredClause(data, index)
@@ -423,6 +434,18 @@ def _persistence_round_trip(document: CanonicalDocument) -> dict[str, Any]:
         "table_edge_total": sum(edge_kinds.get(k, 0) for k in _TABLE_EDGE_KINDS),
         "reading_plan_units": len(plan.units),
         "table_framing": _table_framing(rebuilt, graph, plan),
+        # Row-level table identity, measured separately from cell structure
+        # because the two are carried by different fields and only one of them
+        # survives storage. `rows_with_headers` counts rows whose grid had a row
+        # stating column labels; `rows_without_headers` counts rows of a grid
+        # where none did. The second is a fact ingestion established, so it is
+        # reported rather than folded into the first.
+        "rows_with_table_id": sum(1 for e in rebuilt.elements if e.table_id),
+        "rows_with_headers": sum(1 for e in rebuilt.elements if e.table_headers),
+        "rows_without_headers": sum(
+            1 for e in rebuilt.elements if e.table_id and e.table_headers is None
+        ),
+        "table_continuations": len(graph.table_continuations),
     }
 
 

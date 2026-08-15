@@ -48,6 +48,14 @@ class ClauseData:
     element_id: str | None = None
     element_type: str | None = None
     source_fragments: list[dict] = field(default_factory=list)
+    #: Which grid this clause is a row of, and what that grid's columns are
+    #: called. Both come from the converter and neither is derived here.
+    #:
+    #: `table_headers` stays `None` when no row of the grid evidenced itself as
+    #: stating column labels. That distinction is the point: `None` says nobody
+    #: named the columns, `[]` would say the grid has none.
+    table_id: str | None = None
+    table_headers: list[str] | None = None
 
 
 def extract_clauses(
@@ -288,6 +296,11 @@ def clauses_from_document(document: CanonicalDocument) -> list[ClauseData]:
                 element_id=element.element_id,
                 element_type=element.element_type,
                 source_fragments=[fragment.model_dump() for fragment in element.source_fragments],
+                # Copied, not reconstructed. Whether a row states column labels
+                # is decided once, by the converter that read the grid, and a
+                # `None` here means that converter found no row that did.
+                table_id=element.table_id,
+                table_headers=element.table_headers,
             )
         )
     return clauses

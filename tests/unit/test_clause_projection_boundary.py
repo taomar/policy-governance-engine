@@ -22,11 +22,12 @@ converter recovered it" and "something read it", and the existing guard stops
 before that boundary.
 
 These tests describe where the association currently stops. The projection
-carries a clause's text, section, element id, element type and source fragments,
-because those are the columns the table has; it carries no row index, no column
-index, no header flag and no table id. So a graph rebuilt from stored clauses
-has no table edges to build, whatever produced the clauses -- and that is a
-property of the projection, not of any converter.
+carries a clause's text, section, element id, element type, source fragments and
+-- since the table-identity migration -- the id of the table a row belongs to
+and the column labels that table stated, because those are the columns the table
+has. It carries no row index, no column index and no header flag. So a graph
+rebuilt from stored clauses still has no *cell* edges to build, whatever produced
+the clauses -- and that is a property of the projection, not of any converter.
 
 WHY ASSERT SOMETHING THAT IS A GAP
 ----------------------------------
@@ -80,6 +81,8 @@ class _StoredClause:
         self.text = data.text
         self.section = data.section
         self.source_fragments = data.source_fragments
+        self.table_id = data.table_id
+        self.table_headers = data.table_headers
 
 
 def _cell_document(body_rows: int, columns: int) -> CanonicalDocument:
@@ -171,7 +174,14 @@ def test_structure_is_present_before_the_clause_projection(body_rows: int, colum
 
 @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
 def test_the_clause_projection_carries_no_cell_structure(body_rows: int, columns: int) -> None:
-    """Text survives the round trip; where the text sat in its table does not."""
+    """Text survives the round trip; where the text sat in its table does not.
+
+    The table a cell belongs to now survives, which is why this asserts the
+    absence of the coordinate and not the absence of the identity: the two are
+    different fields carried by different columns, and only one of them is
+    stored. Keeping the claim narrow is the point -- a reader must be able to
+    tell "this row knows its table" from "this cell knows its position".
+    """
 
     document = _cell_document(body_rows, columns)
     rebuilt = _round_trip(document)
@@ -180,7 +190,6 @@ def test_the_clause_projection_carries_no_cell_structure(body_rows: int, columns
         element.text for element in document.elements
     ]
     assert all(element.table_cell is None for element in rebuilt.elements)
-    assert all(element.table_id is None for element in rebuilt.elements)
 
 
 @pytest.mark.parametrize(("body_rows", "columns"), GRID_SHAPES)
@@ -239,9 +248,15 @@ def test_a_row_joined_into_one_clause_keeps_its_values_together() -> None:
     in that row inside its own text, and that text is the one thing the
     projection does carry. A parse that splits the same row into one element per
     cell has nowhere to put the association once coordinates are dropped.
+
+    The row's column labels now survive alongside its text. They are labels, not
+    positions: nothing here pairs a label with a value, because the joined text
+    is a rendering of the row and splitting it back into cells would be this
+    system guessing where the boundaries were.
     """
 
     row_text = "Body r1 c0 | Body r1 c1 | Body r1 c2"
+    headers = ["Header c0", "Header c1", "Header c2"]
     document = CanonicalDocument(
         document_id="row",
         page_count=1,
@@ -253,7 +268,7 @@ def test_a_row_joined_into_one_clause_keeps_its_values_together() -> None:
                 logical_order=0,
                 text=row_text,
                 table_id="t1",
-                table_headers=["Header c0", "Header c1", "Header c2"],
+                table_headers=headers,
                 source_fragments=[
                     SourceFragment(
                         page=1, start_offset=0, end_offset=len(row_text), text=row_text
@@ -267,4 +282,5 @@ def test_a_row_joined_into_one_clause_keeps_its_values_together() -> None:
     rebuilt = _round_trip(document)
     survivor = rebuilt.elements[0]
     assert survivor.text == row_text
-    assert not survivor.table_headers
+    assert survivor.table_headers == headers
+    assert survivor.table_cell is None

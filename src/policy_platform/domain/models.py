@@ -238,6 +238,21 @@ class Clause(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     element_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     element_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     source_fragments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Table identity, for the clauses that are rows of one. `table_id` says which
+    # grid this row belongs to; `table_headers` are the column labels a row of
+    # that grid stated for itself.
+    #
+    # NULL on `table_headers` is a fact, not a gap: ingestion sets it only where
+    # some row evidenced itself as naming the columns, and warns where none did.
+    # An empty list would say the grid has no columns, which is a different claim
+    # and one nothing here is entitled to make. Nothing writes `[]`.
+    #
+    # These carry a row's labels, not a table's geometry. Cell coordinates
+    # (`CanonicalElement.table_cell`) are still not stored, so a reader must not
+    # take a non-null `table_id` here as meaning cell-level structure is
+    # recoverable — it is not.
+    table_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    table_headers: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     document_version: Mapped["DocumentVersion"] = relationship(back_populates="clauses")
 

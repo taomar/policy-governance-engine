@@ -34,6 +34,11 @@ class ClauseRepository:
                 element_id=c.get("element_id"),
                 element_type=c.get("element_type"),
                 source_fragments=c.get("source_fragments"),
+                # `.get` rather than `["..."]` so a caller that predates these
+                # columns still writes rows; it stores NULL, which is what is
+                # true of a clause whose writer never knew its table.
+                table_id=c.get("table_id"),
+                table_headers=c.get("table_headers"),
             )
             for idx, c in enumerate(clauses)
         ]
