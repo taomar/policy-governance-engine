@@ -61,9 +61,25 @@ import "./recordActionsMenu.css";
  * An entry that cannot apply is not rendered. A greyed `Edit` on a published
  * record tells the reader they have the wrong permissions, which is false — the
  * record is immutable and the act they want is `Revise`. Where the distinction
- * carries information the interface says it in words instead: see
- * `editBlockedReason`, which stays on the surfaces that draw a top-level edit
- * control.
+ * carries information the interface says it in words instead: `Revise` carries
+ * `editBlockedReason` as its hint, so the entry that *is* the route is also
+ * where the reader learns why the other one is closed.
+ *
+ * THE SEALED-RECORD ARM
+ *
+ * A published record answers `canEdit: false`, so `Edit`, `Suggest rewrite`,
+ * `Send back` and both overrides all fall out of the table on their own, and
+ * what is left is reading it plus `Revise`. That is the whole of what the
+ * Policies page needs, and it is reached without that page passing a flag or
+ * this component learning which page it is on — which is the point. A menu that
+ * took `canReview` could be wired to offer a decision on a sealed record; one
+ * that reads the record's own status cannot.
+ *
+ * `Revise` stays conditional on the caller supplying a handler, and that is not
+ * a hole in the above. Whether a revision may be *started* is a fact about the
+ * version — only the active one may be revised — and that is a different
+ * question from whether this record may be changed. The record answers the
+ * second; only the surface holding the version can answer the first.
  */
 
 export type RecordActionsScope = "rule" | "policy";
@@ -106,6 +122,11 @@ interface RecordActionDefinition {
   /** Said in the row beneath the label when the label alone would leave two
    *  entries looking like two spellings of one idea. */
   hint?: string;
+  /** A hint the record's own state supplies, which supersedes the fixed one.
+   *  Used where the reason an entry is the route is a fact the server already
+   *  states, and restating it here in our words would be a second opinion that
+   *  can drift from it. */
+  hintFor?: (state: RecordState) => string | null | undefined;
   icon: React.ReactNode;
   section: RecordActionSection;
   /** The scopes this action means anything in. */
@@ -162,6 +183,11 @@ const ACTIONS: readonly RecordActionDefinition[] = [
     key: "revise",
     label: "Revise",
     hint: "Start a new revision beside the published one",
+    // The record's own state says why editing in place is closed, and that
+    // sentence belongs on the entry that is the route instead. Taken from
+    // `candidateEditability` rather than written again here, so the menu and
+    // the server cannot come to say different things about the same record.
+    hintFor: (state) => state.editability.editBlockedReason,
     icon: <BranchesOutlined />,
     section: "act",
     scopes: ["rule", "policy"],
@@ -309,6 +335,11 @@ export function recordActionsFor({
     // destination or a change only the surface knows how to make.
     if (action.key === "copy-id") return true;
     return typeof on[action.key] === "function";
+  }).map((action) => {
+    // Resolved here rather than at render time so that asking this function
+    // what a record offers gives the same words the reader will see.
+    const supplied = action.hintFor?.(state);
+    return supplied ? { ...action, hint: supplied } : action;
   });
 }
 

@@ -33,7 +33,7 @@ import { PolicyInspector } from "./PolicyInspector";
 import { PublishedPolicyCard } from "./PublishedPolicyCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { RuleCard } from "./RuleCard";
-import { PublishedRecordActions } from "./PublishedRecordActions";
+import { RecordActionsMenu } from "./RecordActionsMenu";
 import {
   buildPublishedPolicyCards,
   listProvisionHistory,
@@ -767,10 +767,15 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                               aggregateLimits={aggregateLimits}
                               onRevise={canRevise ? setReviseTarget : undefined}
                               headerActions={
-                                <PublishedRecordActions
-                                  rule={rule}
-                                  onRevise={canRevise ? setReviseTarget : undefined}
-                                  onViewHistory={handleViewHistory}
+                                <RecordActionsMenu
+                                  scope="rule"
+                                  recordId={rule.rule_id}
+                                  recordName={rule.rule_id}
+                                  reviewStatuses={["published"]}
+                                  on={{
+                                    revise: canRevise ? () => setReviseTarget(rule) : undefined,
+                                    "view-history": () => handleViewHistory(rule),
+                                  }}
                                 />
                               }
                             />
