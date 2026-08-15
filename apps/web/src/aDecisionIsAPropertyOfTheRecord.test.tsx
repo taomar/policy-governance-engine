@@ -16,7 +16,7 @@
  * one of them fails.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { CanonicalRule } from "./api";
 import { fromDraftRow, type PolicyCard } from "./policyCards";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
@@ -132,5 +132,80 @@ describe("what may be decided is read from the record", () => {
     draw(cardOf(["published", "published"]));
     expect(screen.getAllByText(/A heading/).length).toBeGreaterThan(0);
     expect(screen.getAllByTestId("policy-card").length).toBe(1);
+  });
+});
+
+describe("reading a rule is not deciding it", () => {
+  afterEach(cleanup);
+
+  function drawWithReader(card: PolicyCard) {
+    const onSelectRule = vi.fn();
+    render(
+      <ActorProvider>
+        <PolicyReviewCard
+          card={card}
+          selected={false}
+          indeterminate={false}
+          open={false}
+          statusColor={() => "blue"}
+          statusLabel={(status) => status}
+          findingsFor={() => 0}
+          onToggleSelect={() => {}}
+          onOpen={() => {}}
+          onSelectRule={onSelectRule}
+        />
+      </ActorProvider>,
+    );
+    return onSelectRule;
+  }
+
+  it("offers the rule to be opened on a sealed record, where no decision is offered", () => {
+    const onSelectRule = drawWithReader(cardOf(["published"]));
+    expect(screen.getAllByRole("button", { name: /open rule/i }).length).toBe(1);
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(onSelectRule).not.toHaveBeenCalled();
+  });
+
+  it("hands over the rule the reader clicked and not the first one", () => {
+    const onSelectRule = drawWithReader(cardOf(["candidate", "candidate", "candidate"]));
+    const controls = screen.getAllByRole("button", { name: /open rule/i });
+    expect(controls.length).toBe(3);
+    fireEvent.click(controls[2]);
+    expect(onSelectRule).toHaveBeenCalledTimes(1);
+    expect(onSelectRule.mock.calls[0][0].rule_id).toBe("r2");
+  });
+
+  it("does not open the whole policy when a rule inside it is opened", () => {
+    // The control sits inside the card, and the card's own click opens the
+    // policy. Without stopping the event a reader asking for one rule would get
+    // the policy panel instead, which is a different question answered.
+    const card = cardOf(["candidate"]);
+    const onOpen = vi.fn();
+    const onSelectRule = vi.fn();
+    render(
+      <ActorProvider>
+        <PolicyReviewCard
+          card={card}
+          selected={false}
+          indeterminate={false}
+          open={false}
+          statusColor={() => "blue"}
+          statusLabel={(status) => status}
+          findingsFor={() => 0}
+          onToggleSelect={() => {}}
+          onOpen={onOpen}
+          onSelectRule={onSelectRule}
+        />
+      </ActorProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open rule/i }));
+    expect(onSelectRule).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("draws no such control on a surface that has nowhere to open a rule", () => {
+    // An affordance that leads nowhere is worse than none.
+    draw(cardOf(["candidate"]));
+    expect(screen.queryByRole("button", { name: /open rule/i })).toBeNull();
   });
 });

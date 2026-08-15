@@ -2040,6 +2040,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                                   ? () => requestReview(card.reviewableIds, "reject")
                                   : undefined
                               }
+                              onSelectRule={selectCandidateRule}
                             />
                           );
                         })}

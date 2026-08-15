@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
+import type { CanonicalRule } from "../api";
 import type { PolicyCard } from "../policyCards";
 import { candidateEditability } from "../candidateEditability";
 import {
@@ -126,6 +127,7 @@ export function PolicyReviewCard({
   onOpen,
   onApprove,
   onReject,
+  onSelectRule,
 }: {
   card: PolicyCard;
   /** Every reviewable rule of this policy is in the bulk selection. */
@@ -144,6 +146,12 @@ export function PolicyReviewCard({
    *  with a decision, which is a different thing from the policy being sealed. */
   onApprove?: () => void;
   onReject?: () => void;
+  /** Opens this rule in the detail panel. Absent on a surface that has no
+   *  panel to open it in, which is why the control is drawn only when it is
+   *  present — an affordance that leads nowhere is worse than none. It carries
+   *  no permission: opening a rule is a read, and a sealed record opens the
+   *  same way a record under review does. */
+  onSelectRule?: (rule: CanonicalRule) => void;
 }) {
   const title = policyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy);
@@ -587,6 +595,25 @@ export function PolicyReviewCard({
                           </>
                         )}
                       </p>
+                      {onSelectRule && (
+                        <div className="policy-card__rule-actions">
+                          {/* One destination, reached in one click, and the rule
+                              stays where it is while the panel opens beside it.
+                              Nothing here decides anything: this is how a
+                              reviewer reads a rule in full, and it is offered
+                              on every record whatever its state. */}
+                          <Button
+                            size="small"
+                            type="link"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelectRule(rule.rule);
+                            }}
+                          >
+                            Open rule
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </li>
                     );
@@ -611,7 +638,8 @@ export function PolicyReviewCard({
               as a whole policy; the second stops one Approve being read as a
               judgement on rules that are not on screen. */}
           This card holds {card.rules.length} of the {card.policy.rule_count} rules this policy
-          states.{" "}
+          states. The rest were superseded by a later extraction, or their records are
+          not among those loaded here.{" "}
           Approving here decides the {card.reviewableIds.length === 1 ? "rule" : "rules"} shown above.
         </Text>
       )}
