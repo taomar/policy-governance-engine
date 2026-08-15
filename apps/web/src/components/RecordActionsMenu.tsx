@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   BranchesOutlined,
   BulbOutlined,
@@ -343,6 +344,13 @@ export function recordActionsFor({
   });
 }
 
+type PortalPlacement = {
+  top: number;
+  left?: number;
+  right?: number;
+  dir: "ltr" | "rtl";
+};
+
 export function RecordActionsMenu({
   scope,
   recordId,
@@ -365,6 +373,7 @@ export function RecordActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [placement, setPlacement] = useState<PortalPlacement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -393,6 +402,46 @@ export function RecordActionsMenu({
   useEffect(() => {
     if (open) itemRefs.current[activeIndex]?.focus();
   }, [open, activeIndex]);
+
+  /** Put the menu against the trigger's inline-end, flipping above it when the
+   *  viewport has no room below. Read from the trigger rather than written into
+   *  the stylesheet, because the menu no longer shares an offset parent with it:
+   *  see the portal below. */
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (!trigger || !menu) return;
+    const at = trigger.getBoundingClientRect();
+    const height = menu.offsetHeight;
+    const rtl = getComputedStyle(trigger).direction === "rtl";
+    const below = at.bottom + 4;
+    const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, at.top - height - 4);
+    setPlacement({
+      top,
+      // The menu hangs from the trigger's inline-end, which is the right in an
+      // English record and the left in an Arabic one. Resolved here because a
+      // portalled element inherits the body's direction, not the record's.
+      ...(rtl
+        ? { left: Math.max(8, at.left) }
+        : { right: Math.max(8, window.innerWidth - at.right) }),
+      dir: rtl ? "rtl" : "ltr",
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPlacement(null);
+      return;
+    }
+    place();
+    // Capture, so a scroll in any of the panels this menu sits in moves it too.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, place]);
 
   if (entries.length === 0) return null;
 
@@ -469,54 +518,73 @@ export function RecordActionsMenu({
       </Tooltip>
 
       {/* Built only while it is open. A queue can hold seventy rules, and a
-          menu per row rendered closed is seventy menus nobody asked for. */}
-      {open && (
-        <div
-          id={menuId}
-          ref={menuRef}
-          role="menu"
-          className="record-actions__menu"
-          aria-label={`Actions for ${recordName}`}
-          onKeyDown={onMenuKeyDown}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {entries.map((action, index) => (
-            <button
-              key={action.key}
-              type="button"
-              role="menuitem"
-              ref={(node) => {
-                itemRefs.current[index] = node;
-              }}
-              // One tab stop for the whole menu: arrows move within it, Tab
-              // leaves it. Roving `tabIndex` is what makes that true.
-              tabIndex={index === activeIndex ? 0 : -1}
-              className={`record-actions__item record-actions__item--${action.section}`}
-              data-action={action.key}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={() => run(action)}
-            >
-              <span className="record-actions__icon" aria-hidden="true">
-                {action.icon}
-              </span>
-              <span className="record-actions__text">
-                <span className="record-actions__label">{action.label}</span>
-                {action.key === "copy-id" ? (
-                  // The one label carrying the record's own text. Isolated,
-                  // because an id read from an Arabic document is a run with its
-                  // own direction and takes the surrounding line with it
-                  // otherwise.
-                  <span className="record-actions__hint record-actions__hint--mono">
-                    <DirectionalText>{recordId}</DirectionalText>
-                  </span>
-                ) : (
-                  action.hint && <span className="record-actions__hint">{action.hint}</span>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+          menu per row rendered closed is seventy menus nobody asked for.
+
+          Portalled to the document, because a record menu has to open over
+          whatever it sits inside. Every host this menu is placed in — a rule
+          card, a row, a panel header — is free to clip its own content, and one
+          of them does: antd's Collapse sets `overflow: hidden` to animate, which
+          cut this menu off at the card's edge and hid two of its three entries.
+          Positioning it against the trigger from here, rather than inside that
+          box, is the only form that cannot be defeated by a host's overflow,
+          transform or stacking context. */}
+      {open &&
+        createPortal(
+          <div
+            id={menuId}
+            ref={menuRef}
+            role="menu"
+            className="record-actions__menu"
+            aria-label={`Actions for ${recordName}`}
+            dir={placement?.dir}
+            style={
+              placement
+                ? { top: placement.top, left: placement.left, right: placement.right }
+                : // Measured before it is placed. Hidden rather than moved off
+                  // screen so it keeps its size and a reader never sees it jump.
+                  { top: 0, left: 0, visibility: "hidden" }
+            }
+            onKeyDown={onMenuKeyDown}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {entries.map((action, index) => (
+              <button
+                key={action.key}
+                type="button"
+                role="menuitem"
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+                // One tab stop for the whole menu: arrows move within it, Tab
+                // leaves it. Roving `tabIndex` is what makes that true.
+                tabIndex={index === activeIndex ? 0 : -1}
+                className={`record-actions__item record-actions__item--${action.section}`}
+                data-action={action.key}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => run(action)}
+              >
+                <span className="record-actions__icon" aria-hidden="true">
+                  {action.icon}
+                </span>
+                <span className="record-actions__text">
+                  <span className="record-actions__label">{action.label}</span>
+                  {action.key === "copy-id" ? (
+                    // The one label carrying the record's own text. Isolated,
+                    // because an id read from an Arabic document is a run with
+                    // its own direction and takes the surrounding line with it
+                    // otherwise.
+                    <span className="record-actions__hint record-actions__hint--mono">
+                      <DirectionalText>{recordId}</DirectionalText>
+                    </span>
+                  ) : (
+                    action.hint && <span className="record-actions__hint">{action.hint}</span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </span>
   );
 }

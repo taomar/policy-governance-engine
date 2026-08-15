@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   RecordActionsMenu,
@@ -83,6 +84,15 @@ function renderMenu(
 }
 
 const trigger = () => screen.getByTestId("record-actions-menu");
+
+/** The props any menu needs to have something to open onto, so a test about
+ *  where the menu is drawn does not also have to say what is in it. */
+const OPENABLE = {
+  scope: "rule",
+  recordId: "rule-7-11-a",
+  recordName: "Hiring relatives",
+  reviewStatuses: ["candidate"],
+} as const;
 
 describe("the menu is not in the document until it is opened", () => {
   it("draws a trigger and no menu", () => {
@@ -329,5 +339,64 @@ describe("bidirectional records", () => {
     // Arabic id sits the right way round beside an English label.
     expect(item.querySelector("bdi")).not.toBeNull();
     expect(item.textContent).toContain("قاعدة-٧-١١");
+  });
+});
+
+describe("the menu opens over whatever the record sits inside", () => {
+  /** A host that clips its own content, which is what every card this menu is
+   *  placed in does: antd's Collapse sets `overflow: hidden` so it can animate,
+   *  and a menu positioned inside that box is cut off at the card's edge. */
+  const clipping = (children: ReactNode) => (
+    <div data-clipper style={{ overflow: "hidden" }}>
+      {children}
+    </div>
+  );
+
+  it("puts the open menu outside the host that would clip it", () => {
+    render(
+      clipping(
+        <RecordActionsMenu
+          scope="rule"
+          recordId="AI-1"
+          recordName="a rule"
+          reviewStatuses={["published"]}
+          on={{ revise: () => {}, "view-history": () => {} }}
+        />,
+      ),
+    );
+    fireEvent.click(trigger());
+
+    // The trigger stays where the caller put it; only the menu escapes. Asserted
+    // as a pair, because moving both would take the control off the card too.
+    expect(trigger().closest("[data-clipper]")).not.toBeNull();
+    expect(screen.getByRole("menu").closest("[data-clipper]")).toBeNull();
+  });
+
+  it("still closes on a click outside it, from wherever it was drawn", () => {
+    render(clipping(<RecordActionsMenu {...OPENABLE} on={ALL_HANDLERS} />));
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("still closes on Escape, and hands focus back to the trigger", () => {
+    render(clipping(<RecordActionsMenu {...OPENABLE} on={ALL_HANDLERS} />));
+    fireEvent.click(trigger());
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("carries the record's own direction across, rather than the document's", () => {
+    // The menu is drawn on the document now, so it inherits the body's
+    // direction. An Arabic record's menu has to be told which way it reads.
+    render(
+      <div dir="rtl">
+        <RecordActionsMenu {...OPENABLE} on={ALL_HANDLERS} />
+      </div>,
+    );
+    fireEvent.click(trigger());
+    expect(screen.getByRole("menu").getAttribute("dir")).toBe("rtl");
   });
 });
