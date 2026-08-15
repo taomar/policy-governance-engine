@@ -106,6 +106,19 @@ export function forgetRecordKinds(): void {
   destinations = [];
 }
 
+/** English plural of one kind's label.
+ *
+ *  Written for a kind extraction has not learned yet, not for the ones in
+ *  `RULE_TYPES` today. `eligibility` and `delegation of authority` both end in a
+ *  consonant and a `y`, and a bare `s` makes nonsense of them. A word that
+ *  already ends in `s` is left alone rather than doubled. */
+function plural(one: string): string {
+  if (/[^aeiou]y$/i.test(one)) return `${one.slice(0, -1)}ies`;
+  if (/(ss|x|z|ch|sh)$/i.test(one)) return `${one}es`;
+  if (/s$/i.test(one)) return one;
+  return `${one}s`;
+}
+
 /** The record kind in running text.
  *
  *  Built on the house label function so there is one place that turns a
@@ -115,8 +128,7 @@ export function forgetRecordKinds(): void {
 export function phraseForKind(kind: string, count: number): string {
   const spaced = ruleTypeLabel(kind.trim()).toLowerCase();
   if (!spaced) return count === 1 ? "record" : "records";
-  if (count === 1) return spaced;
-  return spaced.endsWith("s") ? spaced : `${spaced}s`;
+  return count === 1 ? spaced : plural(spaced);
 }
 
 function articleFor(phrase: string): string {

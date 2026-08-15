@@ -12,10 +12,12 @@ import {
   forgetRecordKinds,
   noteRecordKinds,
   notShownSentence,
+  phraseForKind,
   recordsNotShown,
   registerRecordDestinations,
   type PolicyLikeCard,
 } from "./recordsNotShown";
+import { RULE_TYPES } from "./ruleTypes";
 
 function record(ruleId: string, kind: string) {
   return { rule_type: kind, rule: { rule_id: ruleId } };
@@ -91,6 +93,29 @@ describe("naming what a card is not showing", () => {
 
   it("says nothing at all when the card shows the whole policy", () => {
     expect(notShownSentence(recordsNotShown(card(["a", "b"], ["a", "b"])))).toBe("");
+  });
+
+  it("names every kind in the taxonomy in words, not by appending an s to it", () => {
+    // Found by reading the sentence a real policy would produce: one section
+    // hides six kinds at once, and two of the taxonomy's names end in a
+    // consonant and a y. A reviewer told there are "3 eligibilitys" is told the
+    // app cannot spell the thing it is asking them to go and read.
+    const written = RULE_TYPES.map((kind) => phraseForKind(kind, 2));
+
+    expect(written).not.toContain("eligibilitys");
+    expect(written).not.toContain("delegation of authoritys");
+    expect(written.filter((one) => /[^aeiou]ys$/.test(one))).toEqual([]);
+    expect(phraseForKind("eligibility", 2)).toBe("eligibilities");
+    expect(phraseForKind("delegation_of_authority", 2)).toBe("delegation of authorities");
+    expect(phraseForKind("eligibility", 1)).toBe("eligibility");
+  });
+
+  it("pluralises a kind this app has never met, because the taxonomy grows", () => {
+    expect(phraseForKind("a_kind_this_app_has_never_met", 2)).toBe(
+      "a kind this app has never mets",
+    );
+    expect(phraseForKind("witness", 2)).toBe("witnesses");
+    expect(phraseForKind("breach", 2)).toBe("breaches");
   });
 
   it("reads one record as one record", () => {
