@@ -36,10 +36,9 @@ import { api, type AssembledPolicy, type CanonicalRule } from "./api";
 import type { PolicySightingView } from "./components/policyTabPanes";
 import {
   buildPolicyCards,
-  passageTitle,
   policyJsonDocument,
+  sharedRuleFacets,
   unplacedRules,
-  type PassageTitle,
   type PolicyCard,
   type PolicyCardPassage,
   type PolicyCardRule,
@@ -117,19 +116,11 @@ export function unplacedPublishedRules(
 /**
  * What names this card.
  *
- * The heading the policy is assembled under, verbatim, and where the document
- * recorded none, whatever `passageTitle` finds in the first passage's own words.
+ * The same computation the queue uses, reached by name. It was written out here
+ * once, identically, and two copies of "which heading names this policy" is two
+ * answers waiting to disagree the first time either is corrected.
  */
-export function publishedPolicyTitle(
-  policy: Pick<AssembledPolicy, "key" | "heading" | "heading_path">,
-  passages: readonly PublishedPolicyCardPassage[],
-): PassageTitle {
-  const heading = policy.heading?.trim() ?? "";
-  if (heading) return { source: "heading", text: heading, rest: [] };
-  const first = passages[0];
-  if (!first) return { source: "unnamed", text: "", rest: [] };
-  return passageTitle(first.rules.map((rule) => rule.rule));
-}
+export { policyTitle as publishedPolicyTitle } from "./policyCards";
 
 export interface PublishedSharedFacets {
   ruleType: string | null;
@@ -137,26 +128,30 @@ export interface PublishedSharedFacets {
   route: string | null;
 }
 
-function shared<T>(values: readonly T[]): T | null {
-  if (values.length === 0) return null;
-  const first = values[0];
-  if (first === null || first === undefined || first === ("" as unknown as T)) return null;
-  return values.every((value) => value === first) ? first : null;
-}
-
 /**
  * What every rule of the card agrees on, so the head can state it once.
  *
  * Null for anything they do not all share, which is what tells the card to show
- * that facet per rule instead. There is no review status here: every rule of a
- * published version is published, so a status badge on this card would repeat
- * the name of the page on every row.
+ * that facet per rule instead.
+ *
+ * The agreement itself is `sharedRuleFacets`, not a second reading of the same
+ * rules: this narrows what that returns rather than recomputing it. It reports
+ * two facets more than this page draws — the review status and the revision of
+ * the row under each rule — and they are dropped here rather than never asked
+ * for, because every rule of a published version is published and a status
+ * badge on this card would repeat the name of the page on every row. Dropping a
+ * true answer is a rendering decision; computing a different one would not be.
+ *
+ * The empty string is normalised to null on the way out. A shared facet none of
+ * the rules stated is a facet the card has nothing to say about, and this page's
+ * callers ask `=== null` rather than testing truthiness.
  */
 export function publishedSharedFacets(card: PublishedPolicyCard): PublishedSharedFacets {
+  const facets = sharedRuleFacets(card);
   return {
-    ruleType: shared(card.rules.map((rule) => rule.rule.rule_type)),
-    effectType: shared(card.rules.map((rule) => rule.rule.effect?.type ?? "")),
-    route: shared(card.rules.map((rule) => rule.evaluation_mode)),
+    ruleType: facets.ruleType || null,
+    effectType: facets.effectType || null,
+    route: facets.route || null,
   };
 }
 
