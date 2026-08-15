@@ -35,6 +35,7 @@ import { RecordActionsMenu, type RecordActionHandlers } from "./RecordActionsMen
 import {
   PARTIES_AND_ROUTES_TAB_LABEL,
   PolicyHistoryPane,
+  PolicyNotesPane,
   PolicyOverviewPane,
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
@@ -672,6 +673,11 @@ export function PolicyDetailPanel({
             children: (
               <PolicyHistoryPane sightings={history ?? null} loading={historyLoading} />
             ),
+          },
+          {
+            key: "notes",
+            label: "Notes",
+            children: <PolicyNotesPane record={record} />,
           },
           {
             key: "json",

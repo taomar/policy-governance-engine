@@ -173,6 +173,7 @@ const QUESTIONS = [
   "Scope",
   "Tests",
   "History",
+  "Notes",
   "JSON",
 ];
 
