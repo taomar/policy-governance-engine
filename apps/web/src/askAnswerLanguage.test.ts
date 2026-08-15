@@ -272,11 +272,31 @@ describe("adding a language is adding a row", () => {
     // all. Sharing the sentence would let a reader who skims the numbers take
     // the first for the second.
     for (const language of ASK_ANSWER_LANGUAGES) {
-      const { coverageNote, groundedNothingNote } = language.copy;
-      expect(groundedNothingNote.trim().length, language.tag).toBeGreaterThan(20);
-      expect(groundedNothingNote, language.tag).not.toBe(coverageNote);
-      // The counts belong in the copy as placeholders, not assembled around it.
-      expect(groundedNothingNote.includes("{total}"), language.tag).toBe(true);
+      for (const scope of ASK_SCOPES) {
+        const { coverageNote, groundedNothingNote } = language.copy.scopes[scope];
+        const where = `${language.tag}/${scope}`;
+        expect(groundedNothingNote.trim().length, where).toBeGreaterThan(20);
+        expect(groundedNothingNote, where).not.toBe(coverageNote);
+      }
+    }
+  });
+
+  it("counts what the scope actually has, and never a policy a rule ask did not name", () => {
+    // A rule ask that grounds nothing used to borrow the policy's sentence and
+    // report "none of this policy's 1 rules" — a plural on one record, and a
+    // count of a policy nobody asked about. A caveat a reader can see is wrong
+    // is a caveat they learn to skip, and this is the one that must not be.
+    const policyOnly = ["policy's", "policies", "سياسة"];
+    for (const language of ASK_ANSWER_LANGUAGES) {
+      const ruleCopy = language.copy.scopes.rule;
+      for (const note of [ruleCopy.coverageNote, ruleCopy.groundedNothingNote]) {
+        for (const word of policyOnly) {
+          expect(note.includes(word), `${language.tag} rule scope says "${word}"`).toBe(false);
+        }
+      }
+      // And the policy scope keeps its total, which is the number that carries
+      // the whole point of a coverage report at that scope.
+      expect(language.copy.scopes.policy.groundedNothingNote).toContain("{total}");
     }
   });
 
@@ -304,13 +324,16 @@ describe("adding a language is adding a row", () => {
     // written for, so each language holds its own sentence with the numbers
     // marked in it.
     for (const language of ASK_ANSWER_LANGUAGES) {
-      const note = language.copy.coverageNote;
-      expect(note, `${language.tag} covered`).toContain("{covered}");
-      expect(note, `${language.tag} total`).toContain("{total}");
-      const filled = fillCounts(note, { covered: 12, total: 72 });
-      expect(filled, `${language.tag} filled`).toContain("12");
-      expect(filled, `${language.tag} filled`).toContain("72");
-      expect(filled).not.toContain("{");
+      for (const scope of ASK_SCOPES) {
+        const note = language.copy.scopes[scope].coverageNote;
+        const where = `${language.tag}/${scope}`;
+        expect(note, `${where} covered`).toContain("{covered}");
+        expect(note, `${where} total`).toContain("{total}");
+        const filled = fillCounts(note, { covered: 12, total: 72 });
+        expect(filled, `${where} filled`).toContain("12");
+        expect(filled, `${where} filled`).toContain("72");
+        expect(filled, where).not.toContain("{");
+      }
     }
   });
 

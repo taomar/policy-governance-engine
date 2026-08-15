@@ -87,6 +87,27 @@ export interface AskScopeCopy {
   suggestions: readonly string[];
   /** Placeholder in the follow-up box. */
   followUpPlaceholder: string;
+  /** Said when the grounding could not carry everything asked about. Holds
+   *  `{covered}` and `{total}`, filled by `fillCounts`, because the numbers are
+   *  the same numbers in every language and only their setting differs.
+   *
+   *  Per scope rather than shared, because "the first 8 of this policy's 63
+   *  rules" is a true and useful sentence and the same sentence about one rule
+   *  is neither: it counts a policy that was not asked about and puts a plural
+   *  on a single record. A caveat a reader can see is wrong is a caveat they
+   *  learn to skip, and this is the one caveat that must not be skipped. */
+  coverageNote: string;
+  /** Said when the grounding carried *none* of what was asked about. Holds
+   *  `{total}`.
+   *
+   *  A separate sentence from `coverageNote` rather than the same one with a
+   *  zero in it, because they are different reports. "The first three of six"
+   *  is an answer about the policy, bounded. Zero of six is not an answer about
+   *  the policy at all — whatever came back rests on retrieved passages alone —
+   *  and a reader who skims a number would read the two as the same kind of
+   *  caveat. This is the failure mode the coverage report exists to prevent, so
+   *  it gets its own words. */
+  groundedNothingNote: string;
 }
 
 /** Every string the dialog renders, in one language. */
@@ -109,21 +130,6 @@ export interface AskAnswerCopy {
   writtenByAppLabel: string;
   /** Precedes the provenance chips. */
   retrievedFromLabel: string;
-  /** Said when the grounding could not carry every rule of a policy. Holds
-   *  `{covered}` and `{total}`, filled by `fillCounts`, because the numbers are
-   *  the same numbers in every language and only their setting differs. */
-  coverageNote: string;
-  /** Said when the grounding carried *none* of the rules asked about. Holds
-   *  `{total}`.
-   *
-   *  A separate sentence from `coverageNote` rather than the same one with a
-   *  zero in it, because they are different reports. "The first three of six"
-   *  is an answer about the policy, bounded. Zero of six is not an answer about
-   *  the policy at all — whatever came back rests on retrieved passages alone —
-   *  and a reader who skims a number would read the two as the same kind of
-   *  caveat. This is the failure mode the coverage report exists to prevent, so
-   *  it gets its own words. */
-  groundedNothingNote: string;
   /** Which record the answer was read out of, in the reader's language.
    *
    *  A table keyed by the server's own term rather than a pair of sentences
@@ -169,10 +175,6 @@ const ENGLISH: AskAnswerLanguage = {
       "This answer quoted no source text. What follows is this app's own reflection; read it against the rule before you rely on it.",
     writtenByAppLabel: "In plain words, by this app",
     retrievedFromLabel: "Retrieved from",
-    coverageNote:
-      "This answer was grounded in the first {covered} of this policy's {total} rules, in document order. The remaining rules are on the card and are unchanged by this.",
-    groundedNothingNote:
-      "None of this policy's {total} rules were read for this answer. Whatever follows rests on retrieved passages alone, so do not read it as a statement about the records on the card.",
     recordSourceNotes: {
       published_version:
         "Read from the published version on screen — the sealed records, not the drafts under review.",
@@ -199,6 +201,10 @@ const ENGLISH: AskAnswerLanguage = {
           "Summarize the exceptions in one sentence",
         ],
         followUpPlaceholder: "Ask a follow-up about this rule…",
+        coverageNote:
+          "This answer was grounded in {covered} of the {total} records asked for. The rest are on the card and are unchanged by this.",
+        groundedNothingNote:
+          "This rule's record was not read for this answer. Whatever follows rests on retrieved passages alone, so do not read it as a statement about the record on the card.",
       },
       policy: {
         titlePrefix: "Ask AI about",
@@ -213,6 +219,10 @@ const ENGLISH: AskAnswerLanguage = {
           "Does the record here differ from the passage it was read from?",
         ],
         followUpPlaceholder: "Ask a follow-up about this policy…",
+        coverageNote:
+          "This answer was grounded in the first {covered} of this policy's {total} rules, in document order. The remaining rules are on the card and are unchanged by this.",
+        groundedNothingNote:
+          "None of this policy's {total} rules were read for this answer. Whatever follows rests on retrieved passages alone, so do not read it as a statement about the records on the card.",
       },
     },
   },
@@ -232,10 +242,6 @@ const ARABIC: AskAnswerLanguage = {
       "لم تقتبس هذه الإجابة أي نص من المستند. ما يلي هو تأمل هذا التطبيق وحده؛ اقرأه مقابل القاعدة قبل الاعتماد عليه.",
     writtenByAppLabel: "بكلمات مبسطة، من هذا التطبيق",
     retrievedFromLabel: "مأخوذ من",
-    coverageNote:
-      "بُنيت هذه الإجابة على أول {covered} من قواعد هذه السياسة البالغ عددها {total}، بترتيب المستند. وبقية القواعد معروضة على البطاقة ولم يمسّها شيء.",
-    groundedNothingNote:
-      "لم تُقرأ أي قاعدة من قواعد هذه السياسة البالغ عددها {total} من أجل هذه الإجابة. وما يلي يستند إلى المقاطع المسترجَعة وحدها، فلا تقرأه على أنه قول عن السجلات المعروضة على البطاقة.",
     recordSourceNotes: {
       published_version:
         "مقروء من النسخة المنشورة المعروضة — السجلات المختومة، لا المسودات قيد المراجعة.",
@@ -262,6 +268,10 @@ const ARABIC: AskAnswerLanguage = {
           "لخّص الاستثناءات في جملة واحدة",
         ],
         followUpPlaceholder: "اطرح سؤالًا آخر عن هذه القاعدة…",
+        coverageNote:
+          "بُنيت هذه الإجابة على {covered} من أصل {total} من السجلات المطلوبة. وما تبقّى معروض على البطاقة ولم يمسّه شيء.",
+        groundedNothingNote:
+          "لم يُقرأ سجل هذه القاعدة من أجل هذه الإجابة. وما يلي يستند إلى المقاطع المسترجَعة وحدها، فلا تقرأه على أنه قول عن السجل المعروض على البطاقة.",
       },
       policy: {
         titlePrefix: "اسأل الذكاء الاصطناعي عن",
@@ -276,6 +286,10 @@ const ARABIC: AskAnswerLanguage = {
           "هل يختلف السجل هنا عن المقطع الذي قُرئ منه؟",
         ],
         followUpPlaceholder: "اطرح سؤالًا آخر عن هذه السياسة…",
+        coverageNote:
+          "بُنيت هذه الإجابة على أول {covered} من قواعد هذه السياسة البالغ عددها {total}، بترتيب المستند. وبقية القواعد معروضة على البطاقة ولم يمسّها شيء.",
+        groundedNothingNote:
+          "لم تُقرأ أي قاعدة من قواعد هذه السياسة البالغ عددها {total} من أجل هذه الإجابة. وما يلي يستند إلى المقاطع المسترجَعة وحدها، فلا تقرأه على أنه قول عن السجلات المعروضة على البطاقة.",
       },
     },
   },

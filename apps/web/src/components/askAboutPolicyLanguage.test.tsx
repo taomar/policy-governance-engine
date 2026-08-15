@@ -313,7 +313,7 @@ describe("how much of the policy the answer rests on", () => {
 
       const said = screen.getByTestId("ask-rule-coverage").textContent ?? "";
       expect(said, language.tag).toContain(
-        fillCounts(language.copy.coverageNote, { covered: 12, total: 72 }).slice(0, 12),
+        fillCounts(language.copy.scopes.policy.coverageNote, { covered: 12, total: 72 }).slice(0, 12),
       );
       expect(said, language.tag).toContain("12");
       expect(said, language.tag).toContain("72");

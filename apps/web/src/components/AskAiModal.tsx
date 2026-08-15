@@ -277,8 +277,8 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                         <DirectionalText align>
                           {fillCounts(
                             t.result.grounding.covered_rule_count === 0
-                              ? t.language.copy.groundedNothingNote
-                              : t.language.copy.coverageNote,
+                              ? t.language.copy.scopes[scope].groundedNothingNote
+                              : t.language.copy.scopes[scope].coverageNote,
                             {
                               covered: t.result.grounding.covered_rule_count,
                               total: t.result.grounding.rule_count,

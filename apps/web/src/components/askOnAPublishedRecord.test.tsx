@@ -267,11 +267,11 @@ describe("a published record can be asked about, and about itself", () => {
 
     const alert = await screen.findByTestId("ask-rule-grounded-nothing");
     expect(alert.textContent).toContain(
-      fillCounts(ENGLISH.copy.groundedNothingNote, { covered: 0, total: 6 }),
+      fillCounts(ENGLISH.copy.scopes.policy.groundedNothingNote, { covered: 0, total: 6 }),
     );
     // Paired: this is *not* the prefix sentence, which would understate it.
     expect(alert.textContent).not.toContain(
-      fillCounts(ENGLISH.copy.coverageNote, { covered: 0, total: 6 }),
+      fillCounts(ENGLISH.copy.scopes.policy.coverageNote, { covered: 0, total: 6 }),
     );
     expect(screen.queryByTestId("ask-rule-coverage")).toBeNull();
   });
@@ -293,9 +293,33 @@ describe("a published record can be asked about, and about itself", () => {
 
     const alert = await screen.findByTestId("ask-rule-coverage");
     expect(alert.textContent).toContain(
-      fillCounts(ENGLISH.copy.coverageNote, { covered: 8, total: 63 }),
+      fillCounts(ENGLISH.copy.scopes.policy.coverageNote, { covered: 8, total: 63 }),
     );
     expect(screen.queryByTestId("ask-rule-grounded-nothing")).toBeNull();
+  });
+
+  it("says a rule-scoped miss in the rule's own words, not the policy's", async () => {
+    // The defect this catches was live in a browser: a rule ask that resolved
+    // nothing reported "None of this policy's 1 rules were read" — a plural on
+    // one record, counting a policy the reader never asked about.
+    const fetchMock = serve(
+      answer({
+        grounding: {
+          rule_count: 1,
+          covered_rule_count: 0,
+          covers_every_rule: false,
+          record_source: "published_version",
+        },
+      }),
+    );
+    openPublishedRule();
+    clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const said = (await screen.findByTestId("ask-rule-grounded-nothing")).textContent ?? "";
+    expect(said).toContain(ENGLISH.copy.scopes.rule.groundedNothingNote);
+    expect(said).not.toContain(ENGLISH.copy.scopes.policy.groundedNothingNote.slice(0, 20));
+    expect(said).not.toContain("1 rules");
   });
 
   it("says nothing about provenance when the server named none", async () => {
