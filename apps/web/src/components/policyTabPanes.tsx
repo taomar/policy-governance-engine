@@ -29,8 +29,7 @@ import type { AssembledPolicy, CanonicalRule, PolicyTestListItem } from "../api"
 import type { PolicyCard } from "../policyCards";
 import {
   policyAuthorities,
-  policyComposition,
-  policyCompositionLabel,
+  policyCompositionSentence,
   policyRequiredFacts,
   policyRoutes,
   policyScope,
@@ -104,7 +103,7 @@ function share(named: number, total: number): string {
  */
 export function PolicyOverviewPane({ record }: { record: PolicyRecordView }) {
   const rules = recordRules(record);
-  const composition = policyCompositionLabel(policyComposition(rules));
+  const composition = policyCompositionSentence(rules);
   const authorities = policyAuthorities(rules);
   const passages = record.passageCount;
 
@@ -136,13 +135,7 @@ export function PolicyOverviewPane({ record }: { record: PolicyRecordView }) {
         <Text type="secondary" className="policy-pane__label">
           What it is made of
         </Text>
-        {composition ? (
-          <Paragraph>{composition}</Paragraph>
-        ) : (
-          <Paragraph type="secondary">
-            This policy states no rules yet, so there is nothing to compose.
-          </Paragraph>
-        )}
+        <Paragraph>{composition}</Paragraph>
       </section>
 
       <section className="policy-pane__section">
@@ -487,6 +480,12 @@ export interface PolicySightingView {
  * report that the policy did not exist. And change is judged by comparing
  * consecutive sightings of the same key on what a reader would call the rule,
  * not on a revision counter, which moves when nothing a reader can see has.
+ *
+ * The two empty states are separated for the same reason. `null` means this app
+ * never asked, and `[]` means it asked and the key has no published sighting;
+ * one sentence for both told a published policy, on the published page, that it
+ * "has not been published yet". Neither sentence now claims anything about the
+ * record's own status, which this pane is not given and must not infer.
  */
 export function PolicyHistoryPane({
   sightings,
@@ -495,10 +494,11 @@ export function PolicyHistoryPane({
   sightings: readonly PolicySightingView[] | null;
   loading?: boolean;
 }) {
-  if (!loading && (sightings == null || sightings.length === 0)) {
-    return (
-      <Empty description="This policy has not been published yet, so there are no versions of it to compare." />
-    );
+  if (!loading && sightings == null) {
+    return <Empty description="This policy's other versions have not been loaded." />;
+  }
+  if (!loading && sightings != null && sightings.length === 0) {
+    return <Empty description="No published version of this policy was found to compare." />;
   }
 
   return (

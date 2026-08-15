@@ -71,6 +71,31 @@ export function policyCompositionLabel(composition: PolicyComposition): string |
   return `${decides} · ${defines}`;
 }
 
+/**
+ * What the policy is made of, always as a true sentence.
+ *
+ * `policyCompositionLabel` returns null for two unrelated situations — a policy
+ * whose rules all fall on one side, and a policy with no rules — and a caller
+ * that renders one sentence for null tells the reader the wrong one of them. A
+ * live published policy holding a rule was reading "states no rules yet, so
+ * there is nothing to compose" underneath a head that said "1 rule".
+ *
+ * So the two are separated here rather than at each call site. A policy of one
+ * kind is described by that kind and no count, which keeps the zero off the
+ * page for the reason above while still saying something the head does not.
+ */
+export function policyCompositionSentence(rules: readonly CanonicalRule[]): string {
+  if (rules.length === 0) return "This policy states no rules.";
+  const composition = policyComposition(rules);
+  const contrast = policyCompositionLabel(composition);
+  if (contrast) return contrast;
+  const settles =
+    composition.define === rules.length ? "supplies a meaning" : "decides a case";
+  return rules.length === 1
+    ? `Its one rule ${settles}.`
+    : `Every rule of this policy ${settles}.`;
+}
+
 /** One route through the policy's rules, with how many take it. */
 export interface PolicyRouteTally {
   route: string;

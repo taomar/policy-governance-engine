@@ -33,6 +33,8 @@ import type {
 } from "./api";
 import { buildPolicyCards } from "./policyCards";
 import {
+  PolicyHistoryPane,
+  PolicyOverviewPane,
   PolicyPartiesAndRoutesPane,
   PolicyScopePane,
   PolicyTestsPane,
@@ -70,6 +72,8 @@ interface RuleShape {
   mode?: string;
   facts?: string[];
   personas?: string[];
+  /** `informational` is the one effect that makes a rule supply a meaning rather than settle an outcome. */
+  effectType?: string;
 }
 
 function canonical(shape: RuleShape): CanonicalRule {
@@ -91,7 +95,7 @@ function canonical(shape: RuleShape): CanonicalRule {
     },
     condition: { type: "all", all: [] },
     attributes: { applies: [], produces: [] },
-    effect: { action: "record", parameters: {} },
+    effect: { action: "record", parameters: {}, type: shape.effectType },
     evidence: [],
     provenance: { document_id: "doc", page: 1 },
     tags: [],
@@ -240,5 +244,49 @@ describe("scope disagreements survive being read together", () => {
     render(<PolicyScopePane record={candidatePolicyRecord(card)} />);
     expect(screen.getByText("one_named_group")).toBeTruthy();
     expect(screen.getByText(/apply to everyone/)).toBeTruthy();
+  });
+});
+
+/**
+ * Both of these were found in the running app, not in review, and both are the
+ * same class of fault: a pane rendering one sentence for two different absences.
+ */
+describe("a policy holding rules is never described as holding none", () => {
+  it("says what its single rule does rather than calling the policy empty", () => {
+    const card = cardOf([{ id: "r-1" }]);
+    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    expect(screen.getByText("1 rule")).toBeTruthy();
+    expect(screen.queryByText(/no rules/i)).toBeNull();
+    expect(screen.getByText(/Its one rule decides a case\./)).toBeTruthy();
+  });
+
+  it("describes a policy whose rules all supply meanings without printing a zero", () => {
+    const card = cardOf([
+      { id: "r-1", effectType: "informational" },
+      { id: "r-2", effectType: "informational" },
+    ]);
+    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    expect(screen.getByText(/Every rule of this policy supplies a meaning\./)).toBeTruthy();
+    expect(screen.queryByText(/\b0\b/)).toBeNull();
+  });
+
+  it("still contrasts the two sides when the policy holds both", () => {
+    const card = cardOf([{ id: "r-1" }, { id: "r-2", effectType: "informational" }]);
+    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    expect(screen.getByText(/1 decides a case · 1 supplies a meaning/)).toBeTruthy();
+  });
+});
+
+describe("history never claims a status it was not told", () => {
+  it("says its versions were not loaded when it was never given any", () => {
+    render(<PolicyHistoryPane sightings={null} />);
+    expect(screen.getByText(/have not been loaded/)).toBeTruthy();
+    expect(screen.queryByText(/not been published/)).toBeNull();
+  });
+
+  it("separates having asked and found nothing from never having asked", () => {
+    render(<PolicyHistoryPane sightings={[]} />);
+    expect(screen.getByText(/No published version of this policy was found/)).toBeTruthy();
+    expect(screen.queryByText(/have not been loaded/)).toBeNull();
   });
 });
