@@ -191,6 +191,24 @@ function expanderFor(ruleId: string): HTMLElement {
   return within(item).getByRole("button", { name: new RegExp(`the detail for Summary line for ${ruleId}`) });
 }
 
+/**
+ * The panel arranges its own contents in tabs, and which of those opens first
+ * is that panel's decision to make and to change. What this file tests is the
+ * behaviour of a rule row, so it asks for the rule list to be on screen rather
+ * than assuming whichever arrangement happens to be current. Written as a
+ * request and not an assertion: if the rules are already showing there is
+ * nothing to do, and if the panel later drops the tabs entirely this still
+ * reads correctly.
+ */
+function revealTheRuleList(): void {
+  const reading = screen
+    .queryAllByRole("tab")
+    .find((tab) => /reading/i.test(tab.textContent ?? ""));
+  if (reading && reading.getAttribute("aria-selected") !== "true") {
+    fireEvent.click(reading);
+  }
+}
+
 describe("the full record opens inside the row it belongs to", () => {
   it("puts no tab strip and no tab body in the document until the row is opened", () => {
     render(<QueueHarness ruleIds={["R1", "R2", "R3"]} />);
@@ -500,6 +518,7 @@ describe("the full record opens inside the row it belongs to", () => {
 
     // Control: the policy and its rule are on screen.
     expect(screen.getByText("Attendance")).toBeTruthy();
+    revealTheRuleList();
     expect(screen.getAllByText(/Summary line for R1/).length).toBeGreaterThan(0);
 
     // No second destination.
