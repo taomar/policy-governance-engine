@@ -11636,23 +11636,58 @@
   overflow-wrap: anywhere;
 }
 
-/* The policy's rules compared, rules down and attributes across.
+/* The policy's rules compared, one rule at a time and whole.
 
-   The table can be wider than the panel -- sixteen attributes across twenty
-   rules on the largest measured policy -- and it scrolls sideways rather than
-   shrinking its cells, because every cell holds a run of the document and a
-   document's words are not a thing to abbreviate. Nothing here clips: cells
-   wrap, and `nothingIsClipped` asserts it. */
+   This was a grid -- rules down, attributes across -- and it scrolled sideways.
+   Measured in the running app, the largest policy in the corpus laid out at two
+   and a half times the width of the panel it sits in, so no scroll position
+   showed one whole rule and the later attributes were discoverable only by
+   finding the scrollbar. It is now a block per rule whose attributes are the
+   same three-part row the rule inspector draws, and a block wraps. Nothing here
+   clips: values wrap, names wrap, and `nothingIsClipped` asserts it. */
 .policy-logic {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.policy-logic__shared {
+/* An attribute, in the three parts an attribute has: its own name, the
+   document's words, and the identifier a case supplies a value for. The middle
+   column takes the free space, because that is the part being read against the
+   source. */
+.policy-logic__attr {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 4px 12px;
+  grid-template-columns: 132px minmax(0, 1fr) minmax(0, 190px);
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+/* A narrow panel stacks the three parts rather than squeezing the document's
+   words into a column too thin to read. The order does not change, so the name
+   still introduces the value it names. */
+@container (max-width: 560px) {
+  .policy-logic__attr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.policy-logic__attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.policy-logic__attrs dd {
+  margin: 0;
+}
+
+.policy-logic__shared {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--app-border, #e5e7eb);
@@ -11661,11 +11696,7 @@
 }
 
 .policy-logic__shared-item {
-  display: contents;
-}
-
-.policy-logic__shared dt {
-  color: var(--app-text-muted, #6b7280);
+  min-width: 0;
 }
 
 .policy-logic__shared dd {
@@ -11677,90 +11708,238 @@
   font-size: 12px;
 }
 
-.policy-logic__scroll {
-  overflow-x: auto;
-}
-
-.policy-logic__table {
-  border-collapse: collapse;
+/* What the grid's header row carried, kept, and no longer setting the width of
+   anything. */
+.policy-logic__coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--app-surface-muted, #f8fafc);
   font-size: 12px;
 }
 
-.policy-logic__table th,
-.policy-logic__table td {
+.policy-logic__coverage-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 7px;
   border: 1px solid var(--app-border, #e5e7eb);
-  padding: 6px 8px;
-  text-align: start;
-  vertical-align: top;
-  min-width: 120px;
-  max-width: 260px;
-  overflow-wrap: anywhere;
+  border-radius: 999px;
+  background: var(--app-surface, #ffffff);
 }
 
-.policy-logic__table thead th {
-  background: var(--app-surface-muted, #f8fafc);
-  font-weight: 600;
-}
-
+/* The attribute's own name, never renamed and never shortened: a clipped name
+   is the one thing that would leave a reviewer unsure which slot a quotation
+   was recorded in. */
 .policy-logic__col-label {
-  display: block;
+  font-family: var(--app-font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--app-text-muted, #6b7280);
+  overflow-wrap: anywhere;
 }
 
 /* How many rules of the policy state this attribute. A count and never a
    proportion: "1 of 20" is what the document did, where "5%" reads as a
    shortfall in the one rule that differs. */
 .policy-logic__col-count {
-  display: block;
-  font-weight: 400;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rules that filled the same set of attributes. A fact about the records, of
+   the same kind as the counts above, and never applied to the rules
+   themselves -- they stay in the order the document states them. */
+.policy-logic__shapes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.policy-logic__shape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0 4px 8px;
+  border-inline-start: 2px solid var(--app-border, #e5e7eb);
+}
+
+.policy-logic__shape-count {
+  min-width: 56px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.policy-logic__shape-rules {
+  flex: 1 1 140px;
+  min-width: 0;
   color: var(--app-text-muted, #6b7280);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
-.policy-logic__rule-head,
-.policy-logic__rule-cell {
-  position: sticky;
-  inset-inline-start: 0;
-  z-index: 1;
+.policy-logic__shape-attrs {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  min-width: 0;
+}
+
+/* One passage of the policy and the rules stated in it. The guide is the same
+   idiom the rule inspector uses for a group. */
+.policy-logic__block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--app-border, #e5e7eb);
+}
+
+.policy-logic__rule {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 6px;
   background: var(--app-surface, #ffffff);
-  min-width: 150px;
+  font-size: 12.5px;
 }
 
-.policy-logic__rule-head {
-  background: var(--app-surface-muted, #f8fafc);
+/* The ordinal and the signature take fixed tracks so the marks sit at the same
+   offset in every block and a reader can scan down them. */
+.policy-logic__rule-line {
+  display: grid;
+  grid-template-columns: 26px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
 }
 
-.policy-logic__rule-cell {
-  font-weight: 400;
+/* One mark per attribute, in the order of the counts above. It repeats what the
+   block below already says in full, so it is hidden from assistive technology
+   rather than made to say everything twice. */
+.policy-logic__signature {
+  display: inline-flex;
+  gap: 2px;
 }
 
-/* Which sentence the rule came from. Merging a section's rules onto one card
+.policy-logic__mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.policy-logic__mark--stated {
+  background: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__mark--absent {
+  box-shadow: inset 0 0 0 1px var(--app-border, #e5e7eb);
+}
+
+.policy-logic__mark--unrecorded {
+  box-shadow: inset 0 0 0 1px var(--app-border, #e5e7eb);
+  background: linear-gradient(
+    to bottom right,
+    transparent 44%,
+    var(--app-border, #e5e7eb) 44%,
+    var(--app-border, #e5e7eb) 56%,
+    transparent 56%
+  );
+}
+
+/* Which sentence the rules came from. Merging a section's rules onto one card
    must not merge its sentences into one. */
 .policy-logic__passage {
-  display: block;
+  margin: 0;
+  font-family: var(--app-font-mono, monospace);
+  font-size: 11px;
+  font-weight: 500;
   color: var(--app-text-muted, #6b7280);
+  overflow-wrap: anywhere;
 }
 
 .policy-logic__facets {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
   color: var(--app-text-muted, #6b7280);
 }
 
 .policy-logic__stated {
-  display: block;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
-/* The rule states no such component. A fact about the rule, in words, because
-   a blank cell says nothing and an em dash in this app means "we could not
-   ask". */
-.policy-logic__absent {
+.policy-logic__fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.policy-logic__fact-name {
+  padding: 0 5px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 3px;
+  background: var(--app-surface-muted, #f8fafc);
+  font-family: var(--app-font-mono, monospace);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.policy-logic__fact-type {
   color: var(--app-text-muted, #6b7280);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The rule states no such component. A fact about the rule, said once per rule
+   rather than once per empty cell, and said quietly -- absence is information
+   and not an alarm. Distinct from the em dash below, which means "we do not
+   know", and never dropped: a reviewer checking whether we lost something has
+   to be able to see what the rule leaves out. */
+.policy-logic__absent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 6px;
+  margin: 2px 0 0;
+  color: var(--app-text-muted, #6b7280);
+  font-size: 11.5px;
+}
+
+.policy-logic__absent-label {
   font-style: italic;
+}
+
+.policy-logic__absent-name {
+  padding: 0 5px;
+  border: 1px dashed var(--app-border, #e5e7eb);
+  border-radius: 3px;
+  font-family: var(--app-font-mono, monospace);
+  overflow-wrap: anywhere;
 }
 
 /* Nothing is recorded either way. The mark this app reserves for unknown. */
 .policy-logic__unknown {
+  margin: 2px 0 0;
   color: var(--app-text-muted, #6b7280);
+  font-size: 11.5px;
 }
 
 .policy-detail-panel__breadcrumb {
