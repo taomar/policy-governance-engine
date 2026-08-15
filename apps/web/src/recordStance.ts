@@ -157,3 +157,71 @@ export function stanceHeading(stance: RecordStance, count: number): string {
  */
 export const STANCE_GROUPING_NOTE =
   "Grouped by what each rule does, as its own effect states it. Numbers keep each rule's place in the document.";
+
+/** How many records take one stance. Only stances actually present appear. */
+export interface StanceTally {
+  stance: RecordStance;
+  count: number;
+}
+
+/**
+ * What a policy is made of, as one count per stance actually present.
+ *
+ * Every record lands in exactly one tally, so the counts sum to the number of
+ * records passed and a reader can check the arithmetic against the head count.
+ * That is the whole point of returning tallies rather than a pair of numbers:
+ * a shape with a fixed number of slots cannot represent a record whose effect
+ * it did not expect, so it has to put that record somewhere it does not belong
+ * — and the sum still adds up, which is what makes the error invisible.
+ *
+ * Stances with no records are absent rather than present as zero. Zero is the
+ * shape a shortfall takes, and a policy that defines nothing is not short of
+ * definitions.
+ */
+export function stanceComposition<T>(
+  items: readonly T[],
+  stanceOf: (item: T) => RecordStance,
+): StanceTally[] {
+  const counts = new Map<RecordStance, number>();
+  for (const item of items) {
+    const stance = stanceOf(item);
+    counts.set(stance, (counts.get(stance) ?? 0) + 1);
+  }
+  return STANCE_ORDER.filter((stance) => counts.has(stance)).map((stance) => ({
+    stance,
+    count: counts.get(stance) as number,
+  }));
+}
+
+/**
+ * One tally as a phrase, in the same verbs the group headings use.
+ *
+ * Kept beside `stanceHeading` on purpose: a reviewer who reads "3 decide cases"
+ * at the head of a card meets "Decide cases" again over the group those three
+ * are in, and does not have to work out that they refer to the same rules.
+ */
+function stancePhrase({ stance, count }: StanceTally): string {
+  if (stance === "decides") {
+    return count === 1 ? "1 decides a case" : `${count} decide cases`;
+  }
+  if (stance === "supplies-meaning") {
+    return count === 1 ? "1 supplies a meaning" : `${count} supply meanings`;
+  }
+  return count === 1 ? "1 does not state which" : `${count} do not state which`;
+}
+
+/**
+ * The composition as a phrase, or null when there is nothing to contrast.
+ *
+ * Built from whatever stances are present rather than from a fixed pair of
+ * slots. A policy holding rules of one kind returns null: the head already
+ * carries the total, so the only thing this could add is a zero for the kind
+ * the policy does not hold, and "12 decide cases · 0 supply meanings" invites
+ * the reader to look for twelve missing definitions that were never missing.
+ * A policy whose records carry an effect this app has not met says so here
+ * instead of being quietly counted as something it is not.
+ */
+export function compositionPhrase(tally: readonly StanceTally[]): string | null {
+  if (tally.length <= 1) return null;
+  return tally.map(stancePhrase).join(" · ");
+}

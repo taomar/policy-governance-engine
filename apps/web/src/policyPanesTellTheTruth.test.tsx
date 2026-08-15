@@ -74,10 +74,12 @@ interface RuleShape {
   personas?: string[];
   /** `informational` is the one effect that makes a rule supply a meaning rather than settle an outcome. */
   effectType?: string;
+  /** The record carries no effect at all — a third state, neither deciding nor defining. */
+  statesNoEffect?: boolean;
 }
 
 function canonical(shape: RuleShape): CanonicalRule {
-  return {
+  const rule = {
     schema_version: "1.0",
     policy_set_id: "set",
     policy_version_id: "draft",
@@ -95,7 +97,16 @@ function canonical(shape: RuleShape): CanonicalRule {
     },
     condition: { type: "all", all: [] },
     attributes: { applies: [], produces: [] },
-    effect: { action: "record", parameters: {}, type: shape.effectType },
+    effect: {
+      action: "record",
+      parameters: {},
+      // A shape that names no effect kind still carries one: every record the
+      // extractor produces states its effect, and a fixture whose `type` is
+      // `undefined` exercises the absent-effect state by accident rather than on
+      // purpose. Tests that mean to reach that state say so, and the one below
+      // that does asserts on it by name.
+      type: shape.effectType ?? "require_action",
+    },
     evidence: [],
     provenance: { document_id: "doc", page: 1 },
     tags: [],
@@ -105,6 +116,8 @@ function canonical(shape: RuleShape): CanonicalRule {
     required_facts: (shape.facts ?? []).map((name) => ({ name, data_type: "string" })),
     decision_readiness: null,
   } as unknown as CanonicalRule;
+  if (shape.statesNoEffect) delete (rule as { effect?: unknown }).effect;
+  return rule;
 }
 
 function candidate(shape: RuleShape): CandidateRule {
@@ -274,6 +287,24 @@ describe("a policy holding rules is never described as holding none", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2", effectType: "informational" }]);
     render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
     expect(screen.getByText(/1 decides a case · 1 supplies a meaning/)).toBeTruthy();
+  });
+
+  it("counts a rule stating no effect apart rather than as one that decides", () => {
+    // A record carrying no effect kind is one this app knows nothing about, and
+    // there is no honest way to put it on either side. It used to be counted as
+    // deciding, which left the total right and the split wrong — the version of
+    // the fault a reader has no way to notice.
+    const card = cardOf([
+      { id: "r-1" },
+      { id: "r-2", effectType: "informational" },
+      { id: "r-3", effectType: undefined, statesNoEffect: true },
+    ]);
+    render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
+    const said = screen.getByText(/decides a case/).textContent ?? "";
+    const counts = [...said.matchAll(/(\d+)/g)].map((match) => Number(match[1]));
+
+    expect(counts.reduce((total, one) => total + one, 0)).toBe(3);
+    expect(said).toMatch(/does not state/i);
   });
 });
 

@@ -227,6 +227,16 @@ export interface RuleDecisionSummary {
    * word this function chose.
    */
   unconditional: boolean;
+  /**
+   * The record carries no readable effect at all, so there is no outcome to
+   * name and `action` is empty.
+   *
+   * This is not the same as an effect whose `action` is blank but whose `type`
+   * is stated — that one still says what the rule does. Said as a flag for the
+   * same reason as `unconditional`: a surface that wants to phrase the absence
+   * its own way should not have to recognise it by testing for an empty string.
+   */
+  effectUnstated: boolean;
 }
 
 /**
@@ -290,14 +300,21 @@ export function ruleDecisionSummary(rule: CanonicalRule, maxTerms = 3): RuleDeci
   // a rule the document did condition is not a simplification — it inverts the
   // rule's scope, from "these staff" to "everyone".
   const condition = cond.text || stated || "Always";
-  const action = humanizeAction(rule.effect.action || rule.effect.type);
+  // A record with no effect object at all used to throw here, taking down
+  // whichever surface was rendering it — seven call this function. Nothing in
+  // today's corpus is in that state, but "the field is always there" is an
+  // assumption about extraction output, not a guarantee, and a reader loses the
+  // whole card when it does not hold. An unnamed outcome is reported as unnamed.
+  const statedAction = (rule.effect?.action || rule.effect?.type || "").trim();
+  const action = statedAction ? humanizeAction(statedAction) : "";
   return {
     condition,
     action,
-    text: `${condition} → ${action}`,
+    text: action ? `${condition} → ${action}` : condition,
     truncated: cond.truncated,
     conditionIsStatedOnly: !cond.text && stated !== null,
     unconditional: !cond.text && stated === null,
+    effectUnstated: !statedAction,
   };
 }
 

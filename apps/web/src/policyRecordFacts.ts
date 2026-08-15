@@ -1,5 +1,12 @@
 import type { CanonicalRule, PolicyScope, RequiredFact, RuleParty } from "./api";
 import { policyRouteLabel } from "./policyGrouping";
+import {
+  compositionPhrase,
+  recordStance,
+  stanceComposition,
+  stanceHeading,
+  type RecordStance,
+} from "./recordStance";
 
 /**
  * What a policy is, read off the rules it holds.
@@ -28,10 +35,18 @@ import { policyRouteLabel } from "./policyGrouping";
  * or wording below may imply that it is.
  */
 
-/** How many of a policy's rules decide an outcome, and how many define a term. */
+/**
+ * How many of a policy's rules take each stance.
+ *
+ * `unstated` is a third number, not a rounding error. A record carrying no
+ * effect to read is one the app knows nothing about, and adding it to either
+ * side would claim knowledge that was never there — while leaving the total
+ * correct, which is precisely what would make the claim invisible.
+ */
 export interface PolicyComposition {
   decide: number;
   define: number;
+  unstated: number;
 }
 
 /**
@@ -43,14 +58,26 @@ export interface PolicyComposition {
  * `definition`. Offering both as separate categories counts the same rules
  * twice and invites a reader to conclude the policy holds more than it does.
  *
- * So the split is binary and taken from the effect, which is the field that
- * says what the rule *does*: a rule that defines a term settles what words mean,
- * and every other rule settles an outcome.
+ * So the split is taken from the effect, which is the field that says what the
+ * rule *does*: a rule that defines a term settles what words mean, and every
+ * other rule settles an outcome.
+ *
+ * The question itself is not asked here. `recordStance` owns it, with the
+ * reasoning for why the axis is what a record does rather than what it is
+ * about, and why an unfamiliar effect counts as constraining. This function
+ * used to ask it inline, and that second copy answered differently: it read
+ * `effect?.type === "informational"` and so counted a record with no effect at
+ * all as one that decides a case. Every count here is now that module's.
  */
 export function policyComposition(rules: readonly CanonicalRule[]): PolicyComposition {
-  let define = 0;
-  for (const rule of rules) if (rule.effect?.type === "informational") define += 1;
-  return { decide: rules.length - define, define };
+  const tally = stanceComposition(rules, recordStance);
+  const count = (stance: RecordStance) =>
+    tally.find((entry) => entry.stance === stance)?.count ?? 0;
+  return {
+    decide: count("decides"),
+    define: count("supplies-meaning"),
+    unstated: count("unstated"),
+  };
 }
 
 /**
@@ -62,13 +89,19 @@ export function policyComposition(rules: readonly CanonicalRule[]): PolicyCompos
  * shape a deficit takes, so it is not printed for something that is not one.
  * The head already carries the total, so a policy of one kind says nothing here
  * rather than saying its own count back a second time.
+ *
+ * Built from whatever stances are present rather than from a fixed pair of
+ * slots, so a policy holding a record with no readable effect can say so
+ * instead of that record being counted as something it is not.
  */
 export function policyCompositionLabel(composition: PolicyComposition): string | null {
-  const { decide, define } = composition;
-  if (decide === 0 || define === 0) return null;
-  const decides = decide === 1 ? "1 decides a case" : `${decide} decide cases`;
-  const defines = define === 1 ? "1 supplies a meaning" : `${define} supply meanings`;
-  return `${decides} · ${defines}`;
+  return compositionPhrase(
+    [
+      { stance: "decides" as const, count: composition.decide },
+      { stance: "supplies-meaning" as const, count: composition.define },
+      { stance: "unstated" as const, count: composition.unstated ?? 0 },
+    ].filter((entry) => entry.count > 0),
+  );
 }
 
 /**
@@ -86,11 +119,16 @@ export function policyCompositionLabel(composition: PolicyComposition): string |
  */
 export function policyCompositionSentence(rules: readonly CanonicalRule[]): string {
   if (rules.length === 0) return "This policy states no rules.";
-  const composition = policyComposition(rules);
-  const contrast = policyCompositionLabel(composition);
+  const contrast = policyCompositionLabel(policyComposition(rules));
   if (contrast) return contrast;
-  const settles =
-    composition.define === rules.length ? "supplies a meaning" : "decides a case";
+  // One stance holds every rule, so naming it needs no count. Asked of the
+  // records rather than inferred from the counts, so a policy whose rules all
+  // carry no readable effect says that rather than being described as deciding.
+  //
+  // Read in the singular whatever the count, because both sentences below take
+  // a singular subject — "Its one rule", "Every rule" — and the heading's plural
+  // form is built for a group heading standing over many rows, not for this.
+  const settles = stanceHeading(recordStance(rules[0]), 1).toLowerCase();
   return rules.length === 1
     ? `Its one rule ${settles}.`
     : `Every rule of this policy ${settles}.`;

@@ -163,10 +163,12 @@ describe("what the card actually renders", () => {
     // of choosing a side. That sentence is one word away from telling them
     // which half matters, and the half it would demote is the larger one.
     const offences: string[] = [];
-    for (const decide of [1, 3, 15]) {
-      for (const define of [1, 3, 15]) {
-        const label = policyCompositionLabel({ decide, define }) ?? "";
-        for (const pattern of ranked(label)) offences.push(`${pattern} in: ${label}`);
+    for (const decide of [0, 1, 3, 15]) {
+      for (const define of [0, 1, 3, 15]) {
+        for (const unstated of [0, 1, 3]) {
+          const label = policyCompositionLabel({ decide, define, unstated }) ?? "";
+          for (const pattern of ranked(label)) offences.push(`${pattern} in: ${label}`);
+        }
       }
     }
 

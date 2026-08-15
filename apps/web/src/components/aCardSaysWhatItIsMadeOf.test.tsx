@@ -75,6 +75,7 @@ function card(effects: readonly (string | null)[]): PolicyCard {
 function shown(effects: readonly (string | null)[]): {
   said: string | null;
   expected: string | null;
+  rendered: number;
 } {
   const model = card(effects);
   const { container } = render(
@@ -95,6 +96,7 @@ function shown(effects: readonly (string | null)[]): {
     expected: policyCompositionLabel(
       policyComposition(model.rules.map((one) => one.candidate.rule)),
     ),
+    rendered: container.querySelectorAll('[data-testid="policy-card-rule"]').length,
   };
 }
 
@@ -154,6 +156,35 @@ describe("a card says what it is made of", () => {
     expect(said).toBeTruthy();
     expect(said).toContain("1");
     expect(said).toContain("2");
+  });
+
+  it("shows parts that sum to the rules on the card, so a reviewer can check them", () => {
+    // The property that makes this line worth reading at all. A reviewer reads
+    // the parts against the head count; parts that do not sum are worse than no
+    // parts, because they look checkable and are not.
+    const effects = [
+      "require_action",
+      "deny",
+      "allow",
+      ...Array.from({ length: 15 }, () => "informational"),
+      null,
+      "an_effect_this_app_has_never_met",
+    ];
+    const { said, rendered } = shown(effects);
+
+    const counts = [...(said ?? "").matchAll(/(\d+)/g)].map((match) => Number(match[1]));
+    expect(counts.reduce((total, one) => total + one, 0)).toBe(effects.length);
+    // And against what the card actually put on the page, not just the model.
+    expect(rendered).toBe(effects.length);
+  });
+
+  it("counts a rule stating no effect apart, rather than as one that decides", () => {
+    // Absent is its own state here as everywhere. Folding it into either side
+    // leaves the sum correct and the split wrong, which is the version of this
+    // a reader has no way to catch.
+    const { said } = shown(["deny", null]);
+
+    expect(said).toBe("1 decides a case · 1 does not state which");
   });
 });
 

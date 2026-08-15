@@ -162,6 +162,10 @@ export function PolicyReviewCard({
   // Counted over the rules on the card, which is what the reviewer can see and
   // what Approve decides. What the card is not showing is stated separately,
   // below, rather than folded into a total nobody can check.
+  //
+  // Read from the shared module, which now counts one tally per stance the
+  // records actually take, so the parts sum to the rules on the card and a
+  // reviewer can check that against the head count.
   const composition = policyCompositionLabel(
     policyComposition(card.rules.map((rule) => rule.candidate.rule)),
   );

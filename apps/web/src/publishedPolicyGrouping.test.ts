@@ -248,7 +248,7 @@ describe("what a published card says about itself", () => {
       },
     ];
     const counts = policyComposition(mixed);
-    expect(counts).toEqual({ decide: 2, define: 1 });
+    expect(counts).toEqual({ decide: 2, define: 1, unstated: 0 });
     const label = policyCompositionLabel(counts);
     expect(label).toBeTruthy();
     // Both halves must be readable as words, not as a bare pair of numerals.

@@ -83,7 +83,24 @@ describe("what a policy is made of", () => {
       rule("b", { effect: { type: "informational", action: "means" } }),
       rule("c", { effect: { type: "deny", action: "no" } }),
     ];
-    expect(policyComposition(rules)).toEqual({ decide: 2, define: 1 });
+    expect(policyComposition(rules)).toEqual({ decide: 2, define: 1, unstated: 0 });
+  });
+
+  it("counts a rule with no readable effect apart, rather than as one that decides", () => {
+    // The parts are read against the head count, so they have to sum. This
+    // function used to ask the axis question inline as
+    // `effect?.type === "informational"`, which put a rule carrying no effect
+    // at all on the deciding side — leaving the total right and the split
+    // wrong, which is the version of this bug a reader cannot catch.
+    const rules = [
+      rule("a", { effect: { type: "deny", action: "no" } }),
+      rule("b", { effect: undefined }),
+      rule("c", { effect: { type: "informational", action: "means" } }),
+    ];
+    const composition = policyComposition(rules);
+
+    expect(composition).toEqual({ decide: 1, define: 1, unstated: 1 });
+    expect(composition.decide + composition.define + composition.unstated).toBe(rules.length);
   });
 
   it("says nothing when every rule is the same kind, rather than printing a zero", () => {

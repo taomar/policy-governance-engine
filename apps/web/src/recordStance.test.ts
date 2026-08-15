@@ -13,8 +13,10 @@
 import { describe, expect, it } from "vitest";
 import {
   STANCE_ORDER,
+  compositionPhrase,
   groupByStance,
   recordStance,
+  stanceComposition,
   stanceHeading,
   stanceOfMany,
 } from "./recordStance";
@@ -169,6 +171,133 @@ describe("how a group is introduced", () => {
     // meaning, and no heading may blur the two.
     for (const stance of STANCE_ORDER) {
       expect(stanceHeading(stance, 3)).not.toMatch(/\b(ai|deterministic|ai.?ready|automat\w*|manual)\b/i);
+    }
+  });
+});
+
+describe("what a policy is made of", () => {
+  it("counts every record exactly once, whatever effect it carries", () => {
+    // The load-bearing property. A reviewer reads the parts against the head
+    // count, so parts that do not sum are worse than no parts at all: they look
+    // checkable and are not. Includes an effect this app has never met and a
+    // record with no effect at all, because a shape with a fixed number of slots
+    // has to put those somewhere, and wherever it puts them the sum still adds
+    // up — which is exactly what makes that error invisible.
+    const records = [
+      withEffect("require_action"),
+      withEffect("deny"),
+      withEffect("informational"),
+      withEffect("informational"),
+      withEffect("an_effect_kind_from_a_later_schema"),
+      {},
+      withEffect(null),
+    ];
+
+    const tally = stanceComposition(records, recordStance);
+    const counted = tally.reduce((total, entry) => total + entry.count, 0);
+
+    expect(counted).toBe(records.length);
+    // And no stance is counted twice, which is the other way a sum can be right
+    // while the parts are wrong.
+    expect(new Set(tally.map((entry) => entry.stance)).size).toBe(tally.length);
+  });
+
+  it("reports a record with no effect apart, rather than as a kind it is not", () => {
+    const tally = stanceComposition([withEffect("deny"), {}], recordStance);
+
+    expect(tally).toEqual([
+      { stance: "decides", count: 1 },
+      { stance: "unstated", count: 1 },
+    ]);
+  });
+
+  it("leaves out a stance no record takes, rather than printing a zero", () => {
+    const tally = stanceComposition([withEffect("deny"), withEffect("allow")], recordStance);
+
+    expect(tally).toEqual([{ stance: "decides", count: 2 }]);
+  });
+
+  it("reads the stances in the order they are shown in", () => {
+    // The phrase and the groups below it must agree, or the reviewer has to
+    // work out that "3 decide cases" refers to the group headed "Decide cases".
+    const tally = stanceComposition(
+      [{}, withEffect("informational"), withEffect("deny")],
+      recordStance,
+    );
+
+    expect(tally.map((entry) => entry.stance)).toEqual([
+      "decides",
+      "supplies-meaning",
+      "unstated",
+    ]);
+  });
+
+  it("says nothing when every record answers the same way", () => {
+    // The head already carries the total. The only thing a phrase could add
+    // here is a zero for the kind the policy does not hold, and a zero reads as
+    // a shortfall against something that was never expected.
+    expect(compositionPhrase(stanceComposition([withEffect("deny")], recordStance))).toBeNull();
+    expect(compositionPhrase(stanceComposition([], recordStance))).toBeNull();
+  });
+
+  it("names every stance present, not a fixed pair of them", () => {
+    const said = compositionPhrase(
+      stanceComposition(
+        [withEffect("deny"), withEffect("informational"), {}],
+        recordStance,
+      ),
+    );
+
+    expect(said).toBe("1 decides a case · 1 supplies a meaning · 1 does not state which");
+  });
+
+  it("agrees with itself on number", () => {
+    const many = compositionPhrase(
+      stanceComposition(
+        [withEffect("deny"), withEffect("deny"), withEffect("informational"), withEffect("informational")],
+        recordStance,
+      ),
+    );
+
+    expect(many).toBe("2 decide cases · 2 supply meanings");
+  });
+
+  it("never rounds, approximates or hedges a count", () => {
+    // "about 15", "~15", "15+" and "many" are all ways of buying a shorter line
+    // with a number the reviewer cannot check against the head count.
+    const said =
+      compositionPhrase(
+        stanceComposition(
+          [
+            ...Array.from({ length: 15 }, () => withEffect("informational")),
+            ...Array.from({ length: 3 }, () => withEffect("require_action")),
+            {},
+          ],
+          recordStance,
+        ),
+      ) ?? "";
+
+    expect(said).toBe("3 decide cases · 15 supply meanings · 1 does not state which");
+    expect(said).not.toMatch(/\b(about|around|approx\w*|roughly|nearly|over|under|some|many|several|most|few)\b/i);
+    expect(said).not.toMatch(/[~+]|\.{3}|…/);
+  });
+
+  it("says what the records do, never how much they are worth", () => {
+    // Same guard as the group headings, on the phrase that now carries the
+    // whole shape of a policy before it is opened.
+    const RANKING =
+      /\b(only|just|merely|minor|lesser|less important|unimportant|incidental|trivial|ignorab\w*|safely|skip\w*|optional|non-?essential|supplement\w*|extra|leftover|remaining|other|misc\w*|rest)\b/i;
+    const shapes = [
+      [withEffect("deny"), withEffect("informational")],
+      [withEffect("deny"), {}],
+      [withEffect("informational"), {}],
+      [withEffect("deny"), withEffect("informational"), {}],
+    ];
+
+    for (const shape of shapes) {
+      const said = compositionPhrase(stanceComposition(shape, recordStance)) ?? "";
+      expect(said).not.toMatch(RANKING);
+      expect(said).not.toMatch(/\b(ai|deterministic|ai.?ready|automat\w*|manual)\b/i);
     }
   });
 });

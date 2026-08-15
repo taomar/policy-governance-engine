@@ -157,3 +157,23 @@ describe("a passage that states two rules the same way", () => {
     expect(digests.size).toBeLessThan(rules.length);
   });
 });
+
+describe("a rule whose record states no effect", () => {
+  it("still renders, and takes no other rule down with it", () => {
+    // Reading the outcome used to be `rule.effect.action || rule.effect.type`,
+    // which throws on a record carrying no effect object at all — and a throw
+    // inside the card's render loses the whole card, every rule on it, and the
+    // quotations beside them. Nothing in today's corpus is in that state, so
+    // this is not a bug report; it is the assumption written down. "Extraction
+    // always fills this field" is a claim about a model's output, and the cost
+    // of it being wrong once is a reviewer seeing an empty panel with no reason
+    // given, which is the one failure this product cannot afford.
+    const withEffect = rule("55555555-5555-4555-8555-555555555555", "A rule that states its effect");
+    const withoutEffect = rule("66666666-6666-4666-8666-666666666666", "A rule that states none");
+    delete (withoutEffect.candidate.rule as { effect?: unknown }).effect;
+
+    expect(() => renderCard([withEffect, withoutEffect])).not.toThrow();
+    expect(screen.getByText("A rule that states its effect")).toBeTruthy();
+    expect(screen.getByText("A rule that states none")).toBeTruthy();
+  });
+});
