@@ -12,7 +12,6 @@ import {
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { readPassage } from "../policyReading";
 import { policyComposition, policyCompositionLabel } from "../policyRecordFacts";
-import { notShownSentence, recordsNotShown } from "../recordsNotShown";
 import {
   STANCE_GROUPING_NOTE,
   STANCE_ORDER,
@@ -583,15 +582,18 @@ export function PolicyReviewCard({
 
       {card.hiddenByFilter > 0 && (
         <Text type="secondary" className="policy-card__partial">
-          {/* A fragment presented as a whole policy is worse than no grouping
-              at all, so the gap is stated rather than left to be read off two
-              numbers that do not agree.
+          {/* The content-kind split that used to make cards partial is gone, and
+              with it every word about lanes, kinds and where a record went. What
+              is left says two things and names no control, because the cause is
+              no longer something the reviewer chose: a card can still be short
+              when the queue is narrowed to one review status, since the policies
+              it is assembled against are not narrowed the same way.
 
-              What is missing is named by kind, from the records themselves, and
-              pointed at the filter that holds them — because "outside the
-              current filter" told a reviewer that something was gone without
-              telling them what or where, and they had to ask. */}
-          {notShownSentence(recordsNotShown(card))}{" "}
+              Both facts are load-bearing. The first stops a fragment being read
+              as a whole policy; the second stops one Approve being read as a
+              judgement on rules that are not on screen. */}
+          This card holds {card.rules.length} of the {card.policy.rule_count} rules this policy
+          states.{" "}
           Approving here decides the {card.reviewableIds.length === 1 ? "rule" : "rules"} shown above.
         </Text>
       )}

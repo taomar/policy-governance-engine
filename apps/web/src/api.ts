@@ -9,7 +9,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
 import { actorRoleRefusalText, isActorRoleRefusal } from "./actorRole";
-import { noteRecordKinds } from "./recordsNotShown";
 
 export interface ApiError {
   status: number;
@@ -2902,14 +2901,7 @@ export const api = {
     const qs = params.toString();
     return request<CandidateRule[]>(
       `/api/policy-sets/${encodeURIComponent(key)}/candidate-rules${qs ? `?${qs}` : ""}`
-    ).then((records) => {
-      // What each record says it is, kept as it arrives. A surface showing part
-      // of a policy has to name the part it is not showing, and by then those
-      // records are no longer in its hands. Noting it here costs one pass and
-      // saves a second fetch that would ask the server what it already sent.
-      noteRecordKinds(records);
-      return records;
-    });
+    );
   },
 
   reviewFacets: (key: string) =>
