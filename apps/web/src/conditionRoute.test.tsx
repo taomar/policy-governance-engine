@@ -327,12 +327,12 @@ describe("the quantity behind a refused projection", () => {
         provenance={provenance(
           "stated_quantity_comes_from_a_table_row",
           "",
-          "not more than 10% of basic salary"
+          "not more than 10% of the stated amount"
         )}
       />
     );
 
-    expect(screen.getByText("not more than 10% of basic salary")).toBeTruthy();
+    expect(screen.getByText("not more than 10% of the stated amount")).toBeTruthy();
   });
 
   it("is rendered whatever the code says, because the promise is about content", () => {
