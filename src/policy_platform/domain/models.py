@@ -524,6 +524,68 @@ class ProvisionTopicLabel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class CandidateRuleName(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """A short generated handle for what one candidate rule is for.
+
+    WHY IT IS HERE AND NOT IN THE RULE
+
+    A candidate rule's `payload_json` is a record of what a document states. It
+    is exported, it is published, and a reviewer opens it to check the reading
+    against the source. These words are not the document's and not the
+    extraction's — they are this system's commentary, written so that four rules
+    decomposed from one sentence can be told apart at a glance in a queue. Put
+    inside the payload they would leave in every export and every published
+    version, and a reader downstream would find a phrase in a policy record that
+    no document ever stated and no extraction ever produced.
+
+    So they live here, keyed by the rule they describe, reachable only by asking
+    for them by name. The separation is the guarantee: there is no join in the
+    read path of a rule that could pick one up by accident.
+
+    ONE ROW IS ONE ATTEMPT, AND AN ATTEMPT MAY HAVE PRODUCED NOTHING
+
+    `name_text` and `unavailable_code` are exclusive and exactly one is set, so
+    three states stay apart exactly as they do for a provision's subject label:
+    no row at all, a name, and an attempt that yielded none. A reviewer's
+    surface renders only the second, but the third has to be storable or every
+    run would ask again about the same rules and pay again for the same answer.
+    """
+
+    __tablename__ = "candidate_rule_names"
+
+    #: One current name per rule. Re-generating replaces it, because a rule
+    #: shows one handle and a second row would make "which one" a question.
+    candidate_rule_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("candidate_rules.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    #: The generated words. Not a quotation and never stored as one.
+    name_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Why there is no name. A code and never a sentence, so the words a reader
+    #: sees can be written for that reader and changed without a migration.
+    unavailable_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    #: Which deployment answered. Null when the attempt never reached one.
+    model_deployment: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Which instruction was in force, so a name written under an older one is
+    #: recognisable rather than assumed to satisfy today's rule.
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    #: Digest of the exact record material the model was shown. A rule edited
+    #: since is therefore detectable without comparing prose to prose.
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: When it was generated. Explicit, for the reason the subject label gives:
+    #: provenance a reader relies on should not be a bookkeeping side effect.
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(name_text IS NULL) <> (unavailable_code IS NULL)",
+            name="ck_candidate_rule_names_one_outcome",
+        ),
+    )
+
+
 class CorrelationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """One cross-rule correlation analysis over a policy set.
 

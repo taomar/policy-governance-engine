@@ -144,6 +144,17 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     ("policy_tests", "DELETE FROM policy_tests WHERE policy_set_id = :sid"),
     ("policy_test_batches", "DELETE FROM policy_test_batches WHERE policy_set_id = :sid"),
     # Before extraction_runs: candidate_rules.extraction_run_id is NOT NULL.
+    # Before candidate_rules, which is its parent. Written out for the same
+    # reason the generated subject label is: the foreign key cascades, so the
+    # database would clear these anyway, and a row nobody names is a row nobody
+    # counts. A generated name outliving its rule would be the worst leftover
+    # of all -- words this app composed, keyed to a rule that no longer exists,
+    # with no record left to check them against.
+    (
+        "candidate_rule_names",
+        """DELETE FROM candidate_rule_names WHERE candidate_rule_id IN (
+               SELECT id FROM candidate_rules WHERE policy_set_id = :sid)""",
+    ),
     ("candidate_rules", "DELETE FROM candidate_rules WHERE policy_set_id = :sid"),
     # After candidate_rules and before document_versions. The foreign key from
     # candidate_rules is ON DELETE SET NULL, so a provision deleted first would

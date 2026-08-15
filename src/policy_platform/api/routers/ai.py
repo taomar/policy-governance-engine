@@ -40,6 +40,8 @@ from policy_platform.infrastructure.extraction.formulation_mapping import (
 )
 from policy_platform.infrastructure.assistants import rule_change_explainer
 from policy_platform.infrastructure.assistants import provision_topic_label
+from policy_platform.infrastructure.assistants import rule_namer
+from policy_platform.infrastructure.assembly import rule_name_lookup
 from policy_platform.domain.models import (
     CandidateRule,
     CorrelationFindingRow,
@@ -81,6 +83,16 @@ class AskRequest(BaseModel):
     policy_set_key: str | None = None
     history: list[ChatTurn] = []
     focus_candidate_rule_id: str | None = None
+    answer_language: str | None = None
+    """IETF BCP-47 tag for the language the reader wants *this app's own words*
+    written in — the reflection and the topic headings over the quoted facts.
+
+    Quoted source text is never affected by it: `ai_chat.ask` states that
+    separately and `tests/unit/test_ask_answers_in_the_readers_language.py`
+    holds it there. No language is named here or anywhere below it; the tag
+    arrives from the caller, is checked for shape, and is passed on, so adding a
+    language is a change to the interface's string table and to nothing on this
+    side. `None` asks in no particular language and is exactly today's request."""
 
 
 @router.get("/status")
@@ -103,6 +115,7 @@ async def ask(body: AskRequest, session: AsyncSession = Depends(get_session)) ->
             policy_set_key=body.policy_set_key,
             history=[t.model_dump() for t in body.history],
             focus_candidate_rule_id=body.focus_candidate_rule_id,
+            answer_language=body.answer_language,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -205,6 +218,97 @@ async def generate_topic_labels(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     await session.commit()
     return result
+
+
+class RuleNameRequest(BaseModel):
+    """How many policies' rules to name, and whether to name them again."""
+
+    #: A ceiling on one run, counted in policies rather than rules. A policy is
+    #: the unit that can be named: its rules are named together, because what
+    #: tells one from another is only visible when they are seen side by side.
+    limit: int = Field(default=25, ge=1, le=500)
+    #: Name rules that already carry one. Off by default: running this twice
+    #: should cost nothing the second time.
+    regenerate: bool = False
+
+
+class RuleNameLookupRequest(BaseModel):
+    """The rules a page is drawing, so their handles can be fetched at once."""
+
+    #: Capped at the router's ceiling, so one request cannot ask for everything.
+    candidate_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_LIST_LIMIT)
+
+
+@router.post("/policy-sets/{key}/rule-names")
+async def generate_rule_names(
+    key: str,
+    body: RuleNameRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Write a short handle for each rule saying what that rule is for.
+
+    A card lists the rules drawn from one passage. Several of them open with the
+    same words, because they were decomposed from the same sentence, and the
+    identifier beside each is a hash. This gives every rule a line or two naming
+    what it is for, so a reviewer can land on the right one and then read it.
+
+    What comes back is ours. It is stored in a table of its own, with the model,
+    the instruction and a digest of the record it was written from, and it is
+    never written into the rule's payload — which is exported and published, and
+    must hold only what a document stated and an extraction produced.
+
+    The model is shown the extracted records and never the document's sentences,
+    for the reason the explainer sets out and one more besides: siblings share a
+    sentence, so a name written from the sentence would be the same name for all
+    of them.
+
+    A POST because it spends model calls.
+    """
+
+    policy_set = await PolicySetRepository(session).get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    _require_ai_configured()
+    try:
+        result = await rule_namer.name_rules(
+            session,
+            policy_set_id=policy_set.id,
+            limit=body.limit if body else 25,
+            regenerate=body.regenerate if body else False,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    await session.commit()
+    return result
+
+
+@router.post("/rule-names/lookup")
+async def lookup_rule_names(
+    body: RuleNameLookupRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Read stored handles for the rules a page is drawing.
+
+    Reads only. It never generates, so drawing a queue cannot spend a model call
+    — the same separation `topic_label_lookup` keeps, and for the same reason.
+
+    A POST because the ids go in a body: a queue draws dozens of rules at once
+    and a query string of that many identifiers is a URL length limit waiting to
+    be found. Nothing is written.
+
+    Rules with no stored handle are absent from the reply rather than present as
+    a null, so "nobody has asked" stays distinguishable from "asked, and nothing
+    usable came back".
+
+    It is asked for by rule id and answers off to one side, deliberately. A
+    handle is this app's commentary about a rule, so it is never served as part
+    of one — that is what keeps it out of every export and every published
+    version.
+    """
+
+    stored = await rule_name_lookup.names_for_rules(session, body.candidate_ids)
+    return {"names": {rule_id: name.as_payload() for rule_id, name in stored.items()}}
 
 
 @router.post("/provisions/{provision_id}/explain")

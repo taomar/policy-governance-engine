@@ -15,6 +15,7 @@ import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
+import { RuleName } from "./RuleName";
 
 const { Text } = Typography;
 
@@ -390,6 +391,12 @@ export function PolicyReviewCard({
                       {read.ordinal}
                     </span>
                     <div className="policy-card__rule-body">
+                      {/* This app's handle for the rule, above the rule's own
+                          words. Renders nothing at all until one has been
+                          generated, so a card with none is the card that was
+                          here before. Marked as ours by the same ✦ the
+                          generated subject label uses at the top of this card. */}
+                      <RuleName candidateId={rule.candidate.id} variant="block" />
                       <div className="policy-card__rule-line">
                         {read.statementIsMarkedWhole ? (
                           // The words are on screen, marked, immediately above.
