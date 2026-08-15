@@ -31,6 +31,7 @@ import {
   FileSearchOutlined,
   HistoryOutlined,
   LayoutOutlined,
+  LeftOutlined,
   PlusOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
@@ -64,10 +65,8 @@ import { EMPTY_SCOPE, normalizeScope } from "../scopeUtils";
 import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
-import {
-  indexPoliciesByRule,
-  policyBands,
-} from "../policyGrouping";
+import { buildPolicyCards, unplacedCandidates, type PolicyCard } from "../policyCards";
+import { type LoadState, describeApiFailure } from "../loadState";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
 import { FamilyReviewConfirm } from "./FamilyReviewConfirm";
 import {
@@ -83,7 +82,8 @@ import { useActor } from "../ActorContext";
 import { RULE_TYPES } from "../ruleTypes";
 import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
-import { PolicyPassageHeader } from "./PolicyPassageHeader";
+import { PolicyReviewCard } from "./PolicyReviewCard";
+import { PolicyDetailPanel } from "./PolicyDetailPanel";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
@@ -126,6 +126,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   /** The same rules arranged under the passage that stated them. Fetched
    *  alongside the flat list and joined to it by rule id. */
   const [policies, setPolicies] = useState<AssembledPolicy[]>([]);
+  /** Whether we have the passage grouping at all. A failed fetch used to be
+   *  caught into an empty array, which the queue then rendered as "this policy
+   *  set has no passages" — a claim about the document made out of a network
+   *  failure. */
+  const [policiesState, setPoliciesState] = useState<LoadState>("loading");
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [previousUnderReview, setPreviousUnderReview] = useState<CandidateRule | null>(null);
   const [previousTab, setPreviousTab] = useState("overview");
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
@@ -164,6 +170,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   // workspace. Only one candidate detail mounts at a time, so source resolution
   // and discussion fetches stay constant even when the queue has hundreds of rows.
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  /** The passage open in the detail panel. The panel shows the policy; setting
+   *  `selectedCandidateId` as well drills into one of its rules in place. */
+  const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<ReviewWorkspaceMode>("split");
   const [inspectorTab, setInspectorTab] = useState("overview");
   const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
@@ -249,9 +258,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       // came from the same passage. One population, two arrangements, fetched
       // together so the rule ids in the second index into the first.
       //
-      // The assembly is not required for the queue to work. If it is
-      // unavailable the rows still render, ungrouped, rather than the whole
-      // surface failing over an arrangement.
+      // The assembly is what the queue is arranged by, so losing it is not
+      // nothing — but it is also not an empty document set. The failure is
+      // carried as its own state and said out loud, and the rows still render
+      // ungrouped underneath it.
+      setPoliciesState("loading");
+      setPoliciesError(null);
       const [list, assembled] = await Promise.all([
         api.listCandidateRules(selectedKey, status, {
           ...scope,
@@ -260,10 +272,20 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           // so those rows have to be included or the run would look empty.
           include_superseded: Boolean(runFilter),
         }),
-        api.listPolicies(selectedKey, scope).catch(() => [] as AssembledPolicy[]),
+        api
+          .listPolicies(selectedKey, scope)
+          .then((result) => ({ ok: true as const, result }))
+          .catch((e) => ({ ok: false as const, detail: describeApiFailure(e) })),
       ]);
       setCandidates(list);
-      setPolicies(assembled);
+      if (assembled.ok) {
+        setPolicies(assembled.result);
+        setPoliciesState("ready");
+      } else {
+        setPolicies([]);
+        setPoliciesState("unavailable");
+        setPoliciesError(assembled.detail);
+      }
     } catch (e) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
@@ -473,10 +495,40 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setPage(1);
   }, [searchText, contentKind]);
 
+  // The queue's rows are policies, not rules. The server decided which rules a
+  // passage states; this pairs that answer with the records the current filter
+  // is showing. Nothing here re-decides membership or order.
+  const policyCards = useMemo(
+    () => buildPolicyCards(policies, filteredCandidates),
+    [policies, filteredCandidates]
+  );
+
+  // Rules the assembly did not place — reachable when a historical run is open,
+  // because the flat list then asks for superseded rows the assembly does not
+  // return. Shown as unplaced rather than dressed up as passages of one rule.
+  const unplaced = useMemo(
+    () => unplacedCandidates(policies, filteredCandidates),
+    [policies, filteredCandidates]
+  );
+
+  // Paginated over policies, so a passage is never cut in half by a page
+  // boundary — which is the failure the old per-rule pagination could produce
+  // and then had to describe with a "continues below" band.
+  const pagedPolicyCards = useMemo(
+    () => policyCards.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [policyCards, page]
+  );
+
+  // The ungrouped fallback, used only when the assembly is unavailable: the
+  // reviewer still gets the rules, and is told the arrangement is missing
+  // rather than shown an empty queue.
   const pagedCandidates = useMemo(
     () => filteredCandidates.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [filteredCandidates, page]
   );
+
+  const grouped = policiesState === "ready";
+  const listTotal = grouped ? policyCards.length : filteredCandidates.length;
 
   // Family banding, by the same criterion the Policies view uses: a curated
   // `group_label`, else rules of one type testing the same fact. Clustering runs
@@ -497,23 +549,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         clusterMap
       ),
     [filteredCandidates, clusterMap]
-  );
-
-  // Which rules the source stated in the same passage. The server decides this;
-  // the map below is an index into its answer, not a second opinion on it.
-  const policyIndex = useMemo(() => indexPoliciesByRule(policies), [policies]);
-
-  // Banded over the visible page rather than the whole filtered list, so every
-  // page carries the passage its rules belong to. A policy split by the page
-  // boundary still reports the split, because continuation is read from the
-  // policy's own rule order and not from what happens to be on screen.
-  const policyBandInfo = useMemo(
-    () =>
-      policyBands(
-        pagedCandidates.map((c) => c.rule.rule_id),
-        policyIndex
-      ),
-    [pagedCandidates, policyIndex]
   );
 
   const bandedFamilyCount = useMemo(() => {
@@ -546,14 +581,36 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [filteredCandidates, selectedCandidateId],
   );
 
+  /** The passage in the detail panel. */
+  const openPolicyCard = useMemo(
+    () => policyCards.find((card) => card.policy.key === openPolicyKey) ?? null,
+    [policyCards, openPolicyKey],
+  );
+
   useEffect(() => {
+    // Grouped: the panel opens on a policy, and stays on a policy until the
+    // reviewer drills into one of its rules. Selecting a rule up front would
+    // reintroduce exactly the rule-at-a-time reading the card exists to end.
+    if (grouped) {
+      if (policyCards.length === 0) {
+        setOpenPolicyKey(null);
+        setSelectedCandidateId(null);
+        setMobileInspectorOpen(false);
+        return;
+      }
+      if (!openPolicyCard) {
+        setOpenPolicyKey(policyCards[0].policy.key);
+        setSelectedCandidateId(null);
+      }
+      return;
+    }
     if (filteredCandidates.length === 0) {
       setSelectedCandidateId(null);
       setMobileInspectorOpen(false);
       return;
     }
     if (!selectedCandidate) setSelectedCandidateId(filteredCandidates[0].id);
-  }, [filteredCandidates, selectedCandidate]);
+  }, [grouped, policyCards, openPolicyCard, filteredCandidates, selectedCandidate]);
 
   const openCandidate = (candidate: CandidateRule) => {
     setSelectedCandidateId(candidate.id);
@@ -564,9 +621,44 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     }
   };
 
+  /** Open a passage in the detail panel, at the policy rather than a rule. */
+  const openPolicy = (card: PolicyCard) => {
+    setOpenPolicyKey(card.policy.key);
+    setSelectedCandidateId(null);
+    setInspectorTab("overview");
+    if (isDesktop) {
+      if (workspaceMode === "list") setWorkspaceMode("split");
+    } else {
+      setMobileInspectorOpen(true);
+    }
+  };
+
+  /** Drill from the open policy into one of its rules, in the same panel. */
+  const openRuleWithinPolicy = (ruleId: string) => {
+    const candidate = filteredCandidates.find((item) => item.rule.rule_id === ruleId);
+    if (!candidate) return;
+    setSelectedCandidateId(candidate.id);
+    setInspectorTab("overview");
+  };
+
   const selectCandidateRule = (rule: CanonicalRule) => {
     const candidate = filteredCandidates.find((item) => item.rule.rule_id === rule.rule_id);
     if (!candidate) return;
+    if (grouped) {
+      const card = policyCards.find((c) => c.rules.some((r) => r.rule_id === rule.rule_id));
+      if (card) {
+        const index = policyCards.indexOf(card);
+        if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1);
+        setOpenPolicyKey(card.policy.key);
+      }
+      setSelectedCandidateId(candidate.id);
+      if (isDesktop) {
+        if (workspaceMode === "list") setWorkspaceMode("split");
+      } else {
+        setMobileInspectorOpen(true);
+      }
+      return;
+    }
     const index = filteredCandidates.findIndex((item) => item.id === candidate.id);
     if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1);
     openCandidate(candidate);
@@ -588,6 +680,22 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   const toggleSelectAllVisible = () =>
     setSelectedIds((prev) => (prev.size === selectableIds.length ? new Set() : new Set(selectableIds)));
+
+  /** Put a whole passage into the bulk selection, or take it out again.
+   *
+   * The card's checkbox stands for the policy, so it moves every rule of the
+   * passage that is still open for review — one act, matching the one decision
+   * the card offers. */
+  const togglePolicySelected = (card: PolicyCard) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = card.reviewableIds.every((id) => next.has(id));
+      for (const id of card.reviewableIds) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
 
   /** Add every open member of a rule's family to the bulk selection.
    *
@@ -612,6 +720,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   const handleBulkReview = (decision: "approve" | "reject") =>
     requestReview(Array.from(selectedIds), decision);
+
+  /** How many passages the bulk selection touches — the unit the reviewer is
+   *  working in, alongside the rule count the server will actually write to. */
+  const selectedPolicyCount = policyCards.filter((card) =>
+    card.reviewableIds.some((id) => selectedIds.has(id))
+  ).length;
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -865,7 +979,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     : null;
   const candidateRules = candidates.map((candidate) => candidate.rule);
 
-  const candidateInspector = (
+  const ruleInspector = (
     <PolicyInspector
       rule={selectedCandidate?.rule ?? null}
       allRules={candidateRules}
@@ -1028,6 +1142,64 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       }
     />
   );
+
+  // One panel, two depths. The passage is what the reviewer decides, so that is
+  // what the panel shows; a rule of it can be examined in place, behind an
+  // explicit "Back to" that returns to the policy. Opening a rule has never
+  // meant opening a second panel — three rules of a passage must never put
+  // three documents in front of somebody deciding one thing.
+  const candidateInspector =
+    grouped && openPolicyCard && !selectedCandidate ? (
+      <PolicyDetailPanel
+        card={openPolicyCard}
+        statusColor={(status) => STATUS_COLOR[status] ?? "default"}
+        statusLabel={(status) => STATUS_LABEL[status] ?? status}
+        onOpenRule={openRuleWithinPolicy}
+        onApprove={
+          openPolicyCard.reviewableIds.length > 0
+            ? () => requestReview(openPolicyCard.reviewableIds, "approve")
+            : undefined
+        }
+        onReject={
+          openPolicyCard.reviewableIds.length > 0
+            ? () => requestReview(openPolicyCard.reviewableIds, "reject")
+            : undefined
+        }
+        actions={
+          <>
+            {isDesktop && (
+              <Button size="small" onClick={() => setInspectorFullscreen((value) => !value)}>
+                {inspectorFullscreen ? "Restore" : "Expand"}
+              </Button>
+            )}
+            {isDesktop ? (
+              <Button size="small" onClick={hideInspector}>
+                Hide
+              </Button>
+            ) : (
+              <Button size="small" onClick={() => setMobileInspectorOpen(false)}>
+                Close
+              </Button>
+            )}
+          </>
+        }
+      />
+    ) : (
+      <>
+        {grouped && openPolicyCard && selectedCandidate && (
+          <div className="policy-detail-panel__breadcrumb">
+            <Button size="small" icon={<LeftOutlined />} onClick={() => setSelectedCandidateId(null)}>
+              Back to the policy
+            </Button>
+            <Text type="secondary">
+              Rule {openPolicyCard.rules.findIndex((r) => r.candidate.id === selectedCandidate.id) + 1} of{" "}
+              {openPolicyCard.rules.length} in {openPolicyCard.policy.source_elements}
+            </Text>
+          </div>
+        )}
+        {ruleInspector}
+      </>
+    );
 
   return (
     <>
@@ -1476,7 +1648,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     checked={selectedIds.size === selectableIds.length && selectableIds.length > 0}
                     onChange={toggleSelectAllVisible}
                   >
-                    {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select all ${selectableIds.length} in this filter`}
+                    {selectedIds.size > 0
+                      ? grouped
+                        ? `${selectedPolicyCount} ${selectedPolicyCount === 1 ? "policy" : "policies"} selected · ${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"}`
+                        : `${selectedIds.size} selected`
+                      : grouped
+                        ? `Select all ${policyCards.length} ${policyCards.length === 1 ? "policy" : "policies"} in this filter`
+                        : `Select all ${selectableIds.length} in this filter`}
                   </Checkbox>
                   <Space>
                     <Button
@@ -1505,16 +1683,77 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               >
                 {(!isDesktop || workspaceMode !== "detail") && (
                   <div className="review-workspace-list">
-                    <div className="candidate-list" role="listbox" aria-label="Candidate rules">
-                      {pagedCandidates.map((candidate) => {
+                    {policiesState === "unavailable" && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message="The passage grouping could not be loaded, so these rules are listed one at a time."
+                        description={
+                          <>
+                            {policiesError}{" "}
+                            Every rule below is still here and still reviewable — what is missing is which
+                            of them the source stated together, so a decision made here covers one rule
+                            rather than one policy.
+                          </>
+                        }
+                      />
+                    )}
+                    <div
+                      className="candidate-list"
+                      role="listbox"
+                      aria-label={grouped ? "Policies" : "Candidate rules"}
+                    >
+                      {grouped &&
+                        pagedPolicyCards.map((card) => {
+                          const selectedCount = card.reviewableIds.filter((id) => selectedIds.has(id)).length;
+                          return (
+                            <PolicyReviewCard
+                              key={card.policy.key}
+                              card={card}
+                              selected={
+                                card.reviewableIds.length > 0 && selectedCount === card.reviewableIds.length
+                              }
+                              indeterminate={selectedCount > 0 && selectedCount < card.reviewableIds.length}
+                              open={openPolicyKey === card.policy.key}
+                              statusColor={(status) => STATUS_COLOR[status] ?? "default"}
+                              statusLabel={(status) => STATUS_LABEL[status] ?? status}
+                              findingsFor={(ruleId) => (qualityFindings?.get(ruleId) ?? []).length}
+                              onToggleSelect={() => togglePolicySelected(card)}
+                              onOpen={() => openPolicy(card)}
+                              onApprove={
+                                card.reviewableIds.length > 0
+                                  ? () => requestReview(card.reviewableIds, "approve")
+                                  : undefined
+                              }
+                              onReject={
+                                card.reviewableIds.length > 0
+                                  ? () => requestReview(card.reviewableIds, "reject")
+                                  : undefined
+                              }
+                            />
+                          );
+                        })}
+                      {grouped && page === 1 && unplaced.length > 0 && (
+                        <div className="review-unplaced">
+                          <Text type="secondary">
+                            {unplaced.length === 1
+                              ? "1 rule below was not placed in a passage by the assembly"
+                              : `${unplaced.length} rules below were not placed in a passage by the assembly`}
+                            {runFilter
+                              ? " — a historical run is open, and rules a later run retired are not assembled into passages."
+                              : "."}{" "}
+                            They are shown one at a time so nothing is dropped from the queue.
+                          </Text>
+                        </div>
+                      )}
+                      {(!grouped ? pagedCandidates : page === 1 ? unplaced : []).map((candidate) => {
                         const findings = qualityFindings?.get(candidate.rule.rule_id) ?? [];
                         const editability = candidateEditability(candidate.review_status);
                         const cluster = clusterMap.get(candidate.rule.rule_id);
                         const band = bandInfo.get(candidate.rule.rule_id);
-                        const policyBand = policyBandInfo.get(candidate.rule.rule_id);
                         return (
                           <div key={candidate.id} className="candidate-item">
-                            {policyBand?.isStart && <PolicyPassageHeader band={policyBand} />}
                             {cluster && band?.isStart && (
                               <FamilyCompositeHeader
                                 cluster={cluster}
@@ -1561,15 +1800,19 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         </div>
                       )}
                     </div>
-                    {filteredCandidates.length > PAGE_SIZE && (
+                    {listTotal > PAGE_SIZE && (
                       <div className="candidate-pagination">
                         <Pagination
                           current={page}
                           pageSize={PAGE_SIZE}
-                          total={filteredCandidates.length}
+                          total={listTotal}
                           onChange={setPage}
                           showSizeChanger={false}
-                          showTotal={(total, range) => `${range[0]}–${range[1]} of ${total} candidates`}
+                          showTotal={(total, range) =>
+                            grouped
+                              ? `${range[0]}–${range[1]} of ${total} policies`
+                              : `${range[0]}–${range[1]} of ${total} candidates`
+                          }
                         />
                       </div>
                     )}

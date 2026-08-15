@@ -11058,46 +11058,249 @@
   cursor: help;
 }
 
-/* The passage a run of rules came from.
-   A band above the rules rather than a container around them: each rule stays
-   individually reviewable and individually routed, and a policy of one rule --
-   which most are -- is an ordinary passage rather than a container holding one
-   thing. Set flush against the first rule so the association reads as
-   "these belong to that" without a card boundary implying the rules are
-   collapsed inside it. */
-.policy-passage-header {
-  margin: 18px 0 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--app-accent-muted, #d9d9d9);
-  background: var(--app-surface-subtle, #fafafa);
-  border-radius: 6px 6px 0 0;
+/* One passage of the source, as one thing to decide.
+   This replaced a band above three rows. The band said the rules belonged
+   together and the interface then asked for three decisions about them; the
+   card is the policy and the rules are its logic, drawn inside it. A passage of
+   one rule -- 83 of the 155 in the live corpus -- gets no special treatment
+   here: it is the same card with one item in its list, and nothing wraps or
+   apologises for it. */
+.policy-card {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--app-surface, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.policy-card--open {
+  border-color: var(--app-accent, #1677ff);
+  box-shadow: 0 0 0 1px var(--app-accent, #1677ff) inset;
+}
+
+.policy-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.policy-card__headings {
+  flex: 1 1 260px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.candidate-item:first-child .policy-passage-header {
-  margin-top: 0;
-}
-
-.policy-passage-header__title {
+.policy-card__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
 }
 
-.policy-passage-header__summary,
-.policy-passage-header__partial,
-.policy-passage-header__source {
+.policy-card__title:hover {
+  color: var(--app-accent, #1677ff);
+}
+
+.policy-card__meta,
+.policy-card__rule-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.policy-card__dot {
+  opacity: 0.5;
+}
+
+.policy-card__source,
+.policy-row-mono {
+  font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.policy-card__statuses,
+.policy-card__actions {
+  flex: 0 0 auto;
+}
+
+/* The passage, quoted once. Rendered whole rather than clamped: collapsing
+   three cards into one must not collapse three obligations into one sentence,
+   and truncating the source is the same failure by a shorter route. */
+.policy-card__passage {
+  margin: 0;
+  padding: 8px 12px;
+  border-inline-start: 3px solid var(--app-accent-muted, #d9d9d9);
+  background: var(--app-surface-subtle, #fafafa);
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.policy-card__passage-absent,
+.policy-card__heading-absent,
+.policy-card__partial {
   font-size: 12px;
 }
 
-/* The source's own attribution, kept quiet: evidence a reviewer can check
-   without it competing with the rules themselves. */
-.policy-passage-header__source {
-  font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  opacity: 0.65;
+/* The rules of the passage, all of them, visible without expanding anything. */
+.policy-card__rules,
+.policy-detail-panel__rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.policy-card__rule {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--app-surface-subtle, #fafafa);
+}
+
+.policy-card__rule-ordinal {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--app-border, #e5e7eb);
+}
+
+.policy-card__rule-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.policy-card__rule-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.policy-card__rule-title {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+/* Both routes are ordinary, so both are drawn the same. Neither gets a warning
+   colour, an icon, or a place in a "needs work" column: a rule the source
+   stated in words is a rule the source stated in words. */
+.policy-card__route,
+.policy-card__rule-route {
+  font-size: 11px;
+}
+
+.review-unplaced {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--app-surface-subtle, #fafafa);
+  font-size: 12px;
+}
+
+/* The passage in the detail panel: its text once, its rules in full, one JSON. */
+.policy-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.policy-detail-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.policy-detail-panel__identity {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.policy-detail-panel__title {
+  margin: 0 0 4px !important;
+}
+
+.policy-detail-panel__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.policy-detail-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.policy-detail-panel__section-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.policy-detail-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border, #e5e7eb);
+  border-radius: 6px;
+}
+
+.policy-detail-rule__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.policy-detail-rule__conditions {
+  font-size: 12px;
+}
+
+.policy-detail-panel__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--app-border, #e5e7eb);
+  font-size: 12px;
 }
 
 /* An empty review queue.
