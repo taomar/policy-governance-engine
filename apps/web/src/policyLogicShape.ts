@@ -1,6 +1,5 @@
-import type { PolicyAttribute, PolicyAttributes } from "./api";
+import type { CanonicalRule, PolicyAttribute, PolicyAttributes } from "./api";
 import type { PolicyCard, PolicyCardRule } from "./policyCards";
-import { sharedRuleFacets } from "./policyCards";
 import { effectMeta } from "./ruleDisplay";
 
 /**
@@ -190,8 +189,36 @@ function sideRows(
   return side === "applies" ? (attributes.applies ?? []) : (attributes.outcome ?? []);
 }
 
+/** A card rule that carries its rule directly, and one that names the row it
+ *  was read from. Both are read the same way below. */
+type RuleBearing = {
+  rule?: CanonicalRule | null;
+  candidate?: { rule?: CanonicalRule | null } | null;
+};
+
+/**
+ * The rule as the record states it, whichever surface built the card.
+ *
+ * This view arranges rules; which row a rule was read from decides nothing it
+ * draws. A card assembled from a queue names that row `candidate`; one
+ * assembled from a published version has no such row and carries the rule
+ * itself. Reading through here means the arrangement is the same either way,
+ * and the same policy reads identically on both surfaces — which is the point,
+ * since a reviewer comparing them is comparing one record.
+ *
+ * The cast is the whole of the accommodation, and it is here once rather than
+ * at each of the eight readings it replaced. When the card type carries the
+ * rule directly, delete the second half of the `??` and the cast with it;
+ * every caller stays as it is.
+ */
+function statedRule(entry: PolicyCardRule | undefined): CanonicalRule | undefined {
+  if (!entry) return undefined;
+  const bearing = entry as RuleBearing;
+  return bearing.rule ?? bearing.candidate?.rule ?? undefined;
+}
+
 function hasTable(rule: PolicyCardRule): boolean {
-  const attributes = rule.candidate.rule.attributes;
+  const attributes = statedRule(rule)?.attributes;
   return attributes !== undefined && attributes !== null;
 }
 
@@ -239,8 +266,31 @@ function statedOrder(sequences: string[][]): string[] {
   return order;
 }
 
+/**
+ * What every rule of the policy says the same way, or `null` where they differ.
+ *
+ * `null` is the signal to draw the field on each rule; a value is the signal to
+ * say it once for the policy and not repeat it seven times.
+ *
+ * This asks its question of `statedRule`, the one source named at the top of
+ * this file, rather than of the row a rule was read from. `sharedRuleFacets` in
+ * `policyCards` answers a wider question for the queue — it also reports the
+ * review status and the revision of the row under each rule, which a published
+ * version does not have and this view never draws. Reading rule_type back
+ * through that row would be the second reading this module exists to avoid, and
+ * would tie an arrangement of rules to the surface that happened to fetch them.
+ */
+function sameAcross<T>(values: readonly T[]): T | null {
+  if (values.length === 0) return null;
+  const first = values[0];
+  return values.every((value) => value === first) ? first : null;
+}
+
 export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
-  const facets = sharedRuleFacets(card);
+  const facets = {
+    ruleType: sameAcross(card.rules.map((rule) => statedRule(rule)?.rule_type ?? null)),
+    route: sameAcross(card.rules.map((rule) => rule.evaluation_mode)),
+  };
   const total = card.rules.length;
 
   /** Every attribute any rule states, per side, in the records' own order. */
@@ -250,7 +300,7 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
   for (const side of SIDES) {
     const order = statedOrder(
       card.rules.map((rule) =>
-        sideRows(rule.candidate.rule.attributes, side).map((row) => row.attribute),
+        sideRows(statedRule(rule)?.attributes, side).map((row) => row.attribute),
       ),
     );
     countedBySide.set(side, order);
@@ -258,7 +308,7 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
       const values = card.rules
         .map(
           (rule) =>
-            sideRows(rule.candidate.rule.attributes, side).find(
+            sideRows(statedRule(rule)?.attributes, side).find(
               (row) => row.attribute === attribute,
             )?.text,
         )
@@ -283,7 +333,8 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
   for (const passage of card.passages) {
     for (const rule of passage.rules) {
       ordinal += 1;
-      const attributes = rule.candidate.rule.attributes;
+      const asStated = statedRule(rule);
+      const attributes = asStated?.attributes;
       const unrecorded = !hasTable(rule);
 
       const branches: LogicBranch[] = SIDES.map((side) => {
@@ -300,7 +351,7 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
           heading:
             side === "applies"
               ? APPLIES_HEADING
-              : effectMeta(rule.candidate.rule.effect?.type ?? "").label.toUpperCase(),
+              : effectMeta(asStated?.effect?.type ?? "").label.toUpperCase(),
           rows,
           absent: unrecorded
             ? []
@@ -344,7 +395,7 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
         ruleId: rule.rule_id,
         ordinal,
         passageKey: passage.passage.key,
-        ruleType: facets.ruleType === null ? rule.candidate.rule.rule_type : null,
+        ruleType: facets.ruleType === null ? (asStated?.rule_type ?? null) : null,
         route: facets.route === null ? rule.evaluation_mode : null,
         branches,
         stated,
@@ -368,8 +419,8 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
   const shared: LogicSharedReading[] = counted
     .filter((column) => column.uniform)
     .map((column) => {
-      const row = sideRows(card.rules[0]?.candidate.rule.attributes, column.side).find(
-        (candidate) => candidate.attribute === column.attribute,
+      const row = sideRows(statedRule(card.rules[0])?.attributes, column.side).find(
+        (entry) => entry.attribute === column.attribute,
       );
       return {
         attribute: column.attribute,
