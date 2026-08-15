@@ -382,7 +382,12 @@ export function PolicyReviewCard({
                 const findings = findingsFor(rule.rule_id);
                 return (
                   <li
-                    key={rule.rule_id}
+                    // Keyed by the row's own identity, not by `rule_id`. That is
+                    // a hash of the rule's content, so two rules a passage
+                    // states in identical words would share one — and React
+                    // omits children that collide on a key. A card that drops a
+                    // rule is the one failure this queue cannot have.
+                    key={rule.candidate.id}
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
                     value={read.ordinal}

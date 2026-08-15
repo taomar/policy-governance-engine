@@ -740,9 +740,8 @@ async def name_rules(
             skipped_no_rules += 1
             continue
 
-        existing = {
-            row.candidate_rule_id
-            for row in (
+        stored = (
+            (
                 await session.execute(
                     select(CandidateRuleName).where(
                         CandidateRuleName.candidate_rule_id.in_(
@@ -750,8 +749,11 @@ async def name_rules(
                         )
                     )
                 )
-            ).scalars()
-        }
+            )
+            .scalars()
+            .all()
+        )
+        existing = {row.candidate_rule_id for row in stored}
         pending = [rule for rule in rules if regenerate or rule.id not in existing]
         if not pending:
             continue
@@ -769,10 +771,25 @@ async def name_rules(
                 distinct.append(facts_by_rule[rule.id])
 
         policies += 1
-        taken: set[str] = set()
+        # A run that names only what an extraction has just added still has to
+        # tell those rules from the siblings named before it. The handles this
+        # policy already carries are taken, and the writing system they are in
+        # is the one it settled on — otherwise the second run repeats a name, or
+        # answers in the other language, and the card carries both.
+        keeping = {
+            row.candidate_rule_id for row in stored
+        } - {rule.id for rule in pending}
+        carried = [
+            row.name_text
+            for row in stored
+            if row.candidate_rule_id in keeping and row.name_text
+        ]
+        taken: set[str] = {_normalised(text) for text in carried}
         # One policy, one language of handle, even when the passage is bilingual
         # and large enough to need several requests.
         settled: set[str] = set()
+        for text in carried:
+            settled |= scripts_of(text)
         attempt_by_digest: dict[str, NameAttempt] = {}
         for group in chunk_rules(distinct):
             source = build_source(list(provision.heading_path_json or []), group)
