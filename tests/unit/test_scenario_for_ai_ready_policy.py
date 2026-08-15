@@ -96,13 +96,31 @@ def test_the_explanation_does_not_report_the_policy_as_defective():
 
     explanation = _run(_decided_by_reading())["explanation"]
 
-    assert "not a failed policy decision" in explanation.lower()
+    # Said positively rather than denied. A fourth wording opened "This is not a
+    # failed policy decision", which was the fix for the three above and was
+    # itself worth replacing: a reader told this is not a failure has been told
+    # that failure was on the table. What replaces it is not silence. The
+    # explanation names the route, says who decides it, and says the engine's
+    # NOT_APPLICABLE is the correct answer — so the reassurance is carried
+    # without the word being planted.
+    #
+    # Pinned on the claims rather than on a sentence, because the previous
+    # version of this test asserted one phrase and would have passed on an
+    # explanation that both denied failure and framed one elsewhere.
+    assert "decided by a judge reading the record" in explanation
+    assert "correct answer for it to give" in explanation
+
     for forbidden in (
         "machine_executable",
         "machine-executable",
         "FACT_MODEL_REQUIRED",
         "documentation-only",
         "Configure a fact model",
+        # The vocabulary the denial existed to deny. Forbidding it outright is
+        # what makes the denial unnecessary rather than merely absent.
+        "failed",
+        "failure",
+        "defective",
     ):
         assert forbidden not in explanation
 

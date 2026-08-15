@@ -9,8 +9,8 @@
   {
     "name": "the explanation calls the policy defective again",
     "file": "src/policy_platform/infrastructure/assistants/ai_scenario_engine.py",
-    "find": "            \"This is not a failed policy decision. The source states this policy's test in \"",
-    "replace": "            \"No fact model maps this policy's terms onto attributes the deterministic \"\n            \"engine can read (machine_executable=false). The source states this policy's test in \"",
+    "find": "            \"The source states this policy's test in words rather than as a comparison \"",
+    "replace": "            \"No fact model maps this policy's terms onto attributes the deterministic \"\n            \"engine can read (machine_executable=false). The source states this policy's test in words rather than as a comparison \"",
     "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
   },
   {

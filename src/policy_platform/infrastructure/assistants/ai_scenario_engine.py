@@ -268,8 +268,8 @@ def explain_decided_by_reading(
         "overall_evaluation_status": response.overall_status.value,
         "missing_facts": [],
         "explanation": (
-            "This is not a failed policy decision. The source states this policy's test in "
-            "words rather than as a comparison, so it is served as ai_ready and decided by a "
+            "The source states this policy's test in words rather than as a comparison "
+            "between named quantities, so it is served as ai_ready and decided by a "
             "judge reading the record — the sentence, the facts it names, and the outcome it "
             "states. The deterministic engine returns NOT_APPLICABLE before reading scenario "
             f"facts, which is the correct answer for it to give.{readiness_note}"

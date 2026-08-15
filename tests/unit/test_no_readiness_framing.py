@@ -59,6 +59,24 @@ _FRAMING = (
     r"requires? (?:a )?(?:formal )?fact[- ]model",
     r"configure a fact model",
     r"supply the missing mapping",
+    # Fourth evasion, found by contrast rather than by vocabulary. Naming the
+    # two routes by the form of the sentence that produced them is taxonomy and
+    # stays: "in words" says nothing without "rather than as a comparison",
+    # because every document is words. What is banned is contrast drawn against
+    # our own machinery or against failure.
+    #
+    # The contrastive frame is required, and that requirement is the rule rather
+    # than a convenience. `ai_test_proposal`'s system prompt defines both routes
+    # side by side -- "a comparison the engine can compute" against "in words
+    # and a judge decides it by reading" -- and there the engine's reach is
+    # describing the route that *is* the engine's, which is simply accurate. The
+    # defect is using that reach to describe the other route, so the pattern
+    # only fires after "rather than".
+    r"rather than(?:\s+\w+){0,3}\s+comparison(?:\s+\w+){0,3}\s+"
+    r"(?:the\s+)?(?:engine|evaluator|platform)\s+can",
+    # Denying a fault raises it. A reader who is told this is not a failure has
+    # been told failure was on the table.
+    r"(?:is|are)\s+not\s+a\s+fail(?:ed|ure)",
 )
 _FRAMING_RE = re.compile(rf"(?:{'|'.join(_FRAMING)})", re.IGNORECASE)
 
@@ -182,11 +200,36 @@ def test_the_guard_would_notice_the_wording_it_forbids():
         "it still reports FACT_MODEL_REQUIRED",
         "Configure a fact model, or publish a revision",
         "a reviewer must supply the missing mapping",
+        # Both were in served output until the contrast rule was added.
+        "states what it requires in words rather than as a comparison the engine can compute",
+        "This is not a failed policy decision.",
     ):
         assert _FRAMING_RE.search(phrase), phrase
 
     # And does not fire on the field name, which is allowed.
     assert not _FRAMING_RE.search('"machine_executable": rule.machine_executable')
+
+    # Naming the two routes by the form of the sentence behind them is how a
+    # reviewer learns why a record went the way it did, and it stays allowed.
+    # "in words" carries nothing on its own -- every document is words -- so the
+    # comparison has to be named for the sentence to say anything at all.
+    for allowed in (
+        "The source states this rule's test in words rather than as a comparison "
+        "between named quantities, so a judge settles a case by reading it.",
+        "The source states their test in words rather than as a comparison, so a "
+        "judge reads the record.",
+    ):
+        assert not _FRAMING_RE.search(allowed), allowed
+
+    # And the prompt that defines both routes side by side keeps its wording:
+    # there the engine's reach describes the route that is the engine's, which is
+    # accurate. Narrowing the pattern to the contrastive frame is what lets this
+    # stand, and this line is why that narrowing must not be undone.
+    assert not _FRAMING_RE.search(
+        'A policy is either "deterministic", meaning the source states its test as a '
+        'comparison the engine can compute, or "ai_ready", meaning the source states '
+        "it in words and a judge decides it by reading the record."
+    )
 
 
 def test_the_guard_would_notice_a_bare_executability_caption():

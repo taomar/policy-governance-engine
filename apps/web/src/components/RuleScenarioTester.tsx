@@ -88,10 +88,10 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         description={
           decidedByReading ? (
             <span>
-              The policy states what it requires in words rather than as a comparison the engine can
-              compute, so it is served as <Text code>ai_ready</Text> and decided by a judge reading
-              the record — the source sentence, the facts it names, and the outcome it states. What
-              follows is that judge, run on your scenario.
+              The policy states what it requires in words rather than as a comparison between
+              named quantities, so it is served as <Text code>ai_ready</Text> and decided by a
+              judge reading the record — the source sentence, the facts it names, and the
+              outcome it states. What follows is that judge, run on your scenario.
             </span>
           ) : (
             "AI only translates your scenario into facts (never inventing anything you didn't state) and explains the outcome in plain language. The verdict itself comes from the same evaluation engine production evaluations use — this is not AI guesswork."
