@@ -588,25 +588,79 @@ function words(text: string): string[] {
  * of a fact the reader has, costing a line and teaching nothing — and worse,
  * training them to skip a line that elsewhere carries the whole value.
  *
- * Judged as a relation between two strings, never as a property of either. Every
- * word of the label already appearing in the heading chain means the label added
- * no word; anything else means it did. There is no threshold to tune, no list of
- * headings, no vocabulary, and nothing that knows what a subject is — so the
- * same rule holds on a document of any kind in any language.
+ * Judged as a relation between two strings, never as a property of either, and
+ * asked in one direction only: is the label's content already in the heading.
+ * Not whether the two resemble each other — a heading may say a great deal the
+ * label does not and still leave the label adding nothing.
  *
- * Compared against the whole chain rather than the innermost heading because the
- * card shows the whole chain. A label repeating an outer heading is as redundant
- * to the reader as one repeating the inner, and they are looking at both.
+ * Two things stop a word-for-word membership test from answering that honestly,
+ * and both are about the same word being written two ways rather than about two
+ * different words.
+ *
+ * INFLECTION. `probationary` against `Probation`, `employee` against
+ * `EMPLOYEES`, `confidential` against `CONFIDENTIALITY`. One is the other with
+ * a tail. Matching a shared prefix catches this without a stemmer and without
+ * knowing a language, but a bare prefix test would also let `a` match
+ * `absence`. The guard is the shape of an inflection rather than a length
+ * picked to fit: a tail hangs off a stem, so it is shorter than the stem it
+ * hangs off. `probation` + `ary` passes; `a` + `bsence` does not.
+ *
+ * CONNECTIVES WRITTEN AS SYMBOLS. `ABSENCE, LATENESS, TARDINESS & LEAVE`
+ * against `Absence and leave`. The heading joined its terms with a symbol and
+ * the label joined them with a word, so a membership test reads the label's
+ * conjunction as new content when it is the same connective in the other
+ * notation. Each joining symbol standing between two words in the heading
+ * therefore accounts for one label word that is otherwise unmatched. This is a
+ * token-for-token exchange, not an allowance: a heading with no such symbol
+ * grants nothing, and a label whose unmatched words outnumber them still adds
+ * something. Deliberately not a stopword list — that would be one language's
+ * words, and the corpus is not in one language.
+ *
+ * Digits are dropped before comparing, because a heading's ordinal numbers the
+ * section rather than naming it, and the instruction forbids the label to carry
+ * a number at all.
+ *
+ * There is no threshold, no list of headings, no vocabulary, and nothing that
+ * knows what a subject is. Compared against the whole chain rather than the
+ * innermost heading because the card shows the whole chain, and a label
+ * repeating an outer heading is as redundant as one repeating the inner.
  *
  * The decision is made here, at display, and never stored. It is a function of
  * two strings that can each change — a heading corrected, a label regenerated —
  * and a stored answer would go stale silently against both.
  */
 export function labelAddsNothing(text: string, headingPath: readonly string[]): boolean {
-  const inHeading = new Set(words(headingPath.join(" ")));
-  const inLabel = words(text);
-  if (inLabel.length === 0) return true;
-  return inLabel.every((word) => inHeading.has(word));
+  const heading = headingPath.join(" ");
+  const headingWords = words(heading).filter(isNotJustDigits);
+  const labelWords = words(text).filter(isNotJustDigits);
+  if (labelWords.length === 0) return true;
+
+  const unmatched = labelWords.filter(
+    (word) => !headingWords.some((candidate) => sameWordAllowingInflection(word, candidate)),
+  );
+  return unmatched.length <= joiningSymbolCount(heading);
+}
+
+/** Ordinals number a section; they never name its subject. */
+function isNotJustDigits(word: string): boolean {
+  return !/^\p{N}+$/u.test(word);
+}
+
+/** One word being the other plus a tail shorter than the stem it hangs off. */
+function sameWordAllowingInflection(one: string, other: string): boolean {
+  if (one === other) return true;
+  const [shorter, longer] = one.length < other.length ? [one, other] : [other, one];
+  if (!longer.startsWith(shorter)) return false;
+  return longer.length - shorter.length < shorter.length;
+}
+
+/**
+ * Symbols the heading used to join two words, each standing in for a connective
+ * the label may have written out. Counted only between two word characters, so
+ * a symbol used as anything else is not mistaken for a conjunction.
+ */
+function joiningSymbolCount(heading: string): number {
+  return (heading.match(/[\p{L}\p{N}]\s*[&+/]\s*[\p{L}\p{N}]/gu) ?? []).length;
 }
 
 /**

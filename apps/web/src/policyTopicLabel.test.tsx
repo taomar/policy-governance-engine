@@ -194,29 +194,47 @@ describe("rendering a generated label beside the document's heading", () => {
     );
   });
 
-  it("says the label could not be produced rather than showing nothing", () => {
+  it("draws no line at all when generation was attempted and produced no name", () => {
+    // A reversal of how this line first behaved, and deliberate. It used to
+    // announce the failure, on the principle that an absent answer must never
+    // be mistaken for an empty one. That principle guards against losing a fact
+    // to silence, and here no fact is lost: the document's own heading is
+    // immediately below and fully legible. The eyebrow is the most prominent
+    // line on the card, and spending it to say we have nothing to add is worse
+    // than spending it on nothing.
     renderCard(labelPayload({ text: null, unavailable_code: "a_code" }));
 
-    const line = screen.getByTestId("policy-topic-label");
-    expect(line.textContent?.trim().length).toBeGreaterThan(0);
-    // The stored code is an internal token and is never put in front of a
-    // reader; the line is worded for them instead.
-    expect(line.textContent).not.toContain("a_code");
-    // The document's heading is still the card's name.
+    expect(screen.queryByTestId("policy-topic-label")).toBeNull();
+    // The document's heading is still the card's name, and is untouched.
+    expect(document.querySelector(".policy-card__title")?.textContent).toBe(HEADING);
+    // The internal token never reaches a reader through any other route either.
+    expect(document.body.textContent).not.toContain("a_code");
+  });
+
+  it("draws no line when no name has been generated yet", () => {
+    renderCard(null);
+
+    expect(screen.queryByTestId("policy-topic-label")).toBeNull();
     expect(document.querySelector(".policy-card__title")?.textContent).toBe(HEADING);
   });
 
-  it("words a label nobody has asked for differently from one that failed", () => {
-    const { unmount } = renderCard(null);
-    const absent = screen.getByTestId("policy-topic-label").textContent ?? "";
-    unmount();
+  it("keeps failed and never-attempted apart where that is worth reading", () => {
+    // The card draws nothing in either case, because neither tells the reviewer
+    // anything they cannot see. But the two are different facts, and a reviewer
+    // asking why a policy has no name must still be able to find out -- so the
+    // distinction moves to the exported file rather than being discarded.
+    const failed = policyTopicLabel({
+      topic_label: labelPayload({ text: null, unavailable_code: "a_code" }),
+      heading_path: [HEADING],
+    } as Parameters<typeof policyTopicLabel>[0]);
+    const never = policyTopicLabel({
+      topic_label: null,
+      heading_path: [HEADING],
+    } as Parameters<typeof policyTopicLabel>[0]);
 
-    renderCard(labelPayload({ text: null, unavailable_code: "a_code" }));
-    const failed = screen.getByTestId("policy-topic-label").textContent ?? "";
-
-    // A reviewer told "not generated yet" about a policy that already failed
-    // would wait for something that is not coming.
-    expect(absent).not.toBe(failed);
+    expect(failed.state).toBe("unavailable");
+    expect(never.state).toBe("absent");
+    expect(failed.state).not.toBe(never.state);
   });
 
   it("renders a label in a right-to-left script as its own run", () => {
@@ -255,10 +273,48 @@ describe("a label earns its line only by saying something the heading did not", 
     expect(labelAddsNothing("Outer", ["Outer", "Section one"])).toBe(true);
   });
 
-  it("compares words rather than characters, so a longer heading word is not a match", () => {
-    // Substring containment would call "arrange" redundant against
-    // "arrangement". They are different words and the shorter one is new.
-    expect(labelAddsNothing("arrange", ["arrangement"])).toBe(false);
+  it("treats a word and its inflection as the same word, but stops well short of that", () => {
+    // Directional: the question is whether the label's content is already in
+    // the heading, so a heading word may be the longer of the pair. "Probation"
+    // in a label against "Probationary" in a heading is the same subject said
+    // twice, and the reader gains nothing from the second saying.
+    expect(labelAddsNothing("probation", ["Probationary period"])).toBe(true);
+    expect(labelAddsNothing("employee travel", ["EMPLOYEES' DAY OF TRAVEL"])).toBe(true);
+
+    // The guard: a shared opening is only an inflection when what is left over
+    // is shorter than what matched. Otherwise every short word would swallow
+    // every long one that happens to start the same way, and the rule would
+    // hide labels that say something new.
+    expect(labelAddsNothing("man", ["Manpower planning"])).toBe(false);
+    expect(labelAddsNothing("car", ["Carpentry"])).toBe(false);
+    expect(labelAddsNothing("a", ["Absence"])).toBe(false);
+  });
+
+  it("does not let a symbol standing for a word make the label look new", () => {
+    // A heading joining its terms with a symbol says the same thing as a label
+    // joining them with a word. Counting the symbols the heading uses that way
+    // bounds how many label words may go unmatched -- it reads what the heading
+    // did, and carries no list of words in any language.
+    expect(
+      labelAddsNothing("Absence and leave", ["7.10. ABSENCE, LATENESS, TARDINESS & LEAVE"]),
+    ).toBe(true);
+    expect(
+      labelAddsNothing("Manpower planning and recruitment", [
+        "1. Manpower Planning, Recruitment & Selection",
+      ]),
+    ).toBe(true);
+
+    // A heading with no such symbol has spent nothing, so an extra label word
+    // is genuinely new and the label is kept.
+    expect(labelAddsNothing("Gifts and hospitality", ["8.9. GIFTS"])).toBe(false);
+  });
+
+  it("ignores the numbering a heading carries, which names no subject", () => {
+    expect(labelAddsNothing("Overtime", ["7.9. OVERTIME"])).toBe(true);
+    // The same rule applied to the label: numbering is not content, so a label
+    // made only of numbering has nothing to add and is withheld. Nothing is
+    // hidden by that -- there was nothing there to show.
+    expect(labelAddsNothing("7.9", ["Working hours"])).toBe(true);
   });
 
   it("applies the same rule to a script the heading does not use", () => {

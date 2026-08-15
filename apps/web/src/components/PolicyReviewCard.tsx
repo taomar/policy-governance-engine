@@ -173,40 +173,43 @@ export function PolicyReviewCard({
         <div className="policy-card__headings">
           {/* Ours, and first, so that it is read before the document's words
               rather than in among them — and so the document's heading and its
-              trail stay contiguous and unbroken below. Every state carries the
-              same marker, because what the reader must never lose track of is
-              which line this app wrote, not which line it succeeded at.
+              trail stay contiguous and unbroken below.
 
-              Withheld entirely when the generated name only repeats the heading:
-              the reader already has that answer, in the document's own words,
-              on the next line. A line that sometimes carries the whole value of
-              the card and sometimes restates the line below it is a line people
-              learn to stop reading, and it would be the informative cases they
-              stopped reading. */}
-          {topicLabel.state !== "redundant" && (
+              Drawn only when there is a name and the name adds something the
+              heading does not. This line is the most prominent on the card, and
+              what it costs is attention, so it has to be carrying something.
+
+              Two ways it can carry nothing, and both now draw nothing:
+
+              The name only repeats the heading. The reader already has that
+              answer, in the document's own words, on the next line.
+
+              There is no name — none generated yet, or generation attempted and
+              refused. This is a deliberate reversal of how this line first
+              behaved. It used to announce the absence, on the reasoning that an
+              absent answer must never be mistaken for an empty one. That reason
+              holds wherever something is lost by silence, and here nothing is:
+              the document's own heading sits immediately below, fully legible,
+              and the reader loses no fact by our not mentioning that we have
+              nothing to add. Spending the card's lead line to say so is worse
+              than spending it on nothing at all.
+
+              The distinction is kept where it is worth reading rather than
+              discarded — the state and its reason stay on the payload and in the
+              JSON view, for a reviewer who wants to know why a policy has no
+              name. See `policyJsonDocument`. */}
+          {topicLabel.state === "named" && (
             <p className="policy-card__topic" data-generated="true" data-testid="policy-topic-label">
               <span className="policy-card__topic-mark" aria-hidden>
                 ✦
               </span>
               <span className="policy-card__topic-what">Subject, named by this app:</span>{" "}
-              {topicLabel.state === "named" ? (
-                <span className="policy-card__topic-text" title={topicLabel.provenance}>
-                  {/* Unquoted, deliberately. Quotation marks around these words
-                      would present them as somebody's exact words, and they are
-                      nobody's — the document's exact words are below. */}
-                  <DirectionalText>{topicLabel.text}</DirectionalText>
-                </span>
-              ) : (
-                <span className="policy-card__topic-none">
-                  {/* Two different facts, said differently. One says a name was
-                      attempted and did not come; the other says none has been
-                      attempted. A reviewer waiting for the first would wait
-                      forever, so they are never worded the same. */}
-                  {topicLabel.state === "unavailable"
-                    ? "could not be named — the heading below is the document's own"
-                    : "not yet named for this policy"}
-                </span>
-              )}
+              <span className="policy-card__topic-text" title={topicLabel.provenance}>
+                {/* Unquoted, deliberately. Quotation marks around these words
+                    would present them as somebody's exact words, and they are
+                    nobody's — the document's exact words are below. */}
+                <DirectionalText>{topicLabel.text}</DirectionalText>
+              </span>
             </p>
           )}
           {trail.length > 0 && (

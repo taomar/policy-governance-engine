@@ -40,6 +40,7 @@ the title and outside every quotation. Those are asserted here and in
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from policy_platform.domain.models import DocumentProvision, ProvisionTopicLabel
@@ -56,6 +57,27 @@ _MODULE = (
 
 def _tree() -> ast.Module:
     return ast.parse(_MODULE.read_text(encoding="utf-8"))
+
+
+def _prompt_literals() -> list[str]:
+    """Every instruction the module states, read off the source rather than run.
+
+    Read from the syntax tree so these hold whether or not a model is reachable:
+    what is being checked is what this repository asks for, which is a property
+    of the file.
+    """
+
+    return [
+        node.value.value
+        for node in ast.walk(_tree())
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id.endswith("_PROMPT")
+            for target in node.targets
+        )
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
 
 
 def _label_assignments(tree: ast.Module) -> list[ast.expr]:
@@ -171,6 +193,109 @@ def test_the_instruction_settles_which_language_without_naming_one() -> None:
             assert naming not in lowered, (
                 f"the instruction must not name a language or script: {naming}"
             )
+
+
+def test_the_instruction_separates_the_subject_from_what_is_merely_mentioned() -> None:
+    """Naming something present in the text is not naming what it is about.
+
+    Measured against the corpus, this was the whole of the wrongness: a passage
+    directing readers to an office came back named after that office, and two
+    unrelated introductory passages both came back named after the document they
+    introduce. Each of those names is a true statement about something in the
+    text and a false statement about what the text is about, and a false subject
+    sitting above verbatim evidence is worse than an absent one.
+
+    So the instruction must draw that distinction itself. It must also require
+    the answer to separate this part of a document from the rest of it -- a name
+    that fits every part identifies none, and two passages coming back with the
+    same name is the observable form of that failure.
+
+    Both requirements are about the shape of an answer. Neither may be met by
+    naming a subject, a category or a kind of thing this corpus contains, which
+    is what the second half of this test holds.
+    """
+
+    prompts = _prompt_literals()
+    assert prompts, "the module must state its instruction as a literal to be checkable"
+    joined = " ".join(prompts).lower()
+
+    assert "not something the text mentions" in joined or "mentions" in joined, (
+        "the instruction must distinguish what the text is about from what it "
+        "names in passing, or a mentioned entity will keep coming back as a subject"
+    )
+    assert "document as a whole" in joined, (
+        "the instruction must forbid naming the whole document, or two different "
+        "parts of one document can come back with the same name"
+    )
+    assert "no subject you can name" in joined, (
+        "declining must be offered as an answer, or the model must guess when "
+        "there is nothing honest to say"
+    )
+
+    # And none of it may be bought with vocabulary. These are the words by which
+    # a prompt would have to point at a kind of subject at all -- not a list of
+    # what this corpus contains. Matched at a word boundary rather than as bare
+    # substrings, because a substring check finds "hr" inside "phrase" and would
+    # fail on an instruction that names nothing.
+    for naming in (
+        "policy",
+        "policies",
+        "employee",
+        "leave",
+        "attendance",
+        "salary",
+        "hr",
+        "human resources",
+        "handbook",
+        "staff",
+        "department",
+        "topic such as",
+        "categor",
+    ):
+        assert not re.search(rf"\b{re.escape(naming)}", joined), (
+            f"the instruction must not name a subject or a kind of subject: {naming}"
+        )
+
+
+def test_a_decline_is_recorded_apart_from_a_reply_that_could_not_be_used() -> None:
+    """Two different facts about a passage must not be filed under one code.
+
+    "I was asked and there is no subject here to name" and "a reply arrived and
+    did not hold a name" say different things. The first is an answer about the
+    passage; the second is an accident of one call. Only the second is worth
+    asking again about, and a reviewer looking at why a policy has no name is
+    owed the difference.
+    """
+
+    from policy_platform.infrastructure.assistants.provision_topic_label import (
+        DECLINE_REPLY,
+        UNAVAILABLE_DECLINED,
+        UNAVAILABLE_REPLY_UNUSABLE,
+        LabelSource,
+        validate_label,
+    )
+
+    source = LabelSource(
+        heading_path=("A heading",),
+        texts=("Some words the document wrote.",),
+        rule_count=1,
+    )
+
+    label, code = validate_label(DECLINE_REPLY, source)
+    assert label is None
+    assert code == UNAVAILABLE_DECLINED
+
+    # Case is not part of the answer.
+    assert validate_label(DECLINE_REPLY.lower(), source)[1] == UNAVAILABLE_DECLINED
+
+    # And the two codes stay distinguishable, which is the entire point.
+    assert UNAVAILABLE_DECLINED != UNAVAILABLE_REPLY_UNUSABLE
+
+    # A name that merely contains the word is still a name. The decline word is
+    # an ordinary word, and a passage about it must survive.
+    kept, kept_code = validate_label(f"{DECLINE_REPLY} of the above", source)
+    assert kept_code is None
+    assert kept is not None
 
 
 def test_the_instruction_names_no_subject_and_gives_no_example() -> None:

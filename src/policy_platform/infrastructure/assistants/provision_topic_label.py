@@ -91,7 +91,7 @@ logger = logging.getLogger(__name__)
 #: Which instruction produced a stored label. Bumped whenever the prompt or the
 #: validator changes, so a label generated under an older rule is recognisable
 #: as such rather than being assumed to satisfy the current one.
-PROMPT_VERSION = "topic-label-v2"
+PROMPT_VERSION = "topic-label-v4"
 
 #: Why no label is stored, when an attempt was made and produced none.
 #:
@@ -102,6 +102,10 @@ PROMPT_VERSION = "topic-label-v2"
 UNAVAILABLE_NO_SOURCE = "no_source_text"
 UNAVAILABLE_MODEL_FAILED = "model_call_failed"
 UNAVAILABLE_REPLY_UNUSABLE = "reply_not_a_subject_name"
+#: The model was asked and answered that this passage has no subject it can
+#: name. Distinct from the code above: that one says a reply arrived and did not
+#: hold a name, this one says a reply arrived and said there is none to hold.
+UNAVAILABLE_DECLINED = "reply_declined_to_name"
 
 #: The most words a subject name may have.
 #:
@@ -187,19 +191,68 @@ MAX_SOURCE_CHARS = 4000
 #:
 #: The instruction names no language and no script, and would read the same way
 #: for any pair of them.
+#:
+#: WHAT THE TEXT IS ABOUT VERSUS WHAT IT MENTIONS. Measured against the corpus,
+#: every wrong label failed the same way: it named something the passage
+#: mentioned instead of what the passage was about. A welcome message that tells
+#: the reader where to take their questions came back named after the office it
+#: pointed at; two different introductory passages both came back named after the
+#: document they introduce. Both are things present in the text. Neither is what
+#: the text is about, and a wrong subject sitting above verbatim evidence is
+#: worse than no subject at all.
+#:
+#: Two instructions answer it, and both are about the shape of the answer rather
+#: than its content, so neither carries a subject, a category or a vocabulary:
+#:
+#: One, an entity appearing in the text is not thereby its subject. This is the
+#: distinction itself, stated plainly.
+#:
+#: Two, the answer must be narrower than the document. A passage is part of a
+#: document; naming it after the whole cannot separate it from any other part,
+#: and a name that fits every passage identifies none of them. This is what makes
+#: the same label arriving twice a fault rather than a coincidence.
+#:
+#: Refusing is offered as an answer, in both cases, because for some passages
+#: there is no honest short answer and the design would rather have nothing than
+#: have something plausible. A refusal is recorded as a refusal and can be told
+#: apart afterwards from never having asked.
 _SYSTEM_PROMPT = """You are given a heading and some text taken from a document, \
 exactly as the document wrote them.
 
 Reply with a short noun phrase naming the subject that text is about. At most \
-four words. Write it in the same language and the same script as the text you \
-were given. If that text is written in more than one language, use the language \
-of the heading.
+four words.
+
+Name what the text is about, not something the text mentions. A person, an \
+office, a role or a document named in the text is not its subject unless the \
+text is about that thing.
+
+The text is one part of a longer document. Name what sets this part apart from \
+the rest of it. Do not reply with the name or the purpose of the document as a \
+whole, because that would fit every other part equally.
+
+If the text has no subject you can name this way, reply with the single word \
+NONE.
 
 Name the subject only. Do not say what the text requires, allows or forbids. Do \
 not include any number, amount, date, condition or outcome. Do not copy a \
 sentence. Do not end with a full stop. Do not add quotation marks.
 
+Write your reply in the same language and the same script as the text you were \
+given. If that text is written in more than one language, use the language of \
+the heading. Never write your reply in a language the text does not use, even \
+where you have found a shorter or a more general way to say it.
+
 Reply with the noun phrase and nothing else."""
+
+#: The reply that declines rather than guesses.
+#:
+#: A word, not a punctuation mark or an empty reply, because an empty reply is
+#: indistinguishable from a call that returned nothing and a mark is
+#: indistinguishable from a formatting slip. Compared case-insensitively and
+#: only against the whole reply, so a passage genuinely about this word -- it is
+#: an ordinary word in one of the languages this reads -- is not silently
+#: discarded when it appears inside a longer name.
+DECLINE_REPLY = "NONE"
 
 
 @dataclass(frozen=True)
@@ -359,6 +412,13 @@ def validate_label(reply: str, source: LabelSource) -> tuple[str | None, str | N
     if not text:
         return None, UNAVAILABLE_REPLY_UNUSABLE
 
+    # Asked for, and therefore an answer rather than a malformed reply. Recorded
+    # under its own code so that "there is no subject here I can name" is not
+    # filed with "the reply came back unusable" -- they say different things
+    # about the passage, and only one of them is worth asking again about.
+    if text.casefold() == DECLINE_REPLY.casefold():
+        return None, UNAVAILABLE_DECLINED
+
     if any(char in _QUOTE_MARKS for char in text):
         return None, UNAVAILABLE_REPLY_UNUSABLE
     if _marks_between_words(text, _WORD_MARKS, allow_at_edge=True):
@@ -439,6 +499,12 @@ async def generate_label(
             )
             label, code = validate_label(reply, source)
             if label is not None:
+                break
+            # A decline is an answer. Asking again would be asking the same
+            # question of the same text hoping for a different reply, which is
+            # how a refusal stops meaning anything. Only an unusable reply is
+            # re-asked, because that is the one that samples variance.
+            if code == UNAVAILABLE_DECLINED:
                 break
             if attempt_number + 1 < ASK_ATTEMPTS:
                 logger.info(
