@@ -533,6 +533,74 @@ describe("nothing is behind a control and nothing is hidden", () => {
     expect(view.innerHTML).toBe(before);
   });
 
+  it("counts the policy and not a share of it", () => {
+    // Every number here is a statement about one population: this policy's
+    // rules. The policy states its own count, and the view must print that one,
+    // never a count of whatever happens to be on screen. Two readings of one
+    // policy that disagreed on the denominator would look alike and mean
+    // different things, and a reviewer could not tell which they were holding.
+    for (const size of [1, 7, 63]) {
+      const policy = unevenPolicy(size);
+      const stated = policy.policy.rule_count;
+      expect(stated).toBe(size);
+
+      const { unmount } = render(<PolicyLogicTable card={policy} />);
+      const view = screen.getByTestId("policy-logic");
+
+      const heading = view.querySelector(
+        ".policy-detail-panel__section-label",
+      )?.textContent;
+      expect(heading).toContain(
+        stated === 1 ? "1 rule" : `${stated} rules`,
+      );
+
+      const counts = Array.from(
+        view.querySelectorAll(".policy-logic__col-count"),
+      ).map((n) => n.textContent?.trim());
+      expect(counts.length).toBeGreaterThan(0);
+      for (const count of counts) {
+        // "n of m": m is the policy, always.
+        const m = /\bof\s+(\d+)\s*$/.exec(count ?? "");
+        expect(m).not.toBeNull();
+        expect(Number(m?.[1])).toBe(stated);
+        // and n is a real share of it, never more.
+        expect(Number(/^(\d+)\b/.exec(count ?? "")?.[1])).toBeLessThanOrEqual(
+          stated,
+        );
+      }
+      // Drawn once each, so the count and the blocks agree.
+      expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(stated);
+      unmount();
+    }
+  }, WHOLE_POLICY);
+
+  it("never tells a reviewer that part of the policy is elsewhere", () => {
+    // A policy arrives whole. Copy that hedged about rules being outside
+    // something, left over from when it did not, would now be describing a
+    // state that cannot occur — and a reviewer who believed it would go looking
+    // for rules that are already in front of them.
+    //
+    // The field that copy read is still computed upstream, so this sets it and
+    // proves the view says nothing on the strength of it.
+    const whole = unevenPolicy(9);
+    const policy: PolicyCard = { ...whole, hiddenByFilter: 4 };
+    render(<PolicyLogicTable card={policy} />);
+    const text = screen.getByTestId("policy-logic").textContent ?? "";
+    expect(text.length).toBeGreaterThan(0);
+    for (const phrase of [
+      /outside the current/i,
+      /not compared here/i,
+      /not shown here/i,
+      /\bfilter/i,
+      /more rules of this policy/i,
+      /only the rules shown/i,
+    ]) {
+      expect(text).not.toMatch(phrase);
+    }
+    // And it still draws the policy it was given, all of it.
+    expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(9);
+  });
+
   it("keeps the blocks out of the tab order until something sends a reader to one", () => {
     const policy = unevenPolicy(4);
     render(<PolicyLogicTable card={policy} />);

@@ -84,6 +84,18 @@ const { Text } = Typography;
  * and quietly, because absence is information and not an alarm. It stays
  * distinct from the em dash this app reserves for "we do not know".
  *
+ * WHAT THE COUNTS COUNT
+ *
+ * Every number here — the rule count in the heading, and the `n of m` beside
+ * each attribute — counts the whole policy. A policy arrives whole, so the
+ * rules on the card are the policy's rules and there is no second population
+ * to confuse them with. If something above this view ever lets a reviewer
+ * narrow which rules they are looking at, these numbers must keep counting the
+ * policy and not the narrowing: an `n of m` that quietly meant "of the ones
+ * showing" would make two different readings of one policy look alike, and a
+ * reviewer comparing them could not tell which they had. There is a test on
+ * `card.policy.rule_count` that says so.
+ *
  * WHAT IS NOT HERE, AND WHY
  *
  * The live preview also carries who set the rule, what it applies to and its
@@ -228,16 +240,6 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
         </Text>
       )}
 
-      {card.hiddenByFilter > 0 && (
-        // The head of the panel counts every rule of the policy; this compares
-        // the ones the current filter admits. Without this line the tab reads as
-        // a policy that lost rules between one tab and the next.
-        <Text type="secondary" className="policy-logic__note">
-          {card.hiddenByFilter === 1
-            ? "1 more rule of this policy is outside the current filter and is not compared here."
-            : `${card.hiddenByFilter} more rules of this policy are outside the current filter and are not compared here.`}
-        </Text>
-      )}
     </div>
   );
 }
