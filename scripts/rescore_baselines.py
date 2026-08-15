@@ -154,8 +154,31 @@ def clause_totals(key: str) -> tuple[int, int]:
     return int(total), int(pages)
 
 
-def score(key: str) -> dict:
+def blank_titles(rules: list[CanonicalRule]) -> list[CanonicalRule]:
+    """Return copies with the title removed, to isolate a known confound.
+
+    `policy_faithfulness` builds its search surface from
+    `[rule.title, rule.effect.action, ...]`. The title is *composed* by the
+    formulator, not extracted from the source, so a better title can suppress a
+    finding by supplying the very term the detector is looking for.
+
+    That matters here because the fresh runs get corrected titles by
+    construction while the baselines carry stale ones, so any fresh-versus-
+    baseline faithfulness number is contaminated in the direction that flatters
+    us. Blanking on *both* sides removes the field from the comparison
+    entirely: the absolute numbers then match nothing previously reported, but
+    the difference between the two sides is attributable again.
+
+    Copies, not mutation — the loaded records are also used for the unblanked
+    scoring in the same process, and an in-place edit would silently poison it.
+    """
+    return [r.model_copy(update={"title": ""}) for r in rules]
+
+
+def score(key: str, *, blank_title: bool = False) -> dict:
     rules, bad = load_rules(key)
+    if blank_title:
+        rules = blank_titles(rules)
     findings = _deterministic_findings(rules)
 
     by_cat = Counter(f["category"] for f in findings)
@@ -195,6 +218,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("keys", nargs="*", help="policy set keys; default all")
     ap.add_argument("--verify-readonly", action="store_true")
+    ap.add_argument(
+        "--blank-titles",
+        action="store_true",
+        help="score with rule.title removed, to isolate the composed-title confound",
+    )
     ap.add_argument("--json", type=str, default="")
     args = ap.parse_args()
 
@@ -206,11 +234,16 @@ def main() -> int:
     before = fingerprint() if args.verify_readonly else None
 
     print(f"instrument: detector suite at commit {instrument_id()}")
-    print(f"mode      : deterministic only (no model call), record_run disabled\n")
+    print(f"mode      : deterministic only (no model call), record_run disabled")
+    if args.blank_titles:
+        print("titles    : BLANKED — absolute numbers are not comparable to any")
+        print("            previously reported figure; only blanked-vs-blanked is\n")
+    else:
+        print("")
 
     results = []
     for key in keys:
-        r = score(key)
+        r = score(key, blank_title=args.blank_titles)
         results.append(r)
         print("=" * 70)
         print(f"{key}")

@@ -145,6 +145,19 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     ("policy_test_batches", "DELETE FROM policy_test_batches WHERE policy_set_id = :sid"),
     # Before extraction_runs: candidate_rules.extraction_run_id is NOT NULL.
     ("candidate_rules", "DELETE FROM candidate_rules WHERE policy_set_id = :sid"),
+    # After candidate_rules and before document_versions. The foreign key from
+    # candidate_rules is ON DELETE SET NULL, so a provision deleted first would
+    # not block -- it would quietly unlink rules that are about to be deleted
+    # anyway, and the ordering error would leave no trace. Placed by the
+    # constraint that actually binds instead: document_versions is its parent.
+    (
+        "document_provisions",
+        """DELETE FROM document_provisions WHERE policy_set_id = :sid
+           OR document_version_id IN (
+               SELECT dv.id FROM document_versions dv
+               JOIN source_documents d ON d.id = dv.document_id
+               WHERE d.policy_set_id = :sid)""",
+    ),
     (
         "extraction_stages",
         """DELETE FROM extraction_stages WHERE document_version_id IN (

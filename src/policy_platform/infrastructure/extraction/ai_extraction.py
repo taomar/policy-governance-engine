@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from policy_platform.contracts.passage import PolicyPassage
+from policy_platform.contracts.provision_grouping import Provision, raw_groups
 from policy_platform.contracts.reading_plan import DividedProvision
 from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.contracts.policy import (
@@ -56,11 +57,17 @@ from policy_platform.contracts.policy import (
 from policy_platform.domain.models import (
     CandidateRule,
     Clause,
+    DocumentProvision,
     DocumentVersion,
     ExtractionRun,
 )
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.extraction import extraction_progress
+from policy_platform.infrastructure.extraction.provision_linking import (
+    provision_for,
+    provision_index as build_provision_index,
+    provision_row,
+)
 from policy_platform.infrastructure.projection import rule_delta
 from policy_platform.infrastructure.extraction.formulation_mapping import (
     SKIP_BATCH_UNREAD,
@@ -129,22 +136,6 @@ PARSER_VERSION = "formulation-mapping-v1"
 _MAX_CHARS_PER_BATCH = 4000
 
 
-def _provision_key(graph, element) -> tuple[str, ...]:
-    """The provision an element belongs to, as its chain of governing headings.
-
-    A heading is keyed to *itself* rather than to its parent, so it groups with
-    the material it introduces instead of with the section above it. Without
-    that, every heading would be the last element of the preceding provision --
-    which is exactly the cut this stage exists to stop, applied to the one
-    element whose whole purpose is to say what comes next.
-    """
-
-    path = graph.heading_path(element.element_id)
-    if element.element_type == "heading":
-        return tuple([*path, element.element_id])
-    return tuple(path)
-
-
 def _provisions(clauses: list[Clause], document_id: str) -> list[list[Clause]] | None:
     """Group clauses into provisions, or None if the structure will not support it.
 
@@ -160,6 +151,12 @@ def _provisions(clauses: list[Clause], document_id: str) -> list[list[Clause]] |
     The rebuild is a seam that already existed: it reconstructs the canonical
     document from exactly the clause list this module already loads, which is
     what keeps this a small change rather than a second parallel parse.
+
+    The grouping itself now lives in `contracts.provision_grouping`, because the
+    same computation also decides which rules a reviewer sees as one policy. Two
+    copies of it would have drifted the moment either question changed. This
+    caller takes the *raw* runs -- keyed by heading element id, never merged --
+    so where a batch breaks is exactly what it has always been.
     """
 
     try:
@@ -169,19 +166,22 @@ def _provisions(clauses: list[Clause], document_id: str) -> list[list[Clause]] |
         logger.warning("provision grouping unavailable; batching by character count", exc_info=True)
         return None
 
-    by_order = {element.logical_order: element for element in document.elements}
+    by_element = {clause.sequence: clause for clause in clauses}
+    order_of = {
+        element.element_id: element.logical_order for element in document.elements
+    }
     runs: list[list[Clause]] = []
-    previous: tuple[str, ...] | None = None
-    for clause in clauses:
-        element = by_order.get(clause.sequence)
-        if element is None:
+    for group in raw_groups(document, graph):
+        run = [
+            by_element[order_of[element_id]]
+            for element_id in group.element_ids
+            if element_id in order_of and order_of[element_id] in by_element
+        ]
+        if len(run) != len(group.element_ids):
             return None
-        key = _provision_key(graph, element)
-        if not runs or key != previous:
-            runs.append([])
-        runs[-1].append(clause)
-        previous = key
+        runs.append(run)
     return runs
+
 
 
 def _pack(run: list[Clause], budget: int) -> list[list[Clause]]:
@@ -760,6 +760,16 @@ async def extract_candidate_rules(
             ),
         )
     progress_key = str(document_version_id)
+    # Step 4a: which policy each clause belongs to, decided before any model
+    # call and from the document alone. Separate from the batching above on
+    # purpose — batching answers "what should the model read together", this
+    # answers "what does a reviewer see as one policy", and merging a heading's
+    # repeats is right for the second and wrong for the first.
+    provision_index = build_provision_index(
+        clauses, str(document_version_id), doc_version.content_hash or str(document_version_id)
+    )
+    provision_rows: dict[str, DocumentProvision] = {}
+    clause_ref_by_id = {str(clause.id): clause.clause_ref for clause in clauses}
     all_pages = sorted({c.page for c in clauses if c.page is not None})
     extraction_progress.start(
         progress_key,
@@ -960,6 +970,33 @@ async def extract_candidate_rules(
                     rule_type=rule.rule_type.value,
                     payload_json=rule.model_dump(mode="json"),
                 )
+                # Step 13a: attach the rule to the policy its passage states, in
+                # the same transaction as the insert, so a rule and its policy
+                # link commit or roll back together. The provision row itself is
+                # a fact about the document and is never superseded or deleted —
+                # a run that fails after this point leaves it in place, and the
+                # next run's upsert finds it unchanged.
+                provision = provision_for(
+                    rule.lineage.source_elements,
+                    [
+                        ref
+                        for ref in (
+                            clause_ref_by_id.get(str(reference.clause_id))
+                            for reference in rule.evidence
+                        )
+                        if ref is not None
+                    ],
+                    provision_index,
+                )
+                if provision is not None:
+                    row = await provision_row(
+                        session,
+                        provision_rows,
+                        provision,
+                        policy_set_id=policy_set.id,
+                        document_version_id=document_version_id,
+                    )
+                    candidate.provision_id = row.id
                 created_ids.append(str(candidate.id))
                 persisted[rule.rule_id] = candidate
             await session.commit()

@@ -105,10 +105,36 @@ the long one — tens of remote calls over tens of minutes.
 | 2 | Load the clauses in document order | `ClauseRepository.list_by_document_version` |
 | 3 | Open a run row | `ExtractionRunRepository.create` |
 | 4 | Group clauses into batches by running character count | `infrastructure/extraction/ai_extraction.py::_batch_clauses` |
+| 4a | Persist the document's sections as provisions | `infrastructure/extraction/provision_linking.py::provision_row` |
 
 `_batch_clauses` fills to `_MAX_CHARS_PER_BATCH` in stored order. A document is
 therefore walked in fixed-size windows rather than one topic at a time, and a
 batch boundary can fall between a rule and its exception.
+
+#### Step 4a — the grouping that used to be computed and thrown away
+
+`_provisions` has always built each element's chain of governing headings, used
+it to keep a section inside one batch, and then discarded it. Step 4a keeps it.
+
+`contracts/provision_grouping.py::group_into_provisions` reads the structural
+graph and returns one `Provision` per section, keyed by
+`provision_key_for(source_release, heading_texts, occurrence)` — a digest of the
+document release and the normalised heading chain. Repeats of the same heading
+text merge **only when adjacent**, computed over content-carrying groups, which
+is what folds a table continuing across pages into one section without merging
+two unrelated sections that happen to share a title.
+
+`provision_row` is get-or-create and never updates. Two runs over the same
+document version compute the same graph from the same clauses, so the second
+run's pass is a no-op on every row and the whole table digests identically.
+`document_provisions` carries no `extraction_run_id` and no `superseded_at`, and
+nothing deletes from it outside policy-set teardown: a run that supersedes
+candidates and then fails cannot take a provision with it.
+
+Two groupings are deliberately kept apart. `raw_groups` — element-id keyed,
+unmerged — still decides batching and is byte-identical to what it was.
+`group_into_provisions` — text-chain keyed, adjacency-merged — decides
+persistence and review. Batching must not move because grouping changed.
 
 ### Per batch
 
@@ -126,6 +152,7 @@ all-or-nothing transaction would discard every finished batch on a late failure.
 | 11 | Map the reply onto canonical rules deterministically | `infrastructure/extraction/formulation_mapping.py` |
 | 12 | Retire the previous run's unreviewed candidates — **on the first batch that yields rules** | `infrastructure/extraction/ai_extraction.py::_supersede_prior_candidates` |
 | 13 | Insert this batch's candidates and commit | `CandidateRuleRepository.create` |
+| 13a | File each candidate under the provision that states it | `infrastructure/extraction/provision_linking.py::provision_for` |
 
 `_render_batch` is the entire contract between the document and the model:
 `clause_ref`, an optional `section` on its own line, and the clause text. No
@@ -134,6 +161,24 @@ structural graph, no table headers, no reading plan.
 Step 12 fires once per run, in the same transaction as the first batch's
 inserts, so the queue never holds both runs at once. Its timing is
 load-bearing and is discussed under [What can still go wrong](#what-can-still-go-wrong).
+
+#### Step 13a — where a rule acquires its policy
+
+`provision_for` resolves a candidate to a provision from its
+`lineage.source_elements` first, and falls back to the element ids its evidence
+cites. `_batch_clauses` packs several provisions into one batch, so a
+batch-level fallback would misfile a rule; the element chain is the only signal
+that is per rule.
+
+A rule whose elements span two provisions is filed under the earlier one, by
+first logical order — the same anchoring `policy_assembly.policy_key` already
+used. Measured on the two documents in the database: 691 of 692 rules cite
+elements of exactly one provision, and 5 of GMU's 413 span two.
+
+`provision_id` is nullable and stays nullable. A document whose structure
+defeats grouping still extracts, and its rules still reach a reviewer as
+policies assembled the old way. Nothing on this path can drop a rule for want
+of a provision.
 
 ### After every batch
 
@@ -197,6 +242,11 @@ from the outside.
 that display it. It never reaches a model. The coverage report is truthful about
 a plan that nothing extracts from.
 
+`build_structural_graph` used to belong on this list too, and no longer does.
+Step 4a reads it to persist provisions and step 13a files every candidate under
+one, so the graph now changes what is stored rather than only what is drawn.
+That is one item off this list; the rest of it still stands.
+
 `_canonical_from_clauses` (`api/routers/extraction.py`) rebuilds pages with
 `raw_text=""`, which is why fragment offsets cannot be resolved against what it
 returns.
@@ -208,9 +258,14 @@ stages. Nothing under `src/policy_platform` calls it; it is invoked from
 `tests/unit/test_docling_pipeline.py` and `scripts/docling_corpus_report.py`.
 
 This is stated here so that a reader comparing the nine stages against the
-twenty-four steps above does not assume the two lists describe the same run.
+twenty-six steps above does not assume the two lists describe the same run.
 `tests/unit/test_the_running_path_is_the_documented_path.py` fails if that
 stops being true, so this paragraph cannot quietly become false.
+
+That test resolves every module-and-symbol reference on this page and fails
+when one no longer exists. It cannot detect a step that ran and was never
+written down. Keeping the numbered tables complete is a human obligation, and
+steps 4a and 13a were added by hand for that reason.
 
 ---
 

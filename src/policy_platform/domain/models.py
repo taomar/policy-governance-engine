@@ -356,6 +356,87 @@ class CandidateRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("extraction_runs.id"), nullable=True
     )
 
+    # --- The policy this rule is part of ----------------------------------
+    # Nullable on purpose, and it stays nullable. A rule extracted before this
+    # column existed, or from a document whose structure defeats grouping, has
+    # no provision and must render exactly as it did before — so every existing
+    # query, filter, facet and export has to keep working on a NULL. Nothing
+    # here is allowed to become required.
+    provision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("document_provisions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+
+class DocumentProvision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One passage of a document version, with every rule stated in it.
+
+    This is what the interface calls a **policy**. The table is not named
+    `policies` on purpose: `policy_sets` already means *a project*, and a
+    `policies` table sitting beside it would read as "the members of a policy
+    set" — which is equally true of `candidate_rules` and `approved_rules`.
+    A reader would have to guess, and this repository has already paid for one
+    name meaning two things. `provision` is the word the extraction pipeline has
+    always used for exactly this grouping (`_provisions`, `DividedProvision`,
+    `test_provisions_are_read_whole`), and it can only mean one thing.
+
+    A provision is a fact about a *document version*, not about an extraction
+    run, and that is the whole of its reversibility story:
+
+    * it carries no `extraction_run_id` and no `superseded_at`;
+    * nothing ever deletes or retires one;
+    * two runs over the same version compute the same graph from the same
+      clauses and so produce the same keys, and the second run's upsert is a
+      no-op on every row.
+
+    A run that supersedes candidates and then fails therefore cannot take a
+    provision with it. That failure has happened here before and left a reviewer
+    with fewer records than they started with; a table nothing removes from
+    cannot participate in it.
+
+    It holds no prose of its own. `heading_path` is copied verbatim from the
+    document and there is no summary, title or statement column — a field that
+    does not exist cannot later be filled with a sentence the source never
+    wrote.
+    """
+
+    __tablename__ = "document_provisions"
+
+    policy_set_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("policy_sets.id"), nullable=False, index=True
+    )
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id"), nullable=False, index=True
+    )
+    #: Deterministic identity: source release, normalised heading chain, and
+    #: which statement of that chain this is. Scoped by release because element
+    #: ids are *not* unique across documents — every document stored here begins
+    #: at `E000001`.
+    provision_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: The governing headings, outermost first, exactly as the document wrote
+    #: them. The only text this table holds, and it is copied, never composed.
+    heading_path_json: Mapped[list] = mapped_column(JSONB, nullable=False)
+    #: The same chain as element ids. Kept so the adjacency merge that produced
+    #: this row is auditable after the fact rather than only reproducible.
+    heading_element_ids_json: Mapped[list] = mapped_column(JSONB, nullable=False)
+    first_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Position of the earliest element, so policies list in the order the
+    #: document reads. Not part of identity.
+    first_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: How many repeats of the heading were merged. 1 is ordinary; a table
+    #: continuing across seven pages reports 7.
+    merged_run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id",
+            "provision_key",
+            name="uq_document_provisions_version_key",
+        ),
+    )
+
 
 class CorrelationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """One cross-rule correlation analysis over a policy set.
@@ -564,6 +645,20 @@ class ApprovedRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # fields; see migration e4c7a2b8d190. Nullable because it is genuinely
     # absent for hand-authored rules and rules drafted before the agent.
     formulation_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # The policy this rule was approved as part of, snapshotted rather than
+    # referenced. `document_provisions` is written by extraction, and a foreign
+    # key into it would let a later re-extraction silently change what an
+    # already-published version says its policies were. The same reasoning that
+    # required `formulation_json` be carried verbatim rather than regenerated
+    # (migration e4c7a2b8d190) applies here: a published version has to be able
+    # to answer for itself.
+    #
+    # Nullable because it is genuinely absent for hand-authored rules, for rules
+    # published before this existed, and for documents whose structure defeats
+    # grouping.
+    provision_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    provision_heading_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     policy_version: Mapped["ApprovedPolicyVersion"] = relationship(back_populates="rules")
     authority: Mapped["PolicyAuthority"] = relationship()

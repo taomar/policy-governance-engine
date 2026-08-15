@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from policy_platform.domain.models import (
     ApprovedRule,
     RuleException,
 )
+from policy_platform.infrastructure.persistence.provision_snapshot import ProvisionSnapshot
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     ClauseRepository,
@@ -42,7 +44,20 @@ async def import_approved_policy_version(
     is_active: bool,
     rules: list[CanonicalRule],
     aggregate_limits: list[AggregateLimit] | None = None,
+    provisions: Mapping[str, ProvisionSnapshot] | None = None,
 ) -> ApprovedPolicyVersion:
+    """Snapshot an approved rule set as a new immutable version.
+
+    `provisions` says which policy each rule was approved under, keyed by
+    `rule_id`. It is supplied by the caller rather than looked up here for the
+    same reason the rules themselves are: this service snapshots what it is
+    given and decides nothing. A rule absent from the mapping publishes with no
+    provision, which is the honest record for a document whose structure
+    defeated grouping — and for every version published before provisions
+    existed.
+    """
+
+    provisions = provisions or {}
     authority_repo = PolicyAuthorityRepository(session)
     evidence_repo = EvidenceReferenceRepository(session)
 
@@ -99,6 +114,7 @@ async def import_approved_policy_version(
         authority = await authority_repo.get_or_create(
             level=rule.authority.level, owner=rule.authority.owner, rank=rule.authority.rank
         )
+        provision = provisions.get(rule.rule_id)
 
         approved_rule = ApprovedRule(
             policy_version_id=version.id,
@@ -129,6 +145,8 @@ async def import_approved_policy_version(
             formulation_json=(
                 rule.formulation.model_dump(mode="json") if rule.formulation else None
             ),
+            provision_key=provision.key if provision else None,
+            provision_heading_json=list(provision.heading_path) if provision else None,
         )
         session.add(approved_rule)
         await session.flush()
