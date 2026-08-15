@@ -25,6 +25,7 @@ import {
   type AssembledPolicy,
   type CanonicalRule,
   type PolicyTestListItem,
+  type ReviewFacetRun,
   policyTestApi,
 } from "../api";
 import { EditRuleModal } from "./EditRuleModal";
@@ -122,6 +123,12 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  counter rather than a manual re-fetch call so the loading effect stays the
    *  single place that knows how tests are fetched. */
   const [testsEpoch, setTestsEpoch] = useState(0);
+  /** The set's extraction runs, each carrying the document and document version
+   *  it read. Loaded so a published policy's Overview can trace the chain back
+   *  to the file: a published rule keeps its `extraction_run_id`, and this is
+   *  what turns that id into a document, a version and a moment. `null` while
+   *  unknown, so an unresolved link reads as unloaded rather than as absent. */
+  const [extractionRuns, setExtractionRuns] = useState<ReviewFacetRun[] | null>(null);
   /** One policy's sightings, kept by provision key and fetched when its History
    *  tab is first opened. Keyed rather than held singly because several cards
    *  are on the page at once and each is a different policy. */
@@ -180,6 +187,28 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       cancelled = true;
     };
   }, [policySetKey, testsEpoch]);
+
+  useEffect(() => {
+    if (!policySetKey) {
+      setExtractionRuns(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .reviewFacets(policySetKey)
+      .then((facets) => {
+        if (!cancelled) setExtractionRuns(facets.runs);
+      })
+      .catch(() => {
+        // Left unknown rather than emptied. An empty list would tell Overview
+        // that no extraction produced these rules, which is a claim; a failed
+        // request is only this app not knowing.
+        if (!cancelled) setExtractionRuns(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [policySetKey]);
 
   /**
    * The Tests tab's verbs, on a published policy.
@@ -750,6 +779,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                             tests={tests}
                             testsLoading={testsLoading}
                             testing={testing}
+                            extractionRuns={extractionRuns}
                             history={historyByKey[card.policy.key] ?? null}
                             historyLoading={historyLoadingKeys.has(card.policy.key)}
                             onRequestHistory={requestHistory}

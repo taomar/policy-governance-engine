@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Checkbox, Space, Tabs, Tag, Tooltip, Typography } from "antd";
-import type { AggregateLimit, CanonicalRule, PolicyTestListItem } from "../api";
+import type { AggregateLimit, CanonicalRule, PolicyTestListItem, ReviewFacetRun } from "../api";
 import {
   passagePageLabel,
   passageQuotations,
@@ -94,6 +94,7 @@ export function PublishedPolicyCard({
   history,
   historyLoading,
   onRequestHistory,
+  extractionRuns,
   policySetKey,
   policyVersionId,
 }: {
@@ -130,6 +131,10 @@ export function PublishedPolicyCard({
    *  policies and each has its own history; fetching all of them to render one
    *  card's tab spends a request per policy on a tab most readers never open. */
   onRequestHistory?: (provisionKey: string) => void;
+  /** The policy set's extraction runs, each carrying the document and document
+   *  version it read. One already-loaded list resolves the whole chain from a
+   *  rule's run id to the file it came out of, which is what Overview traces. */
+  extractionRuns?: readonly ReviewFacetRun[] | null;
   /** Where this record is published, which together with a rule id is what
    *  identifies it. Asking without the version reaches the draft row that
    *  produced the rule — the same id, possibly revised since — so a question
@@ -494,7 +499,21 @@ export function PublishedPolicyCard({
         }}
         className="policy-card__tabs"
         items={[
-          { key: "overview", label: "Overview", children: <PolicyOverviewPane record={record} /> },
+          {
+            key: "overview",
+            label: "Overview",
+            children: (
+              <PolicyOverviewPane
+                record={record}
+                runs={extractionRuns}
+                sightings={history ?? null}
+                sightingsLoading={historyLoading}
+                onRequestSightings={
+                  onRequestHistory ? () => onRequestHistory(card.policy.key) : undefined
+                }
+              />
+            ),
+          },
           { key: "reading", label: "Reading", children: reading },
           { key: "logic", label: "Logic", children: logic },
           {

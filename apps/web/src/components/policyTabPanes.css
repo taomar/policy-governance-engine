@@ -37,6 +37,26 @@
   gap: 4px;
 }
 
+/* A handle the reviewer can copy.
+ *
+ * Wraps rather than truncates. An identifier shortened with an ellipsis reads
+ * as an identifier and pastes as a lie, and this pane exists so a policy can be
+ * traced — which needs the whole handle, not a recognisable prefix of it. */
+.policy-pane__identifier {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.policy-pane__identifier .ant-typography code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.policy-pane__chain {
+  margin-bottom: 0 !important;
+}
+
 .policy-pane__chips {
   display: flex;
   flex-wrap: wrap;

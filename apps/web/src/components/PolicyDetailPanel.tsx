@@ -44,7 +44,7 @@ import {
   type PolicySightingView,
   type PolicyTestingVerbs,
 } from "./policyTabPanes";
-import type { PolicyTestListItem } from "../api";
+import type { PolicyTestListItem, ReviewFacetRun } from "../api";
 import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
@@ -126,6 +126,7 @@ export function PolicyDetailPanel({
   history,
   historyLoading,
   onRequestHistory,
+  extractionRuns,
   documentName,
 }: {
   card: PolicyCard;
@@ -182,6 +183,12 @@ export function PolicyDetailPanel({
    *  serves a candidate and its published sightings, so a policy under review
    *  can show what has already been published of it. */
   onRequestHistory?: (provisionKey: string) => void;
+  /** The policy set's extraction runs, each carrying the document and document
+   *  version it read. One already-loaded list resolves the whole chain from a
+   *  rule's run id to the file it came out of, which is what Overview traces.
+   *  `null` when the surface has not loaded them, and Overview then says so
+   *  rather than leaving the link blank. */
+  extractionRuns?: readonly ReviewFacetRun[] | null;
   /** The name of the document this policy was read out of, where the surface
    *  knows it. Passed through to the JSON view for one reason: whether the card
    *  showed the generated subject label is reported there, and that answer
@@ -214,6 +221,22 @@ export function PolicyDetailPanel({
    */
   const [focus, setFocus] = useState<RecordStance | null>(null);
   useEffect(() => setFocus(null), [card.policy.key]);
+
+  /**
+   * Ask for this policy's published sightings as soon as it is opened.
+   *
+   * Overview traces the policy, and where it has been published is a link of
+   * that chain — so waiting for the reader to open History would leave the
+   * default tab reporting "not looked" on the one tab they always see. A cheap
+   * read, once per policy opened, and the two tabs then share one answer rather
+   * than asking twice.
+   */
+  useEffect(() => {
+    if (history == null && !historyLoading) onRequestHistory?.(card.policy.key);
+    // Keyed on the policy alone: re-running when `history` changes would ask
+    // again the moment a request fails and set the two off in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.policy.key]);
 
   /**
    * The narrowing, derived once from the same component that draws the chips.
@@ -410,7 +433,17 @@ export function PolicyDetailPanel({
           {
             key: "overview",
             label: "Overview",
-            children: <PolicyOverviewPane record={record} />,
+            children: (
+              <PolicyOverviewPane
+                record={record}
+                runs={extractionRuns}
+                sightings={history ?? null}
+                sightingsLoading={historyLoading}
+                onRequestSightings={
+                  onRequestHistory ? () => onRequestHistory(card.policy.key) : undefined
+                }
+              />
+            ),
           },
           {
             key: "reading",

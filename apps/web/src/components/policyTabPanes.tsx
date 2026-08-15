@@ -25,7 +25,7 @@
  */
 
 import { Alert, Button, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
-import type { AssembledPolicy, CanonicalRule, PolicyTestListItem } from "../api";
+import type { AssembledPolicy, CanonicalRule, PolicyTestListItem, ReviewFacetRun } from "../api";
 import type { PolicyCard } from "../policyCards";
 import {
   policyAuthorities,
@@ -38,6 +38,7 @@ import {
 import type { PublishedPolicyCard } from "../publishedPolicyCards";
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
+import { policyProvenance } from "./policyProvenance";
 import type { PolicyTesting } from "./policyTesting";
 import "./policyTabPanes.css";
 
@@ -62,6 +63,20 @@ export interface PolicyRecordView {
   passageCount: number;
   /** Every rule the policy holds, in document order, with the id it is known by. */
   rules: { rule_id: string; rule: CanonicalRule }[];
+  /**
+   * How far through review the policy is — totals only, never per-rule status.
+   *
+   * Deliberately arrives already aggregated. A pane holding per-rule statuses
+   * could enable a control for rule X on the strength of rule X's state, which
+   * is the branch this type exists to make impossible; a pane holding two
+   * numbers physically cannot. That the counts are a *fact about the record*
+   * rather than a permission is what makes them admissible here at all.
+   *
+   * `null` where the question does not apply — on a sealed record there is
+   * nothing open, and rendering "0 open" would invite a reader to wonder what
+   * happened to a decision that was never pending.
+   */
+  progress?: { decided: number; open: number } | null;
 }
 
 /** A queue card as a policy record. */
@@ -70,6 +85,10 @@ export function candidatePolicyRecord(card: PolicyCard): PolicyRecordView {
     policy: card.policy,
     passageCount: card.passages.length,
     rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
+    progress: {
+      decided: card.allIds.length - card.reviewableIds.length,
+      open: card.reviewableIds.length,
+    },
   };
 }
 
@@ -79,6 +98,9 @@ export function publishedPolicyRecord(card: PublishedPolicyCard): PolicyRecordVi
     policy: card.policy,
     passageCount: card.passages.length,
     rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
+    // A published record is sealed. There is no decision outstanding on it, so
+    // there is no progress through one to report.
+    progress: null,
   };
 }
 
@@ -92,46 +114,246 @@ function share(named: number, total: number): string {
   return named === total ? "every rule" : `${named} of ${total} rules`;
 }
 
+/**
+ * A handle a reviewer can copy and go and look something up with.
+ *
+ * Rendered as an identifier — monospaced, selectable, whole — rather than
+ * folded into a sentence. A traceable chain is only traceable if the reader can
+ * take the link away with them, and an id truncated to fit a line is an id that
+ * cannot be pasted anywhere.
+ */
+function Identifier({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="policy-pane__identifier">
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {label}
+      </Text>
+      <Typography.Paragraph copyable={{ text: value }} style={{ marginBottom: 4 }}>
+        <Text code>{value}</Text>
+      </Typography.Paragraph>
+    </div>
+  );
+}
+
+/**
+ * A moment, in the reader's own locale.
+ *
+ * Not formatted to a pattern of this app's choosing: a date written the way the
+ * reader's system writes dates is one they cannot misread, and a fixed pattern
+ * is a decision made on behalf of every locale at once. Unparseable input is
+ * returned untouched rather than rendered as an invalid date.
+ */
+function formatMoment(value: string): string {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? value : at.toLocaleString();
+}
+
 /* ------------------------------------------------------------------ Overview */
 
 /**
- * What this policy is, before any question is asked about it.
+ * The chain from a document to this record.
  *
- * Ordered as a reader meets it: the document's own heading and the trail that
- * locates it, then how much of the document it occupies, then what it is made
- * of. The generated subject label is rendered by the panel's header rather than
- * here, so that this app's words never sit above the document's without being
- * marked as this app's.
+ * WHAT CHANGED AND WHY
+ *
+ * This tab used to render three grey pills — page, passages, rules — directly
+ * beneath a card header that had just stated the same three facts. A reviewer
+ * read the same line twice and learned nothing the second time, and said so:
+ * they could not trace the policy.
+ *
+ * So the rule for this pane is that **nothing the header states may be
+ * restated here**. What the header cannot say is where the record came from,
+ * and every link of that was already loaded and none of it was on screen. It
+ * now reads top to bottom as a chain a reviewer can follow: this file, at this
+ * version → these extraction runs → this policy, at this key → here in the
+ * document → published in these versions → this far through review.
+ *
+ * Each link renders its identifier as an identifier, because the point of a
+ * traceable chain is that a reader can copy a handle and go and find the thing.
+ *
+ * Absent is never blank. A link this app has not loaded says so, and says it
+ * differently from a link that is genuinely empty — a policy that has never
+ * been published and a policy whose publication history was never fetched are
+ * different facts and must not render alike.
  */
-export function PolicyOverviewPane({ record }: { record: PolicyRecordView }) {
+export function PolicyOverviewPane({
+  record,
+  runs,
+  sightings,
+  sightingsLoading,
+  onRequestSightings,
+}: {
+  record: PolicyRecordView;
+  /** The policy set's extraction runs, which carry their document and version.
+   *  `null` when this app has not loaded them. */
+  runs?: readonly ReviewFacetRun[] | null;
+  /** This key's published sightings, when they have been fetched. */
+  sightings?: readonly PolicySightingView[] | null;
+  sightingsLoading?: boolean;
+  /** Ask for them. Supplied where the surface can afford the request only on
+   *  demand — a page holding many cards would otherwise spend one per card to
+   *  fill a section most readers never scroll to. Without it the section states
+   *  the absence and stops there, which is honest but is a dead end, so every
+   *  surface that can offer the way out should. */
+  onRequestSightings?: () => void;
+}) {
   const rules = recordRules(record);
   const composition = policyCompositionSentence(rules);
   const authorities = policyAuthorities(rules);
-  const passages = record.passageCount;
+  const chain = policyProvenance(record, { runs, sightings });
 
   return (
     <div className="policy-pane">
       <section className="policy-pane__section">
         <Text type="secondary" className="policy-pane__label">
-          Where this policy sits
+          The document it was read from
         </Text>
-        {record.policy.heading_path.length > 1 ? (
+        {chain.document.title ? (
+          <Paragraph className="policy-pane__chain">
+            <DirectionalText>{chain.document.title}</DirectionalText>
+            {chain.document.versionLabel && (
+              <Text type="secondary"> · version {chain.document.versionLabel}</Text>
+            )}
+          </Paragraph>
+        ) : (
+          <Paragraph type="secondary">
+            This app has not loaded the documents of this policy set, so it cannot name the file
+            this policy was read from.
+          </Paragraph>
+        )}
+        {chain.document.versionId && (
+          <Identifier label="Document version" value={chain.document.versionId} />
+        )}
+        {chain.document.contentHash && (
+          <Identifier label="Content hash" value={chain.document.contentHash} />
+        )}
+      </section>
+
+      <section className="policy-pane__section">
+        <Text type="secondary" className="policy-pane__label">
+          {chain.runs.length > 1 ? "The extractions that produced its rules" : "The extraction that produced its rules"}
+        </Text>
+        {chain.runs.length === 0 ? (
+          <Paragraph type="secondary">
+            No rule of this policy records which extraction produced it.
+          </Paragraph>
+        ) : (
+          <>
+            {chain.runs.length > 1 && (
+              <Paragraph type="secondary">
+                Its rules come from more than one extraction, which happens when a document is read
+                again and only part of a policy changes.
+              </Paragraph>
+            )}
+            <ul className="policy-pane__list">
+              {chain.runs.map((run) => (
+                <li key={run.id}>
+                  <Text strong>
+                    <span data-testid={`run-reference-${run.id}`}>{run.reference ?? run.id}</span>
+                  </Text>
+                  {run.startedAt && <Text type="secondary"> · started {formatMoment(run.startedAt)}</Text>}
+                  {run.status && <Text type="secondary"> · {run.status.replace(/_/g, " ")}</Text>}
+                  <Text type="secondary"> · {share(run.rules, rules.length)}</Text>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <section className="policy-pane__section">
+        <Text type="secondary" className="policy-pane__label">
+          What identifies this policy
+        </Text>
+        <Paragraph type="secondary">
+          This key is what the policy is known by across every version of the document. It is the
+          handle to follow when tracing the policy through its history.
+        </Paragraph>
+        <Identifier label="Policy key" value={chain.provisionKey} />
+        {chain.provisionId && <Identifier label="This cut of it" value={chain.provisionId} />}
+        <Paragraph type="secondary" style={{ marginTop: 8 }}>
+          {chain.placement.boundaryRecorded
+            ? "The document itself marked out where this policy begins and ends."
+            : "Where this policy begins and ends was worked out when it was read, from the headings its rules cite."}
+        </Paragraph>
+      </section>
+
+      <section className="policy-pane__section">
+        <Text type="secondary" className="policy-pane__label">
+          Where it sits in the document
+        </Text>
+        {chain.placement.trail.length > 0 ? (
           <Paragraph className="policy-pane__trail">
-            <DirectionalText>{record.policy.heading_path.slice(0, -1).join(" › ")}</DirectionalText>
+            <DirectionalText>{chain.placement.trail.join(" › ")}</DirectionalText>
           </Paragraph>
         ) : (
           <Paragraph type="secondary">
             The document places this policy at its top level, under no heading above it.
           </Paragraph>
         )}
-        {record.policy.page != null && <Tag>Page {record.policy.page}</Tag>}
-        <Tag>
-          {passages === 1 ? "1 passage" : `${passages} passages`}
-        </Tag>
-        <Tag>
-          {rules.length === 1 ? "1 rule" : `${rules.length} rules`}
-        </Tag>
+        <Paragraph type="secondary">
+          {chain.placement.pages == null
+            ? "No passage of this policy recorded which page it was on."
+            : chain.placement.pages.first === chain.placement.pages.last
+              ? `All of it is on page ${chain.placement.pages.first}.`
+              : `It runs from page ${chain.placement.pages.first} to page ${chain.placement.pages.last}.`}
+        </Paragraph>
+        {chain.placement.sourceElements && (
+          <Identifier label="Source elements" value={chain.placement.sourceElements} />
+        )}
       </section>
+
+      <section className="policy-pane__section">
+        <Text type="secondary" className="policy-pane__label">
+          Where it has been published
+        </Text>
+        {!chain.publication.known ? (
+          <>
+            <Paragraph type="secondary">
+              {sightingsLoading
+                ? "Looking for published versions carrying this key…"
+                : "This app has not looked for published versions carrying this key."}
+            </Paragraph>
+            {onRequestSightings && !sightingsLoading && (
+              <Button size="small" onClick={onRequestSightings} data-testid="overview-request-sightings">
+                Look
+              </Button>
+            )}
+          </>
+        ) : chain.publication.versions.length === 0 ? (
+          <Paragraph type="secondary">
+            No published version carries this key. Nothing under it has been sealed.
+          </Paragraph>
+        ) : (
+          <ul className="policy-pane__list">
+            {chain.publication.versions.map((version) => (
+              <li key={version.versionId}>
+                <Text strong>
+                  {version.versionNumber == null ? "A version" : `Version ${version.versionNumber}`}
+                </Text>
+                {version.isActive && <Tag color="green" style={{ marginInlineStart: 8 }}>Active</Tag>}
+                {version.approvedAt && (
+                  <Text type="secondary"> · approved {formatMoment(version.approvedAt)}</Text>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {record.progress && (
+        <section className="policy-pane__section">
+          <Text type="secondary" className="policy-pane__label">
+            How far through review it is
+          </Text>
+          <Paragraph>
+            {record.progress.open === 0
+              ? "Every rule of this policy has been decided."
+              : record.progress.decided === 0
+                ? "No rule of this policy has been decided yet."
+                : `${record.progress.decided} of its ${record.progress.decided + record.progress.open} rules have been decided; ${record.progress.open} are still open.`}
+          </Paragraph>
+        </section>
+      )}
 
       <section className="policy-pane__section">
         <Text type="secondary" className="policy-pane__label">

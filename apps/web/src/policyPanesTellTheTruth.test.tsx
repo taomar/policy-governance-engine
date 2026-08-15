@@ -311,7 +311,13 @@ describe("a policy holding rules is never described as holding none", () => {
   it("says what its single rule does rather than calling the policy empty", () => {
     const card = cardOf([{ id: "r-1" }]);
     render(<PolicyOverviewPane record={candidatePolicyRecord(card)} />);
-    expect(screen.getByText("1 rule")).toBeTruthy();
+    // This once asserted on a "1 rule" pill, which the pane no longer renders:
+    // the card header states the rule count immediately above, and restating it
+    // here was the thing a reviewer told us made the tab uninformative. The
+    // fault this test exists to catch is unchanged — a policy holding one rule
+    // being described as holding none — and the composition sentence carries it,
+    // in words, with the grammar the pill was there to get right.
+    expect(screen.queryByText("1 rule")).toBeNull();
     expect(screen.queryByText(/no rules/i)).toBeNull();
     expect(screen.getByText(/Its one rule decides a case\./)).toBeTruthy();
   });

@@ -731,9 +731,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     [documentNameByVersion],
   );
 
-  // Rules the assembly did not place — reachable when a historical run is open,
-  // because the flat list then asks for superseded rows the assembly does not
-  // return. Shown as unplaced rather than dressed up as passages of one rule.
   const unplaced = useMemo(
     () => unplacedCandidates(policies, filteredCandidates),
     [policies, filteredCandidates]
@@ -1509,6 +1506,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         tests={policySetTests}
         testsLoading={policySetTestsLoading}
         testing={policyTesting}
+        extractionRuns={facets?.runs ?? null}
         history={policyHistory[openPolicyCard.policy.key] ?? null}
         historyLoading={policyHistoryLoading.has(openPolicyCard.policy.key)}
         onRequestHistory={requestPolicyHistory}
