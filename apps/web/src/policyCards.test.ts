@@ -23,7 +23,9 @@ import {
   passageHeading,
   passagePageLabel,
   passageStatement,
+  passageTitle,
   policyJsonDocument,
+  sharedRuleFacets,
   unplacedCandidates,
 } from "./policyCards";
 
@@ -410,5 +412,251 @@ describe("policyJsonDocument", () => {
 
   it("records the absence of a heading rather than omitting the field", () => {
     expect(policyJsonDocument(cards[0]).heading).toBeNull();
+  });
+});
+
+describe("passageTitle", () => {
+  // The passage the owner named, verbatim from
+  // `GET /policy-sets/ais-employee-handbook/candidate-rules`.
+  const opening =
+    "According to the new organizational structure and policy of AIS for 2022, contracts will normally begin at the beginning of the academic year.";
+  const rest =
+    "If an employee begins work on a different date, a temporary contract will be issued with that date as the start date and the end date as the end of the Academic Year. At a later period, the permanent contract will be issued.";
+
+  function withSource(ruleId: string, text: string, section: string | null = "7.1. THE EMPLOYMENT CONTRACT"): CanonicalRule {
+    return rule(ruleId, {
+      description: text,
+      evidence: section
+        ? ([
+            {
+              document_version_id: "doc",
+              source_hash: "hash",
+              page: 9,
+              section,
+              clause_id: "clause",
+              start_offset: null,
+              end_offset: null,
+            },
+          ] as CanonicalRule["evidence"])
+        : [],
+      formulation: {
+        source_index: 0,
+        canonical: {
+          source_text: text,
+          extraction_status: "complete",
+          relationships: [],
+          ambiguity: [],
+          missing_components: [],
+        },
+        dmn_decisions: [],
+      },
+    } as Partial<CanonicalRule>);
+  }
+
+  it("names the policy by its own opening statement, not by why its rules were grouped", () => {
+    const title = passageTitle([withSource("a", `${opening} ${rest}`)]);
+
+    expect(title.source).toBe("statement");
+    expect(title.text).toBe(opening);
+    // The words are the document's, in the document's order, and nothing has
+    // been added: title and remainder reassemble the passage exactly.
+    expect(`${title.text} ${title.rest}`).toBe(`${opening} ${rest}`);
+  });
+
+  it("leaves the rest of the passage to be shown, so the title repeats nothing", () => {
+    const title = passageTitle([withSource("a", `${opening} ${rest}`)]);
+
+    expect(title.rest).toBe(rest);
+    expect(title.rest).not.toContain("According to the new organizational structure");
+  });
+
+  it("does not name a card after a list marker", () => {
+    // The first measurement of this idea reported 7 unusable AIS passages
+    // because it split after "1." and titled the card "1.".
+    const title = passageTitle([
+      withSource(
+        "a",
+        "1. In keeping with the provisions of The Saudi Labor Law, employees are entitled to 30 calendar days paid sick leave. 2. In cases of severe illness, leave can be extended.",
+      ),
+    ]);
+
+    expect(title.source).toBe("statement");
+    expect(title.text).toBe(
+      "1. In keeping with the provisions of The Saudi Labor Law, employees are entitled to 30 calendar days paid sick leave.",
+    );
+  });
+
+  it("names a table row by its own first cell, and says that is what happened", () => {
+    // 45 of the AIS passages are rows of the violations table. A row states no
+    // sentence; composing one for it would be the one thing forbidden here.
+    // Its heading is no better — 50 rows share "Table of Violations and
+    // Penalties" — so the row is named by the first cell that says something,
+    // which is unique to it and is the document's own text.
+    const title = passageTitle([
+      withSource(
+        "a",
+        "1. |  | Late for work, 15 minutes or less without permission | 1 Time Written Warning | 2 Time 5% deduction",
+        "Table of Violations and Penalties",
+      ),
+    ]);
+
+    expect(title.source).toBe("cell");
+    expect(title.text).toBe("Late for work, 15 minutes or less without permission");
+    // Nothing was taken from the passage, so all of it is still to be shown.
+    expect(title.rest).toContain("1 Time Written Warning");
+  });
+
+  it("falls back to the heading when a row has no cell that says anything", () => {
+    // Honest about the case it cannot name: no cell of this row carries a
+    // clause, so nothing is invented and the row is filed under its heading.
+    const title = passageTitle([withSource("a", "1. | 5% | 10% | 20%", "Table of Violations and Penalties")]);
+
+    expect(title.source).toBe("section");
+    expect(title.text).toBe("Table of Violations and Penalties");
+    expect(title.rest).toContain("20%");
+  });
+
+  it("does not name a card after an annotation the extraction wrote in", () => {
+    // Six AIS passages arrive with "(section: …)" ahead of the row. It reads
+    // like a sentence and is not one — it is the pipeline describing itself,
+    // and titling a card with it puts a machine's words where the document's
+    // should be. The row names itself instead, and the annotation stays in the
+    // quoted text rather than being deleted from it.
+    const title = passageTitle([
+      withSource(
+        "a",
+        "(section: Table of Violations and Penalties)\n10. | Inappropriate language and gestures. | Two (2) days deduction",
+        "Table of Violations and Penalties",
+      ),
+    ]);
+
+    expect(title.source).toBe("cell");
+    expect(title.text).toBe("Inappropriate language and gestures.");
+    expect(title.rest).toContain("(section: Table of Violations and Penalties)");
+  });
+
+  it("keeps a short whole passage as its own title", () => {
+    // CONTROL for the row rule: a short sentence is a name, and diverting it
+    // to its heading would put every card of a section under one label.
+    const title = passageTitle([withSource("a", "Alcohol and drugs are strictly forbidden.")]);
+
+    expect(title.source).toBe("statement");
+    expect(title.text).toBe("Alcohol and drugs are strictly forbidden.");
+    expect(title.rest).toBe("");
+  });
+
+  it("falls back to the passage key only when the document gave neither", () => {
+    const title = passageTitle([withSource("a", "1. | 2. | 3.", null)]);
+
+    expect(title.source).toBe("unnamed");
+    expect(title.text).toBe("");
+    // Still shown, in full, below whatever the card is called.
+    expect(title.rest).toBe("1. | 2. | 3.");
+  });
+
+  it("never composes a title out of more than one statement", () => {
+    const title = passageTitle([
+      withSource("a", "Staff must give notice. Leave accrues monthly. Notice is in writing."),
+    ]);
+
+    expect(title.text).toBe("Staff must give notice.");
+    expect(title.rest).toBe("Leave accrues monthly. Notice is in writing.");
+  });
+});
+
+describe("sharedRuleFacets", () => {
+  it("reports what every rule says the same way, so the card can say it once", () => {
+    // Three rules that agree on everything: the old card stacked three
+    // identical [Requires] [Candidate] rev 1 rows for this.
+    const cards = buildPolicyCards(
+      [policy("p9-E000072", ["a", "b", "c"])],
+      [candidate("a"), candidate("b"), candidate("c")],
+    );
+
+    expect(sharedRuleFacets(cards[0])).toEqual({
+      ruleType: "obligation",
+      effectType: "require_action",
+      route: "ai_ready",
+      reviewStatus: "candidate",
+      revision: 1,
+    });
+  });
+
+  it("reports null for a facet the rules disagree on, so the difference is shown per rule", () => {
+    // p9-E000072 in the live corpus: one human_judgment_requirement and two
+    // routing rules. That difference is information and must not be flattened.
+    const cards = buildPolicyCards(
+      [policy("p9-E000072", ["a", "b", "c"])],
+      [
+        candidate("a", {}, { rule_type: "human_judgment_requirement" }),
+        candidate("b", {}, { rule_type: "routing" }),
+        candidate("c", {}, { rule_type: "routing" }),
+      ],
+    );
+
+    const shared = sharedRuleFacets(cards[0]);
+    expect(shared.ruleType).toBeNull();
+    // The facets they do agree on are still stated once.
+    expect(shared.effectType).toBe("require_action");
+    expect(shared.reviewStatus).toBe("candidate");
+  });
+
+  it("does not flatten a route onto the policy when its rules take different ones", () => {
+    // The binding constraint: mixed is normal, not degraded. A single badge
+    // here would have to claim one of the two, and both would be wrong.
+    const cards = buildPolicyCards(
+      [
+        policy("p9-E000072", ["a", "b"], {
+          rules: [
+            { rule_id: "a", title: "title a", evaluation_mode: "deterministic" },
+            { rule_id: "b", title: "title b", evaluation_mode: "ai_ready" },
+          ],
+        }),
+      ],
+      [candidate("a"), candidate("b")],
+    );
+
+    expect(sharedRuleFacets(cards[0]).route).toBeNull();
+  });
+
+  it("states the route once when every rule takes the same one", () => {
+    // CONTROL: neither route is a deficiency, so a card whose rules agree
+    // says so once rather than repeating it beside each rule.
+    const cards = buildPolicyCards(
+      [
+        policy("p9-E000072", ["a", "b"], {
+          rules: [
+            { rule_id: "a", title: "title a", evaluation_mode: "deterministic" },
+            { rule_id: "b", title: "title b", evaluation_mode: "deterministic" },
+          ],
+        }),
+      ],
+      [candidate("a"), candidate("b")],
+    );
+
+    expect(sharedRuleFacets(cards[0]).route).toBe("deterministic");
+  });
+
+  it("treats a policy of one rule as agreeing with itself", () => {
+    // 83 of 155 passages state one rule. Every facet is shared, so the card
+    // carries one badge strip and the rule line carries none.
+    const cards = buildPolicyCards([policy("p6-E000040", ["a"])], [candidate("a")]);
+
+    expect(sharedRuleFacets(cards[0])).toEqual({
+      ruleType: "obligation",
+      effectType: "require_action",
+      route: "ai_ready",
+      reviewStatus: "candidate",
+      revision: 1,
+    });
+  });
+
+  it("shows a part-decided passage rule by rule", () => {
+    const cards = buildPolicyCards(
+      [policy("p9-E000072", ["a", "b"])],
+      [candidate("a"), candidate("b", { review_status: "rejected" })],
+    );
+
+    expect(sharedRuleFacets(cards[0]).reviewStatus).toBeNull();
   });
 });

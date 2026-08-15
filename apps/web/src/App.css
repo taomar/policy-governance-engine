@@ -11096,23 +11096,41 @@
   gap: 2px;
 }
 
+/* The section a card sits under: context above the name, not the name itself.
+   94% of passages in the corpus share a heading with another passage, so a
+   heading identifies where a card is, never which one it is. */
+.policy-card__section {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  line-height: 1.4;
+}
+
+/* The policy's name: its own opening statement, quoted whole. Wraps rather
+   than truncating — a name cut mid-sentence is the defect this replaced. */
 .policy-card__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
   background: none;
   border: 0;
   padding: 0;
   font: inherit;
   font-weight: 600;
   font-size: 14px;
+  line-height: 1.45;
   text-align: start;
   color: inherit;
   cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .policy-card__title:hover {
   color: var(--app-accent, #1677ff);
+}
+
+.policy-card__title-note {
+  font-size: 12px;
 }
 
 .policy-card__meta,
@@ -11139,7 +11157,8 @@
   flex: 0 0 auto;
 }
 
-/* The passage, quoted once. Rendered whole rather than clamped: collapsing
+/* The rest of the passage, under its own first statement. Together they are
+   the passage, in order, once. Rendered whole rather than clamped: collapsing
    three cards into one must not collapse three obligations into one sentence,
    and truncating the source is the same failure by a shorter route. */
 .policy-card__passage {
@@ -11150,6 +11169,12 @@
   border-radius: 0 6px 6px 0;
   font-size: 13px;
   line-height: 1.55;
+  white-space: pre-line;
+}
+
+.policy-card__rule-rev {
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 .policy-card__passage-absent,

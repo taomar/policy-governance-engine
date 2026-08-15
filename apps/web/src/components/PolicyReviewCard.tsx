@@ -1,7 +1,7 @@
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
-import { CheckOutlined, CloseOutlined, FileTextOutlined, RightOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
-import { passageHeading, passagePageLabel, passageStatement } from "../policyCards";
+import { passageHeading, passagePageLabel, passageTitle, sharedRuleFacets } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { ruleDecisionSummary } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
@@ -21,20 +21,44 @@ const { Text } = Typography;
  * together and the interface then asked for three decisions about them. The
  * card is the policy; the rules are its logic, rendered inside it.
  *
+ * WHAT IT IS CALLED
+ *
+ * Its own opening statement, quoted, with the heading it sits under above it
+ * and the rest of the passage below. The band used to be titled "Stated
+ * together in one passage", which describes why the rules were grouped rather
+ * than what they are about: a reviewer scanning a queue of 155 of these learns
+ * nothing from being told 155 times that a passage is a passage. See
+ * `passageTitle` for why the heading alone could not do the job — 94% of
+ * passages share theirs with another.
+ *
  * NOTHING IS HIDDEN TO ACHIEVE THIS
  *
  * Collapsing three cards into one must not collapse three obligations into one
- * sentence. Every rule of the passage is listed with its own title, type,
- * effect, condition and outcome, visible without expanding anything. What
- * disappears is the repetition — the source passage is quoted once above the
- * rules instead of restated inside each of them — and the three separate asks.
+ * sentence. Every rule of the passage is listed with its title, condition and
+ * outcome, visible without expanding anything. The title takes the passage's
+ * first statement and the paragraph beneath carries the remainder, so the
+ * passage is shown once, whole, in its own order — not summarised, and not
+ * repeated between the title and the body.
+ *
+ * SAID ONCE IF SHARED, SHOWN PER RULE IF IT DIFFERS
+ *
+ * Every row used to carry `[Requires] [Candidate] rev 1`, which in a card of
+ * three rules is three identical badge pairs stacked. What all the rules agree
+ * on is now stated once, on the policy; what differs between them is shown on
+ * the rule it belongs to. So a badge beside a rule always carries information.
  *
  * ROUTE IS PER RULE
  *
- * The head carries a summary of how the passage's rules are decided, and every
- * rule carries its own. A passage holding one rule the engine compares and one
- * the source states in words is the ordinary shape of a real document; both
- * routes are named plainly and neither is drawn as a shortfall.
+ * Route follows that same rule and no other: shared, it is stated once; mixed,
+ * every rule shows its own and nothing is averaged. A passage holding one rule
+ * the engine compares and one the source states in words is the ordinary shape
+ * of a real document. Neither route is drawn as a shortfall.
+ *
+ * IDENTIFIERS ARE NOT ON THE FACE
+ *
+ * `AI-acfa998ecd` never helped anyone judge whether a contract start date is
+ * right. Rule id, revision and record id live in the detail panel, one click
+ * away, where somebody chasing a specific record is already looking.
  *
  * A PASSAGE OF ONE RULE IS AN ORDINARY CARD
  *
@@ -74,16 +98,20 @@ export function PolicyReviewCard({
   onReject?: () => void;
 }) {
   const rules = card.rules.map((rule) => rule.candidate.rule);
+  const title = passageTitle(rules);
   const heading = passageHeading(rules);
-  const passage = passageStatement(rules);
   const page = passagePageLabel(card.policy.page);
-  const mixedStatus = card.reviewStatuses.length > 1;
+  const shared = sharedRuleFacets(card);
+  const sharedEffect = shared.effectType
+    ? card.rules[0]?.candidate.rule.effect
+    : undefined;
 
   return (
     <article
       className={`policy-card${open ? " policy-card--open" : ""}`}
       data-testid="policy-card"
       data-passage={card.policy.key}
+      data-title-from={title.source}
       aria-label={`Policy from ${card.policy.source_elements}`}
     >
       <div className="policy-card__head">
@@ -97,10 +125,30 @@ export function PolicyReviewCard({
           />
         )}
         <div className="policy-card__headings">
+          {title.source !== "section" && (
+            <div className="policy-card__section">
+              {heading ? (
+                <DirectionalText>{heading}</DirectionalText>
+              ) : (
+                <Text type="secondary">{HEADING_NOT_RECORDED}</Text>
+              )}
+            </div>
+          )}
           <button type="button" className="policy-card__title" onClick={onOpen}>
-            <FileTextOutlined aria-hidden />
-            <DirectionalText>{heading || card.policy.source_elements}</DirectionalText>
+            <DirectionalText>{title.text || card.policy.source_elements}</DirectionalText>
           </button>
+          {title.source !== "statement" && (
+            <Text type="secondary" className="policy-card__title-note">
+              {title.source === "cell"
+                ? // Said rather than papered over: a row of a table has no
+                  // sentence to be named by, so it is named by a cell of
+                  // itself and the whole row is left in view below.
+                  "This passage is a row of a table, so it is named by its first cell. The whole row is below."
+                : title.source === "section"
+                  ? "This passage states no sentence of its own, so it is named by the heading it sits under. Its text is below."
+                  : "Neither a statement nor a heading was recorded for this passage, so it is named by its key. Its text is below."}
+            </Text>
+          )}
           <div className="policy-card__meta">
             <span>{policyRuleCountLabel(card.policy.rule_count)}</span>
             {page && (
@@ -111,26 +159,36 @@ export function PolicyReviewCard({
             )}
             <span className="policy-card__dot">·</span>
             <span className="policy-card__source">{card.policy.source_elements}</span>
-            <Tooltip
-              title={
-                // Both routes are ordinary. A passage holding one of each is
-                // the common shape of a real document, not a half-finished
-                // version of a better one.
-                "Where the source states a test as a comparison it is evaluated directly. Where the source states it in words it is decided by reading. A passage can hold both, and each rule below says which it takes."
-              }
-            >
-              <Tag variant="filled" className="policy-card__route">
-                {policyRouteLabel(card.policy.route)}
-              </Tag>
-            </Tooltip>
+            {sharedEffect && (
+              <Tooltip title="Every rule of this policy has this effect.">
+                <span>
+                  <PolicyEffectBadge effect={sharedEffect} size="small" />
+                </span>
+              </Tooltip>
+            )}
+            {shared.ruleType && (
+              <Tooltip title="Every rule of this policy is of this kind.">
+                <Tag variant="filled">{ruleTypeLabel(shared.ruleType)}</Tag>
+              </Tooltip>
+            )}
+            {shared.route && (
+              <Tooltip
+                title={
+                  // Both routes are ordinary. A passage holding one of each is
+                  // the common shape of a real document, not a half-finished
+                  // version of a better one.
+                  "Where the source states a test as a comparison it is evaluated directly. Where the source states it in words it is decided by reading. Every rule of this policy takes this route; where they differ, each rule below says which it takes."
+                }
+              >
+                <Tag variant="filled" className="policy-card__route">
+                  {policyRouteLabel(shared.route)}
+                </Tag>
+              </Tooltip>
+            )}
+            {shared.reviewStatus && (
+              <Tag color={statusColor(shared.reviewStatus)}>{statusLabel(shared.reviewStatus)}</Tag>
+            )}
           </div>
-        </div>
-        <div className="policy-card__statuses">
-          {card.reviewStatuses.map((status) => (
-            <Tag key={status} color={statusColor(status)}>
-              {statusLabel(status)}
-            </Tag>
-          ))}
         </div>
         <Space size={4} className="policy-card__actions">
           {onApprove && onReject && (
@@ -171,20 +229,16 @@ export function PolicyReviewCard({
         </Space>
       </div>
 
-      {passage ? (
+      {title.rest && (
         <p className="policy-card__passage">
-          <DirectionalText>{passage}</DirectionalText>
+          <DirectionalText>{title.rest}</DirectionalText>
         </p>
-      ) : (
+      )}
+      {title.source === "unnamed" && !title.rest && (
         <Text type="secondary" className="policy-card__passage-absent">
           {/* Said rather than left blank: a passage whose text was not stored
               and a passage that says nothing are different facts. */}
           The source text for this passage was not stored with its rules.
-        </Text>
-      )}
-      {!heading && (
-        <Text type="secondary" className="policy-card__heading-absent">
-          {HEADING_NOT_RECORDED}
         </Text>
       )}
 
@@ -202,16 +256,33 @@ export function PolicyReviewCard({
                   <span className="policy-card__rule-title">
                     <DirectionalText>{rule.candidate.rule.title}</DirectionalText>
                   </span>
-                  <PolicyEffectBadge effect={rule.candidate.rule.effect} size="small" />
-                  <Tag variant="filled">{ruleTypeLabel(rule.candidate.rule.rule_type)}</Tag>
-                  <Tag variant="filled" className="policy-card__rule-route">
-                    {policyRouteLabel(rule.evaluation_mode)}
-                  </Tag>
-                  {mixedStatus && (
+                  {/* Only what this rule does not share with its neighbours.
+                      A badge here means "unlike the others", so it is worth
+                      the reviewer stopping to read. */}
+                  {!shared.effectType && (
+                    <PolicyEffectBadge effect={rule.candidate.rule.effect} size="small" />
+                  )}
+                  {!shared.ruleType && (
+                    /* Named so it reads as what the rule is, not as a mark against it.
+                       The type badge sits beside a route badge, and without a name a
+                       reader can mistake one for the other. */
+                    <Tooltip title="The kind of rule this is. It differs from the others in this policy.">
+                      <Tag variant="filled">{ruleTypeLabel(rule.candidate.rule.rule_type)}</Tag>
+                    </Tooltip>
+                  )}
+                  {!shared.route && (
+                    <Tooltip title="How this rule is decided. It differs from the others in this policy, which is normal.">
+                      <Tag variant="filled" className="policy-card__rule-route">
+                        {policyRouteLabel(rule.evaluation_mode)}
+                      </Tag>
+                    </Tooltip>
+                  )}
+                  {!shared.reviewStatus && (
                     <Tag color={statusColor(rule.candidate.review_status)}>
                       {statusLabel(rule.candidate.review_status)}
                     </Tag>
                   )}
+                  {!shared.revision && <span className="policy-card__rule-rev">rev {rule.candidate.rule.rule_revision}</span>}
                   {findings > 0 && (
                     <Tooltip title={`${findings} quality finding(s) from the last check`}>
                       <Tag color="volcano">{findings}</Tag>
@@ -237,11 +308,6 @@ export function PolicyReviewCard({
                   <span className="policy-decision-arrow">→</span>
                   <span className="policy-decision-key">Then</span>
                   <span className="policy-decision-result">{decision.action}</span>
-                </div>
-                <div className="policy-card__rule-meta">
-                  <span className="policy-row-mono">{rule.rule_id}</span>
-                  <span className="policy-card__dot">·</span>
-                  <span>rev {rule.candidate.rule.rule_revision}</span>
                 </div>
               </div>
             </li>

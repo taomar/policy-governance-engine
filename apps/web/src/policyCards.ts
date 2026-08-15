@@ -212,6 +212,200 @@ export function passagePageLabel(page: number | null): string | null {
   return page === null ? null : `page ${page}`;
 }
 
+/** Where a card's name came from. Always one of the document's own strings. */
+export type PassageTitleSource =
+  /** The passage's opening statement, quoted whole. */
+  | "statement"
+  /** The passage is a row of a table and states no sentence. Named by its own
+   *  first cell, quoted whole, with the row left intact below it. */
+  | "cell"
+  /** The heading the passage sits under — used when the passage offers neither
+   *  a statement nor a readable cell. */
+  | "section"
+  /** The document supplied neither. Named by its passage key, and said so. */
+  | "unnamed";
+
+export interface PassageTitle {
+  source: PassageTitleSource;
+  /** The name, verbatim. Empty only when the source is `unnamed`. */
+  text: string;
+  /** The passage minus whatever the title took from it. Rendered under the
+   *  title, so title and remainder together are the passage, in order, once. */
+  rest: string;
+}
+
+/**
+ * A break between statements: after a full stop, or at a line end.
+ *
+ * `\u061F` is the Arabic question mark — both documents in the corpus are
+ * bilingual, and a sentence that ends in Arabic ends just as much as one that
+ * ends in English.
+ */
+const STATEMENT_BREAK = /(?<=[.!?\u061F])\s+|\n+/g;
+
+/**
+ * Split a passage at its first statement end.
+ *
+ * A break is only taken where what precedes it is a clause rather than a list
+ * marker. "1. In keeping with the provisions of The Saudi Labor Law, employees
+ * are entitled to 30 calendar days paid sick leave." has a full stop after the
+ * enumerator, and a splitter that trusts it names the card "1." — which is how
+ * the first measurement of this idea reported 7 unusable passages that were in
+ * fact fine.
+ */
+function firstStatement(passage: string): [string, string] {
+  const breaks = new RegExp(STATEMENT_BREAK.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = breaks.exec(passage)) !== null) {
+    const left = passage.slice(0, match.index).trim();
+    if (left.length >= 20 && left.split(/\s+/).length >= 4) {
+      return [left, passage.slice(match.index + match[0].length).trim()];
+    }
+  }
+  return [passage.trim(), ""];
+}
+
+/**
+ * A marker the extraction wrote into the passage rather than read out of the
+ * document: `(section: Table of Violations and Penalties) 10. | …`.
+ *
+ * Six AIS passages carry one and no GMU passage does. It is skipped when
+ * choosing a name — a title has to be the document's words, and this is the
+ * pipeline's. It is not removed from the passage text itself, because that text
+ * is quoted as the record holds it and editing it here would make the quotation
+ * a paraphrase.
+ */
+const PIPELINE_ANNOTATION = /^\(\s*section\s*:[^)]*\)\s*/i;
+
+/** A row of an extracted table: cells separated by pipes, never a sentence. */
+function looksLikeTableRow(text: string): boolean {
+  return /\s\|\s/.test(text) || (text.match(/\|/g) ?? []).length >= 2;
+}
+
+/**
+ * The first cell of a table row that says something.
+ *
+ * A row arrives as pipe-delimited cells, the first of which are often a row
+ * number and blanks: `4. | | Failure to follow health regulations… | 50%
+ * deduction | …`. The first cell carrying a clause is what the row is about —
+ * the offence, the grade, the allowance — and it is unique per row where the
+ * heading above it is not.
+ *
+ * The enumerator is stripped from the front of a cell but nothing else is
+ * touched: what is returned is a substring of the document.
+ */
+function firstCell(passage: string): string | null {
+  for (const raw of passage.split("|")) {
+    const cell = raw.trim().replace(/^\d+[.)]\s*/, "").trim();
+    if (cell.length >= 20 && cell.split(/\s+/).length >= 4) return cell;
+  }
+  return null;
+}
+
+/**
+ * What to call this policy.
+ *
+ * MEASURED, NOT ASSUMED
+ *
+ * The heading was the obvious candidate and the data rules it out on its own:
+ * 146 of 155 AIS passages and 175 of 187 GMU passages sit under a heading they
+ * share with another passage — 94% on both. 50 passages share "Table of
+ * Violations and Penalties". Titling by heading would have swapped one
+ * uninformative label ("Stated together in one passage") for another.
+ *
+ * The passage's own opening statement is unique by construction and names the
+ * topic in the document's words: 111 of 155 and 179 of 187 passages have one.
+ *
+ * The rest are rows of a table, which state no sentence. Naming those by their
+ * heading was tried and measured badly: 50 AIS rows sit under "Table of
+ * Violations and Penalties" and would all have carried it. Their own first cell
+ * names them instead — "Late for work, 15 minutes or less without permission or
+ * a valid reason, if it did not cause delay to other employees" — and every row
+ * in the corpus has one: 45 of 45 on AIS (43 distinct) and 8 of 8 on GMU.
+ * The heading stays above the title as the section the card sits under.
+ *
+ * NOTHING IS COMPOSED
+ *
+ * Every character of a title is a character the document has, in the document's
+ * order. The title is not a summary of the passage — it is the passage's first
+ * statement, with the remainder rendered directly beneath it. A reader who
+ * reads the card top to bottom has read the passage, once, whole.
+ *
+ * A row is the exception to "once": its title is a cell of the row, and the row
+ * is still rendered whole below, so that cell appears twice. Cutting the cell
+ * out of the row to avoid that would leave a mangled row, and the row is the
+ * evidence. Repetition is the lesser cost.
+ */
+export function passageTitle(rules: readonly CanonicalRule[]): PassageTitle {
+  const passage = passageStatement(rules);
+  const heading = passageHeading(rules);
+  if (!passage) {
+    return heading
+      ? { source: "section", text: heading, rest: "" }
+      : { source: "unnamed", text: "", rest: "" };
+  }
+  const [statement, rest] = firstStatement(passage.replace(PIPELINE_ANNOTATION, ""));
+  const namesSomething = !looksLikeTableRow(statement) && statement.split(/\s+/).length >= 3;
+  if (namesSomething) {
+    // When the title is the head of the passage, the remainder is the rest of
+    // it. When it is not — because an annotation stood in front — the whole
+    // passage stays below, so that skipping the annotation for naming never
+    // amounts to deleting text from the quotation.
+    return {
+      source: "statement",
+      text: statement,
+      rest: passage.startsWith(statement) ? rest : passage,
+    };
+  }
+  // Nothing is taken from the passage, so the whole of it stays in view below
+  // a title that is honest about where it came from.
+  const cell = firstCell(passage.replace(PIPELINE_ANNOTATION, ""));
+  if (cell) return { source: "cell", text: cell, rest: passage };
+  return heading
+    ? { source: "section", text: heading, rest: passage }
+    : { source: "unnamed", text: "", rest: passage };
+}
+
+/**
+ * What every rule of the card says the same way.
+ *
+ * A field is returned when all the rules agree on it and `null` when they do
+ * not. The card states the agreed facts once, on the policy, and the differing
+ * ones on the rule each belongs to — so a badge appearing beside a rule always
+ * means "this rule, unlike its neighbours", and never "the third identical copy
+ * of the card's only value".
+ *
+ * The split is not cosmetic. Across the corpus rule type differs within a
+ * passage 65% of the time on AIS and 57% on GMU, and effect differs 44% and
+ * 47%; review status and revision never differ today but can, the moment part
+ * of a passage is decided. Route agrees 99% of the time — and the 1% is
+ * precisely the case that must not be flattened, so it is reported here like
+ * any other disagreement rather than being averaged into one badge.
+ */
+export interface SharedRuleFacets {
+  ruleType: string | null;
+  effectType: string | null;
+  route: string | null;
+  reviewStatus: string | null;
+  revision: number | null;
+}
+
+function shared<T>(values: readonly T[]): T | null {
+  if (values.length === 0) return null;
+  const first = values[0];
+  return values.every((value) => value === first) ? first : null;
+}
+
+export function sharedRuleFacets(card: PolicyCard): SharedRuleFacets {
+  return {
+    ruleType: shared(card.rules.map((rule) => rule.candidate.rule.rule_type)),
+    effectType: shared(card.rules.map((rule) => rule.candidate.rule.effect?.type ?? "")),
+    route: shared(card.rules.map((rule) => rule.evaluation_mode)),
+    reviewStatus: shared(card.rules.map((rule) => rule.candidate.review_status)),
+    revision: shared(card.rules.map((rule) => rule.candidate.rule.rule_revision)),
+  };
+}
+
 /**
  * The card as one document.
  *
@@ -226,11 +420,17 @@ export function passagePageLabel(page: number | null): string | null {
 export function policyJsonDocument(card: PolicyCard): Record<string, unknown> {
   const rules = card.rules.map((rule) => rule.candidate.rule);
   const heading = passageHeading(rules);
+  const title = passageTitle(rules);
   const document: Record<string, unknown> = {
     key: card.policy.key,
     source_elements: card.policy.source_elements,
     page: card.policy.page,
     heading: heading || null,
+    title: title.text || null,
+    // Said in the file as well as on screen: a reader opening this a year from
+    // now should not have to guess whether the title is the document's
+    // sentence, the heading above it, or something this app made up.
+    title_from: title.source,
     passage: passageStatement(rules),
     rule_count: card.policy.rule_count,
     route: card.policy.route,

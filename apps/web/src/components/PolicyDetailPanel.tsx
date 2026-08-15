@@ -1,7 +1,7 @@
 import { Button, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, CodeOutlined, RightOutlined } from "@ant-design/icons";
 import type { PolicyCard } from "../policyCards";
-import { passageHeading, passagePageLabel, passageStatement, policyJsonDocument } from "../policyCards";
+import { passageHeading, passagePageLabel, passageStatement, passageTitle, policyJsonDocument } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { effectActionText, isEmptyCondition, ruleDecisionSummary } from "../ruleDisplay";
 import { ruleTypeLabel } from "../ruleTypes";
@@ -51,6 +51,7 @@ export function PolicyDetailPanel({
 }) {
   const rules = card.rules.map((rule) => rule.candidate.rule);
   const heading = passageHeading(rules);
+  const title = passageTitle(rules);
   const passage = passageStatement(rules);
   const page = passagePageLabel(card.policy.page);
 
@@ -58,9 +59,27 @@ export function PolicyDetailPanel({
     <div className="policy-detail-panel" data-testid="policy-detail-panel" data-passage={card.policy.key}>
       <div className="policy-detail-panel__head">
         <div className="policy-detail-panel__identity">
+          {title.source !== "section" && (
+            <div className="policy-card__section">
+              {heading ? (
+                <DirectionalText>{heading}</DirectionalText>
+              ) : (
+                <Text type="secondary">{HEADING_NOT_RECORDED}</Text>
+              )}
+            </div>
+          )}
           <Title level={5} className="policy-detail-panel__title">
-            <DirectionalText>{heading || card.policy.source_elements}</DirectionalText>
+            <DirectionalText>{title.text || card.policy.source_elements}</DirectionalText>
           </Title>
+          {title.source !== "statement" && (
+            <Text type="secondary" className="policy-card__title-note">
+              {title.source === "cell"
+                ? "This passage is a row of a table, so it is named by its first cell."
+                : title.source === "section"
+                  ? "This passage states no sentence of its own, so it is named by the heading it sits under."
+                  : "Neither a statement nor a heading was recorded for this passage, so it is named by its key."}
+            </Text>
+          )}
           <div className="policy-detail-panel__meta">
             <span>{policyRuleCountLabel(card.policy.rule_count)}</span>
             {page && (
@@ -71,7 +90,6 @@ export function PolicyDetailPanel({
             )}
             <span className="policy-card__dot">·</span>
             <span className="policy-card__source">{card.policy.source_elements}</span>
-            <Tag variant="filled">{policyRouteLabel(card.policy.route)}</Tag>
             {card.reviewStatuses.map((status) => (
               <Tag key={status} color={statusColor(status)}>
                 {statusLabel(status)}
@@ -105,7 +123,6 @@ export function PolicyDetailPanel({
         ) : (
           <Text type="secondary">The source text for this passage was not stored with its rules.</Text>
         )}
-        {!heading && <Text type="secondary">{HEADING_NOT_RECORDED}</Text>}
       </section>
 
       <section className="policy-detail-panel__section">
