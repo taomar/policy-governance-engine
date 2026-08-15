@@ -11,6 +11,9 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from policy_platform.domain import Base  # noqa: E402
+from policy_platform.infrastructure.persistence.migration_target import (  # noqa: E402
+    apply_migration_target,
+)
 from policy_platform.infrastructure.settings import get_settings  # noqa: E402
 
 # this is the Alembic Config object, which provides
@@ -22,10 +25,18 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override the sqlalchemy.url from alembic.ini with our .env-driven setting
+# Decide which database this run touches. Settings supply the default
 # (ALEMBIC_DATABASE_URL uses the sync psycopg driver; DATABASE_URL uses async
-# asyncpg for the runtime app — see docs/adr and .env.example).
-config.set_main_option("sqlalchemy.url", get_settings().alembic_database_url)
+# asyncpg for the runtime app — see docs/adr and .env.example), but a target the
+# caller named explicitly wins.
+#
+# This used to be an unconditional `config.set_main_option("sqlalchemy.url",
+# get_settings().alembic_database_url)`, which read a caller's explicitly
+# supplied URL and threw it away without a word, pointing the run at the
+# ambient default — production — instead. See
+# `infrastructure/persistence/migration_target.py` for the full account and
+# `tests/unit/test_migration_target_resolution.py` for the regression guard.
+apply_migration_target(config, get_settings().alembic_database_url)
 
 # add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata

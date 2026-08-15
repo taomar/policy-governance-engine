@@ -47,7 +47,7 @@ from sqlalchemy.orm import selectinload
 
 from policy_platform.contracts.passage import PolicyPassage
 from policy_platform.contracts.provision_grouping import Provision, raw_groups
-from policy_platform.contracts.reading_plan import DividedProvision
+from policy_platform.contracts.reading_plan import DividedProvision, render_table_columns
 from policy_platform.contracts.structural_graph import build_structural_graph
 from policy_platform.contracts.policy import (
     AmbiguityStatus,
@@ -184,13 +184,33 @@ def _provisions(clauses: list[Clause], document_id: str) -> list[list[Clause]] |
 
 
 
+def _rendered_size(clause: Clause) -> int:
+    """What one clause costs in a batch, including anything rendered around it.
+
+    The flat allowance covers the addressing marker and the section line. The
+    column marker is added on top rather than folded into it, because it is
+    present on table rows only: charging every clause for a line most of them
+    never carry would shrink batches for no reason, and charging none of them
+    for it would let a table-heavy batch overrun the window it was packed to
+    fit.
+    """
+
+    return len(clause.text) + 40 + len(_column_marker(clause))
+
+
+def _column_marker(clause: Clause) -> str:
+    """The column-names line for a table row, or "" for anything else."""
+
+    return render_table_columns(clause.table_headers)
+
+
 def _pack(run: list[Clause], budget: int) -> list[list[Clause]]:
     """Split one provision that does not fit, in document order."""
 
     pieces: list[list[Clause]] = [[]]
     used = 0
     for clause in run:
-        size = len(clause.text) + 40
+        size = _rendered_size(clause)
         if pieces[-1] and used + size > budget:
             pieces.append([])
             used = 0
@@ -231,7 +251,7 @@ def _batch_clauses(
     current_len = 0
 
     for run in runs:
-        run_len = sum(len(c.text) + 40 for c in run)
+        run_len = sum(_rendered_size(c) for c in run)
         if run_len > _MAX_CHARS_PER_BATCH:
             if current:
                 batches.append(current)
@@ -291,6 +311,15 @@ def _render_batch(clauses: list[Clause]) -> str:
     was survivable while verbatim verification did all the work, but a span
     reference is only useful if it resolves, so the label must contain exactly
     one identifier and nothing else.
+
+    A row of a table also gets its table's column names, on their own line and
+    for the same reason the section gets one: `"Engineering | Performance
+    laptop, 16-inch | Included | USD 2,400"` is unreadable as policy without
+    knowing the grid names role profiles, device classes, monitors and costs.
+    The line names the columns and explicitly refuses to align them with the
+    values, because that alignment is not recorded anywhere — see
+    `reading_plan.table_column_names`. Rows from a table that stated no column
+    labels get no line at all: absence is left absent rather than announced.
     """
 
     parts = []
@@ -298,6 +327,9 @@ def _render_batch(clauses: list[Clause]) -> str:
         header = f"[clause_ref={c.clause_ref}]"
         if c.section:
             header += f"\n(section: {c.section})"
+        columns = _column_marker(c)
+        if columns:
+            header += f"\n{columns}"
         parts.append(f"{header}\n{c.text}")
     return "\n\n".join(parts)
 

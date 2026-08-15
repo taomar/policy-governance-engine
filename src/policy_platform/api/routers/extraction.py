@@ -222,6 +222,10 @@ async def get_reading_plan(
                 "unit_id": unit.unit_id,
                 "heading_path": unit.heading_path,
                 "target_element_ids": unit.target_element_ids,
+                # Column names for those targets that are rows of a table. A
+                # target absent from this map had no column labels recorded;
+                # a present one is names only, never an alignment to values.
+                "table_columns": unit.table_columns,
                 "context": [
                     {"element_id": entry.element_id, "reason": entry.reason,
                      "is_candidate": entry.is_candidate}

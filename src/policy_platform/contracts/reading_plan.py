@@ -102,6 +102,71 @@ _CROSS_REFERENCE_RE = re.compile(
 )
 
 
+#: How a row's column names are shown to a reader. The wording is load-bearing
+#: in both directions.
+#:
+#: It must say the names, because a row rendered as
+#: "Engineering | Performance laptop, 16-inch | Included | USD 2,400" reads as a
+#: sentence with punctuation unless something says it is a row of a grid about
+#: role profiles, device classes, monitors and costs.
+#:
+#: And it must refuse the pairing, because the pairing is not known. The legacy
+#: parsers record a table's column labels and the row's values, but nothing
+#: that ties one to the other: labels come from whichever row evidenced itself
+#: as the header, may be blank, and may be fewer or more than a given row's
+#: values where cells span. The pipe in the row text is a rendering of cell
+#: boundaries, not an invertible delimiter. A reader that zips the two lists
+#: would produce confident, well-formed, wrong attributions -- which is worse
+#: than being told nothing.
+#: And it must not imply the list is exhaustive. Labels that name nothing are
+#: dropped, and a grid whose column names run across two printed lines yields
+#: only the line the parser read as the header -- so the names shown are ones
+#: this table's columns really have, not necessarily all of them. Saying
+#: "include" costs a word and keeps the sentence true; saying "are" would let a
+#: reader conclude a row with more values than names is malformed.
+_TABLE_COLUMN_MARKER = (
+    "(from a table whose columns include: {names} — names only, and not "
+    "necessarily all of them; which value sits under which column is not "
+    "recorded, so do not pair them by position)"
+)
+
+#: Separates column names. Deliberately *not* the pipe the row text is joined
+#: with: two lists rendered with the same separator invite exactly the
+#: positional reading the marker denies.
+_COLUMN_NAME_SEPARATOR = "; "
+
+
+def table_column_names(headers: list[str] | None) -> list[str]:
+    """The column names of a row's table, as a reader can usefully be shown them.
+
+    Returns an empty list when nothing is known. Absence is preserved rather
+    than described: a row from a grid where no row evidenced itself as the
+    header stays silent, because "the column names are unavailable" is a
+    sentence about this system, not about the document, and it earns no place
+    in the source material a model reads.
+
+    Labels with no text are dropped -- a blank cell in a header row names
+    nothing, and passing it on would only pad the list. Internal whitespace is
+    collapsed so a label that was printed across two lines ("Sl.\\nNo.") stays
+    on the single line the marker occupies. Both are rendering decisions taken
+    at the point of display: the stored labels are not altered, and no word is
+    changed, added or reordered.
+    """
+
+    if not headers:
+        return []
+    return [name for name in (" ".join(h.split()) for h in headers if h) if name]
+
+
+def render_table_columns(headers: list[str] | None) -> str:
+    """One line naming a row's columns, or an empty string when none are known."""
+
+    names = table_column_names(headers)
+    if not names:
+        return ""
+    return _TABLE_COLUMN_MARKER.format(names=_COLUMN_NAME_SEPARATOR.join(names))
+
+
 @dataclass(frozen=True)
 class ContextElement:
     """One supporting element, with the reason it was pulled in."""
@@ -128,6 +193,19 @@ class ContextUnit:
     target_element_ids: list[str]
     context: list[ContextElement] = field(default_factory=list)
     heading_path: list[str] = field(default_factory=list)
+    #: Column names for those targets that are rows of a table, keyed by element
+    #: id. Only rows whose table stated its column labels appear here, so a
+    #: missing key means "not recorded" and never "no columns".
+    #:
+    #: This is *not* structure. It names a row's columns; it does not say which
+    #: value is in which, and nothing here may be paired with the row's text by
+    #: position. It is carried on the unit rather than added as a context
+    #: element because there is no element to add: under the parser that
+    #: actually runs, column labels are strings held on the row itself, not
+    #: separate elements with ids of their own. Inventing one so the existing
+    #: edge machinery would fire would be fabricating an identity the source
+    #: never had.
+    table_columns: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def context_element_ids(self) -> list[str]:
@@ -387,11 +465,22 @@ def _build_unit(
 
     _add_preceding_context(targets, order, by_id, graph, add)
 
+    # Column names for the targets that are rows of a table. Read straight off
+    # the element rather than through the graph: these are labels the row
+    # carries, not edges between elements, and routing them through the graph
+    # would mean inventing nodes for them first.
+    table_columns: dict[str, list[str]] = {}
+    for target in targets:
+        names = table_column_names(by_id[target].table_headers)
+        if names:
+            table_columns[target] = names
+
     return ContextUnit(
         unit_id=f"{document.document_id}:U{index:04d}",
         target_element_ids=list(targets),
         context=sorted(context.values(), key=lambda c: (order.index(c.element_id), c.reason)),
         heading_path=[by_id[h].text for h in heading_ids if h in by_id],
+        table_columns=table_columns,
         _document_order=order,
     )
 
@@ -419,6 +508,14 @@ def _add_table_context(target: str, graph: StructuralGraph, add) -> None:
     table would put all 94 cells of a large table into the context of each one,
     which is a sliding window wearing a different name — and the row above is
     rarely relevant to the row below.
+
+    This frames a *cell*, and only a cell. Every edge it reads (`header_for`,
+    `merged_with`, `table_cell_of`) is built only where an element carries cell
+    coordinates, so a `table_row` — what the parser that actually runs emits —
+    gets nothing here, and cannot: its column labels are strings held on the row
+    rather than elements with ids to pull in. Rows are told their column names
+    through `ContextUnit.table_columns` instead, which names them without
+    claiming to know which value sits under which.
     """
 
     for header in graph.sources(target, "header_for"):

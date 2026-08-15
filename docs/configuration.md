@@ -59,6 +59,35 @@ set, not in `.env`. Key it on the source term exactly as it appears in the polic
 text, with the target fact path nested inside — keying by the fact path instead
 fails silently because the extractor resolves mappings by source terminology.
 
+### Pointing a migration at a database other than the default
+
+`ALEMBIC_DATABASE_URL` is the *default* target, not the only one. Anything a
+caller names explicitly wins over it, and the resolved target — with the
+password removed — is logged at the start of every run, so an operator can see
+where a `downgrade` is about to land before it lands.
+
+```powershell
+# One invocation, from the command line.
+.\.venv\Scripts\python.exe -m alembic -x db_url=postgresql+psycopg://user:pw@localhost:5433/scratch upgrade head
+```
+
+```python
+# One invocation, programmatically. This is the documented, obvious route and
+# it is honoured.
+config = Config("alembic.ini")
+config.set_main_option("sqlalchemy.url", scratch_url)
+command.upgrade(config, "head")
+```
+
+Setting `ALEMBIC_DATABASE_URL` in a child process's environment also works and
+always did, but it is no longer the *only* route. It used to be: `alembic/env.py`
+overwrote `sqlalchemy.url` unconditionally, so a caller who set it
+programmatically was silently pointed at the ambient default instead — which in
+a developer's shell is production. The resolution now lives in
+`infrastructure/persistence/migration_target.py`, which explains the failure in
+full; `tests/unit/test_migration_target_resolution.py` fails if the override is
+ever made unconditional again.
+
 ## Setup, run, test
 
 Prerequisites: Docker Desktop, Python 3.11+, Node.js 18+.

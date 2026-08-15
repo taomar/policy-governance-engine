@@ -465,6 +465,21 @@ _QUARANTINE: dict[str, str] = {
     # cannot be forgotten: `test_every_quarantine_entry_is_earned` fails the
     # moment one exists.
     "infrastructure/consolidation/duplicate_records.py::repeated_records": "consolidation pass entry point; run from tooling pending a decision to apply it during extraction",
+    #
+    # Not the usual case. This one *is* wired, to `alembic/env.py`, which is the
+    # migration entrypoint and is production by any reasonable reading. It is
+    # listed only because this analyser scans `src/` and env.py does not live
+    # there, so the caller is invisible to it rather than absent.
+    #
+    # Widening the scan to `alembic/` was considered and rejected: it would pull
+    # in every revision file, each of which defines `upgrade`/`downgrade` with no
+    # caller in `src/`, and would report a wall of offenders that are not
+    # offenders. The narrower fix -- teaching the analyser about entrypoints
+    # outside `src/` -- is a change to a shared guard and belongs to whoever owns
+    # it, not to a migration-safety fix.
+    #
+    # Remove this entry if the analyser ever learns to see env.py.
+    "infrastructure/persistence/migration_target.py::apply_migration_target": "called by alembic/env.py, which this analyser does not scan; wired, not orphaned",
 }
 
 
