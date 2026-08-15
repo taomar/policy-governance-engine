@@ -1303,6 +1303,30 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           if (!entry) return {};
           return ruleActionHandlers(entry.candidate, () => openRuleWithinPolicy(ruleId));
         }}
+        /* What the queue can genuinely service for a whole policy, and no more.
+         *
+         * Only `open-record` is wired, because only it already exists: a policy
+         * is opened at the first rule the reviewer has not yet settled, or at
+         * its first rule when they are all settled, which is the same
+         * destination the rule rows use.
+         *
+         * Left unwired on purpose, and absent rather than dead in the menu:
+         *  - `view-history` would have to open one rule's history under a
+         *    policy's name. The policy-scope history the API exposes has no
+         *    client in this app, and api.ts is not this change's to edit.
+         *  - `ask-ai` is already a button in this header. A second way to reach
+         *    one thing is the drift this work exists to undo.
+         *  - `revise`, `compare-versions` and `export` mean nothing for a
+         *    candidate; they are declared for the Policies page to service. */
+        policyActions={{
+          "open-record": () => {
+            const unsettled = openPolicyCard.rules.find((r) =>
+              openPolicyCard.reviewableIds.includes(r.candidate.id),
+            );
+            const target = unsettled ?? openPolicyCard.rules[0];
+            if (target) openRuleWithinPolicy(target.rule_id);
+          },
+        }}
         actions={
           <>
             {isDesktop && (

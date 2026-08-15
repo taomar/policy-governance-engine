@@ -21,11 +21,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { AssembledPolicy, CandidateRule, CanonicalRule } from "./api";
 import { ActorProvider } from "./ActorContext";
 import type { PolicyCard } from "./policyCards";
 import { PolicyDetailPanel } from "./components/PolicyDetailPanel";
+import type { RecordActionHandlers } from "./components/RecordActionsMenu";
 
 beforeEach(() => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -150,8 +151,8 @@ function cardFor(provisionId: string | null): PolicyCard {
   } as unknown as PolicyCard;
 }
 
-function renderPanel(options: { provisionId?: string | null; policySetKey?: string | null; chrome?: boolean } = {}) {
-  const { provisionId = "prov-1", chrome = true } = options;
+function renderPanel(options: { provisionId?: string | null; policySetKey?: string | null; chrome?: boolean; policyActions?: RecordActionHandlers } = {}) {
+  const { provisionId = "prov-1", chrome = true, policyActions } = options;
   // Read through `in` rather than a default, so a test can say "no set key"
   // and mean it: a default parameter treats an explicit `undefined` as absent
   // and hands back the default, which is exactly the case under test.
@@ -165,6 +166,7 @@ function renderPanel(options: { provisionId?: string | null; policySetKey?: stri
         onApprove={() => {}}
         onReject={() => {}}
         policySetKey={policySetKey ?? undefined}
+        policyActions={policyActions}
         actions={chrome ? <button type="button">Hide</button> : undefined}
       />
     </ActorProvider>,
@@ -239,6 +241,74 @@ describe("the policy header sorts its controls by what they do", () => {
     // nothing inside them.
     expect(screen.queryByRole("group", { name: "Ask about this policy" })).toBeNull();
     expect(screen.getByRole("group", { name: "Decide this policy" })).toBeTruthy();
+  });
+
+  it("offers the policy's own destinations from the header menu, not just its id", () => {
+    const opened: string[] = [];
+    renderPanel({ policyActions: { "open-record": () => opened.push("open-record") } });
+
+    const trigger = screen.getAllByTestId("record-actions-menu")[0];
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(trigger);
+
+    const menu = screen.getByRole("menu");
+    const keys = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("data-action"));
+
+    // A menu worth opening. Copy ID services itself, so a header that supplies
+    // nothing still draws one entry -- which is how this shipped, and why the
+    // kebab was not yet carrying the secondary actions it exists to carry.
+    expect(keys).toContain("open-record");
+    expect(keys).toContain("copy-id");
+    expect(keys.length).toBeGreaterThan(1);
+
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /full record/i }));
+    expect(opened).toEqual(["open-record"]);
+  });
+
+  it("leaves out the policy destinations this surface cannot service, rather than greying them", () => {
+    renderPanel({ policyActions: { "open-record": () => {} } });
+
+    fireEvent.click(screen.getAllByTestId("record-actions-menu")[0]);
+    const menu = screen.getByRole("menu");
+    const keys = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("data-action"));
+
+    // Absent, not disabled: a candidate policy has nothing to revise, compare
+    // or export, and this surface has no policy-scope history to show.
+    for (const missing of ["revise", "compare-versions", "export", "view-history"]) {
+      expect(keys).not.toContain(missing);
+    }
+    // And a decision is never buried in a menu.
+    for (const decision of ["approve", "reject"]) {
+      expect(keys).not.toContain(decision);
+    }
+  });
+
+  /**
+   * The panel above accepts `policyActions` and draws whatever it is given.
+   * That is only half the wiring, and the half that shipped working: the queue
+   * built the prop and then never supplied it, so the policy menu drew the one
+   * entry that services itself and looked, reasonably, like a menu not worth
+   * opening. A prop nobody passes is indistinguishable from a prop that does
+   * not exist, and no rendering test of this panel can see the difference.
+   */
+  it("is supplied by the queue that renders the panel, not merely accepted by it", () => {
+    const sources = import.meta.glob("./components/ReviewQueue.tsx", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const source = Object.values(sources)[0];
+    expect(source).toBeTruthy();
+
+    // Control: this is the file that renders the panel.
+    expect(source).toContain("<PolicyDetailPanel");
+    expect(source).toContain("ruleActions=");
+
+    expect(source).toContain("policyActions=");
   });
 });
 
