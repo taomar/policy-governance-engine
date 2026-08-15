@@ -223,10 +223,52 @@ describe("a route is never rendered as a shortfall", () => {
     expect(container.textContent).not.toContain("Statement of r-2");
   });
 
-  it("says plainly that a policy decided by reading waits on nothing", () => {
+  it("says how a policy decided by reading works, rather than what it holds none of", () => {
     const card = cardOf([{ id: "r-1" }]);
     render(<PolicyPartiesAndRoutesPane record={candidatePolicyRecord(card)} />);
-    expect(screen.getByText(/none of them waits on a supplied value/)).toBeTruthy();
+    expect(screen.getByText(/the words\s+are the test/)).toBeTruthy();
+  });
+
+  /**
+   * A denial is not a defence.
+   *
+   * Two earlier drafts of these captions tried to be reassuring — "it names no
+   * facts, and is not missing any", "none of them waits on a supplied value" —
+   * and both put the reader in front of a shortage in order to wave it away.
+   * The noun survives the skim; the negation does not. So the assertion below
+   * is not that the copy is polite about the reading route, it is that the copy
+   * never raises the subject: there is no shortage here to be generous about.
+   *
+   * The phrases are matched, not the sentences that once held them, because the
+   * failure mode is a later tidy-up reaching for the same shape in new words.
+   */
+  const REASSURANCE_SHAPED_AS_A_DENIAL = [
+    /\bis not missing\b/i,
+    /\bnot missing any\b/i,
+    /\bnothing (is )?missing\b/i,
+    /\bwaits on nothing\b/i,
+    /\bnames no facts\b/i,
+    /\bno rule .* states a comparison\b/i,
+    /\bdoes not lack\b/i,
+    /\bis not incomplete\b/i,
+  ];
+
+  it.each([
+    ["a policy every rule of which is decided by reading", [{ id: "r-1" }, { id: "r-2" }]],
+    [
+      "a policy with both routes in it",
+      [{ id: "r-1", mode: "deterministic" as const, facts: ["a_named_value"] }, { id: "r-2" }],
+    ],
+  ])("never reassures %s out of a shortage it would have introduced", (_name, spec) => {
+    const { container } = render(
+      <PolicyPartiesAndRoutesPane record={candidatePolicyRecord(cardOf(spec))} />,
+    );
+    const rendered = container.textContent ?? "";
+    // Control: the pane rendered its captions, so an empty match proves nothing.
+    expect(rendered).toMatch(/the words\s+are the test/);
+    for (const denial of REASSURANCE_SHAPED_AS_A_DENIAL) {
+      expect(rendered).not.toMatch(denial);
+    }
   });
 });
 

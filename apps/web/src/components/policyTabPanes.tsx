@@ -189,6 +189,14 @@ export const PARTIES_AND_ROUTES_TAB_LABEL = "Parties & routes";
  * column measuring something it was never going to have, and the empty cell
  * reads as an omission. Those rules are therefore not in the table at all;
  * what the reviewer is told about them is which route they take, above.
+ *
+ * The captions here state how a rule works, never what it does not have, and
+ * that distinction survived two attempts at the reassuring form. Writing "it
+ * names no facts, and is not missing any" reads as generous and does the
+ * opposite: it supplies the frame it then withdraws, and a reader skimming
+ * keeps the noun and drops the negation. There is no shortage to deny. The
+ * words of the source are the test, which is a complete account of the rule
+ * and needs nothing subtracted from it.
  */
 export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordView }) {
   const rules = recordRules(record);
@@ -230,8 +238,8 @@ export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordVie
         </Text>
         {facts.length === 0 ? (
           <Paragraph type="secondary">
-            No rule of this policy states a comparison, so none of them waits on a supplied
-            value. They are decided from what the source says.
+            Every rule of this policy is decided by reading what its source says: the words
+            are the test, and a reader applies them to the case in front of them.
           </Paragraph>
         ) : (
           <>
@@ -247,9 +255,9 @@ export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordVie
               ))}
             </ul>
             <Paragraph type="secondary">
-              Counted against the rules that state a comparison, not against the policy. A rule
-              its source states in words is decided by reading it, so it names no facts and
-              waits on nothing.
+              Counted against the rules that state a comparison, which is where a named fact
+              comes from. A rule its source states in words is decided by reading it: the words
+              are the test, and a reader applies them.
             </Paragraph>
           </>
         )}
