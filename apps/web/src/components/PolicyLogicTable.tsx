@@ -1,8 +1,14 @@
 import { Typography } from "antd";
+import { Fragment } from "react";
 
 import { UNKNOWN_COUNT } from "../loadState";
 import type { PolicyCard } from "../policyCards";
-import type { LogicMark, LogicRuleReading } from "../policyLogicShape";
+import type {
+  LogicAttributeReading,
+  LogicBranch,
+  LogicMark,
+  LogicRuleReading,
+} from "../policyLogicShape";
 import { policyLogicShape } from "../policyLogicShape";
 import { policyRouteLabel } from "../policyGrouping";
 import { ruleTypeLabel } from "../ruleTypes";
@@ -11,7 +17,8 @@ import { DirectionalText } from "./DirectionalText";
 const { Text } = Typography;
 
 /**
- * The policy's rules compared — one rule at a time, whole.
+ * The policy's rules compared — one rule at a time, whole, each drawn the way
+ * the rule inspector draws it.
  *
  * WHAT THIS TAB IS FOR
  *
@@ -32,55 +39,67 @@ const { Text } = Typography;
  * the least informative. One long value set the height of a whole row, so rows
  * were ragged and mostly empty.
  *
- * None of that is a fault of the comparison. It is a fault of the shape. So the
- * comparison is unchanged and the shape is different: each rule is a block, and
- * each attribute of it is one row of the three parts an attribute has — its own
- * name, the document's words, and the identifier a case supplies a value for.
- * That is the same row the rule inspector draws, so a reviewer who has read one
- * rule there can read seven here without learning a second arrangement. A block
- * wraps, so nothing scrolls sideways, and the widest value in the policy costs
- * height only in the rule that states it.
+ * None of that is a fault of the comparison. It is a fault of the shape.
  *
- * WHAT REPLACED THE COLUMN HEADS
+ * THE SHAPE IT HAS INSTEAD, AND WHY IT IS NOT A NEW ONE
  *
- * The counts, kept: `condition 39 of 84` is a fact about the document and the
- * one thing the grid did that reading rules one at a time cannot. They are now a
- * list above the rules instead of a header row, so they stay visible without
- * setting the width of anything.
+ * Two other surfaces already draw a rule's logic — the inspector's own tab and
+ * the live preview beside the revise form — and both draw it the same way: what
+ * scopes the rule under `APPLIES`, what follows from it under the effect the
+ * record declares, each attribute one row of its own name, the document's words
+ * and the identifier a case supplies a value for. A reviewer moving between
+ * those and this one should not have to learn a second arrangement of the same
+ * record, so this draws the same tree, from the same rows, with the same class
+ * names — the rows here and the rows there are laid out by one rule in one
+ * stylesheet, not by two that happen to agree today.
+ *
+ * The overview above the rules is what this view adds, because it is the part
+ * only a policy has: how many of its rules state each attribute, which rules
+ * state the same set as each other, and what they all state alike. That
+ * composes with the tree instead of competing with it — the counts say where to
+ * look and the trees say what is there.
+ *
+ * A sentence with its constituents marked up was the other candidate and was
+ * rejected for the same reason: it reads well, and it would have been a third
+ * way of showing one record, on the screen a reviewer arrives at from the other
+ * two.
+ *
+ * WHY THE GROUPS DO NOT COLLAPSE
+ *
+ * The inspector's tree has a switcher on each group because it draws one rule.
+ * This draws eighty-four, and eighty-four rules is a hundred and sixty-eight
+ * switchers — a hundred and sixty-eight tab stops between a reviewer and the
+ * bottom of the policy, and a hundred and sixty-eight chances for the view to
+ * be showing less than it holds. A reviewer checking whether we dropped
+ * something cannot be asked to open things to find out. So the groups keep the
+ * heading and the indent guide and drop the control, and nothing here is behind
+ * a click.
  *
  * WHAT REPLACED THE REPEATED "NOT STATED"
  *
- * One line per rule naming the attributes that rule does not state. The fact is
- * unchanged and still per attribute — a reviewer can still see that a rule names
- * no actor — but it is said once per rule rather than once per empty cell, and
- * it is said quietly, because absence is information and not an alarm. Absence
- * stays distinct from the em dash this app reserves for "we do not know".
+ * One line per half of a rule, naming the attributes that half does not state.
+ * The fact is unchanged and still per attribute — a reviewer can still see that
+ * a rule names no actor — but it is said once rather than once per empty cell,
+ * and quietly, because absence is information and not an alarm. It stays
+ * distinct from the em dash this app reserves for "we do not know".
  *
- * WHAT IS NEW: THE SHAPE OF THE POLICY
+ * WHAT IS NOT HERE, AND WHY
  *
- * Two rules that filled the same set of attributes are the same shape, and at
- * scale that is what a reviewer wants first: on the largest policy two shapes
- * account for two thirds of the rules, so the rules alone in theirs are worth a
- * look. Each rule also carries a signature — one mark per attribute, in the
- * fixed order of the counts above, filled where the rule states it. The marks
- * sit at the same offset in every block, so scanning down shows which rules are
- * alike without reading a word. It is a second rendering of what the block
- * already says in full, never the only one, so it is hidden from assistive
- * technology rather than made to say everything twice.
+ * The live preview also carries who set the rule, what it applies to and its
+ * priority. Measured over the live corpus, every rule of both stored documents
+ * carries the same authority, an empty scope and priority zero, so at policy
+ * scale those are three identical lines per rule and nothing a reviewer could
+ * compare. They are worth showing where one rule is the subject; here they
+ * would be four hundred cells that look like evidence and are not.
  *
  * WHAT IT STILL DOES NOT DO
  *
  * It adds no summary, composes no sentence, and detects nothing. Every string
- * here is a run of the document, a canonical field name, or a count of rules.
- * Rules stay in document order under the passage that states them: ordering by
- * how many attributes a rule filled would rank rules by completeness, and a rule
- * the document states in words would sit at the bottom of every policy in the
- * system. Route is not a score and is not sorted on. Grouping by shape is
- * reported above and never applied to the rules themselves.
- *
- * Nothing is behind a click. There is no control here to expand, because a
- * reviewer checking whether we dropped something cannot be asked to open
- * fourteen things to find out.
+ * here is a run of the document, a canonical field name, an effect the record
+ * declares, or a count of rules. Rules stay in document order under the passage
+ * that states them: ordering by how many attributes a rule filled would rank
+ * rules by completeness, and a rule whose test the source states in words would
+ * sit at the bottom of every policy in the system.
  */
 export function PolicyLogicTable({ card }: { card: PolicyCard }) {
   const logic = policyLogicShape(card);
@@ -99,49 +118,14 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
         What each rule states —{" "}
         {logic.total === 1 ? "1 rule" : `${logic.total} rules`}
         {logic.columns.length > 0 &&
-          ` · ${logic.columns.length === 1 ? "1 attribute" : `${logic.columns.length} attributes`} where they differ`}
+          ` · ${logic.columns.length === 1 ? "1 attribute" : `${logic.columns.length} attributes`} across them`}
       </Text>
 
-      {logic.shared.length > 0 && (
-        <dl className="policy-logic__shared" data-testid="policy-logic-shared">
-          {/* Said once because every rule says it the same way. Twenty cells
-              carrying one value is a column a reviewer scans and learns nothing
-              from, and the value itself is not dropped — it moves here. */}
-          {logic.shared.map((fact) => (
-            <div
-              key={fact.attribute ?? fact.label}
-              className="policy-logic__shared-item policy-logic__attr"
-            >
-              <dt className="policy-logic__col-label">
-                {fact.attribute ?? fact.label}
-              </dt>
-              <dd className="policy-logic__stated" data-verbatim="true">
-                <DirectionalText align>{fact.text}</DirectionalText>
-              </dd>
-              <dd className="policy-logic__fact">
-                {fact.fact && (
-                  <FactChip fact={fact.fact} dataType={fact.dataType} />
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {logic.shared.length > 0 && logic.columns.length > 0 && (
-        <Text type="secondary" className="policy-logic__note">
-          {logic.total === 1
-            ? "Stated by this rule."
-            : `Stated the same way by all ${logic.total} rules.`}
-        </Text>
-      )}
-
       {logic.columns.length === 0 ? (
-        logic.shared.length === 0 && (
-          <Text type="secondary">
-            No decomposition was recorded for the rules of this policy, so there
-            is nothing to compare here. Each rule's own statement is above.
-          </Text>
-        )
+        <Text type="secondary">
+          No decomposition was recorded for the rules of this policy, so there is
+          nothing to compare here. Each rule's own statement is above.
+        </Text>
       ) : (
         <>
           {/* What the header row of the grid carried, kept, and no longer
@@ -153,9 +137,13 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
             data-testid="policy-logic-coverage"
           >
             {logic.columns.map((column) => (
-              <li key={column.attribute} className="policy-logic__coverage-item">
+              <li
+                key={`${column.side}-${column.attribute}`}
+                className="policy-logic__coverage-item"
+                data-side={column.side}
+              >
                 <span className="policy-logic__col-label">
-                  {column.attribute}
+                  <Wrappable text={column.attribute} />
                 </span>
                 <span className="policy-logic__col-count">
                   {column.filled} of {logic.total}
@@ -163,6 +151,14 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
               </li>
             ))}
           </ul>
+
+          {logic.shared.length > 0 && (
+            <Text type="secondary" className="policy-logic__note">
+              {logic.total === 1
+                ? `This rule states ${listNames(logic.shared.map((fact) => fact.attribute))}.`
+                : `All ${logic.total} rules state ${listNames(logic.shared.map((fact) => fact.attribute))} with the same words.`}
+            </Text>
+          )}
 
           {shapesCollapse ? (
             <ul className="policy-logic__shapes" data-testid="policy-logic-shapes">
@@ -187,7 +183,7 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
                           key={attribute}
                           className="policy-logic__col-label"
                         >
-                          {attribute}
+                          <Wrappable text={attribute} />
                         </span>
                       ))
                     )}
@@ -243,18 +239,127 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
   );
 }
 
-/** The identifier a case supplies a value for, and the kind of value it is. */
-function FactChip({ fact, dataType }: { fact: string; dataType: string | null }) {
+/** Canonical names run together, so a sentence about them stays a sentence. */
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** Where one part of a name ends and the next begins, in any naming style. */
+const SEAM = /[_\-./\s]/;
+
+/**
+ * A canonical name, whole, wherever the room for it runs out.
+ *
+ * A name can be longer than the space beside a value. It may not be shortened
+ * and it may not push its row sideways, which leaves wrapping — so this says
+ * where a wrap may land: at the seams the name already has, between its parts
+ * rather than inside one. A name with no seam still wraps, because a name that
+ * ran off the row would be a name the reviewer could not read. Nothing is added
+ * to the text: the marks are break opportunities, and the name a reader copies
+ * is the name the record holds.
+ */
+function Wrappable({ text }: { text: string }) {
+  const parts: string[] = [];
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (SEAM.test(text[index])) {
+      parts.push(text.slice(start, index + 1));
+      start = index + 1;
+    }
+  }
+  if (start < text.length || parts.length === 0) parts.push(text.slice(start));
+
   return (
     <>
-      <code className="policy-logic__fact-name">{fact}</code>
-      {dataType && <span className="policy-logic__fact-type">{dataType}</span>}
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && <wbr />}
+          {part}
+        </Fragment>
+      ))}
     </>
   );
 }
 
-/** One rule, whole: what it states, then what it does not. */
+/** The identifier a case supplies a value for, and the kind of value it is. */
+function FactChip({ fact, dataType }: { fact: string; dataType: string | null }) {
+  return (
+    <code className="policy-attr-fact-name policy-logic__fact-name">
+      {fact}
+      {dataType ? `: ${dataType}` : ""}
+    </code>
+  );
+}
+
+/**
+ * One attribute, in three parts and nothing else.
+ *
+ * Wears the classes the rule inspector's rows wear, so the two surfaces are
+ * laid out by the same stylesheet rule rather than by two that were written to
+ * look alike. It also wears this view's own names, which its guards address and
+ * which keep the value's freedom to wrap checkable from here.
+ */
+function AttributeRow({ row }: { row: LogicAttributeReading }) {
+  return (
+    <div className="policy-attr policy-logic__attr">
+      <dt className="policy-attr-name policy-logic__col-label">
+        <Wrappable text={row.attribute} />
+      </dt>
+      {/* The document's words, whole. Marked so a guard can tell what this app
+          wrote from what the document did. */}
+      <dd
+        className="policy-attr-value policy-logic__stated"
+        data-verbatim="true"
+      >
+        <DirectionalText align>{row.text}</DirectionalText>
+      </dd>
+      <dd className="policy-attr-fact policy-logic__fact">
+        {row.fact && <FactChip fact={row.fact} dataType={row.dataType} />}
+      </dd>
+    </div>
+  );
+}
+
+/** What scopes a rule, or what follows from it — the inspector's two groups. */
+function Branch({ branch }: { branch: LogicBranch }) {
+  return (
+    <div
+      className="policy-logic__branch"
+      data-testid="policy-logic-branch"
+      data-side={branch.side}
+    >
+      <span className="cond-group-label policy-logic__branch-label">
+        {branch.heading}
+      </span>
+
+      {branch.rows.length > 0 && (
+        <dl className="policy-logic__branch-rows">
+          {branch.rows.map((row) => (
+            <AttributeRow key={`${row.side}-${row.attribute}`} row={row} />
+          ))}
+        </dl>
+      )}
+
+      {branch.absent.length > 0 && (
+        // A true statement about the rule: the decomposition is there and names
+        // no such component. Said once, not once per empty cell.
+        <p className="policy-logic__absent" data-testid="policy-logic-absent">
+          <span className="policy-logic__absent-label">states no</span>
+          {branch.absent.map((attribute) => (
+            <span key={attribute} className="policy-logic__absent-name">
+              <Wrappable text={attribute} />
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One rule, whole: what scopes it, then what follows from it. */
 function RuleBlock({ rule }: { rule: LogicRuleReading }) {
+  const [applies, outcome] = rule.branches;
   return (
     <article
       className="policy-logic__rule"
@@ -272,52 +377,24 @@ function RuleBlock({ rule }: { rule: LogicRuleReading }) {
         </span>
       </div>
 
-      {rule.stated.length > 0 && (
-        <dl className="policy-logic__attrs">
-          {rule.stated.map((attribute) => (
-            <div key={attribute.attribute} className="policy-logic__attr">
-              <dt className="policy-logic__col-label">{attribute.attribute}</dt>
-              {/* The document's words, whole. Marked so a guard can tell what
-                  this app wrote from what the document did. */}
-              <dd className="policy-logic__stated" data-verbatim="true">
-                <DirectionalText align>{attribute.text}</DirectionalText>
-              </dd>
-              <dd className="policy-logic__fact">
-                {attribute.fact && (
-                  <FactChip
-                    fact={attribute.fact}
-                    dataType={attribute.dataType}
-                  />
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
       {rule.unrecorded ? (
         // Nothing is known either way, which is a different fact from absence
         // and wears the mark this app reserves for it.
-        <p
-          className="policy-logic__unknown"
-          data-testid="policy-logic-unrecorded"
-        >
+        <p className="policy-logic__unknown" data-testid="policy-logic-unrecorded">
           <span aria-hidden>{UNKNOWN_COUNT}</span> No decomposition was recorded
           for this rule, so whether it states any of these attributes is unknown.
         </p>
       ) : (
-        rule.absent.length > 0 && (
-          // A true statement about the rule: the decomposition is there and
-          // names no such component. Said once, not once per empty cell.
-          <p className="policy-logic__absent" data-testid="policy-logic-absent">
-            <span className="policy-logic__absent-label">This rule states no</span>
-            {rule.absent.map((attribute) => (
-              <span key={attribute} className="policy-logic__absent-name">
-                {attribute}
-              </span>
-            ))}
-          </p>
-        )
+        <div className="policy-logic__tree">
+          <span className="semantic-projection-label policy-logic__half">
+            Condition
+          </span>
+          <Branch branch={applies} />
+          <span className="semantic-projection-label policy-logic__half">
+            Outcome
+          </span>
+          <Branch branch={outcome} />
+        </div>
       )}
     </article>
   );

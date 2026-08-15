@@ -11653,55 +11653,18 @@
 }
 
 /* An attribute, in the three parts an attribute has: its own name, the
-   document's words, and the identifier a case supplies a value for. The middle
-   column takes the free space, because that is the part being read against the
-   source. */
+   document's words, and the identifier a case supplies a value for.
+
+   The layout itself is `.policy-attr`, which the rule inspector's rows already
+   wear -- one rule in one stylesheet, so the two surfaces cannot drift into
+   looking like two products. This adds only what this surface needs on top. */
 .policy-logic__attr {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr) minmax(0, 190px);
-  gap: 2px 12px;
-  align-items: baseline;
-  padding: 1px 0;
-}
-
-/* A narrow panel stacks the three parts rather than squeezing the document's
-   words into a column too thin to read. The order does not change, so the name
-   still introduces the value it names. */
-@container (max-width: 560px) {
-  .policy-logic__attr {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.policy-logic__attrs {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-}
-
-.policy-logic__attrs dd {
-  margin: 0;
-}
-
-.policy-logic__shared {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--app-border, #e5e7eb);
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.policy-logic__shared-item {
+  position: relative;
   min-width: 0;
 }
 
-.policy-logic__shared dd {
+.policy-logic__attr dd {
   margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .policy-logic__note {
@@ -11736,11 +11699,19 @@
 
 /* The attribute's own name, never renamed and never shortened: a clipped name
    is the one thing that would leave a reviewer unsure which slot a quotation
-   was recorded in. */
+   was recorded in.
+
+   The shared row layout ellipsises this part, which is right where one rule is
+   the subject and the name column is wide. Here the panel is narrow and the
+   names are the longest thing in it, so the clip is undone rather than
+   inherited -- a name that reads `temporal_const…` is a renamed name. */
 .policy-logic__col-label {
   font-family: var(--app-font-mono, monospace);
   font-size: 11.5px;
   color: var(--app-text-muted, #6b7280);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
   overflow-wrap: anywhere;
 }
 
@@ -11878,6 +11849,64 @@
   color: var(--app-text-muted, #6b7280);
 }
 
+/* One rule, drawn the way the rule inspector and the revise form's live preview
+   draw it: what scopes the rule, then what follows from it, each group named and
+   its rows indented under a guide.
+
+   No switcher. The inspector's tree has one because it draws a single rule; this
+   draws every rule of the policy, and on the largest in the corpus that is a
+   hundred and sixty-eight controls between a reviewer and the bottom of the
+   page, each of them a way for the view to be showing less than it holds. The
+   heading and the guide carry the idiom; the control is the one part that would
+   put an attribute behind a click. */
+.policy-logic__tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.policy-logic__half {
+  color: var(--app-text-muted, #6b7280);
+}
+
+.policy-logic__branch {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-inline-start: 8px;
+}
+
+.policy-logic__branch-label {
+  align-self: flex-start;
+}
+
+/* The indent guide, and the tick that joins each row to it. Drawn on the box
+   rather than in the markup, so eighty-four rules cost no extra elements.
+
+   The guide runs on the inline start edge, which follows the panel and not the
+   text: direction is a property of each run of text here and never of a
+   container, so a rule quoting Arabic keeps its guide where the rule above it
+   has one. */
+.policy-logic__branch-rows {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding-inline-start: 14px;
+  border-inline-start: 1px solid var(--app-border, #e5e7eb);
+}
+
+.policy-logic__branch-rows .policy-logic__attr::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -14px;
+  top: 0.66em;
+  width: 9px;
+  border-top: 1px solid var(--app-border, #e5e7eb);
+}
+
 .policy-logic__stated {
   min-width: 0;
   overflow-wrap: break-word;
@@ -11901,24 +11930,18 @@
   overflow-wrap: anywhere;
 }
 
-.policy-logic__fact-type {
-  color: var(--app-text-muted, #6b7280);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* The rule states no such component. A fact about the rule, said once per rule
-   rather than once per empty cell, and said quietly -- absence is information
-   and not an alarm. Distinct from the em dash below, which means "we do not
-   know", and never dropped: a reviewer checking whether we lost something has
-   to be able to see what the rule leaves out. */
+/* The rule states no such component. A fact about the rule, said once per half
+   of it rather than once per empty cell, and said quietly -- absence is
+   information and not an alarm. Distinct from the em dash below, which means "we
+   do not know", and never dropped: a reviewer checking whether we lost something
+   has to be able to see what the rule leaves out. */
 .policy-logic__absent {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 3px 6px;
-  margin: 2px 0 0;
+  margin: 1px 0 0;
+  padding-inline-start: 14px;
   color: var(--app-text-muted, #6b7280);
   font-size: 11.5px;
 }

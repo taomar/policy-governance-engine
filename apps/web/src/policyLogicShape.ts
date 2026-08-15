@@ -1,62 +1,81 @@
 import type { PolicyAttribute, PolicyAttributes } from "./api";
-import type { PolicyCard } from "./policyCards";
-import type { LogicColumn } from "./policyLogic";
-import { policyLogic } from "./policyLogic";
+import type { PolicyCard, PolicyCardRule } from "./policyCards";
+import { sharedRuleFacets } from "./policyCards";
+import { effectMeta } from "./ruleDisplay";
 
 /**
- * The same comparison `policyLogic` computes, arranged so a whole rule fits on
- * one screen.
+ * Every rule of one policy, arranged so a whole rule fits on one screen.
  *
- * WHY THIS EXISTS ALONGSIDE `policyLogic` AND NOT INSIDE IT
+ * WHERE THE ATTRIBUTES COME FROM, AND WHY ONLY FROM THERE
  *
- * `policyLogic` answers "which attributes did the rules of this policy fill,
- * and what did each rule put in them". That is the comparison, and it is right.
- * What it returns is shaped as a matrix — one cell per rule per attribute — and
- * a matrix is a layout decision that only works while the attributes fit across
- * the page. Measured on the live corpus they do not: the largest policy fills
- * fifteen of them across eighty-four rules, and one of its values is a
- * paragraph of several hundred characters. Drawn as a grid that is a page the
- * reviewer scrolls sideways to read, with the widest value setting the height
- * of an entire row.
+ * `rule.attributes` — the table the server derives once from the canonical
+ * record and serves in the JSON, split into what scopes the rule (`applies`)
+ * and what follows from it (`outcome`), each row already carrying the
+ * identifier a case supplies a value for. It is read here and nothing is
+ * recomputed.
  *
- * So this module re-arranges the same facts and adds none. Every string it
- * returns is either the document's own words, a canonical field name, or a
- * count of rules. Nothing is merged, nothing is shortened, and no attribute is
- * dropped: what was a row of cells becomes a block of attribute rows, and what
- * was a column of repeated "not stated" becomes one line per rule naming the
- * attributes that rule does not state.
+ * An earlier version of this module read the canonical slots instead and then
+ * joined the derived rows back on by comparing their text, so it could show the
+ * identifier alongside the words. That is two readings of one record, which is
+ * the arrangement the rule inspector's own notes say it was built to end: a
+ * correction to how attributes pair with facts then has to be made twice, and
+ * until it is, one surface disagrees with the other. Measured against the live
+ * corpus before this was changed, the two readings agreed on all 3,291 attribute
+ * values of both stored documents — no slot the derived table lacked, no derived
+ * row no slot held, and no differing text. Agreeing today is not the same as
+ * being unable to disagree, and the join is what made disagreement possible.
  *
- * THE THIRD PART OF A ROW
+ * So there is one source, and the aggregate below is a fold over exactly the
+ * rows each rule's tree draws. A count cannot claim an attribute a rule's own
+ * block does not show.
  *
- * An attribute is three things — its own name, the document's words, and the
- * identifier a case supplies a value for. The matrix could only ever show two
- * of them, because the third had nowhere to go inside a cell that already held
- * a quotation. The identifier comes from `rule.attributes`, which the server
- * derives from the same canonical record and serves in the JSON; it is read
- * here and never recomputed, so what a reviewer sees and what they download are
- * the same table rather than two readings that can drift.
+ * WHAT IT ARRANGES AND WHAT IT REFUSES TO
+ *
+ * Every string it returns is a run of the document, a canonical field name, an
+ * effect the record declares, or a count of rules. Nothing is merged, nothing is
+ * shortened, no attribute is dropped, and no summary is composed. Counting how
+ * many rules state a slot is a fact about the rules; a policy-level modality or
+ * a merged condition would be a claim the document did not make.
+ *
+ * Rules stay in the order the document states them, under the passage that
+ * states them. Ordering by how many attributes a rule filled would be a
+ * completeness score with a different name, and a rule whose test the source
+ * states in words would sit at the bottom of every policy in the system.
+ *
+ * ABSENCE IS NOT EMPTINESS
+ *
+ * A rule whose table names no actor and a rule with no table at all are
+ * different facts. The first is `absent` — the decomposition is present and
+ * names no such component. The second is `unrecorded`, and only that one wears
+ * `loadState.UNKNOWN_COUNT`, which in this app means "we could not ask".
+ *
+ * THE ORDER THE ATTRIBUTES ARE COUNTED IN
+ *
+ * Not a fixed list kept here. Each record states its attributes in an order, and
+ * the orders agree: across both stored documents no two records disagree about
+ * which of any two attributes comes first. So the order is recovered from the
+ * records themselves by sorting on the precedences they state, which needs no
+ * table to maintain, cannot drift from what the records do, and names no
+ * attribute this file has heard of. Where records of one policy do contradict
+ * each other the sort falls back to the order they were first seen in, which is
+ * still the document's and still stable for that policy.
  *
  * SHAPES
  *
- * Two rules that filled the same set of attributes are the same *shape*. That
- * is a fact about the records — the same kind of fact as "five of twenty state
- * a time" — and at scale it is the one that makes a policy legible: on the
- * largest policy measured, two shapes account for two thirds of the rules and
- * seven rules are alone in theirs. Grouping is reported, never applied to the
- * rules themselves: they stay in the order the document states them, under the
- * passage that states them, because ordering by anything else would rank rules
- * against each other and a rule the source states in words would sink to the
- * bottom of every policy in the system.
- *
- * Shapes are computed only over rules that carry a decomposition. A rule with
- * none has no known shape, which is a different thing from an empty one.
+ * Two rules that stated the same set of attributes are the same *shape*. That is
+ * the same kind of fact as "five of twenty state a time", and at scale it is the
+ * one that makes a policy legible. Grouping is reported, never applied.
  */
+
+/** Which half of the rule an attribute was recorded in. */
+export type LogicSide = "applies" | "outcome";
 
 /** One attribute of one rule: its name, its words, and its identifier. */
 export interface LogicAttributeReading {
   /** The canonical field name, exactly as the record declares it. Not renamed:
    *  a friendlier label changes what the row asserts. */
   attribute: string;
+  side: LogicSide;
   /** The document's words, verbatim. */
   text: string;
   /** The fact a case supplies a value for, or null where the document states
@@ -66,6 +85,23 @@ export interface LogicAttributeReading {
   dataType: string | null;
 }
 
+/** One half of a rule, as the rule inspector draws it. */
+export interface LogicBranch {
+  side: LogicSide;
+  /** `APPLIES` for the half that scopes the rule; for the other half, the
+   *  effect the record declares, which is why it reads `REQUIRES` on one rule
+   *  and `PROHIBITS` on the next. Never derived from anything else. */
+  heading: string;
+  /** The rows this rule states on this side, in the record's own order. */
+  rows: LogicAttributeReading[];
+  /** Attributes some rule of this policy states on this side and this one does
+   *  not. A true statement about the rule, kept whole rather than repeated as
+   *  an empty cell per attribute. */
+  absent: string[];
+}
+
+export type LogicMark = "stated" | "absent" | "unrecorded";
+
 export interface LogicRuleReading {
   ruleId: string;
   /** The rule's number on the card, so "rule 9" means the same in both. */
@@ -74,24 +110,23 @@ export interface LogicRuleReading {
   /** Present only where the policy's rules disagree, as on the card's badges. */
   ruleType: string | null;
   route: string | null;
-  /** What this rule states, in canonical slot order. */
+  /** The two halves, scope first, always both — a half a rule states nothing in
+   *  says so, because "this rule attaches no conditions" is a fact a reviewer
+   *  checking completeness needs. */
+  branches: LogicBranch[];
+  /** Everything the rule states, in the counted order. Used for the shape and
+   *  the signature; the branches are what a reader reads. */
   stated: LogicAttributeReading[];
-  /** Attributes some rule of this policy states and this one does not. A fact
-   *  about the rule, kept whole rather than repeated as a cell per attribute. */
-  absent: string[];
-  /** The record carries no decomposition, so nothing is known either way. */
+  /** The record carries no attribute table, so nothing is known either way. */
   unrecorded: boolean;
   /** Index into `shapes`, or null when the shape is unknown. */
   shape: number | null;
-  /** The state of every column, in column order, for the signature strip. */
+  /** The state of every counted attribute, in that order. */
   marks: LogicMark[];
 }
 
-export type LogicMark = "stated" | "absent" | "unrecorded";
-
-/** Rules that filled the same set of attributes. */
+/** Rules that stated the same set of attributes. */
 export interface LogicShape {
-  /** The attributes every rule in this group states, in column order. */
   attributes: string[];
   /** Their numbers on the card, in document order. */
   ruleOrdinals: number[];
@@ -103,10 +138,22 @@ export interface LogicPassageBlock {
   rules: LogicRuleReading[];
 }
 
-/** What every rule says the same way, said once. */
+/** One attribute of the policy, and how many of its rules state it. */
+export interface LogicCoverage {
+  attribute: string;
+  side: LogicSide;
+  /** How many rules state it. Never a proportion and never a bar: "1 of 20" is
+   *  a fact, "5%" invites reading it as a shortfall. */
+  filled: number;
+  /** Every rule states it with the same words. Said here so a reader knows the
+   *  repetition down the blocks is the document repeating itself. */
+  uniform: boolean;
+}
+
+/** What every rule says the same way. */
 export interface LogicSharedReading {
-  attribute: string | null;
-  label: string;
+  attribute: string;
+  side: LogicSide;
   text: string;
   fact: string | null;
   dataType: string | null;
@@ -114,141 +161,225 @@ export interface LogicSharedReading {
 
 export interface PolicyLogicShape {
   total: number;
-  /** The attributes the rules do not all state alike, in canonical slot order,
-   *  each with how many rules state it. Carried through unchanged. */
-  columns: LogicColumn[];
+  /** Every attribute any rule states, in the order the records state them. */
+  columns: LogicCoverage[];
   shared: LogicSharedReading[];
   blocks: LogicPassageBlock[];
   /** Distinct attribute sets, in order of first appearance in the document. */
   shapes: LogicShape[];
-  /** How many rules carry no canonical decomposition at all. */
+  /** How many rules carry no attribute table at all. */
   unrecorded: number;
 }
 
-/** Every attribute row the server derived for a rule, both halves in one list.
- *
- *  The applies/outcome split is the server's and is meaningful, but it is not
- *  what this view is arranged by — the columns are, and they run in canonical
- *  slot order. Reading both halves into one lookup keeps that order the only
- *  one in play instead of interleaving two. */
-function attributeRows(attributes: PolicyAttributes | undefined): PolicyAttribute[] {
+/** The heading the scoping half of every rule wears, as the inspector says it. */
+const APPLIES_HEADING = "APPLIES";
+
+const SIDES: LogicSide[] = ["applies", "outcome"];
+
+function sideRows(
+  attributes: PolicyAttributes | undefined,
+  side: LogicSide,
+): PolicyAttribute[] {
   if (!attributes) return [];
-  return [...(attributes.applies ?? []), ...(attributes.outcome ?? [])];
+  return side === "applies" ? (attributes.applies ?? []) : (attributes.outcome ?? []);
+}
+
+function hasTable(rule: PolicyCardRule): boolean {
+  const attributes = rule.candidate.rule.attributes;
+  return attributes !== undefined && attributes !== null;
+}
+
+/**
+ * The order the records themselves put these attributes in.
+ *
+ * Every record states its attributes in some order; each states some of the
+ * precedences of the whole order and none states all of them. Sorting on the
+ * precedences observed recovers it. Ties, and any pair the records contradict
+ * each other about, fall back to first appearance in document order — so the
+ * result is always a total order and always one the records support.
+ */
+function statedOrder(sequences: string[][]): string[] {
+  const first = new Map<string, number>();
+  const after = new Map<string, Set<string>>();
+  let seen = 0;
+
+  for (const sequence of sequences) {
+    for (let i = 0; i < sequence.length; i += 1) {
+      const name = sequence[i];
+      if (!first.has(name)) {
+        first.set(name, seen);
+        seen += 1;
+        after.set(name, new Set());
+      }
+      const later = after.get(name);
+      for (let j = i + 1; j < sequence.length; j += 1) later?.add(sequence[j]);
+    }
+  }
+
+  const remaining = new Set(first.keys());
+  const order: string[] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining].filter((name) =>
+      [...remaining].every((other) => other === name || !after.get(other)?.has(name)),
+    );
+    // Contradicting records leave nothing ready; take the earliest seen and
+    // carry on rather than dropping attributes on the floor.
+    const take = (ready.length > 0 ? ready : [...remaining]).sort(
+      (a, b) => (first.get(a) ?? 0) - (first.get(b) ?? 0),
+    );
+    order.push(take[0]);
+    remaining.delete(take[0]);
+  }
+  return order;
 }
 
 export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
-  const logic = policyLogic(card);
+  const facets = sharedRuleFacets(card);
+  const total = card.rules.length;
 
-  /** Attribute name -> the row the server derived, per rule. */
-  const derived = new Map<string, Map<string, PolicyAttribute>>();
-  for (const rule of card.rules) {
-    const rows = new Map<string, PolicyAttribute>();
-    for (const row of attributeRows(rule.candidate.rule.attributes)) {
-      // First wins. A record may carry the same attribute twice; taking the
-      // first keeps this a lookup rather than a merge.
-      if (!rows.has(row.attribute)) rows.set(row.attribute, row);
+  /** Every attribute any rule states, per side, in the records' own order. */
+  const counted: LogicCoverage[] = [];
+  const countedBySide = new Map<LogicSide, string[]>();
+
+  for (const side of SIDES) {
+    const order = statedOrder(
+      card.rules.map((rule) =>
+        sideRows(rule.candidate.rule.attributes, side).map((row) => row.attribute),
+      ),
+    );
+    countedBySide.set(side, order);
+    for (const attribute of order) {
+      const values = card.rules
+        .map(
+          (rule) =>
+            sideRows(rule.candidate.rule.attributes, side).find(
+              (row) => row.attribute === attribute,
+            )?.text,
+        )
+        .filter((value): value is string => value !== undefined);
+      counted.push({
+        attribute,
+        side,
+        filled: values.length,
+        uniform:
+          total > 0 &&
+          values.length === total &&
+          values.every((value) => value === values[0]),
+      });
     }
-    derived.set(rule.rule_id, rows);
   }
 
   const shapes: LogicShape[] = [];
   const shapeIndex = new Map<string, number>();
-
-  const readings: LogicRuleReading[] = logic.rows.map((row) => {
-    const rows = derived.get(row.ruleId);
-    const stated: LogicAttributeReading[] = [];
-    const absent: string[] = [];
-    const marks: LogicMark[] = [];
-    let unrecorded = false;
-
-    row.cells.forEach((cell, index) => {
-      const attribute = logic.columns[index].attribute;
-      marks.push(cell.state);
-      if (cell.state === "stated") {
-        const found = rows?.get(attribute);
-        // Only where the server's row is for the same words. A record whose
-        // derived table disagrees with its canonical slot is a record this view
-        // has no business reconciling, so it shows the slot's words and no
-        // identifier rather than pairing words with an identifier that was
-        // derived from different ones.
-        const matches = found !== undefined && found.text.trim() === cell.text;
-        stated.push({
-          attribute,
-          text: cell.text,
-          fact: matches ? (found.fact ?? null) : null,
-          dataType: matches ? (found.data_type ?? null) : null,
-        });
-      } else if (cell.state === "absent") {
-        absent.push(attribute);
-      } else {
-        unrecorded = true;
-      }
-    });
-
-    let shape: number | null = null;
-    if (!unrecorded) {
-      // The set is already in column order, so two rules filling the same
-      // attributes produce the same key without sorting.
-      const key = stated.map((row) => row.attribute).join("\u0000");
-      const existing = shapeIndex.get(key);
-      if (existing === undefined) {
-        shape = shapes.length;
-        shapeIndex.set(key, shape);
-        shapes.push({
-          attributes: stated.map((row) => row.attribute),
-          ruleOrdinals: [row.ordinal],
-        });
-      } else {
-        shape = existing;
-        shapes[existing].ruleOrdinals.push(row.ordinal);
-      }
-    }
-
-    return {
-      ruleId: row.ruleId,
-      ordinal: row.ordinal,
-      passageKey: row.passageKey,
-      ruleType: row.ruleType,
-      route: row.route,
-      stated,
-      absent,
-      unrecorded,
-      shape,
-      marks,
-    };
-  });
-
   const blocks: LogicPassageBlock[] = [];
-  for (const reading of readings) {
-    const last = blocks[blocks.length - 1];
-    // Consecutive rather than keyed: the rows arrive in document order, and a
-    // passage that states rules in two runs stated them in two runs.
-    if (last && last.passageKey === reading.passageKey) last.rules.push(reading);
-    else blocks.push({ passageKey: reading.passageKey, rules: [reading] });
+
+  let ordinal = 0;
+  for (const passage of card.passages) {
+    for (const rule of passage.rules) {
+      ordinal += 1;
+      const attributes = rule.candidate.rule.attributes;
+      const unrecorded = !hasTable(rule);
+
+      const branches: LogicBranch[] = SIDES.map((side) => {
+        const rows: LogicAttributeReading[] = sideRows(attributes, side).map((row) => ({
+          attribute: row.attribute,
+          side,
+          text: row.text,
+          fact: row.fact ?? null,
+          dataType: row.data_type ?? null,
+        }));
+        const present = new Set(rows.map((row) => row.attribute));
+        return {
+          side,
+          heading:
+            side === "applies"
+              ? APPLIES_HEADING
+              : effectMeta(rule.candidate.rule.effect?.type ?? "").label.toUpperCase(),
+          rows,
+          absent: unrecorded
+            ? []
+            : (countedBySide.get(side) ?? []).filter((name) => !present.has(name)),
+        };
+      });
+
+      const stated: LogicAttributeReading[] = [];
+      const marks: LogicMark[] = [];
+      for (const column of counted) {
+        const found = branches
+          .find((branch) => branch.side === column.side)
+          ?.rows.find((row) => row.attribute === column.attribute);
+        if (unrecorded) marks.push("unrecorded");
+        else if (found) {
+          marks.push("stated");
+          stated.push(found);
+        } else marks.push("absent");
+      }
+
+      let shape: number | null = null;
+      if (!unrecorded) {
+        // The set is already in the counted order, so two rules stating the
+        // same attributes produce the same key without sorting.
+        const key = stated.map((row) => `${row.side}\u0001${row.attribute}`).join("\u0000");
+        const existing = shapeIndex.get(key);
+        if (existing === undefined) {
+          shape = shapes.length;
+          shapeIndex.set(key, shape);
+          shapes.push({
+            attributes: stated.map((row) => row.attribute),
+            ruleOrdinals: [ordinal],
+          });
+        } else {
+          shape = existing;
+          shapes[existing].ruleOrdinals.push(ordinal);
+        }
+      }
+
+      const reading: LogicRuleReading = {
+        ruleId: rule.rule_id,
+        ordinal,
+        passageKey: passage.passage.key,
+        ruleType: facets.ruleType === null ? rule.candidate.rule.rule_type : null,
+        route: facets.route === null ? rule.evaluation_mode : null,
+        branches,
+        stated,
+        unrecorded,
+        shape,
+        marks,
+      };
+
+      const last = blocks[blocks.length - 1];
+      // Consecutive rather than keyed: the rules arrive in document order, and
+      // a passage that states rules in two runs stated them in two runs.
+      if (last && last.passageKey === reading.passageKey) last.rules.push(reading);
+      else blocks.push({ passageKey: reading.passageKey, rules: [reading] });
+    }
   }
 
-  const shared: LogicSharedReading[] = logic.shared.map((fact) => {
-    const attribute = fact.attribute;
-    const found = attribute
-      ? card.rules
-          .map((rule) => derived.get(rule.rule_id)?.get(attribute))
-          .find((row) => row !== undefined && row.text.trim() === fact.value)
-      : undefined;
-    return {
-      attribute: fact.attribute,
-      label: fact.label,
-      text: fact.value,
-      fact: found?.fact ?? null,
-      dataType: found?.data_type ?? null,
-    };
-  });
+  /* What every rule states the same way. Reported, not removed from the rules:
+     each block draws the rule's whole table, the same table the rule inspector
+     draws, and a block missing the rows this policy happens to agree on would
+     be a different reading of one record depending on its neighbours. */
+  const shared: LogicSharedReading[] = counted
+    .filter((column) => column.uniform)
+    .map((column) => {
+      const row = sideRows(card.rules[0]?.candidate.rule.attributes, column.side).find(
+        (candidate) => candidate.attribute === column.attribute,
+      );
+      return {
+        attribute: column.attribute,
+        side: column.side,
+        text: row?.text ?? "",
+        fact: row?.fact ?? null,
+        dataType: row?.data_type ?? null,
+      };
+    });
 
   return {
-    total: logic.total,
-    columns: logic.columns,
+    total,
+    columns: counted,
     shared,
     blocks,
     shapes,
-    unrecorded: logic.unrecorded,
+    unrecorded: card.rules.filter((rule) => !hasTable(rule)).length,
   };
 }

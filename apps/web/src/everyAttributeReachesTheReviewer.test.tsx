@@ -16,14 +16,23 @@
  * what the reviewer is checking for. So the arrangement changed, and these tests
  * hold the new one to what the old one could not do.
  *
+ * WHAT ELSE THEY HOLD IT TO
+ *
+ * Two other surfaces already draw one rule's logic as a tree — what scopes it
+ * under `APPLIES`, what follows from it under the effect the record declares —
+ * and a reviewer arrives here from both. So the rows here are checked to be
+ * those rows, in those halves, wearing the class the shared stylesheet lays out,
+ * with the halves taken from the record rather than guessed from the names.
+ *
  * WHY THESE ARE RENDERS AND NOT READS OF THE SOURCE
  *
  * A source-level check ("no `<table>`") would pass on a view that hid attributes
  * with CSS, with `hidden`, or by slicing the array. So the component is rendered
  * and every value of every rule is looked for in the output, with no interaction
  * of any kind first. The one thing a render in this environment cannot see is
- * layout, so the sideways-scrolling claim is made against the stylesheet the
- * view is drawn with, with a planted violation proving the reader can fail.
+ * layout, so the sideways-scrolling and no-clipping claims are made against the
+ * stylesheet the view is drawn with, each with a planted violation proving the
+ * reader can fail.
  *
  * Every count is paired with a control that fails when nothing renders, because
  * `expect(missing).toHaveLength(0)` is also what a blank page returns.
@@ -32,7 +41,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
-import type { CanonicalPolicyRule, PolicyAttribute } from "./api";
+import type { PolicyAttribute } from "./api";
 import { UNKNOWN_COUNT } from "./loadState";
 import type {
   PolicyCard,
@@ -74,6 +83,11 @@ afterEach(cleanup);
 const LARGEST_MEASURED_POLICY = 84;
 const LARGER_THAN_ANY_MEASURED = 120;
 
+/** jsdom builds a tree it will never lay out, and at these sizes that costs
+ *  seconds. The browser's own cost is measured in the browser; this only stops
+ *  the default five seconds from failing a test that is doing its job. */
+const WHOLE_POLICY = 60_000;
+
 /** Attributes enough to have run off the side of the old grid. */
 const SLOTS = [
   "subject",
@@ -93,17 +107,19 @@ const SLOTS = [
   "unit",
 ] as const;
 
-function core(parts: Partial<CanonicalPolicyRule>): CanonicalPolicyRule {
-  return parts as CanonicalPolicyRule;
+function row(
+  attribute: string,
+  text: string,
+  fact: string | null = null,
+  dataType: string | null = null,
+): PolicyAttribute {
+  return { attribute, text, fact, data_type: dataType } as PolicyAttribute;
 }
 
 function cardRule(
   ruleId: string,
-  parts: Partial<CanonicalPolicyRule> | null,
-  options: {
-    route?: string;
-    attributes?: { applies?: PolicyAttribute[]; outcome?: PolicyAttribute[] };
-  } = {},
+  table: { applies?: PolicyAttribute[]; outcome?: PolicyAttribute[] } | null,
+  options: { route?: string; effect?: string } = {},
 ): PolicyCardRule {
   return {
     rule_id: ruleId,
@@ -114,16 +130,12 @@ function cardRule(
       rule: {
         rule_id: ruleId,
         rule_type: "obligation",
-        effect: { type: "require_action", action: "" },
+        effect: { type: options.effect ?? "require_action", action: "" },
         condition: { type: "all", all: [] },
-        formulation:
-          parts === null ? undefined : { canonical: { rule: core(parts) } },
-        attributes: options.attributes
-          ? {
-              applies: options.attributes.applies ?? [],
-              outcome: options.attributes.outcome ?? [],
-            }
-          : undefined,
+        attributes:
+          table === null
+            ? undefined
+            : { applies: table.applies ?? [], outcome: table.outcome ?? [] },
       },
     },
   } as unknown as PolicyCardRule;
@@ -150,20 +162,28 @@ function card(blocks: { key: string; rules: PolicyCardRule[] }[]): PolicyCard {
 }
 
 /** A policy whose rules fill an uneven, generated share of the slots, so that
- *  every slot is stated by someone and nearly every rule leaves some out. */
+ *  every slot is stated by someone and nearly every rule leaves some out.
+ *
+ *  Which half a slot lands in is decided by its position in the list, not by
+ *  anything about its name — the view must read the halves off the record, and a
+ *  fixture that agreed with a guess would not show that it does. */
 function unevenPolicy(size: number): PolicyCard {
   const rules = Array.from({ length: size }, (_, index) => {
-    const parts: Record<string, string> = {};
+    const applies: PolicyAttribute[] = [];
+    const outcome: PolicyAttribute[] = [];
     SLOTS.forEach((slot, position) => {
       // Deliberately arithmetic rather than tabulated: no arrangement below is
       // one an observed document produced.
       if ((index + position) % (position + 2) !== 0) return;
-      parts[slot] = `${slot} as rule ${index + 1} states it`;
+      const entry = row(slot, `${slot} as rule ${index + 1} states it`);
+      (position % 2 === 0 ? applies : outcome).push(entry);
     });
     // Every rule states at least one thing, or the fixture would be testing the
     // empty case in disguise.
-    parts.subject = `subject as rule ${index + 1} states it`;
-    return cardRule(`rule-${index}`, parts as Partial<CanonicalPolicyRule>);
+    if (!applies.some((entry) => entry.attribute === "subject")) {
+      applies.unshift(row("subject", `subject as rule ${index + 1} states it`));
+    }
+    return cardRule(`rule-${index}`, { applies, outcome });
   });
   const perPassage = 3;
   const blocks: { key: string; rules: PolicyCardRule[] }[] = [];
@@ -186,32 +206,22 @@ describe("every attribute of every rule is in the output", () => {
       const view = screen.getByTestId("policy-logic");
       const text = view.textContent ?? "";
 
-      // What the rules say differently, once per rule.
       const stated = shape.blocks
         .flatMap((block) => block.rules)
         .flatMap((rule) => rule.stated);
-      const missing = stated.filter((row) => !text.includes(row.text));
-      expect(missing.map((row) => row.text)).toEqual([]);
+      const missing = stated.filter((entry) => !text.includes(entry.text));
+      expect(missing.map((entry) => entry.text)).toEqual([]);
 
-      // What they all say the same way, said once above.
-      const sharedMissing = shape.shared.filter(
-        (fact) => !text.includes(fact.text),
-      );
-      expect(sharedMissing.map((fact) => fact.text)).toEqual([]);
-
-      // Controls: the assertions above also pass on an empty render.
-      expect(stated.length + shape.shared.length).toBeGreaterThan(0);
-      // Rules get a block of their own once they differ. Where they do not —
-      // one rule, or rules that state the same values — everything they state
-      // is said once, above, and repeating it per rule would be the twenty
-      // identical cells this view exists to stop printing.
-      const blocks = screen.queryAllByTestId("policy-logic-rule");
-      expect(blocks).toHaveLength(shape.columns.length > 0 ? size : 0);
-      if (shape.columns.length === 0) expect(shape.shared.length).toBeGreaterThan(0);
-    });
+      // Controls: the assertion above also passes on an empty render.
+      expect(stated.length).toBeGreaterThan(0);
+      // Every rule gets a block of its own, at every size. A rule whose values
+      // its neighbours repeat is still a rule, and hoisting its rows out would
+      // make a block mean something different depending on what sits beside it.
+      expect(screen.queryAllByTestId("policy-logic-rule")).toHaveLength(size);
+    }, WHOLE_POLICY);
   }
 
-  it("names every attribute a rule leaves out, on that rule", () => {
+  it("names every attribute a rule leaves out, on the half that leaves it out", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     const shape = policyLogicShape(policy);
     render(<PolicyLogicTable card={policy} />);
@@ -223,20 +233,33 @@ describe("every attribute of every rule is in the output", () => {
         `[data-testid="policy-logic-rule"][data-rule="${reading.ruleId}"]`,
       );
       expect(block).not.toBeNull();
-      const text = block?.textContent ?? "";
-      for (const attribute of reading.absent) {
-        if (!text.includes(attribute)) missing.push(`${reading.ruleId}/${attribute}`);
-      }
-      for (const row of reading.stated) {
-        if (!text.includes(row.text)) missing.push(`${reading.ruleId}/${row.attribute}`);
+      for (const branch of reading.branches) {
+        const half = block?.querySelector(
+          `[data-testid="policy-logic-branch"][data-side="${branch.side}"]`,
+        );
+        const text = half?.textContent ?? "";
+        for (const attribute of branch.absent) {
+          if (!text.includes(attribute)) {
+            missing.push(`${reading.ruleId}/${branch.side}/absent/${attribute}`);
+          }
+        }
+        for (const entry of branch.rows) {
+          if (!text.includes(entry.text)) {
+            missing.push(`${reading.ruleId}/${branch.side}/${entry.attribute}`);
+          }
+        }
       }
     }
     expect(missing).toEqual([]);
     // Control: a policy where no rule leaves anything out would pass vacuously.
-    expect(readings.filter((rule) => rule.absent.length > 0).length).toBeGreaterThan(0);
-  });
+    expect(
+      readings.filter((rule) =>
+        rule.branches.some((branch) => branch.absent.length > 0),
+      ).length,
+    ).toBeGreaterThan(0);
+  }, WHOLE_POLICY);
 
-  it("keeps the coverage count for every attribute the rules differ on", () => {
+  it("keeps the coverage count for every attribute any rule states", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     const shape = policyLogicShape(policy);
     render(<PolicyLogicTable card={policy} />);
@@ -247,6 +270,172 @@ describe("every attribute of every rule is in the output", () => {
       expect(coverage).toContain(`${column.filled} of ${shape.total}`);
     }
     expect(shape.columns.length).toBeGreaterThan(1);
+  }, WHOLE_POLICY);
+});
+
+describe("a rule reads the way the rule inspector reads it", () => {
+  it("draws both halves of every rule, with the record's own heading", () => {
+    const policy = card([
+      {
+        key: "p1",
+        rules: [
+          cardRule("required", {
+            applies: [row("subject", "one")],
+            outcome: [row("predicate", "be filed")],
+          }),
+          cardRule(
+            "denied",
+            {
+              applies: [row("subject", "two")],
+              outcome: [row("predicate", "be disclosed")],
+            },
+            { effect: "deny" },
+          ),
+        ],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    const headingsOf = (ruleId: string) =>
+      Array.from(
+        document
+          .querySelector(`[data-rule="${ruleId}"]`)
+          ?.querySelectorAll('[data-testid="policy-logic-branch"]') ?? [],
+      ).map((half) => half.querySelector(".cond-group-label")?.textContent);
+
+    expect(headingsOf("required")).toEqual(["APPLIES", "REQUIRES"]);
+    // The heading follows the effect the record declares, so a rule that
+    // forbids something does not read as one that demands it.
+    expect(headingsOf("denied")).toEqual(["APPLIES", "PROHIBITS"]);
+  });
+
+  it("puts a row only in the half the record recorded it in", () => {
+    const policy = card([
+      {
+        key: "p1",
+        rules: [
+          cardRule("scoping", { applies: [row("assigner", "the issuing body")] }),
+          cardRule("following", { outcome: [row("assigner", "the issuing body")] }),
+        ],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    const rowsIn = (ruleId: string, side: string) =>
+      Array.from(
+        document
+          .querySelector(`[data-rule="${ruleId}"]`)
+          ?.querySelectorAll(
+            `[data-testid="policy-logic-branch"][data-side="${side}"] .policy-logic__col-label`,
+          ) ?? [],
+      ).map((node) => node.textContent);
+
+    expect(rowsIn("scoping", "applies")).toEqual(["assigner"]);
+    expect(rowsIn("scoping", "outcome")).toEqual([]);
+    expect(rowsIn("following", "applies")).toEqual([]);
+    expect(rowsIn("following", "outcome")).toEqual(["assigner"]);
+  });
+
+  it("wears the row classes the shared stylesheet lays out", () => {
+    const policy = card([
+      {
+        key: "p1",
+        rules: [
+          cardRule("a", {
+            applies: [row("subject", "an employee", "employee")],
+            outcome: [row("threshold", "three days", "elapsed", "duration")],
+          }),
+          cardRule("b", { applies: [row("subject", "a supplier")] }),
+        ],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    const first = document.querySelector('[data-rule="a"]');
+    const rows = first?.querySelectorAll(".policy-attr") ?? [];
+    expect(rows).toHaveLength(2);
+    // Name, words, identifier — the three parts, in the classes the inspector's
+    // rows wear, so one stylesheet rule lays out both surfaces.
+    for (const entry of Array.from(rows)) {
+      expect(entry.querySelector(".policy-attr-name")).not.toBeNull();
+      expect(entry.querySelector(".policy-attr-value")).not.toBeNull();
+      expect(entry.querySelector(".policy-attr-fact")).not.toBeNull();
+    }
+    const fact = first?.querySelector(".policy-attr-fact-name");
+    expect(fact?.textContent).toBe("employee");
+    const typed = Array.from(
+      first?.querySelectorAll(".policy-attr-fact-name") ?? [],
+    ).map((node) => node.textContent);
+    expect(typed).toContain("elapsed: duration");
+  });
+
+  it("shows the identifier where the record states one and nothing where it does not", () => {
+    const policy = card([
+      {
+        key: "p1",
+        rules: [
+          cardRule("named", { applies: [row("subject", "an employee", "employee")] }),
+          cardRule("unnamed", { applies: [row("subject", "a supplier")] }),
+        ],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    expect(
+      document
+        .querySelector('[data-rule="named"]')
+        ?.querySelector(".policy-attr-fact-name")?.textContent,
+    ).toBe("employee");
+    expect(
+      document
+        .querySelector('[data-rule="unnamed"]')
+        ?.querySelector(".policy-attr-fact-name"),
+    ).toBeNull();
+    // The slot is still there, so the rows line up down the block.
+    expect(
+      document
+        .querySelector('[data-rule="unnamed"]')
+        ?.querySelector(".policy-attr-fact"),
+    ).not.toBeNull();
+  });
+
+  it("offers a wrap point inside a long name without altering the name", () => {
+    // A name wider than the space beside a value has three possible fates:
+    // shortened, pushed sideways, or wrapped. Only the third is allowed, and a
+    // wrap the browser is not told about lands in the middle of a word.
+    const long = "a_name_far_longer_than_its_column";
+    const policy = card([
+      {
+        key: "p1",
+        rules: [cardRule("a", { applies: [row(long, "some words")] })],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    const label = document
+      .querySelector('[data-rule="a"]')
+      ?.querySelector(".policy-attr-name");
+    // Read as text, the name is exactly what the record holds: the marks carry
+    // no characters, so a reviewer copying the name copies the record's name.
+    expect(label?.textContent).toBe(long);
+    // And the browser has somewhere to break other than mid-word.
+    expect((label?.querySelectorAll("wbr").length ?? 0) > 0).toBe(true);
+  });
+
+  it("leaves a name with no seam whole and unmarked", () => {
+    const policy = card([
+      {
+        key: "p1",
+        rules: [cardRule("a", { applies: [row("subject", "some words")] })],
+      },
+    ]);
+    render(<PolicyLogicTable card={policy} />);
+
+    const label = document
+      .querySelector('[data-rule="a"]')
+      ?.querySelector(".policy-attr-name");
+    expect(label?.textContent).toBe("subject");
+    expect(label?.querySelectorAll("wbr")).toHaveLength(0);
   });
 });
 
@@ -264,7 +453,7 @@ describe("nothing is behind a control and nothing is hidden", () => {
     ).toHaveLength(0);
     // Control.
     expect(view.querySelectorAll("*").length).toBeGreaterThan(0);
-  });
+  }, WHOLE_POLICY);
 
   it("draws the shape marks as a second reading, spoken by neither", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
@@ -277,7 +466,7 @@ describe("nothing is behind a control and nothing is hidden", () => {
       expect(strip.getAttribute("aria-hidden")).toBe("true");
       expect(strip.textContent).toBe("");
     }
-  });
+  }, WHOLE_POLICY);
 });
 
 describe("the document's words are rendered whole", () => {
@@ -291,8 +480,14 @@ describe("the document's words are rendered whole", () => {
       {
         key: "p1",
         rules: [
-          cardRule("long", { subject: LONG, predicate: "shall be" }),
-          cardRule("short", { subject: "brief", predicate: "shall be" }),
+          cardRule("long", {
+            applies: [row("subject", LONG)],
+            outcome: [row("predicate", "shall be")],
+          }),
+          cardRule("short", {
+            applies: [row("subject", "brief")],
+            outcome: [row("predicate", "shall be")],
+          }),
         ],
       },
     ]);
@@ -310,8 +505,14 @@ describe("the document's words are rendered whole", () => {
       {
         key: "p1",
         rules: [
-          cardRule("rtl", { subject: ARABIC, predicate: "shall be" }),
-          cardRule("ltr", { subject: "an employee", predicate: "shall be" }),
+          cardRule("rtl", {
+            applies: [row("subject", ARABIC)],
+            outcome: [row("predicate", "shall be")],
+          }),
+          cardRule("ltr", {
+            applies: [row("subject", "an employee")],
+            outcome: [row("predicate", "shall be")],
+          }),
         ],
       },
     ]);
@@ -328,17 +529,26 @@ describe("the document's words are rendered whole", () => {
     const other = document.querySelector('[data-rule="ltr"]');
     expect(block?.className).toBe(other?.className);
     expect(block?.getAttribute("dir")).toBeNull();
+    // Including the half that holds it, which must not be turned round either.
+    const half = block?.querySelector('[data-testid="policy-logic-branch"]');
+    expect(half?.getAttribute("dir")).toBeNull();
+    expect(half?.className).toBe(
+      other?.querySelector('[data-testid="policy-logic-branch"]')?.className,
+    );
   });
 });
 
 describe("absence and not having looked are different things", () => {
-  it("says which attributes a rule leaves out, without the em dash", () => {
+  it("says which attributes a half of a rule leaves out, without the em dash", () => {
     const policy = card([
       {
         key: "p1",
         rules: [
-          cardRule("states", { subject: "one", exception: "save one" }),
-          cardRule("leaves-out", { subject: "two" }),
+          cardRule("states", {
+            applies: [row("subject", "one")],
+            outcome: [row("exception", "save one")],
+          }),
+          cardRule("leaves-out", { applies: [row("subject", "two")] }),
         ],
       },
     ]);
@@ -362,7 +572,10 @@ describe("absence and not having looked are different things", () => {
       {
         key: "p1",
         rules: [
-          cardRule("states", { subject: "one", exception: "save one" }),
+          cardRule("states", {
+            applies: [row("subject", "one")],
+            outcome: [row("exception", "save one")],
+          }),
           cardRule("unrecorded", null),
         ],
       },
@@ -375,6 +588,7 @@ describe("absence and not having looked are different things", () => {
     expect(unknown?.textContent).toContain(UNKNOWN_COUNT);
     // It must not be reported as a rule that states nothing: nobody looked.
     expect(rule?.querySelector('[data-testid="policy-logic-absent"]')).toBeNull();
+    expect(rule?.querySelector('[data-testid="policy-logic-branch"]')).toBeNull();
     expect(screen.getByTestId("policy-logic").textContent).toContain(
       "no recorded decomposition",
     );
@@ -385,8 +599,11 @@ describe("absence and not having looked are different things", () => {
       {
         key: "p1",
         rules: [
-          cardRule("states", { subject: "one", exception: "save one" }),
-          cardRule("leaves-out", { subject: "two" }),
+          cardRule("states", {
+            applies: [row("subject", "one")],
+            outcome: [row("exception", "save one")],
+          }),
+          cardRule("leaves-out", { applies: [row("subject", "two")] }),
           cardRule("unrecorded", null),
         ],
       },
@@ -406,9 +623,9 @@ describe("absence and not having looked are different things", () => {
   });
 });
 
-/* The one claim a render in this environment cannot make. jsdom lays nothing
+/* The two claims a render in this environment cannot make. jsdom lays nothing
    out, so the stylesheet the view is drawn with is read instead, and a planted
-   violation proves the reader can fail. */
+   violation proves each reader can fail. */
 const stylesheets = import.meta.glob("./App.css", {
   query: "?raw",
   import: "default",
@@ -460,7 +677,26 @@ function scrollsSideways(css: Rule[], surface: string) {
     );
 }
 
-describe("no part of this view scrolls sideways", () => {
+/** Every declaration that would cut a value short instead of wrapping it. */
+function clips(css: Rule[], className: string) {
+  return css
+    .filter((rule) =>
+      rule.selectors.some((one) => one.trim().endsWith(`.${className}`)),
+    )
+    .flatMap((rule) =>
+      rule.declarations
+        .filter(
+          ([property, value]) =>
+            (property === "text-overflow" && value.includes("ellipsis")) ||
+            (property === "white-space" && /nowrap|pre$/.test(value)) ||
+            (property === "-webkit-line-clamp" && value !== "none") ||
+            (property === "max-height" && value !== "none"),
+        )
+        .map(([property, value]) => `${rule.selectors.join(", ")} { ${property}: ${value} }`),
+    );
+}
+
+describe("no part of this view scrolls sideways or cuts a value short", () => {
   const APP_CSS = rules(Object.values(stylesheets)[0] ?? "");
 
   it("is reading a stylesheet", () => {
@@ -476,10 +712,28 @@ describe("no part of this view scrolls sideways", () => {
   it("reports a violation when one is present", () => {
     const planted = rules(".policy-logic__somewhere { overflow-x: auto; }");
     expect(scrollsSideways(planted, "policy-logic")).toHaveLength(1);
+    const clipped = rules(
+      ".policy-logic__stated { text-overflow: ellipsis; white-space: nowrap; }",
+    );
+    expect(clips(clipped, "policy-logic__stated")).toHaveLength(2);
   });
 
   it("declares no sideways overflow anywhere in the logic view", () => {
     expect(scrollsSideways(APP_CSS, "policy-logic")).toEqual([]);
+  });
+
+  it("lets the document's words and the attribute's name wrap", () => {
+    // The shared row style cuts a long attribute name short with an ellipsis,
+    // which is right where a name is a word and wrong here, where the reviewer
+    // is checking that the name is the one the record states. This view undoes
+    // it, and that undoing has to keep working.
+    expect(clips(APP_CSS, "policy-logic__stated")).toEqual([]);
+    expect(clips(APP_CSS, "policy-logic__col-label")).toEqual([]);
+    const undone = APP_CSS.filter((rule) =>
+      rule.selectors.some((one) => one.trim().endsWith(".policy-logic__col-label")),
+    ).flatMap((rule) => rule.declarations);
+    expect(undone).toContainEqual(["white-space", "normal"]);
+    expect(undone).toContainEqual(["text-overflow", "clip"]);
   });
 
   it("draws no table that could be wider than the panel", () => {
@@ -491,5 +745,5 @@ describe("no part of this view scrolls sideways", () => {
     expect(view.querySelectorAll('[data-testid="policy-logic-rule"]').length).toBe(
       LARGEST_MEASURED_POLICY,
     );
-  });
+  }, WHOLE_POLICY);
 });

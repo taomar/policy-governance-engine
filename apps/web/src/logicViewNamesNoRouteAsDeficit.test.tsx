@@ -28,7 +28,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-import type { CanonicalPolicyRule } from "./api";
+import type { PolicyAttribute } from "./api";
 import { POLICY_ROUTE_LABELS } from "./policyGrouping";
 import type {
   PolicyCard,
@@ -62,14 +62,14 @@ afterEach(cleanup);
 
 const ROUTES = ["deterministic", "ai_ready"] as const;
 
-function core(parts: Partial<CanonicalPolicyRule>): CanonicalPolicyRule {
-  return parts as CanonicalPolicyRule;
+function row(attribute: string, text: string): PolicyAttribute {
+  return { attribute, text, fact: null, data_type: null } as PolicyAttribute;
 }
 
 function cardRule(
   ruleId: string,
   route: string,
-  parts: Partial<CanonicalPolicyRule>,
+  table: { applies: PolicyAttribute[]; outcome: PolicyAttribute[] },
 ): PolicyCardRule {
   return {
     rule_id: ruleId,
@@ -82,7 +82,7 @@ function cardRule(
         rule_type: "obligation",
         effect: { type: "require_action", action: "" },
         condition: { type: "all", all: [] },
-        formulation: { canonical: { rule: core(parts) } },
+        attributes: table,
       },
     },
   } as unknown as PolicyCardRule;
@@ -96,13 +96,16 @@ function cardRule(
 function twoWays(size: number): [PolicyCard, PolicyCard] {
   const build = (flip: boolean): PolicyCard => {
     const rules = Array.from({ length: size }, (_, index) => {
-      const parts: Record<string, string> = {
-        subject: `subject as rule ${index + 1} states it`,
-      };
-      if (index % 2 === 0) parts.threshold = `${index + 1} days`;
-      if (index % 3 === 0) parts.condition = `where rule ${index + 1} applies`;
+      const applies: PolicyAttribute[] = [
+        row("subject", `subject as rule ${index + 1} states it`),
+      ];
+      const outcome: PolicyAttribute[] = [];
+      if (index % 3 === 0) {
+        applies.push(row("condition", `where rule ${index + 1} applies`));
+      }
+      if (index % 2 === 0) outcome.push(row("threshold", `${index + 1} days`));
       const route = ROUTES[(index + (flip ? 1 : 0)) % ROUTES.length];
-      return cardRule(`rule-${index}`, route, parts as Partial<CanonicalPolicyRule>);
+      return cardRule(`rule-${index}`, route, { applies, outcome });
     });
     const passages: PolicyCardPassage[] = [];
     for (let at = 0; at < rules.length; at += 3) {
@@ -260,8 +263,13 @@ describe("this view apologises for nothing", () => {
       '[data-testid="policy-logic"]',
     ) as HTMLElement;
     const copy = copyWrittenHere(root);
-    // It sees this view's own sentences.
+    // It sees this view's own sentences, including the headings and the line
+    // that names what a rule leaves out — the copy most likely to acquire an
+    // apology later.
     expect(copy).toContain("What each rule states");
+    expect(copy).toContain("APPLIES");
+    expect(copy).toContain("REQUIRES");
+    expect(copy).toContain("states no");
     // And not the document's, which are quoted and may say anything.
     expect(root.textContent).toContain("subject as rule 1 states it");
     expect(copy).not.toContain("subject as rule 1 states it");
