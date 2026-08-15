@@ -43,7 +43,6 @@ import dayjs from "dayjs";
 import {
   aiApi,
   api,
-  PolicyPlatformApiError,
   type ApprovedPolicyVersion,
   type AssembledPolicy,
   type CandidateRule,
@@ -245,7 +244,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         setPolicySets(sets);
         if (sets.length > 0) setSelectedKey(sets[0].key);
       })
-      .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)));
+      .catch((e) => setError(describeApiFailure(e)));
   }, [scoped]);
 
   // "Who is doing this" has exactly one home: the actor identity in the header.
@@ -307,7 +306,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         setPoliciesError(assembled.detail);
       }
     } catch (e) {
-      setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      setError(describeApiFailure(e));
     } finally {
       setLoading(false);
     }
@@ -421,7 +420,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       setSelectedIds(new Set());
       await loadCandidates();
     } catch (e) {
-      const detail = e instanceof PolicyPlatformApiError ? e.detail : String(e);
+      const detail = describeApiFailure(e);
       setError(detail);
       message.error(detail);
     } finally {
@@ -829,7 +828,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       setPublishResult(version);
       await loadCandidates();
     } catch (e) {
-      setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      setError(describeApiFailure(e));
     }
   };
 
@@ -954,7 +953,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       resetDraftForm();
       await loadCandidates();
     } catch (e) {
-      setDraftError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      setDraftError(describeApiFailure(e));
     }
   };
 
