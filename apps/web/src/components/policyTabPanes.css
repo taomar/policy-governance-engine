@@ -1,0 +1,44 @@
+/* The policy's information panes.
+ *
+ * Deliberately plain: every pane here is a statement about the record, and the
+ * reviewer is reading it to decide something. Nothing is coloured to rank one
+ * answer above another — a policy decided by reading its source is not styled
+ * as weaker than one decided by comparison, because it is not weaker.
+ */
+
+.policy-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 0 8px;
+}
+
+.policy-pane__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-pane__label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.policy-pane__trail {
+  margin-bottom: 0 !important;
+}
+
+.policy-pane__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.policy-pane__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

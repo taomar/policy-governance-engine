@@ -30,6 +30,15 @@ import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { PolicyLogicTable } from "./PolicyLogicTable";
 import { RecordActionsMenu, type RecordActionHandlers } from "./RecordActionsMenu";
+import {
+  PolicyHistoryPane,
+  PolicyOverviewPane,
+  PolicyPartiesAndRoutesPane,
+  PolicyScopePane,
+  PolicyTestsPane,
+  type PolicySightingView,
+} from "./policyTabPanes";
+import type { PolicyTestListItem } from "../api";
 import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
@@ -105,6 +114,10 @@ export function PolicyDetailPanel({
   policyActions,
   ruleActions,
   actions,
+  tests,
+  testsLoading,
+  history,
+  historyLoading,
 }: {
   card: PolicyCard;
   statusColor: (status: string) => string;
@@ -137,6 +150,23 @@ export function PolicyDetailPanel({
   ruleActions?: (ruleId: string) => RecordActionHandlers;
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
   actions?: React.ReactNode;
+  /** Every test in this policy set, from which this policy's are picked.
+   *
+   *  Handed in rather than fetched here, and handed in *whole*, because the
+   *  policy's tests are the ones aimed at rules it holds and that question is
+   *  answered from the card. Asking a server for "this policy's tests" would
+   *  make it re-derive which rules are in the policy — a second opinion on
+   *  grouping, free to disagree with the first.
+   *
+   *  `null` means nothing has been loaded, which the Tests tab says plainly. It
+   *  is not the same as an empty list, which means the set has no tests. */
+  tests?: readonly PolicyTestListItem[] | null;
+  testsLoading?: boolean;
+  /** This policy's published sightings, newest last. Supplied by the host,
+   *  which knows whether the record has ever been published; a candidate that
+   *  has not simply passes nothing and the tab says so. */
+  history?: readonly PolicySightingView[] | null;
+  historyLoading?: boolean;
 }) {
   const title = policyTitle(card.policy, card.passages);
   const page = passagePageLabel(card.policy.page);
@@ -321,8 +351,13 @@ export function PolicyDetailPanel({
 
       <Tabs
         className="policy-detail-panel__tabs"
-        defaultActiveKey="reading"
+        defaultActiveKey="overview"
         items={[
+          {
+            key: "overview",
+            label: "Overview",
+            children: <PolicyOverviewPane card={card} />,
+          },
           {
             key: "reading",
             label: "Reading",
@@ -549,23 +584,49 @@ export function PolicyDetailPanel({
             label: "Logic",
             children: <PolicyLogicTable card={card} />,
           },
+          {
+            key: "parties",
+            label: "Parties & routes",
+            children: <PolicyPartiesAndRoutesPane card={card} />,
+          },
+          {
+            key: "scope",
+            label: "Scope",
+            children: <PolicyScopePane card={card} />,
+          },
+          {
+            key: "tests",
+            label: "Tests",
+            children: <PolicyTestsPane card={card} tests={tests ?? null} loading={testsLoading} />,
+          },
+          {
+            key: "history",
+            label: "History",
+            children: (
+              <PolicyHistoryPane sightings={history ?? null} loading={historyLoading} />
+            ),
+          },
+          {
+            key: "json",
+            label: "JSON",
+            children: (
+              <section className="policy-detail-panel__section">
+                <Text type="secondary" className="policy-detail-panel__section-label">
+                  <CodeOutlined /> This policy as one document — its rules nested inside it
+                </Text>
+                {/* The download is named by the policy, not by its key: a persisted
+                    provision is keyed by a digest, and a reviewer who downloads three of
+                    these wants three filenames they can tell apart. */}
+                <JsonView
+                  value={policyJsonDocument(card)}
+                  downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
+                  maxHeight={420}
+                />
+              </section>
+            ),
+          },
         ]}
       />
-
-      <section className="policy-detail-panel__section">
-        <Text type="secondary" className="policy-detail-panel__section-label">
-          <CodeOutlined /> This policy as one document — its rules nested inside
-          it
-        </Text>
-        {/* The download is named by the policy, not by its key: a persisted
-            provision is keyed by a digest, and a reviewer who downloads three of
-            these wants three filenames they can tell apart. */}
-        <JsonView
-          value={policyJsonDocument(card)}
-          downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
-          maxHeight={420}
-        />
-      </section>
     </div>
   );
 }
