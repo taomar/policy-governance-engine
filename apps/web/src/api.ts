@@ -1129,6 +1129,55 @@ export interface TopicLabelGenerationResult {
   prompt_version: string;
 }
 
+/** A short generated handle for what one rule is for.
+ *
+ *  IT IS NOT PART OF THE RULE, AND THIS SHAPE IS HOW THAT IS KEPT TRUE
+ *
+ *  A rule's record is evidence about a document. This is our commentary on that
+ *  record, and if it ever rode along inside the record an export or a published
+ *  version would carry words the document never stated. So it is fetched on its
+ *  own, keyed by the rule it describes, and it is never a field of a rule. The
+ *  separation is structural: there is no shape here that a consumer could spread
+ *  into a rule without noticing.
+ *
+ *  Exactly one of `text` and `unavailable_code` is set. No entry at all is a
+ *  third thing — nobody has asked yet — and the caller keeps all three apart. */
+export interface RuleName {
+  generated: true;
+  /** The generated words, in the language the heading is written in. Null when
+   *  the attempt produced nothing usable. Never empty. */
+  text: string | null;
+  /** Why there is no name. A code, not a sentence. */
+  unavailable_code: string | null;
+  model_deployment: string | null;
+  prompt_version: string;
+  generated_at: string | null;
+}
+
+/** Names for the rules that were asked about, keyed by candidate rule id.
+ *
+ *  A rule with no stored name is simply absent from the map, which is how "not
+ *  asked yet" stays distinguishable from "asked, and nothing usable came back". */
+export interface RuleNameLookupResult {
+  names: Record<string, RuleName>;
+}
+
+/** What one rule-naming run did.
+ *
+ *  Counts and not a success flag, for the reason the label run gives: partial
+ *  work is still work. `duplicates_within_a_policy` is reported because names
+ *  that repeat across sibling rules would defeat the only thing this is for —
+ *  telling one rule from another at a glance. */
+export interface RuleNameGenerationResult {
+  policies: number;
+  attempted: number;
+  named: number;
+  unavailable: number;
+  duplicates_within_a_policy: number;
+  skipped_with_no_rules: number;
+  prompt_version: string;
+}
+
 /** One section of the source, carrying every passage stated under it.
  *
  *  A policy holding one rule is the ordinary case and is built exactly like a
@@ -2204,6 +2253,34 @@ export const aiApi = {
     request<PolicyExplanation>(
       `/api/ai/provisions/${encodeURIComponent(provisionId)}/explain?regenerate=${regenerate}`,
       { method: "POST" },
+    ),
+
+  /**
+   * Read stored names for a set of rules. Reads only — it never generates.
+   *
+   * A POST because the ids go in a body: a queue draws dozens of rules at once
+   * and a query string of that many identifiers is a URL length limit waiting
+   * to be found. Nothing is written, and a rule nobody has named yet is simply
+   * missing from the reply rather than being invented on the spot.
+   */
+  ruleNames: (candidateIds: string[]) =>
+    request<RuleNameLookupResult>("/api/ai/rule-names/lookup", {
+      method: "POST",
+      body: JSON.stringify({ candidate_ids: candidateIds }),
+    }),
+
+  /**
+   * Ask for a name for each rule in this set, one request per policy.
+   *
+   * Per policy and not per rule, for two reasons that are really one. Sibling
+   * rules are drawn from the same sentence, so what tells them apart is only
+   * visible when they are seen together; and asking once for a whole policy
+   * costs a fraction of asking once per rule.
+   */
+  generateRuleNames: (key: string, body?: { limit?: number; regenerate?: boolean }) =>
+    request<RuleNameGenerationResult>(
+      `/api/ai/policy-sets/${encodeURIComponent(key)}/rule-names`,
+      { method: "POST", body: JSON.stringify(body ?? {}) },
     ),
 
   ask: (question: string, policySetKey?: string, history: ChatTurn[] = [], focusCandidateRuleId?: string) =>

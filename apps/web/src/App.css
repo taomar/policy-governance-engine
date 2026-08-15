@@ -11949,3 +11949,48 @@
   padding-inline-start: 10px;
   border-inline-start: 2px solid var(--app-border, #e5e7eb);
 }
+
+/* A GENERATED HANDLE FOR ONE RULE.
+   Same voice as the generated subject label above it on the same card: the
+   mark, the tertiary colour, the small uppercase caption. A reader who has
+   learned that the mark means "this app wrote this" meets it meaning the same
+   thing here. It is quieter than the statement it sits above, because the
+   statement is the document's and this is only a way of finding it, and it
+   takes none of the quotation styling — no rule, no indent, no marks — which
+   is reserved for characters the source actually wrote. */
+.rule-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+/* Two lines is the shape this is written to. Past that something has gone
+   wrong upstream, and a card should absorb it rather than reflow around it. */
+.rule-name__text {
+  font-weight: 600;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rule-name--block {
+  margin: 0 0 3px;
+}
+
+.rule-name__mark {
+  opacity: 0.55;
+}
+
+.rule-name__caption {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  opacity: 0.8;
+}
