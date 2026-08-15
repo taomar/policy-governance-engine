@@ -83,6 +83,15 @@ class AskRequest(BaseModel):
     policy_set_key: str | None = None
     history: list[ChatTurn] = []
     focus_candidate_rule_id: str | None = None
+    focus_rule_ids: list[str] | None = None
+    """The rules to ground on, by their own `AI-…` ids, in document order.
+
+    Sent when the question is about a whole policy rather than one rule. Ids
+    rather than a policy key because a policy is a grouping the client already
+    holds and the server would otherwise have to re-derive — and because the
+    order the client sends is the order the card shows, which is what makes a
+    coverage statement about "the first N" point at something a reader can see.
+    `ai_chat.ask` decides how many of them fit and reports how many it used."""
     answer_language: str | None = None
     """IETF BCP-47 tag for the language the reader wants *this app's own words*
     written in — the reflection and the topic headings over the quoted facts.
@@ -115,6 +124,7 @@ async def ask(body: AskRequest, session: AsyncSession = Depends(get_session)) ->
             policy_set_key=body.policy_set_key,
             history=[t.model_dump() for t in body.history],
             focus_candidate_rule_id=body.focus_candidate_rule_id,
+            focus_rule_ids=body.focus_rule_ids,
             answer_language=body.answer_language,
         )
     except RuntimeError as exc:

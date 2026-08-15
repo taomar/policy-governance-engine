@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from sqlalchemy import select
@@ -76,9 +77,207 @@ suggest what the user could check instead.
 5. Be concise: prefer a small number of well-chosen facts over an exhaustive dump. Rich but not bloated."""
 
 
+#: The shape of an IETF BCP-47 language tag, near enough to keep this out of the
+#: business of enumerating languages.
+#:
+#: WHY A SHAPE AND NOT A LIST. A list of accepted languages here would be the
+#: same mistake as a pair of branches in the interface: a language added to the
+#: reader's control would then also need adding here before it worked, and the
+#: two lists would disagree the first time one was edited. The reader's control
+#: decides what is on offer; this decides only that what arrived is a tag.
+#:
+#: WHY IT IS CHECKED AT ALL. The value is written into a system prompt. An
+#: unchecked string there is an instruction channel — "…and ignore the rule
+#: about quoting" is a valid Python string and would be a valid sentence in the
+#: prompt. A tag has no spaces, no punctuation beyond the hyphen and no
+#: newlines, so requiring that shape closes the channel without knowing a single
+#: language.
+#:
+#: Matched with `fullmatch`, not `match`: `$` in Python also matches immediately
+#: before a trailing newline, so `"ar\n"` would pass an anchored `match` and
+#: carry a line break into the prompt.
+_LANGUAGE_TAG = re.compile(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}")
+
+
+def _answer_language_directive(tag: str) -> str:
+    """Ask for this app's own words in one language, and for nothing else to move.
+
+    The instruction names no language and mentions no script or direction — the
+    tag arrives from the reader's choice and is quoted into the sentence, so
+    this text reads identically for a language nobody has asked for yet.
+
+    The separation it insists on is the one the schema already draws. `facts[]`
+    is the document speaking and is quoted, so it is not ours to render into
+    another language; `reflection` and the group headings are this app speaking
+    and are what the reader asked to receive in their own. A model told only
+    "answer in X" will helpfully translate the quotations too, which is how a
+    reviewer ends up approving a rule against a paraphrase of the source while
+    believing they had checked the source.
+    """
+
+    return (
+        "\n\nLANGUAGE OF YOUR OWN WORDS.\n"
+        "The reader has asked for this answer in the language written as the IETF BCP-47 tag "
+        f'"{tag}". Write every word that is yours in that language, using that language\'s own '
+        'script: every "heading", and the whole of "reflection".\n'
+        "Two things are not yours and do not move. Every \"text\" in \"facts\" stays exactly as it "
+        "appears in CONTEXT — same characters, same language, same script as the document wrote "
+        "it — and every \"source_label\" keeps the wording of the citation it names. Quoting a "
+        "passage written in one language inside a reply written in another is correct here and is "
+        "what is being asked of you. If an excerpt cannot be kept unchanged, leave it out of "
+        '"facts" rather than restating it in another language.'
+    )
+
+
+
 async def _all_our_document_ids(session: AsyncSession) -> list[str]:
     result = await session.execute(select(SourceDocument.id))
     return [str(row[0]) for row in result.all()]
+
+
+#: How much of a policy's rules the model reads when a question is asked about
+#: the whole policy. A budget, so a section running to seventy-odd rules costs
+#: one bounded request rather than an unbounded one. Larger than the explainer's
+#: 6000 because these records carry the document's own words as well as this
+#: app's reading of them, and the point of showing both is lost if the budget
+#: only fits one. Spent on whole records and never on part of one: half a record
+#: is a different record, and the model would be answering about something the
+#: extraction does not hold.
+MAX_POLICY_RECORD_CHARS = 24000
+
+#: The fields of a record that answer a question about the policy.
+#:
+#: Measured on this corpus, a stored candidate record runs 2.6k-7.9k characters,
+#: of which most is machinery — xacml projections, dmn mappings, lineage,
+#: hashes, discovered relationships. Sent whole, a budget that fits a policy
+#: fits two of its rules, and a reviewer asking about a six-rule policy is told
+#: about two. Sent as these fields, the same budget fits twenty-odd, so the
+#: coverage statement mostly has nothing to report.
+#:
+#: This is a projection, not a summary: every value here is copied out of the
+#: record unchanged, and `source_text` in particular is the document's own
+#: words untouched. Nothing is rewritten on the way in, for the same reason
+#: nothing is translated on the way out.
+_EXTRACTED_FIELDS = (
+    "title",
+    "rule_type",
+    "evaluation_mode",
+    "condition",
+    "effect",
+    "attributes",
+    "exceptions",
+    "required_facts",
+    "machine_executable",
+)
+
+#: What the model is told the two halves of a record are.
+#:
+#: `policy_explainer` shows the model this app's extracted record and never the
+#: document's verbatim text, because a model shown both silently reconciles them
+#: and hides extraction defects — that choice caught this app's own extraction
+#: inverting a prohibition. An ask surface cannot inherit it: its answer contract
+#: requires every quoted fact to be copied character-for-character from CONTEXT,
+#: so a context with no verbatim text yields nothing quotable and collapses the
+#: answer to reflection alone. And "does this match the document?" is a question
+#: a reviewer is entitled to ask here.
+#:
+#: What is inherited is the reason. The reconciliation the explainer avoids
+#: happens when a model reads the two as one fact stated twice. So they are
+#: named as two claims, and a disagreement between them is asked for as a
+#: finding — which is the defect the explainer's rule was protecting, reported
+#: rather than merely not obscured.
+_POLICY_BLOCK_PREAMBLE = (
+    "THE POLICY THE REVIEWER IS ASKING ABOUT (this is the primary subject of the question — "
+    "answer specifically about it).\n"
+    "Each record below has two parts, and they are two separate claims, not one fact stated twice:\n"
+    "  - what_this_app_extracted: the fields this app read out of the document — condition, "
+    "effect, attributes, evaluation mode.\n"
+    "  - the_documents_own_words: the source text, exactly as the document wrote it.\n"
+    "Quote only from the second when you quote. If the two disagree — if the extracted fields say "
+    "something the quoted words do not — report that disagreement plainly as part of your answer. "
+    "Do not reconcile them, and do not pick whichever reads better.\n"
+)
+
+
+async def _policy_rule_payloads(
+    session: AsyncSession, policy_set_key: str | None, rule_ids: list[str]
+) -> list[dict]:
+    """The records for `rule_ids`, in the order asked for.
+
+    The caller's order is the order the card shows, which is document order, so
+    a coverage statement about "the first N" names a prefix a reader can point
+    at rather than an arbitrary subset. Ids not found are skipped rather than
+    guessed at.
+    """
+    if not policy_set_key:
+        return []
+    policy_set = await PolicySetRepository(session).get_by_key(policy_set_key)
+    if policy_set is None:
+        return []
+    rows = await CandidateRuleRepository(session).list_by_policy_set(policy_set.id)
+    by_rule_id: dict[str, dict] = {}
+    for row in rows:
+        rule_id = row.payload_json.get("rule_id")
+        if rule_id and rule_id not in by_rule_id:
+            by_rule_id[rule_id] = row.payload_json
+    return [by_rule_id[rule_id] for rule_id in rule_ids if rule_id in by_rule_id]
+
+
+def _policy_rule_record(payload: dict) -> dict:
+    """One record, split into the two claims the preamble names.
+
+    The split is structural rather than described. A record whose extracted
+    fields and quoted words sit in one flat object invites a model to read them
+    as one fact stated twice — which is the reconciliation `policy_explainer`
+    avoids by withholding the source altogether. This surface cannot withhold
+    it, so it names the halves instead: a disagreement between them has
+    somewhere to be, and can be reported rather than smoothed over.
+    """
+    formulation = payload.get("formulation")
+    canonical = formulation.get("canonical") if isinstance(formulation, dict) else None
+    canonical = canonical if isinstance(canonical, dict) else {}
+    extracted = {
+        field: payload[field]
+        for field in _EXTRACTED_FIELDS
+        if payload.get(field) not in (None, "", [], {})
+    }
+    if canonical.get("rule"):
+        extracted["parsed"] = canonical["rule"]
+
+    evidence = payload.get("evidence")
+    first = evidence[0] if isinstance(evidence, list) and evidence else {}
+    where = first.get("section") if isinstance(first, dict) else None
+
+    return {
+        "rule_id": payload.get("rule_id"),
+        "what_this_app_extracted": extracted,
+        "the_documents_own_words": {
+            "source_text": canonical.get("source_text"),
+            "read_from": where,
+        },
+    }
+
+
+def _policy_context_block(payloads: list[dict]) -> tuple[str, int]:
+    """The policy block, and how many records went into it.
+
+    `ensure_ascii=False` is not cosmetic. Escaped, an Arabic clause reaches the
+    model as `\\u0627\\u0644...` rather than as its characters, and a model asked
+    to copy a fact character-for-character would copy the escapes. The document's
+    words have to arrive as the document's words for the no-translation rule to
+    mean anything in a script that is not Latin.
+    """
+    rendered: list[str] = []
+    spent = 0
+    for payload in payloads:
+        text = json.dumps(_policy_rule_record(payload), indent=2, default=str, ensure_ascii=False)
+        # At least one whole record always goes in, even if it alone exceeds the
+        # budget: an answer grounded in nothing is worse than one bounded request.
+        if rendered and spent + len(text) > MAX_POLICY_RECORD_CHARS:
+            break
+        rendered.append(text)
+        spent += len(text)
+    return _POLICY_BLOCK_PREAMBLE + "\n" + "\n\n".join(rendered), len(rendered)
 
 
 async def ask(
@@ -88,6 +287,8 @@ async def ask(
     policy_set_key: str | None = None,
     history: list[dict] | None = None,
     focus_candidate_rule_id: str | None = None,
+    focus_rule_ids: list[str] | None = None,
+    answer_language: str | None = None,
 ) -> dict:
     """Answer `question`, grounded in indexed clauses (+ approved rules if a policy set is given).
 
@@ -104,6 +305,22 @@ async def ask(
     can ask "does this conflict with anything?" or "explain this in plain
     English" and get an answer grounded in the *exact* rule they're looking
     at, not whatever the general retrieval happens to surface.
+
+    `answer_language`, when given, is a BCP-47 tag naming the language the
+    reader wants *this app's own words* in — the reflection and the group
+    headings. It is asked for of the model rather than applied to the reply
+    afterwards, because the reply carries quoted source text and a translation
+    pass over it would rewrite the document. A tag that is not shaped like one
+    is dropped: it would be reaching a system prompt as an instruction. Omitted,
+    nothing about the request changes.
+
+    `focus_rule_ids`, when given, grounds the answer on a whole policy: the
+    records for those rule ids, in the order given, pinned at the front of
+    CONTEXT. A policy can hold more rules than one request carries, so the reply
+    adds a `grounding` object saying how many rules were asked about and how many
+    were read. It is reported rather than inferred — sending a subset silently
+    would make "grounded in all of it" and "grounded in the first part of it"
+    look identical to the reviewer relying on the answer.
     """
 
     settings = get_settings()
@@ -113,6 +330,21 @@ async def ask(
     ai_client = AzureOpenAIClient(settings)
     context_blocks: list[str] = []
     sources: list[dict] = []
+    grounding: dict | None = None
+
+    if focus_rule_ids:
+        try:
+            payloads = await _policy_rule_payloads(session, policy_set_key, list(focus_rule_ids))
+            if payloads:
+                block, covered = _policy_context_block(payloads)
+                context_blocks.append(block)
+                grounding = {
+                    "rule_count": len(focus_rule_ids),
+                    "covered_rule_count": covered,
+                    "covers_every_rule": covered == len(focus_rule_ids),
+                }
+        except Exception as exc:  # noqa: BLE001 - chat should still answer without the policy block
+            logger.warning("failed to load policy rules during ask(): %s", exc)
 
     if focus_candidate_rule_id:
         try:
@@ -136,7 +368,12 @@ async def ask(
                 focus_block = (
                     "THE RULE THE REVIEWER IS ASKING ABOUT (this is the primary subject of the "
                     "question — answer specifically about it):\n"
-                    f"{json.dumps(focus_candidate.payload_json, indent=2, default=str)}"
+                    # `ensure_ascii=False` for the reason given on
+                    # `_policy_context_block`: escaped, a non-Latin clause reaches
+                    # the model as `\u0627\u0644…` rather than as its characters,
+                    # and a model asked to copy a fact character-for-character
+                    # would copy the escapes into the answer.
+                    f"{json.dumps(focus_candidate.payload_json, indent=2, default=str, ensure_ascii=False)}"
                 )
                 if siblings:
                     focus_block += (
@@ -198,7 +435,10 @@ async def ask(
             logger.warning("failed to load approved rules context during ask(): %s", exc)
 
     context_text = "\n\n---\n\n".join(context_blocks) if context_blocks else "(no matching context found)"
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    system_prompt = _SYSTEM_PROMPT
+    if answer_language and _LANGUAGE_TAG.fullmatch(answer_language):
+        system_prompt += _answer_language_directive(answer_language)
+    messages = [{"role": "system", "content": system_prompt}]
     for turn in (history or [])[-6:]:
         if turn.get("role") in ("user", "assistant") and turn.get("content"):
             messages.append({"role": turn["role"], "content": turn["content"]})
@@ -214,11 +454,17 @@ async def ask(
         temperature=0,
         # Fast (non-reasoning) deployment; budget covers several fact groups
         # plus a reflection paragraph without the reasoning-model emptiness
-        # quirk documented on AzureOpenAIClient.chat().
-        max_tokens=1600,
+        # quirk documented on AzureOpenAIClient.chat(). A policy-wide question
+        # has more to quote from and gets more room: a reply cut off mid-JSON
+        # parses as reflection-only, which looks like a thin answer rather than
+        # a truncated one.
+        max_tokens=2400 if grounding is not None else 1600,
     )
     groups, reflection = _parse_structured_answer(raw)
-    return {"groups": groups, "reflection": reflection, "sources": sources}
+    reply: dict = {"groups": groups, "reflection": reflection, "sources": sources}
+    if grounding is not None:
+        reply["grounding"] = grounding
+    return reply
 
 
 def _parse_structured_answer(raw: str) -> tuple[list[dict], str]:
