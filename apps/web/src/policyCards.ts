@@ -105,11 +105,93 @@ export interface PolicyCard {
  * reviewer can presently see — and reports how many it is therefore not
  * showing. A policy with none of its rules in view produces no card at all
  * rather than an empty one, and a passage with none in view produces no block.
+ *
+ * WHY THIS AND `unplacedCandidates` SHARE ONE PASS
+ *
+ * They used to answer "is this rule placed?" from different fields. This one
+ * walked `policy.passages`; that one walked `policy.rules`. When a policy
+ * arrived carrying rules but no passages the two disagreed completely: this
+ * built no card and dropped the policy, while that read every one of its rules
+ * as placed and returned none of them. The result was a queue showing nothing
+ * at all, over a payload holding hundreds of rules, with no line on screen
+ * saying why — the rules had fallen through the gap between two views that each
+ * believed the other was showing them.
+ *
+ * So there is now one pass and one definition, and the definition is *rendered*
+ * rather than *listed*: a rule is placed when it came out on a card. A policy
+ * that cannot be laid out therefore places nothing, and everything it holds
+ * falls through to `unplacedCandidates`, which is a view that exists precisely
+ * to keep rules on screen when the arrangement around them is missing.
  */
 export function buildPolicyCards(
   policies: readonly AssembledPolicy[],
   candidates: readonly CandidateRule[],
 ): PolicyCard[] {
+  return placement(policies, candidates).cards;
+}
+
+/**
+ * Candidates the assembly did not place.
+ *
+ * The two fetches do not always cover the same population: the flat list can
+ * ask for superseded rows when a historical run is open, and the assembly does
+ * not. A rule in that gap has to be shown — dropping a decision from the review
+ * queue is the one failure worse than showing it ungrouped — and it has to be
+ * shown as what it is rather than promoted to a passage of its own, because
+ * "the server did not place this" and "the source stated this alone" are
+ * different facts.
+ *
+ * A policy the queue could not lay out lands here too, for the same reason and
+ * by the same test: nothing of it was drawn, so nothing of it is placed. That
+ * is deliberately not repaired by inventing a passage to hold the rules. A
+ * passage is a claim that the document stated these rules together in one run
+ * of text, and manufacturing one to satisfy a layout would put a claim about
+ * the source on screen that no reading of the source produced.
+ */
+export function unplacedCandidates(
+  policies: readonly AssembledPolicy[],
+  candidates: readonly CandidateRule[],
+): CandidateRule[] {
+  return placement(policies, candidates).unplaced;
+}
+
+interface Placement {
+  cards: PolicyCard[];
+  unplaced: CandidateRule[];
+}
+
+/**
+ * The last answer, kept so asking both questions costs one pass.
+ *
+ * The two exported views are read from separate `useMemo`s with the same two
+ * arrays, so without this the work happens twice per render of a queue that can
+ * run to hundreds of rules. Keyed on the identity of both inputs, never on
+ * their contents: a caller that replaces an array gets a fresh answer, which is
+ * how React state arrives. A caller that mutates one in place would not, and
+ * nothing in this app does that — the arrays come from `setState`.
+ */
+let lastPlacement: {
+  policies: readonly AssembledPolicy[];
+  candidates: readonly CandidateRule[];
+  result: Placement;
+} | null = null;
+
+function placement(
+  policies: readonly AssembledPolicy[],
+  candidates: readonly CandidateRule[],
+): Placement {
+  if (lastPlacement && lastPlacement.policies === policies && lastPlacement.candidates === candidates) {
+    return lastPlacement.result;
+  }
+  const result = place(policies, candidates);
+  lastPlacement = { policies, candidates, result };
+  return result;
+}
+
+function place(
+  policies: readonly AssembledPolicy[],
+  candidates: readonly CandidateRule[],
+): Placement {
   const byRuleId = new Map<string, CandidateRule>();
   for (const candidate of candidates) {
     if (!byRuleId.has(candidate.rule.rule_id)) byRuleId.set(candidate.rule.rule_id, candidate);
@@ -118,9 +200,13 @@ export function buildPolicyCards(
   const cards: PolicyCard[] = [];
   for (const policy of policies) {
     const passages: PolicyCardPassage[] = [];
-    for (const passage of policy.passages ?? []) {
+    // Absent and empty are the same thing to *this* loop — either way nothing
+    // is drawn — but they must not be the same thing to the reader, and they
+    // are not: what is not drawn here is not placed, and what is not placed is
+    // shown by the other view with the reason attached.
+    for (const passage of Array.isArray(policy.passages) ? policy.passages : []) {
       const rules: PolicyCardRule[] = [];
-      for (const rule of passage.rules) {
+      for (const rule of Array.isArray(passage?.rules) ? passage.rules : []) {
         const candidate = byRuleId.get(rule.rule_id);
         if (!candidate) continue;
         rules.push({
@@ -159,29 +245,18 @@ export function buildPolicyCards(
       reviewStatuses,
     });
   }
-  return cards;
-}
 
-/**
- * Candidates the assembly did not place.
- *
- * The two fetches do not always cover the same population: the flat list can
- * ask for superseded rows when a historical run is open, and the assembly does
- * not. A rule in that gap has to be shown — dropping a decision from the review
- * queue is the one failure worse than showing it ungrouped — and it has to be
- * shown as what it is rather than promoted to a passage of its own, because
- * "the server did not place this" and "the source stated this alone" are
- * different facts.
- */
-export function unplacedCandidates(
-  policies: readonly AssembledPolicy[],
-  candidates: readonly CandidateRule[],
-): CandidateRule[] {
+  // The one definition of placed, read off what was actually built. Not a
+  // second walk of the policies that could drift from the first.
   const placed = new Set<string>();
-  for (const policy of policies) {
-    for (const rule of policy.rules) placed.add(rule.rule_id);
+  for (const card of cards) {
+    for (const rule of card.rules) placed.add(rule.rule_id);
   }
-  return candidates.filter((candidate) => !placed.has(candidate.rule.rule_id));
+
+  return {
+    cards,
+    unplaced: candidates.filter((candidate) => !placed.has(candidate.rule.rule_id)),
+  };
 }
 
 /** The verbatim sentence a rule was formulated from. */
