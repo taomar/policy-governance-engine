@@ -264,7 +264,9 @@ def check_quantities_preserved(rule: CanonicalRule) -> list[FaithfulnessFinding]
                 code="quantity_dropped",
                 message=(
                     f"The source states '{quantity}' and the rule does not carry it. "
-                    "A limit that is not represented cannot be enforced."
+                    "This check matches a figure beside a unit and cannot tell a ceiling "
+                    "from a duration or a count, so a reviewer must read the sentence to "
+                    "see what the figure governs."
                 ),
                 source_quote=quantity,
                 severity="blocking",
@@ -446,8 +448,9 @@ def check_source_conditions_reached_canonical(
         message=(
             f"The source uses conditional language ('{match.group(0)}') and the canonical "
             "decomposition records no condition, prerequisite, trigger or constraint at "
-            "all. Whatever the sentence made this rule depend on is absent from the "
-            "record, so nothing downstream can carry it."
+            "all, nor is it absorbed into the subject, predicate or object. The sentence "
+            "is still held verbatim in the record; what no field carries is the "
+            "dependency it states, so anything reading the decomposition alone misses it."
         ),
         source_quote=source[:160],
         severity="blocking",
@@ -628,10 +631,12 @@ def find_duplicate_rules(rules: "list[CanonicalRule]") -> list[FaithfulnessFindi
                 rule_id=rule.rule_id,
                 code="duplicate_rule",
                 message=(
-                    f"This rule states the same thing as {first}. Both cite the same "
-                    "sentence, usually because a clause boundary fell inside it and the "
-                    "sentence was formulated twice. A reviewer must keep the copy whose "
-                    "clause carries the better evidence."
+                    f"This rule's subject, predicate and remaining content match {first}'s "
+                    "once wording is normalised. The two source citations were not "
+                    "compared, so read them before deciding: in both live examples the "
+                    "pair came from one sentence cut by a clause boundary, but a genuine "
+                    "restatement in two places looks the same to this check. A reviewer "
+                    "keeps the copy whose clause carries the better evidence."
                 ),
                 source_quote=(canonical.source_text if canonical else "")[:160],
                 severity="warning",
