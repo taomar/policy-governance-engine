@@ -1230,7 +1230,7 @@ export function PolicyValidationLab({
           policySetKey={policySetKey}
           activeTabKey={policyPreviewTab}
           onTabChange={setPolicyPreviewTab}
-          readOnly
+          shownAsReference
           recordLabel="policy"
         />
       </Drawer>

@@ -97,7 +97,27 @@ interface PolicyInspectorProps {
   notesTarget?: { entityType: NoteEntityType; entityId: string; title: string };
   recordKind?: "published" | "candidate";
   recordLabel?: string;
-  readOnly?: boolean;
+  /**
+   * This inspector is embedded as a citation inside another workflow, not as
+   * the place the reader came to act on the rule.
+   *
+   * WHY THIS IS NOT AN EDITABILITY FLAG, AND MUST NOT BECOME ONE
+   *
+   * Whether a record may be changed is a property of the record, answered by
+   * `candidateEditability` from its review status, and no caller is entitled to
+   * a second opinion on it. This says something a record cannot: the *same*
+   * published rule is the subject of the page on one surface and a reference
+   * pulled in beside a quality finding on another. Only the caller knows which,
+   * because it is a fact about the surrounding surface rather than about the
+   * rule.
+   *
+   * What it suppresses is therefore limited to acting *on* a rule you arrived
+   * at by way of something else — running a scenario against it, writing a note
+   * on it. It does not, and must not, gate anything whose answer is already
+   * carried by the record or by the presence of a handler: a caller that does
+   * not want Revise offered simply does not pass `onRevise`.
+   */
+  shownAsReference?: boolean;
 }
 
 /**
@@ -127,7 +147,7 @@ export function PolicyInspector({
   notesTarget,
   recordKind = "published",
   recordLabel = "policy",
-  readOnly = false,
+  shownAsReference = false,
 }: PolicyInspectorProps) {
   const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
   const [docMetaByVersionId, setDocMetaByVersionId] = useState<Map<string, DocumentMeta>>(new Map());
@@ -539,8 +559,11 @@ export function PolicyInspector({
 
   // Only renderable with a policySetKey (needed for the real-engine lookup) —
   // callers that don't yet have one (rare; mainly narrower/legacy call sites)
-  // simply don't get this tab rather than showing a broken one.
-  const testScenario = policySetKey && !readOnly ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
+  // simply don't get this tab rather than showing a broken one. Withheld from a
+  // reference view for the same reason Notes is: running a scenario is acting on
+  // a rule, and this one was arrived at by way of something else.
+  const testScenario =
+    policySetKey && !shownAsReference ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
 
   const json = <RuleJsonPane rule={rule} sourceLabels={sourceLabels} />;
 
@@ -686,12 +709,12 @@ export function PolicyInspector({
               View source
             </Button>
           )}
-          {onRevise && !readOnly && (
+          {onRevise && (
             <Button size="small" icon={<EditOutlined />} onClick={() => onRevise(rule)} title="Draft the next revision of this rule for review">
               Revise
             </Button>
           )}
-          {!readOnly && additionalActions}
+          {additionalActions}
         </Space>
       </div>
 
@@ -735,7 +758,7 @@ export function PolicyInspector({
               ]
             : []),
           { key: "history", label: "History", children: history },
-          ...(!readOnly ? [{ key: "notes", label: "Notes", children: notes }] : []),
+          ...(!shownAsReference ? [{ key: "notes", label: "Notes", children: notes }] : []),
           { key: "json", label: "JSON", children: json },
         ]}
       />

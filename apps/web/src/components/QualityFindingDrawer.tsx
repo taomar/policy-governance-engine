@@ -383,7 +383,7 @@ export function QualityFindingDrawer({
             setPolicyPreviewTab("overview");
             setPolicyPreview(rule);
           }}
-          readOnly
+          shownAsReference
           recordKind={reportScope === "candidates" ? "candidate" : "published"}
           recordLabel={reportScope === "candidates" ? "candidate" : "policy"}
           contextMeta={<Tag color="purple">Referenced by quality finding</Tag>}
