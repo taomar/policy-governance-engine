@@ -572,8 +572,8 @@ export function PolicyDetailPanel({
                 {card.hiddenByFilter > 0 && (
                   <Text type="secondary">
                     {card.hiddenByFilter === 1
-                      ? "1 more rule of this policy is outside the current filter and is not shown here or included in the JSON below."
-                      : `${card.hiddenByFilter} more rules of this policy are outside the current filter and are not shown here or included in the JSON below.`}
+                      ? "This policy states 1 more rule that is not on this card, and so is not in the JSON below. A rule is left off when a later extraction run replaced the reading of it, or when the record was not among those loaded here."
+                      : `This policy states ${card.hiddenByFilter} more rules that are not on this card, and so are not in the JSON below. A rule is left off when a later extraction run replaced the reading of it, or when the record was not among those loaded here.`}
                   </Text>
                 )}
               </>

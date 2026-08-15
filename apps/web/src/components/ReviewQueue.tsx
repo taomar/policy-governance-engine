@@ -48,6 +48,8 @@ import {
   type CandidateRule,
   type CanonicalRule,
   type PolicySet,
+  type PolicyTestListItem,
+  policyTestApi,
   type ReviewFacets,
   type PolicyScope,
   type QualityFinding,
@@ -153,6 +155,21 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [facets, setFacets] = useState<ReviewFacets | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
   const [searchText, setSearchText] = useState("");
+  /**
+   * Every test in this policy set, loaded once for the page.
+   *
+   * Kept at page scope rather than per policy for the reason the Tests tab
+   * exists to respect: a policy's tests are those aimed at rules it holds, and
+   * that question is answered from the card already on screen. Asking a server
+   * for one policy's tests would make it re-derive the grouping, and a second
+   * opinion on grouping is free to disagree with the one the reviewer is
+   * looking at.
+   *
+   * `null` until something is known, so "not loaded" and "this set has no
+   * tests" stay different answers.
+   */
+  const [policySetTests, setPolicySetTests] = useState<PolicyTestListItem[] | null>(null);
+  const [policySetTestsLoading, setPolicySetTestsLoading] = useState(false);
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [publishResult, setPublishResult] = useState<ApprovedPolicyVersion | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -334,6 +351,15 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   useEffect(() => {
     void loadFacets();
+    // The set's tests, loaded once here so every policy's Tests tab reads the
+    // same answer. A failure leaves them unknown rather than empty: an empty
+    // list would tell the reviewer this set has no tests, which is a claim.
+    setPolicySetTestsLoading(true);
+    policyTestApi
+      .list(selectedKey)
+      .then(setPolicySetTests)
+      .catch(() => setPolicySetTests(null))
+      .finally(() => setPolicySetTestsLoading(false));
     // Filters are scoped to the policy set; carrying a document or run selection
     // across a switch would silently filter the new set to nothing.
     setDocumentFilter("");
@@ -1270,6 +1296,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             : undefined
         }
         policySetKey={selectedKey}
+        tests={policySetTests}
+        testsLoading={policySetTestsLoading}
         ruleActions={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
           if (!entry) return {};
