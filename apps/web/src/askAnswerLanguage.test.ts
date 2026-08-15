@@ -34,6 +34,7 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_ANSWER_LANGUAGES,
   ASK_SCOPES,
+  ASK_RECORD_SOURCES,
   DEFAULT_ASK_ANSWER_LANGUAGE,
   askAnswerLanguageByTag,
   fillCounts,
@@ -243,6 +244,42 @@ describe("adding a language is adding a row", () => {
     }
   });
 
+  it("says where the records came from in every language, and says it differently for each", () => {
+    // Two failures, both silent. A language missing a record source renders an
+    // empty provenance line, which reads as "no note" — the same as an older
+    // reply that named no source, so a reader could not tell a missing
+    // translation from an absent claim. And one sentence used for both sources
+    // would state a provenance that is right half the time while looking
+    // authoritative all of it, which is the exact confusion the line exists to
+    // remove.
+    for (const language of ASK_ANSWER_LANGUAGES) {
+      const seen = new Set<string>();
+      for (const source of ASK_RECORD_SOURCES) {
+        const note = language.copy.recordSourceNotes[source];
+        expect(note, `${language.tag} has no note for ${source}`).toBeTypeOf("string");
+        expect(note.trim().length, `${language.tag}.${source}`).toBeGreaterThan(20);
+        expect(seen.has(note), `${language.tag}: ${source} reuses another source's words`).toBe(
+          false,
+        );
+        seen.add(note);
+      }
+    }
+  });
+
+  it("keeps 'none of them' a different sentence from 'the first few of them'", () => {
+    // Zero read and a prefix read are different reports, not one report with a
+    // smaller number in it: the first says the answer is not about the policy at
+    // all. Sharing the sentence would let a reader who skims the numbers take
+    // the first for the second.
+    for (const language of ASK_ANSWER_LANGUAGES) {
+      const { coverageNote, groundedNothingNote } = language.copy;
+      expect(groundedNothingNote.trim().length, language.tag).toBeGreaterThan(20);
+      expect(groundedNothingNote, language.tag).not.toBe(coverageNote);
+      // The counts belong in the copy as placeholders, not assembled around it.
+      expect(groundedNothingNote.includes("{total}"), language.tag).toBe(true);
+    }
+  });
+
   it("gives every scope its own openers rather than the other scope's", () => {
     // A question worth asking about one rule is not the question worth asking
     // about the twenty rules a section was decomposed into. Reusing the set
@@ -279,9 +316,13 @@ describe("adding a language is adding a row", () => {
 
   it("leaves no other string holding an unfilled placeholder", () => {
     // A `{covered}` that reached the screen would be this app showing its own
-    // scaffolding to a reviewer.
+    // scaffolding to a reviewer. The exceptions are named rather than matched
+    // loosely, so a new string that carries counts has to be declared here and
+    // given a `fillCounts` call rather than quietly joining the exempt set.
+    const carriesCounts = new Set(["coverageNote", "groundedNothingNote"]);
     for (const { key, text } of EVERY_STRING) {
-      if (key.endsWith(".coverageNote")) continue;
+      const leaf = key.slice(key.lastIndexOf(".") + 1);
+      if (carriesCounts.has(leaf)) continue;
       expect(/\{[a-z_]+\}/.test(text), key).toBe(false);
     }
   });
@@ -303,6 +344,7 @@ describe("adding a language is adding a row", () => {
       "./components/AskAiModal.tsx",
       "./components/AskAboutRuleModal.tsx",
       "./components/PolicyAskAiButton.tsx",
+      "./components/PublishedRuleAskAiButton.tsx",
       "./components/AnswerLanguageToggle.tsx",
       "./askInLanguage.ts",
     ];

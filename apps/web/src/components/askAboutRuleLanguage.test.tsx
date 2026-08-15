@@ -241,6 +241,9 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
     // a list, the dialog would be answering about a policy under a rule's
     // heading, and the reader would have no way of telling.
     expect(body.focus_rule_ids).toBeNull();
+    // A draft ask names no version: the review queue is showing the draft row,
+    // and a version here would silently move the answer to the sealed record.
+    expect(body.policy_version_id).toBeNull();
     expect(Object.keys(body).sort()).toEqual(
       [
         "answer_language",
@@ -248,6 +251,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
         "focus_rule_ids",
         "history",
         "policy_set_key",
+        "policy_version_id",
         "question",
       ].sort(),
     );

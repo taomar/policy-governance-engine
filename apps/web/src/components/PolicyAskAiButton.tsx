@@ -39,13 +39,30 @@ import { AskAiModal, type AskAiModalProps } from "./AskAiModal";
  * The grounding may be a prefix of the policy when it holds more rules than one
  * request carries. That is stated in the answer, never assumed away — see the
  * coverage note in `AskAiModal`.
+ *
+ * PUBLISHED RECORDS
+ *
+ * `policyVersionId` is how a sealed record asks. Omitted — the review queue —
+ * the server reads the draft rows, which is the record that queue is showing.
+ * Given, it reads that published version and never falls back to the drafts:
+ * the two share their rule ids and can say different things, so an answer about
+ * the wrong one would look exactly like an answer about the right one. The
+ * reply names which it read and the dialog prints it.
+ *
+ * Optional rather than required because the published surface is adopting this
+ * after the review surface, and a required argument would have made a
+ * one-line render into a coordinated change across two owners' files. The
+ * published caller passing nothing is the only way this can be got wrong, and
+ * `askOnAPublishedRecord.test.tsx` is what stops it.
  */
 export function PolicyAskAiButton({
   policy,
   policySetKey,
+  policyVersionId,
 }: {
   policy: AssembledPolicy;
   policySetKey: string;
+  policyVersionId?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -61,9 +78,10 @@ export function PolicyAskAiButton({
         policySetId: policySetKey,
         history,
         focusRuleIds: ruleIds,
+        policyVersionId,
         answerLanguage,
       }),
-    [policySetKey, ruleIds],
+    [policySetKey, ruleIds, policyVersionId],
   );
 
   return (

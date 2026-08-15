@@ -58,6 +58,20 @@ export const ASK_SCOPES = ["rule", "policy"] as const;
 
 export type AskScopeKind = (typeof ASK_SCOPES)[number];
 
+/** Which of this app's tables a grounded answer's records were read out of.
+ *
+ *  The same discipline as `ASK_SCOPES`, one step further out: a published rule
+ *  and the draft row that produced it carry the same `rule_id` and can say
+ *  different things, so "which record" is a fact about an answer and not a fact
+ *  about which screen asked. Listed rather than hand-written as a union so a
+ *  third kind of record — an imported package, a comparison run — is a row in
+ *  every language's table and a compile error until it has one, rather than a
+ *  silent fall-through to whichever sentence was the default. The strings match
+ *  `ai_chat.RECORDS_FROM_*`. */
+export const ASK_RECORD_SOURCES = ["published_version", "draft_records"] as const;
+
+export type AskRecordSource = (typeof ASK_RECORD_SOURCES)[number];
+
 /** The words that change with what is being asked about. */
 export interface AskScopeCopy {
   /** Dialog heading, with the subject's own identifier appended unchanged. */
@@ -99,6 +113,23 @@ export interface AskAnswerCopy {
    *  `{covered}` and `{total}`, filled by `fillCounts`, because the numbers are
    *  the same numbers in every language and only their setting differs. */
   coverageNote: string;
+  /** Said when the grounding carried *none* of the rules asked about. Holds
+   *  `{total}`.
+   *
+   *  A separate sentence from `coverageNote` rather than the same one with a
+   *  zero in it, because they are different reports. "The first three of six"
+   *  is an answer about the policy, bounded. Zero of six is not an answer about
+   *  the policy at all — whatever came back rests on retrieved passages alone —
+   *  and a reader who skims a number would read the two as the same kind of
+   *  caveat. This is the failure mode the coverage report exists to prevent, so
+   *  it gets its own words. */
+  groundedNothingNote: string;
+  /** Which record the answer was read out of, in the reader's language.
+   *
+   *  A table keyed by the server's own term rather than a pair of sentences
+   *  chosen by a boolean, for the reason the language table itself is a table:
+   *  a third kind of record is then a row here and no change to a component. */
+  recordSourceNotes: Record<AskRecordSource, string>;
   /** The send button. */
   askLabel: string;
   /** Shown while a question is in flight. */
@@ -140,6 +171,14 @@ const ENGLISH: AskAnswerLanguage = {
     retrievedFromLabel: "Retrieved from",
     coverageNote:
       "This answer was grounded in the first {covered} of this policy's {total} rules, in document order. The remaining rules are on the card and are unchanged by this.",
+    groundedNothingNote:
+      "None of this policy's {total} rules were read for this answer. Whatever follows rests on retrieved passages alone, so do not read it as a statement about the records on the card.",
+    recordSourceNotes: {
+      published_version:
+        "Read from the published version on screen — the sealed records, not the drafts under review.",
+      draft_records:
+        "Read from the draft records under review — what this app extracted, before publication.",
+    },
     askLabel: "Ask",
     thinkingLabel: "Thinking…",
     failedHeading: "The request did not complete",
@@ -195,6 +234,14 @@ const ARABIC: AskAnswerLanguage = {
     retrievedFromLabel: "مأخوذ من",
     coverageNote:
       "بُنيت هذه الإجابة على أول {covered} من قواعد هذه السياسة البالغ عددها {total}، بترتيب المستند. وبقية القواعد معروضة على البطاقة ولم يمسّها شيء.",
+    groundedNothingNote:
+      "لم تُقرأ أي قاعدة من قواعد هذه السياسة البالغ عددها {total} من أجل هذه الإجابة. وما يلي يستند إلى المقاطع المسترجَعة وحدها، فلا تقرأه على أنه قول عن السجلات المعروضة على البطاقة.",
+    recordSourceNotes: {
+      published_version:
+        "مقروء من النسخة المنشورة المعروضة — السجلات المختومة، لا المسودات قيد المراجعة.",
+      draft_records:
+        "مقروء من سجلات المسودة قيد المراجعة — ما استخرجه هذا التطبيق، قبل النشر.",
+    },
     askLabel: "اسأل",
     thinkingLabel: "جارٍ التفكير…",
     failedHeading: "لم يكتمل الطلب",

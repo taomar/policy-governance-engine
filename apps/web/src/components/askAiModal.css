@@ -109,3 +109,13 @@
   margin-top: 8px;
   font-size: 11.5px;
 }
+
+/* Which record the answer was read from. Quiet, and directly under the answer's
+   own caveats rather than in a corner: it is provenance, so it belongs where a
+   reader is already deciding how much to trust what they just read. Carries the
+   same marker as every other sentence this app wrote about itself. */
+.ask-rule-record-source {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}

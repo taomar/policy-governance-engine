@@ -18,6 +18,23 @@ import "./askAiModal.css";
 
 const { Text, Paragraph } = Typography;
 
+/**
+ * The reader's-language sentence naming which record an answer was read from.
+ *
+ * `undefined` when the server named no source — an older reply, or one from a
+ * deployment that predates the field. Absent is not "the drafts": guessing
+ * would put a claim about provenance on screen that nothing behind it supports,
+ * and the whole point of the line is that provenance is reported rather than
+ * inferred. Nothing renders in that case.
+ */
+function recordSourceNote(
+  grounding: NonNullable<AskInLanguageResponse["grounding"]>,
+  language: AskAnswerLanguage,
+): string | undefined {
+  const source = grounding.record_source;
+  return source ? language.copy.recordSourceNotes[source] : undefined;
+}
+
 /** What one exchange in this dialog turned into.
  *
  * `empty` and `failed` are separate on purpose: one is an answer that held
@@ -242,21 +259,52 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                     already read it as a whole one. */}
                 {t.result.grounding && !t.result.grounding.covers_every_rule && (
                   <Alert
-                    type="info"
+                    // Zero read is a warning, a prefix is information. The two
+                    // differ in kind, not in degree: one bounds an answer about
+                    // the policy, the other says there was no answer about the
+                    // policy — and a reader skimming past a blue box would take
+                    // the second for the first.
+                    type={t.result.grounding.covered_rule_count === 0 ? "warning" : "info"}
                     showIcon
                     className="ask-rule-coverage"
-                    data-testid="ask-rule-coverage"
+                    data-testid={
+                      t.result.grounding.covered_rule_count === 0
+                        ? "ask-rule-grounded-nothing"
+                        : "ask-rule-coverage"
+                    }
                     message={
                       <span lang={t.language.tag}>
                         <DirectionalText align>
-                          {fillCounts(t.language.copy.coverageNote, {
-                            covered: t.result.grounding.covered_rule_count,
-                            total: t.result.grounding.rule_count,
-                          })}
+                          {fillCounts(
+                            t.result.grounding.covered_rule_count === 0
+                              ? t.language.copy.groundedNothingNote
+                              : t.language.copy.coverageNote,
+                            {
+                              covered: t.result.grounding.covered_rule_count,
+                              total: t.result.grounding.rule_count,
+                            },
+                          )}
                         </DirectionalText>
                       </span>
                     }
                   />
+                )}
+                {/* Which record was read, whenever any was. Stated on every
+                    grounded answer rather than only on the published surface:
+                    a note that appears only when something is unusual teaches a
+                    reader that its absence means the ordinary case, and the
+                    ordinary case here — a draft under review — is exactly the
+                    one a reader of a sealed version must not assume they got. */}
+                {t.result.grounding && recordSourceNote(t.result.grounding, t.language) && (
+                  <div className="ask-rule-record-source" data-testid="ask-rule-record-source">
+                    <Text type="secondary">
+                      <span lang={t.language.tag}>
+                        <DirectionalText align>
+                          {`✦ ${recordSourceNote(t.result.grounding, t.language)}`}
+                        </DirectionalText>
+                      </span>
+                    </Text>
+                  </div>
                 )}
                 {t.result.groups.length === 0 && (
                   <Alert

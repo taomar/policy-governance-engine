@@ -40,6 +40,12 @@ export interface AskInLanguageRequest {
   /** The rules to ground on, by their own `AI-…` ids, in document order.
    *  Used when the question is about a whole policy rather than one rule. */
   focusRuleIds?: readonly string[];
+  /** The published version those rule ids belong to, when the reader is looking
+   *  at one rather than at the review queue. Given, the server reads the sealed
+   *  records; omitted, it reads the draft rows. The two can carry the same
+   *  `rule_id` and say different things, so this is what says which record the
+   *  answer is about. */
+  policyVersionId?: string;
   /** IETF BCP-47 tag for the language this app's own words should come back in. */
   answerLanguage: string;
 }
@@ -60,6 +66,12 @@ export interface AskGrounding {
   covered_rule_count: number;
   /** Whether those two are the same number. */
   covers_every_rule: boolean;
+  /** Which record the answer was built from: the sealed published version, or
+   *  the draft rows under review. Reported rather than inferred from which
+   *  screen asked, because the two records share their ids and can disagree —
+   *  a reader told about a draft while reading a published version would have
+   *  checked the wrong thing. */
+  record_source?: "published_version" | "draft_records";
 }
 
 /** An answer, plus how much of the subject it was grounded in.
@@ -96,6 +108,7 @@ async function postAsk({
   history = [],
   focusCandidateRuleId,
   focusRuleIds,
+  policyVersionId,
   answerLanguage,
 }: AskInLanguageRequest): Promise<AskInLanguageResponse> {
   let response: Response;
@@ -109,6 +122,7 @@ async function postAsk({
         history,
         focus_candidate_rule_id: focusCandidateRuleId ?? null,
         focus_rule_ids: focusRuleIds ? [...focusRuleIds] : null,
+        policy_version_id: policyVersionId ?? null,
         answer_language: answerLanguage,
       }),
     });
