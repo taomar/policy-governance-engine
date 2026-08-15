@@ -31,6 +31,7 @@ import {
   type PolicyLikeCard,
 } from "./recordsNotShown";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
+import { policyCompositionLabel } from "./policyRecordFacts";
 import type { PolicyCard } from "./policyCards";
 
 /**
@@ -200,6 +201,21 @@ function card(shownIds: string[], allIds: string[]): PolicyCard {
 }
 
 describe("what the card actually renders", () => {
+  it("says what a policy is made of without ranking either half", () => {
+    // The card now states its own composition, so a reviewer sees the mix
+    // instead of choosing a side. That sentence is one word away from telling
+    // them which half matters, and the half it would demote is the larger one.
+    const offences: string[] = [];
+    for (const decide of [1, 3, 15]) {
+      for (const define of [1, 3, 15]) {
+        const label = policyCompositionLabel({ decide, define }) ?? "";
+        for (const pattern of ranked(label)) offences.push(`${pattern} in: ${label}`);
+      }
+    }
+
+    expect(offences).toEqual([]);
+  });
+
   it("tells the reviewer what is out of view, where it is, and what Approve decides", () => {
     // The case the user hit: three of eighteen shown, the other fifteen one tab
     // away. They asked what "15 more rules" meant. This is the answer.

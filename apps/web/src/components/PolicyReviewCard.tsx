@@ -10,6 +10,7 @@ import {
 } from "../policyCards";
 import { policyRouteLabel, policyRuleCountLabel } from "../policyGrouping";
 import { readPassage } from "../policyReading";
+import { policyComposition, policyCompositionLabel } from "../policyRecordFacts";
 import { notShownSentence, recordsNotShown } from "../recordsNotShown";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
@@ -146,6 +147,17 @@ export function PolicyReviewCard({
   // thing all the rules agree on and it stays.
   const sharedEffect =
     shared.effectType && !shared.ruleType ? card.rules[0]?.candidate.rule.effect : undefined;
+  // What the card is made of, on the one axis that divides its rules without
+  // counting any of them twice — taken from the shared module rather than read
+  // off the rules here, because the published card states this same fact and two
+  // readings of it would be two answers to one question.
+  //
+  // Counted over the rules on the card, which is what the reviewer can see and
+  // what Approve decides. What the card is not showing is stated separately,
+  // below, rather than folded into a total nobody can check.
+  const composition = policyCompositionLabel(
+    policyComposition(card.rules.map((rule) => rule.candidate.rule)),
+  );
   // The headings above this one. The innermost is the card's own title, so it
   // is not repeated in the trail.
   const trail = card.policy.heading_path.slice(0, -1);
@@ -253,6 +265,14 @@ export function PolicyReviewCard({
             <span>
               {policyRuleCountLabel(card.rules.length, card.policy.rule_count)}
             </span>
+            {composition && (
+              <>
+                <span className="policy-card__dot">·</span>
+                <Tooltip title="What this policy is made of: rules that settle a case, and rules that supply a meaning the others use.">
+                  <span data-testid="policy-composition">{composition}</span>
+                </Tooltip>
+              </>
+            )}
             {card.policy.passage_count > 1 && (
               <>
                 <span className="policy-card__dot">·</span>
