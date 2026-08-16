@@ -141,6 +141,14 @@ describe("an informational request is answered from the rules that state it", ()
           { rule_id: "cap", title: "The weekly ceiling", quote: "not more than 24 hrs per week" },
         ],
         note: "",
+        grounding: {
+          prompt_version: "ai-case-intent-v2",
+          rules_available: 3,
+          citations_requested: 1,
+          rules_cited: 1,
+          fabricated_citations: [],
+          oversize: false,
+        },
       },
     });
 
@@ -178,6 +186,60 @@ describe("an informational request is answered from the rules that state it", ()
     expect(allRules.textContent ?? "").toMatch(/All 3 rules of this policy were read/i);
     expect(allRules.textContent ?? "").toContain("A second rule");
     expect(allRules.textContent ?? "").toContain("A third rule");
+
+    // The grounding is reported: the closed set the answer was drawn from, so a
+    // reviewer sees what it was checked against rather than being told it was.
+    const grounding = screen.getByTestId("policy-case-grounding");
+    expect(grounding.textContent ?? "").toMatch(/Grounded on the 3 rules of this policy/i);
+  });
+
+  it("reports and refuses a citation to a rule that is not in this policy", async () => {
+    // The check with teeth, from the reader's side. The server dropped an id the
+    // model cited that names no rule here and reported it; the surface must show
+    // that refusal, not let a fabricated citation pass silently. A grounding line
+    // that could never display a refusal would be a validator that cannot fail.
+    answerPolicyCase.mockResolvedValue({
+      intent: "informational",
+      classification_reasoning: "reads as a request for what the policy provides",
+      reasoning_effort: "low",
+      informational: {
+        status: "answered",
+        answer: "The answer rests only on the rule actually present.",
+        citations: [
+          { rule_id: "cap", title: "The weekly ceiling", quote: "not more than 24 hrs per week" },
+        ],
+        note: "",
+        grounding: {
+          prompt_version: "ai-case-intent-v2",
+          rules_available: 1,
+          citations_requested: 2,
+          rules_cited: 1,
+          fabricated_citations: ["ghost-rule"],
+          oversize: false,
+        },
+      },
+    });
+
+    render(
+      <PolicyCaseRunner
+        policySetKey="a-key"
+        target={A_VERSION}
+        rules={[rule("cap", "The weekly ceiling", "deterministic")]}
+      />,
+    );
+
+    type("How many hours may this kind of employee work?");
+    await waitFor(() => expect(screen.getByTestId("policy-case-answer")).toBeTruthy());
+
+    // The refusal is shown and names the fabricated id, so it is visible rather
+    // than silently dropped.
+    const refused = screen.getByTestId("policy-case-grounding-refused");
+    expect(refused.textContent ?? "").toContain("ghost-rule");
+    expect(refused.textContent ?? "").toMatch(/no rule in this policy/i);
+    // The fabricated id is never presented as one of the rules the answer rests
+    // on: it appears only in the refusal, not among the citations.
+    const citations = screen.getAllByTestId("policy-case-citation");
+    for (const c of citations) expect(c.textContent ?? "").not.toContain("ghost-rule");
   });
 
   it("never fans an informational request out to the per-rule deciders, so an unmet required fact is reported by what the rule states, not demanded", async () => {
