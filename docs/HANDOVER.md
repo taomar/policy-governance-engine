@@ -422,6 +422,14 @@ destroy the only surface separating an unclear source from a clear one.
 | `stage-record` | no caller | real, but **deliberately accepted and allowlisted** in `test_capabilities_are_reachable.py:377` with its reason. Needs a decision — write the stages, or delete the reader endpoint — not a fix |
 | `pagination` | `list_candidate_rules` has no `limit` | **the item is wrong; do not implement it.** See below |
 | `dupe-key-loc` | duplicate key at `ProjectOverviewTab.tsx:136,144` | real, line numbers had drifted to `:148` and `:161`. Fixed in `d8650c0` |
+| `revise-action` | ranked **first** in section 7 | **already implemented end to end.** `RecordActionsMenu.tsx:184`, `PolicyInspector.tsx:778`, `EditRuleModal` `mode="revise"` writing `rule_revision + 1` as a new draft, gated on `is_active`, backend send-back at `candidate_rules.py:570`, three guard tests |
+| `reaper-mislabel` | API restart stamps healthy headless runs as failed | **real.** Fixed in `fd0f46d` — read the caveat below |
+| `askmodal-uuid` | draft ask sends a UUID where a slug is matched | **real, and worse than labelled.** Fixed in `3640b9a` and `39b815c` |
+| `run-restart` | run progress does not survive a restart | real, but a **documented, deliberate** limitation — see below |
+| `anchor-tid` | third instance of §4.1 | **the identifier resolves to no symbol**, exactly like `ctx-element` |
+
+**Four of the eight items checked were already done or do not exist.** Two of
+those four were ranked in the top five. Verify before dispatching.
 
 ### `pagination` was refused, and the refusal is guarded
 
@@ -466,4 +474,63 @@ the fixture is smaller than 50.
 - `Get-Content | Measure-Object -Line` skips blank lines and undercounts a
   Markdown file by about 20%. Use `(Get-Content path).Count` before concluding
   that a document was truncated.
+
+### The startup reaper, and the one caveat on its fix
+
+`_reconcile_interrupted_runs` ran from the FastAPI lifespan on every start and
+marked **every** `running`/`pending` row failed, table-wide, with no ownership
+predicate. Its docstring justified this with "an extraction is an in-process
+background task" — true only of runs that process started.
+
+This is not cosmetic. `_UNUSABLE_BASELINE_STATUSES` excludes `failed` from
+baseline selection (`ai_extraction.py:411`, applied at `:458`), so a run flipped
+to `failed` is silently dropped as a baseline and selection reaches back to an
+older generation — the same mechanism §4.5 records as producing 42% of the
+apparent instability.
+
+`fd0f46d` adds `ExtractionRun.owner_kind` (migration `d9a3f6c1b204`, additive,
+reversible, applied and backfilled) and scopes the sweep to `owner_kind == "api"`.
+A per-process token was rejected because the reaper runs at *startup* to clean up
+the *previous* incarnation, so matching on the current pid would reconcile
+nothing; a heartbeat was rejected as a write on the extraction hot path plus a
+tuned staleness constant.
+
+**Caveat, stated because it decides how much to trust this:** no in-tree code
+path currently creates a run owned by anything but the API. `submit_package`
+creates `running` rows but has no production caller and is quarantined in the
+reachability test. So the boundary is now explicit and the hole is closed, but
+the fix could not be observed correcting a live mislabel — it guards the path
+rather than repairing something happening today.
+
+**Left undone, and it needs a cross-workstream decision:** an API run that was
+interrupted is still recorded as `failed`, with the interrupted fact only in
+`error_message`. Constraint 5 argues those are two states. Distinguishing them
+means a new status value, and status is typed as a closed set in the web client,
+so it is a model *and* web change.
+
+### `run-restart` is real but deliberate — do not "fix" it casually
+
+`extraction_progress.py` is in-memory **by design** and its docstring says so:
+progress is "observation telemetry, not a source of truth… losing it has no
+correctness consequence," and it expressly rejects persistence as "a write on
+the hot path of every batch, to make a cosmetic readout durable." It is a
+different root cause from the reaper — that was a wrong write with baseline
+consequences; this is a read-only view that was never persisted on purpose.
+
+### The ask now grounds on the right policy set, and says when it cannot
+
+`AskAboutRuleModal.tsx:74` sent `candidate.policy_set_id` on the draft arm while
+line 49 of the same file documented that the server resolves a key. Measured:
+`SELECT count(*) WHERE key = id::text` is **0**, so the lookup could never match
+and the approved-rules context was skipped on *every* draft ask.
+
+Worse, `ai_chat.py` skipped that whole block with no log and no marker, which
+collapses **failed** into **absent** — the collapse constraint 5 forbids. Both
+halves are fixed: the caller now supplies the key (`ReviewQueue.tsx:2482`), and
+the four states are now distinguishable in the log.
+
+**Deferred, with a design:** making it reader-visible means a `policy_context`
+field on the reply, following the existing `grounding` idiom rather than a new
+mechanism, plus an Alert in `AskAiModal` with copy in the i18n table so the
+caption guard stays green. It touches three files no single slice owned.
 
