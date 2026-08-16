@@ -72,6 +72,106 @@ function addRuleReference(
   }
 }
 
+type NotApplicableEntry = {
+  check: string;
+  route: string;
+  applicability: string;
+  records_in_scope: number;
+  applies_to_routes: string[];
+};
+
+// A stored run can also carry this disclosure beside its findings. The API
+// client passes through fields it does not itself name, so a run detail read
+// back from the server carries it without a change there. Kept as its own
+// optional field, not folded into the findings, so a check that did not apply
+// is never counted among the findings that did.
+type ReportWithDisclosure = QualityReport & {
+  not_applicable?: NotApplicableEntry[] | null;
+};
+
+const ROUTE_LABEL: Record<string, string> = {
+  deterministic: "Deterministic",
+  ai_ready: "AI Ready",
+};
+
+function routeLabel(route: string): string {
+  return ROUTE_LABEL[route] ?? formatCategory(route);
+}
+
+/**
+ * What a stored run recorded about route applicability: which route-specific
+ * checks did not apply to the records in scope, and to how many. The three
+ * inputs are three different states and are drawn as three, on purpose. A
+ * check that did not apply to a record's route is never drawn as one that
+ * applied and came back clean; keeping those apart is the reason the
+ * disclosure is stored and shown at all.
+ */
+export function QualityRouteApplicability({
+  disclosure,
+}: {
+  disclosure?: NotApplicableEntry[] | null;
+}) {
+  // Not recorded. This run was stored before the disclosure was captured, so
+  // the page says so rather than drawing every check as though it had applied.
+  if (disclosure === undefined || disclosure === null) {
+    return (
+      <section className="quality-route-applicability" aria-label="Route applicability">
+        <Text type="secondary">
+          Route applicability was not recorded for this run, which predates it
+          being captured. This page states which checks applied only where the
+          run recorded it.
+        </Text>
+      </section>
+    );
+  }
+
+  // Recorded, and every check applied to every record. The positive fact, said
+  // plainly, so this stays distinct from the not-recorded case above.
+  if (disclosure.length === 0) {
+    return (
+      <section className="quality-route-applicability" aria-label="Route applicability">
+        <Text type="secondary">
+          Every quality check applied to all records evaluated in this run.
+        </Text>
+      </section>
+    );
+  }
+
+  const distinctChecks = new Set(disclosure.map((entry) => entry.check)).size;
+  return (
+    <Alert
+      className="quality-route-applicability"
+      type="info"
+      showIcon
+      message={
+        `${distinctChecks} route-specific check${distinctChecks === 1 ? "" : "s"} ` +
+        `did not apply to every record in this run`
+      }
+      description={
+        <div>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            A route-specific check speaks to one route. Records evaluated on the
+            other route sit outside its question, so it had nothing to assert
+            about them. This is kept apart from the findings so it reads as what
+            it is, and never as a check that ran and came back clean.
+          </Paragraph>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {disclosure.map((entry) => (
+              <li key={`${entry.check}:${entry.route}`}>
+                <Text strong>{formatCategory(entry.check)}</Text> applies to the{" "}
+                {entry.applies_to_routes.map(routeLabel).join(" and ") || "other"}{" "}
+                route. It did not apply to the {entry.records_in_scope} record
+                {entry.records_in_scope === 1 ? "" : "s"} evaluated here on the{" "}
+                {routeLabel(entry.route)} route.
+              </li>
+            ))}
+          </ul>
+        </div>
+      }
+    />
+  );
+}
+
 /**
  * Quality view — surfaces both deterministic checks (duplicate rule_ids,
  * ambiguity, conflicting effects, expired rules, review backlog, …) and an
@@ -620,6 +720,10 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                  </div>
                 </dl>
               </section>
+
+              <QualityRouteApplicability
+                disclosure={(report as ReportWithDisclosure).not_applicable}
+              />
 
               <div className="quality-findings-toolbar">
                 <Title level={5}>
