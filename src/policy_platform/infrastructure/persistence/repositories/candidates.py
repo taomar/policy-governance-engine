@@ -289,7 +289,14 @@ class QualityRunRepository:
         stmt = select(QualityRun).where(QualityRun.policy_set_id == policy_set_id)
         if scope is not None:
             stmt = stmt.where(QualityRun.scope == scope)
-        stmt = stmt.order_by(QualityRun.run_at.desc()).limit(limit)
+        # run_at is a wall-clock stamp, not a total order: two runs recorded in
+        # the same tick share it, and callers that take runs[0] (limit=1) as
+        # "the latest" would then get whichever tied row the plan surfaces,
+        # differently between reads. quality_runs has no sequence column to
+        # recover true order from, so break the tie on the primary key -- that
+        # cannot restore true recency once run_at ties, but it makes the choice
+        # deterministic and reproducible instead of leaving it to the database.
+        stmt = stmt.order_by(QualityRun.run_at.desc(), QualityRun.id.desc()).limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
