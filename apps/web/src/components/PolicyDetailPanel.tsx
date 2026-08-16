@@ -1,4 +1,4 @@
-import { Button, Space, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Button, Segmented, Space, Tabs, Tag, Tooltip, Typography } from "antd";
 import { useEffect, useState } from "react";
 import {
   CheckOutlined,
@@ -47,6 +47,11 @@ import type { PolicyTestListItem, ReviewFacetRun } from "../api";
 import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
+
+/** Which flavour of a policy's JSON the reader is looking at: the full record,
+ *  or the lean projection a model reads. Module-scoped so the tab and its state
+ *  name the same two things. */
+type JsonFlavor = "full" | "lean";
 
 /**
  * The detail of one policy: its passages once each, its rules in full, one JSON.
@@ -230,6 +235,66 @@ export function PolicyDetailPanel({
    */
   const [focus, setFocus] = useState<RecordStance | null>(null);
   useEffect(() => setFocus(null), [card.policy.key]);
+
+  /**
+   * Which flavour of this policy's JSON is on screen, and the lean one once it
+   * has been fetched.
+   *
+   * The full record is rendered from the card already in hand. The lean form is
+   * the server's — fetched, never rebuilt here, so there is one definition of it
+   * and this tab cannot drift from what the case tester is handed. All view
+   * state: reset when a different policy opens, so a choice about one policy
+   * never carries into another.
+   */
+  const provisionId = card.policy.provision_id;
+  const [jsonFlavor, setJsonFlavor] = useState<JsonFlavor>("full");
+  const [leanPayload, setLeanPayload] = useState<unknown>(null);
+  const [leanState, setLeanState] = useState<"idle" | "loading" | "loaded" | "error">(
+    "idle",
+  );
+  const [leanError, setLeanError] = useState<string | null>(null);
+  useEffect(() => {
+    setJsonFlavor("full");
+    setLeanPayload(null);
+    setLeanState("idle");
+    setLeanError(null);
+  }, [card.policy.key]);
+
+  /**
+   * Fetch the lean projection the first time it is asked for, once per policy.
+   *
+   * The server owns the projection; the tab only shows it. Gated on `idle` so a
+   * failed read stays failed until the reader retries rather than looping, and
+   * skipped for a grouping with no persisted provision — it has no id to
+   * project, and the toggle for it is disabled.
+   */
+  useEffect(() => {
+    if (jsonFlavor !== "lean" || !provisionId || leanState !== "idle") return;
+    let cancelled = false;
+    setLeanState("loading");
+    setLeanError(null);
+    const base = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
+    fetch(`${base}/api/policy-payload/${provisionId}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+        return (await res.json()) as unknown;
+      })
+      .then((body) => {
+        if (cancelled) return;
+        setLeanPayload(body);
+        setLeanState("loaded");
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setLeanError(
+          cause instanceof Error ? cause.message : "Could not reach the server.",
+        );
+        setLeanState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jsonFlavor, provisionId, leanState]);
 
   /**
    * Ask for this policy's published sightings as soon as it is opened.
@@ -748,17 +813,71 @@ export function PolicyDetailPanel({
             label: "JSON",
             children: (
               <section className="policy-detail-panel__section">
-                <Text type="secondary" className="policy-detail-panel__section-label">
-                  <CodeOutlined /> This policy as one document — its rules nested inside it
-                </Text>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 8,
+                  }}
+                >
+                  <Text type="secondary" className="policy-detail-panel__section-label">
+                    <CodeOutlined />{" "}
+                    {jsonFlavor === "full"
+                      ? "This policy as one document — its rules nested inside it"
+                      : "The same policy, lean — one representation, rule and document ids, no run history"}
+                  </Text>
+                  <Tooltip
+                    title={
+                      provisionId
+                        ? undefined
+                        : "The lean projection is served for a saved policy. This grouping has no persisted provision yet."
+                    }
+                  >
+                    <Segmented
+                      size="small"
+                      value={jsonFlavor}
+                      onChange={(value) => setJsonFlavor(value as JsonFlavor)}
+                      options={[
+                        { label: "Full record", value: "full" },
+                        {
+                          label: "Lean (for a model)",
+                          value: "lean",
+                          disabled: !provisionId,
+                        },
+                      ]}
+                    />
+                  </Tooltip>
+                </div>
                 {/* The download is named by the policy, not by its key: a persisted
                     provision is keyed by a digest, and a reviewer who downloads three of
                     these wants three filenames they can tell apart. */}
-                <JsonView
-                  value={policyJsonDocument(card, documentName)}
-                  downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
-                  maxHeight={420}
-                />
+                {jsonFlavor === "full" ? (
+                  <JsonView
+                    value={policyJsonDocument(card, documentName)}
+                    downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
+                    maxHeight={420}
+                  />
+                ) : leanState === "error" ? (
+                  <Space direction="vertical" size={8}>
+                    <Text type="danger">
+                      {leanError ?? "Could not load the lean projection."}
+                    </Text>
+                    <Button size="small" onClick={() => setLeanState("idle")}>
+                      Try again
+                    </Button>
+                  </Space>
+                ) : leanState === "loaded" ? (
+                  <JsonView
+                    value={leanPayload}
+                    downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.lean.json`}
+                    maxHeight={420}
+                  />
+                ) : (
+                  <Text type="secondary">Preparing the lean projection…</Text>
+                )}
               </section>
             ),
           },
