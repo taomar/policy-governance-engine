@@ -31,6 +31,7 @@ export function AnswerLanguageToggle({
   onChange,
   label,
   scopeNote,
+  name = "ask-rule-answer-language",
 }: {
   languages: readonly AskAnswerLanguage[];
   value: AskAnswerLanguage;
@@ -39,6 +40,11 @@ export function AnswerLanguageToggle({
   label: string;
   /** Said next to the control, so the scope is not a thing you must discover. */
   scopeNote: string;
+  /** The `name` shared by this group's native radios. Two toggles on one screen
+   *  — an ask dialog and an inline reading control, say — would merge into a
+   *  single native group under one shared name, so each unrelated group takes
+   *  its own. Defaults to the ask dialog's, so that first caller is unchanged. */
+  name?: string;
 }) {
   return (
     <div
@@ -58,7 +64,7 @@ export function AnswerLanguageToggle({
             <input
               type="radio"
               className="ask-rule-language__input"
-              name="ask-rule-answer-language"
+              name={name}
               value={language.tag}
               checked={selected}
               onChange={() => onChange(language)}

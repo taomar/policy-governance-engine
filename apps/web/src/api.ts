@@ -2319,10 +2319,20 @@ export const aiApi = {
    * POST because it may spend a model call. It writes nothing, and asking twice
    * for an unchanged record costs one call — the server keeps the answer
    * against a digest of the record it explains.
+   *
+   * `answerLanguage` is an IETF BCP-47 tag for the language the reading should
+   * come back in. Only an override travels: the server writes in its own
+   * language when none is sent, and the digest it caches against is unchanged
+   * for that case, so an unasked-for language leaves an English reading the
+   * byte-for-byte request it always was. The document's own quoted words are
+   * never translated — the model is shown none of them, and none come back
+   * changed; only this app's own reading takes the chosen language.
    */
-  explainPolicy: (provisionId: string, regenerate = false) =>
+  explainPolicy: (provisionId: string, regenerate = false, answerLanguage?: string) =>
     request<PolicyExplanation>(
-      `/api/ai/provisions/${encodeURIComponent(provisionId)}/explain?regenerate=${regenerate}`,
+      `/api/ai/provisions/${encodeURIComponent(provisionId)}/explain?regenerate=${regenerate}${
+        answerLanguage ? `&answer_language=${encodeURIComponent(answerLanguage)}` : ""
+      }`,
       { method: "POST" },
     ),
 

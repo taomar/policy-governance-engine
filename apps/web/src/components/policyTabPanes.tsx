@@ -47,6 +47,12 @@ import {
   type PolicyScopeDimension,
 } from "../policyRecordFacts";
 import { DirectionalText } from "./DirectionalText";
+import { AnswerLanguageToggle } from "./AnswerLanguageToggle";
+import {
+  ASK_ANSWER_LANGUAGES,
+  DEFAULT_ASK_ANSWER_LANGUAGE,
+  type AskAnswerLanguage,
+} from "../askAnswerLanguage";
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance, whenItApplies } from "./policyProvenance";
 import { RuleName } from "./RuleName";
@@ -797,6 +803,15 @@ function PolicyPlainWords({
   const [state, setState] = useState<"idle" | "loading" | "failed" | "ready">("idle");
   const [result, setResult] = useState<PolicyExplanation | null>(null);
   const [failure, setFailure] = useState("");
+  // Two languages, kept apart on purpose. `language` is the reader's current
+  // choice for the *next* reading; `resultLanguage` is the one the reading now
+  // on screen was actually written in. They diverge the instant the reader
+  // moves the toggle after a reading is shown — and relabelling words that were
+  // not written in the newly chosen language would be a false claim about them,
+  // so the reading keeps the language it was asked in until a new one replaces it.
+  const [language, setLanguage] = useState<AskAnswerLanguage>(DEFAULT_ASK_ANSWER_LANGUAGE);
+  const [resultLanguage, setResultLanguage] =
+    useState<AskAnswerLanguage>(DEFAULT_ASK_ANSWER_LANGUAGE);
 
   // A policy that was never persisted as a provision has no address to ask
   // about. Saying nothing is right: there is no reading to offer and no action
@@ -805,16 +820,44 @@ function PolicyPlainWords({
 
   async function ask(regenerate = false) {
     if (!provisionId) return;
+    // Read now, not at reply time. The reader can move the toggle while the
+    // request is in flight; the reading that comes back was written in the
+    // language asked for here, not whichever happens to be selected when it
+    // lands, and it must be labelled as the language it is in.
+    const askedIn = language;
     setState("loading");
     setFailure("");
     try {
-      setResult(await aiApi.explainPolicy(provisionId, regenerate));
+      // The default is the server's own language; sending its tag would append
+      // a "write in this language" directive to a prompt that already writes in
+      // it — a different request, and a different cache entry, for no change a
+      // reader asked for. Only an override travels.
+      const override =
+        askedIn.tag === DEFAULT_ASK_ANSWER_LANGUAGE.tag ? undefined : askedIn.tag;
+      setResult(await aiApi.explainPolicy(provisionId, regenerate, override));
+      setResultLanguage(askedIn);
       setState("ready");
     } catch (error) {
       setFailure(describeApiFailure(error));
       setState("failed");
     }
   }
+
+  // One control, placed beside whichever action composes the next request — the
+  // first ask and the re-ask both read in the language selected here. Its own
+  // radio `name` keeps it from merging with the header's Ask-AI toggle when both
+  // are on screen. Its accessible name is in the language now selected, so a
+  // reader hears the choice they are moving into.
+  const languageToggle = (
+    <AnswerLanguageToggle
+      languages={ASK_ANSWER_LANGUAGES}
+      value={language}
+      onChange={setLanguage}
+      label={language.copy.languageChoiceLabel}
+      scopeNote={language.copy.languageScopeNote}
+      name="overview-plain-words-language"
+    />
+  );
 
   return (
     <section
@@ -827,20 +870,16 @@ function PolicyPlainWords({
       </Text>
 
       {state === "idle" && (
-        <>
-          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            This app can read its own extraction of this policy back in plain words. It describes
-            what was extracted, not what the document says — the document's words are above, to
-            read it against.
-          </Paragraph>
+        <div className="policy-pane__reading-ask">
+          {languageToggle}
           <Button
             size="small"
             onClick={() => void ask()}
             data-testid="overview-request-plain-words"
           >
-            Read it in plain words
+            Explain this policy in plain words
           </Button>
-        </>
+        </div>
       )}
 
       {state === "loading" && <Paragraph type="secondary">Reading the record…</Paragraph>}
@@ -880,7 +919,7 @@ function PolicyPlainWords({
               </Text>
               {/* Unquoted: quotation marks would present these as somebody's
                   exact words, and they are nobody's. */}
-              <div className="policy-pane__reading-text">
+              <div className="policy-pane__reading-text" lang={resultLanguage.tag}>
                 <DirectionalText>{result.explanation}</DirectionalText>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -890,9 +929,12 @@ function PolicyPlainWords({
                 {!result.covers_every_rule &&
                   ` It covers the first ${result.rules.length} of this policy's ${result.rule_count} rules; the rest are listed below and are unaffected.`}
               </Text>
-              <Button size="small" onClick={() => void ask(true)}>
-                Write it again
-              </Button>
+              <div className="policy-pane__reading-ask">
+                {languageToggle}
+                <Button size="small" onClick={() => void ask(true)}>
+                  Write it again
+                </Button>
+              </div>
             </div>
           ) : (
             <Paragraph type="secondary" data-testid="overview-plain-words-none">
