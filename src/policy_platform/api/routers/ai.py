@@ -28,6 +28,7 @@ from policy_platform.infrastructure.assistants import policy_explainer
 from policy_platform.infrastructure.extraction import ai_extraction
 from policy_platform.infrastructure.quality import ai_quality
 from policy_platform.infrastructure.assistants import ai_rewrite
+from policy_platform.infrastructure.assistants import ai_case_intent
 from policy_platform.infrastructure.assistants import ai_scenario_eval
 from policy_platform.infrastructure.assistants import ai_scenario_engine
 from policy_platform.infrastructure.assistants import ai_summary
@@ -718,6 +719,53 @@ async def compute_scenario(body: ComputeScenarioRequest) -> dict:
         # A rule payload this app cannot read is the caller's to fix. pydantic's
         # ValidationError is a ValueError, so one clause covers both a malformed
         # rule and a rejected reasoning effort.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class PolicyCaseAnswerRequest(BaseModel):
+    rules: list[dict]
+    scenario: str
+    reasoning_effort: str = "medium"
+
+
+@router.post("/policy-case/answer", include_in_schema=False)
+async def answer_policy_case(body: PolicyCaseAnswerRequest) -> dict:
+    """Classify what a case put to a whole policy *is*, and — when it asks what
+    the policy provides rather than for a determination — gather the answer the
+    policy already holds and state it, citing the rules it read.
+
+    Like /rules/compute-scenario and /rules/evaluate-scenario, this belongs to no
+    published version: a reviewer asking a policy a question is asking the record
+    in front of them, drafts included, and a set that has never published still
+    has rules that state things. So no version is named or needed.
+
+    This never runs a determination. When the case is a determination, the reply
+    carries only the classification and the caller runs the per-rule deciders it
+    already has — the same single routing rule and policy scope share — so this
+    endpoint cannot become a second, drifting decider. See ai_case_intent's
+    module docstring for why the intent is read from the question alone.
+
+    WHY THIS IS NOT IN THE OPENAPI SURFACE
+
+    `include_in_schema=False`. This is a product-only seam: it exists to power one
+    dialog ("Put a case to this policy"), the web client is its only caller, and
+    it is not a contract offered to anyone else. It is kept out of the generated
+    OpenAPI reference deliberately — the reachability guard
+    (`test_endpoints_are_reachable_from_the_product`) reads `app.routes`, not the
+    schema, so it still holds this endpoint to having a real caller in the
+    product; only the human API reference in `docs/api.md` omits it. That doc was
+    out of scope to touch on the change that introduced this endpoint, and an
+    endpoint absent from the reference must be genuinely absent from the schema
+    rather than silently disagreeing with it.
+    """
+    _require_ai_configured()
+    try:
+        return await ai_case_intent.answer_policy_case(
+            body.rules, scenario=body.scenario, reasoning_effort=body.reasoning_effort
+        )
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
