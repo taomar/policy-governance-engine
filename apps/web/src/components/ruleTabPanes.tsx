@@ -2,13 +2,12 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Collapse, Descriptions, List, Segmented, Space, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
-  BarChartOutlined,
   BranchesOutlined,
   CrownOutlined,
   FileTextOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import type { AggregateLimit, CanonicalRule } from "../api";
+import type { CanonicalRule } from "../api";
 import { ConditionView } from "./ConditionView";
 import { ConditionRouteNote } from "./ConditionRouteNote";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
@@ -117,23 +116,13 @@ function hasConditionBox(rule: CanonicalRule): boolean {
  */
 export function RuleLogicPane({
   rule,
-  aggregateLimits,
   allRules,
   onSelectRule,
 }: {
   rule: CanonicalRule;
-  aggregateLimits?: AggregateLimit[];
   allRules?: CanonicalRule[];
   onSelectRule?: (rule: CanonicalRule) => void;
 }) {
-  const contributions = useMemo(
-    () =>
-      (aggregateLimits ?? []).filter((agg) =>
-        agg.contributing_rules.some((c) => c.rule_id === rule.rule_id),
-      ),
-    [rule, aggregateLimits],
-  );
-
   return (
     <div className="inspector-pane">
       {(rule.is_explicit_override || rule.supersedes_rule_ids.length > 0) && (
@@ -219,37 +208,6 @@ export function RuleLogicPane({
         </div>
       )}
 
-      {contributions.length > 0 && (
-        <div className="rule-card-section">
-          <Text strong className="rule-card-section-title">
-            <BarChartOutlined /> Counts toward a combined cap
-          </Text>
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            {contributions.map((agg) => (
-              <div key={agg.aggregate_id} className="aggregate-contribution-box">
-                <Text>{agg.description || agg.aggregate_id}</Text>
-                <div>
-                  <Tag color="geekblue">
-                    combined max {agg.max_value}
-                    {agg.period ? ` / ${agg.period}` : ""}
-                  </Tag>
-                  <Text type="secondary" className="rule-card-scope">
-                    shared with{" "}
-                    {agg.contributing_rules
-                      .filter((c) => c.rule_id !== rule.rule_id)
-                      .map((c, i) => (
-                        <Text key={c.rule_id} code copyable={{ text: c.rule_id }}>
-                          {i > 0 ? ", " : ""}
-                          {c.rule_id}
-                        </Text>
-                      ))}
-                  </Text>
-                </div>
-              </div>
-            ))}
-          </Space>
-        </div>
-      )}
     </div>
   );
 }

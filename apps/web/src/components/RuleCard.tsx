@@ -7,12 +7,11 @@ import {
   UserOutlined,
   CrownOutlined,
   BranchesOutlined,
-  BarChartOutlined,
   ReadOutlined,
   EditOutlined,
   CodeOutlined,
 } from "@ant-design/icons";
-import type { AggregateLimit, CanonicalRule, Clause } from "../api";
+import type { CanonicalRule, Clause } from "../api";
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ConditionView } from "./ConditionView";
@@ -43,10 +42,6 @@ interface RuleCardProps {
   headerActions?: React.ReactNode;
   /** Suppress the Notes sub-panel (e.g. inside a dense bulk list). Defaults to shown. */
   hideNotes?: boolean;
-  /** Aggregate limits in scope (usually the whole published version's list) —
-   * used only to show, on this rule, which combined caps it feeds into. Pass
-   * the full list; RuleCard filters to the ones naming this rule_id. */
-  aggregateLimits?: AggregateLimit[];
   /** When set, shows a "Revise" header action that hands the *published*
    * canonical rule back to the caller — used by PoliciesTab to open a
    * pre-filled "create the next revision" form. Omit to hide the action
@@ -55,7 +50,7 @@ interface RuleCardProps {
   onRevise?: (rule: CanonicalRule) => void;
 }
 
-export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggregateLimits, onRevise }: RuleCardProps) {
+export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRevise }: RuleCardProps) {
   const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
   const [docMetaByVersionId, setDocMetaByVersionId] = useState<Map<string, DocumentMeta>>(new Map());
   const [bodyViewer, setBodyViewer] = useState<{ documentVersionId: string; clauseId: string | null; page: number | null } | null>(null);
@@ -337,44 +332,6 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, aggr
                   />
                 </div>
               )}
-
-              {(() => {
-                const contributions = (aggregateLimits ?? []).filter((agg) =>
-                  agg.contributing_rules.some((c) => c.rule_id === rule.rule_id)
-                );
-                if (contributions.length === 0) return null;
-                return (
-                  <div className="rule-card-section">
-                    <Text strong className="rule-card-section-title">
-                      <BarChartOutlined /> Counts toward a combined cap
-                    </Text>
-                    <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                      {contributions.map((agg) => (
-                        <div key={agg.aggregate_id} className="aggregate-contribution-box">
-                          <Text>{agg.description || agg.aggregate_id}</Text>
-                          <div>
-                            <Tag color="geekblue">
-                              combined max {agg.max_value}
-                              {agg.period ? ` / ${agg.period}` : ""}
-                            </Tag>
-                            <Text type="secondary" className="rule-card-scope">
-                              shared with{" "}
-                              {agg.contributing_rules
-                                .filter((c) => c.rule_id !== rule.rule_id)
-                                .map((c, i) => (
-                                  <Text key={c.rule_id} code copyable={{ text: c.rule_id }}>
-                                    {i > 0 ? ", " : ""}
-                                    {c.rule_id}
-                                  </Text>
-                                ))}
-                            </Text>
-                          </div>
-                        </div>
-                      ))}
-                    </Space>
-                  </div>
-                );
-              })()}
 
               {(rule.tags.length > 0 || rule.group_label || rule.related_rule_ids.length > 0) && (
                 <div className="rule-card-section">

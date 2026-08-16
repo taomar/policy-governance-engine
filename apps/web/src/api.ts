@@ -127,7 +127,6 @@ export interface WorkspaceCounts {
   review_pending_policies?: number;
   policies: number;
   versions: number;
-  limits: number;
   tests: number;
   regression_tests: number;
   exceptions_open: number;
@@ -542,131 +541,6 @@ export function principalToFacts(principal: PrincipalContext): Record<string, st
   if (principal.jurisdiction) facts["subject.jurisdiction"] = principal.jurisdiction;
   if (principal.process) facts["context.process"] = principal.process;
   return facts;
-}
-
-export interface AggregateLimitContribution {
-  rule_id: string;
-  amount_fact: string;
-}
-
-/** Cross-rule cap on combined numeric outcome of several rules (DMN
- * Collect+SUM). See ADR-0008. */
-export interface AggregateLimit {
-  aggregate_id: string;
-  description: string;
-  contributing_rules: AggregateLimitContribution[];
-  aggregator: "SUM";
-  max_value: number;
-  period?: string | null;
-}
-
-/** Mutable draft aggregate-limit CRUD row (policy-set scoped, edited directly
- * by a Policy Manager — no per-candidate review workflow). Snapshotted
- * verbatim into an immutable `AggregateLimit` at publish time. */
-export interface AggregateLimitResponse {
-  id: string;
-  policy_set_id: string;
-  aggregate_key: string;
-  description: string;
-  contributing_rules: AggregateLimitContribution[];
-  aggregator: "SUM";
-  max_value: number;
-  period?: string | null;
-}
-
-export interface CreateAggregateLimitRequest {
-  aggregate_key: string;
-  description?: string;
-  contributing_rules: AggregateLimitContribution[];
-  aggregator?: "SUM";
-  max_value: number;
-  period?: string | null;
-}
-
-export interface UpdateAggregateLimitRequest {
-  description?: string;
-  contributing_rules: AggregateLimitContribution[];
-  aggregator?: "SUM";
-  max_value: number;
-  period?: string | null;
-}
-
-/** Stable blocker codes from infrastructure/aggregate_eligibility.py. The
- * evaluator drops a contribution silently in both cases, so these are the two
- * reasons a saved cap can look configured and do nothing. */
-export type AggregateBlocker = "not_machine_executable" | "no_numeric_fact";
-
-export interface NumericFact {
-  name: string;
-  data_type: string;
-}
-
-export interface RuleEligibility {
-  rule_id: string;
-  title: string;
-  eligible: boolean;
-  machine_executable: boolean;
-  numeric_facts: NumericFact[];
-  blockers: AggregateBlocker[];
-}
-
-export interface AggregateEligibilityResponse {
-  total_rules: number;
-  eligible_count: number;
-  blocked_count: number;
-  can_build_limit: boolean;
-  blocker_totals: Record<string, number>;
-  rules: RuleEligibility[];
-}
-
-export interface ProposedContribution {
-  rule_id: string;
-  amount_fact: string;
-  why: string;
-}
-
-export interface ProposedAggregateLimit {
-  aggregate_key: string;
-  description: string;
-  rationale: string;
-  max_value: number;
-  /** "stated" when the ceiling is in the source text, "unstated" when the model
-   * inferred a shared cap exists but supplied the number itself. */
-  max_value_confidence: "stated" | "unstated";
-  period: string | null;
-  aggregator: string;
-  contributing_rules: ProposedContribution[];
-}
-
-export interface ProposeAggregateLimitsResponse {
-  policy_set_key: string;
-  version_number: number;
-  reasoning_effort: string;
-  prompt_version: string;
-  eligibility: AggregateEligibilityResponse;
-  proposals: ProposedAggregateLimit[];
-  skipped: string[];
-}
-
-export interface PreviewContribution {
-  rule_id: string;
-  amount_fact: string;
-  rule_status: string;
-  contributed: boolean;
-  amount: number | null;
-  reason: string;
-}
-
-export interface PreviewAggregateLimitResponse {
-  max_value: number;
-  total: number;
-  breached: boolean;
-  contributing_count: number;
-  contributions: PreviewContribution[];
-  overall_status: string;
-  /** "inert" is reported separately from "within_limit": a cap nothing
-   * contributed to is not a pass. */
-  verdict: "breached" | "within_limit" | "inert";
 }
 
 export interface EvidenceReference {
@@ -2907,62 +2781,6 @@ export const api = {
   getVersionRules: (key: string, versionId: string) =>
     request<CanonicalRule[]>(
       `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/rules`
-    ),
-
-  getVersionAggregateLimits: (key: string, versionId: string) =>
-    request<AggregateLimit[]>(
-      `/api/policy-sets/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/aggregate-limits`
-    ),
-
-  listAggregateLimits: (key: string) =>
-    request<AggregateLimitResponse[]>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`),
-
-  /** Which published rules could actually contribute to a combined cap.
-   * Deterministic and AI-free — see infrastructure/aggregate_eligibility.py. */
-  getAggregateEligibility: (key: string) =>
-    request<AggregateEligibilityResponse>(
-      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/eligibility`
-    ),
-
-  /** Ask the model to find rule groups sharing one finite pool. Returns
-   * proposals only; nothing is saved until the reviewer says so. */
-  proposeAggregateLimits: (key: string, body: { reasoning_effort?: string; guidance?: string }) =>
-    request<ProposeAggregateLimitsResponse>(
-      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/propose`,
-      { method: "POST", body: JSON.stringify(body) }
-    ),
-
-  /** Run a draft cap through the real evaluator without saving it. */
-  previewAggregateLimit: (
-    key: string,
-    body: {
-      contributing_rules: AggregateLimitContribution[];
-      max_value: number;
-      description?: string;
-      facts: Record<string, unknown>;
-    }
-  ) =>
-    request<PreviewAggregateLimitResponse>(
-      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/preview`,
-      { method: "POST", body: JSON.stringify(body) }
-    ),
-
-  createAggregateLimit: (key: string, body: CreateAggregateLimitRequest) =>
-    request<AggregateLimitResponse>(`/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  updateAggregateLimit: (key: string, aggregateKey: string, body: UpdateAggregateLimitRequest) =>
-    request<AggregateLimitResponse>(
-      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/${encodeURIComponent(aggregateKey)}`,
-      { method: "PUT", body: JSON.stringify(body) }
-    ),
-
-  deleteAggregateLimit: (key: string, aggregateKey: string) =>
-    request<void>(
-      `/api/policy-sets/${encodeURIComponent(key)}/aggregate-limits/${encodeURIComponent(aggregateKey)}`,
-      { method: "DELETE" }
     ),
 
   listDocuments: (policySetKey?: string) =>

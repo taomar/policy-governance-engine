@@ -18,7 +18,6 @@ import {
 import {
   AuditOutlined,
   CheckCircleOutlined,
-  ControlOutlined,
   DashboardOutlined,
   DiffOutlined,
   EditOutlined,
@@ -47,7 +46,6 @@ import { ComparePage } from "./ComparePage";
 import { QualityPage } from "./QualityPage";
 import { CorrelationPage } from "./CorrelationPage";
 import { PolicyValidationLab } from "./PolicyValidationLab";
-import { AggregateLimitsPage } from "./AggregateLimitsPage";
 import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
@@ -60,7 +58,6 @@ type WorkspaceTabKey =
   | "documents"
   | "review"
   | "policies"
-  | "limits"
   | "compare"
   | "quality"
   | "correlation"
@@ -140,14 +137,6 @@ const TAB_META: TabMeta[] = [
     icon: <SafetyCertificateOutlined />,
     hint: "Rules in the currently active published version.",
     count: "policies",
-  },
-  {
-    key: "limits",
-    label: "Aggregate Limits",
-    group: "publish",
-    icon: <ControlOutlined />,
-    hint: "Caps that combine several rules into one shared ceiling.",
-    count: "limits",
   },
   {
     key: "compare",
@@ -425,7 +414,6 @@ export function ProjectWorkspace({
     ),
     review: <ReviewQueue policySetKey={policySet.key} />,
     policies: <PoliciesTab policySetKey={policySet.key} onNavigate={handleNavigate} />,
-    limits: <AggregateLimitsPage policySetKey={policySet.key} />,
     compare: <ComparePage policySetKey={policySet.key} />,
     quality: <QualityPage policySetKey={policySet.key} />,
     correlation: <CorrelationPage policySetKey={policySet.key} />,

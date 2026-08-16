@@ -17,7 +17,7 @@ import {
   ReadOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import type { AggregateLimit, ApprovedPolicyVersion, CanonicalRule, Clause, NoteEntityType } from "../api";
+import type { ApprovedPolicyVersion, CanonicalRule, Clause, NoteEntityType } from "../api";
 import { resolveClausesById } from "../clauseCache";
 import { resolveDocumentMetaByVersionId, type DocumentMeta } from "../documentMetaCache";
 import { ambiguityNote } from "../ambiguityNote";
@@ -62,7 +62,6 @@ interface PolicyInspectorProps {
    * existing callers keep working without it (the relationship UI simply
    * falls back to plain, non-clickable IDs in that case). */
   allRules?: CanonicalRule[];
-  aggregateLimits?: AggregateLimit[];
   /** The published version this rule belongs to — supplies the History
    * tab's approval/publish record. Omit if not yet loaded. */
   publishedVersion?: ApprovedPolicyVersion | null;
@@ -155,7 +154,6 @@ interface PolicyInspectorProps {
 export function PolicyInspector({
   rule,
   allRules = [],
-  aggregateLimits,
   publishedVersion,
   versions,
   policySetKey,
@@ -562,7 +560,6 @@ export function PolicyInspector({
       rule={rule}
       allRules={allRules}
       onSelectRule={onSelectRule}
-      aggregateLimits={aggregateLimits}
     />
   );
 

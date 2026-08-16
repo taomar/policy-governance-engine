@@ -20,7 +20,6 @@ import {
   api,
   downloadBlob,
   PolicyPlatformApiError,
-  type AggregateLimit,
   type ApprovedPolicyVersion,
   type AssembledPolicy,
   type CanonicalRule,
@@ -143,7 +142,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const [versionId, setVersionId] = useState<string>("");
   const [rules, setRules] = useState<CanonicalRule[]>([]);
   const [policies, setPolicies] = useState<AssembledPolicy[]>([]);
-  const [aggregateLimits, setAggregateLimits] = useState<AggregateLimit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -314,22 +312,19 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     if (!versionId) {
       setRules([]);
       setPolicies([]);
-      setAggregateLimits([]);
       return;
     }
     setLoading(true);
     Promise.all([
       api.getVersionRules(policySetKey, versionId),
-      api.getVersionAggregateLimits(policySetKey, versionId),
       // A policy's own boundaries are recorded at publish time, so this is a
       // read of what the version already knows rather than anything inferred
       // here. It is fetched separately so a failure to group still leaves the
       // rules readable rather than blanking the page.
       api.listVersionPolicies(policySetKey, versionId).catch(() => [] as AssembledPolicy[]),
     ])
-      .then(([rs, aggs, ps]) => {
+      .then(([rs, ps]) => {
         setRules(rs);
-        setAggregateLimits(aggs);
         setPolicies(ps);
       })
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)))
@@ -744,7 +739,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     <PolicyInspector
       rule={selectedRule}
       allRules={rules}
-      aggregateLimits={aggregateLimits}
       publishedVersion={selectedVersion ?? null}
       versions={versions}
       policySetKey={policySetKey}
@@ -805,7 +799,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
               <PolicyInspector
                 rule={entry.rule}
                 allRules={rules}
-                aggregateLimits={aggregateLimits}
                 publishedVersion={selectedVersion ?? null}
                 versions={versions}
                 policySetKey={policySetKey}
@@ -1147,7 +1140,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                               <PolicyInspector
                                 rule={rule}
                                 allRules={rules}
-                                aggregateLimits={aggregateLimits}
                                 publishedVersion={selectedVersion ?? null}
                                 versions={versions}
                                 policySetKey={policySetKey}
