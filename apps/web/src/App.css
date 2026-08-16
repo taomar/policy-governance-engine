@@ -5298,6 +5298,20 @@
   overflow: visible;
 }
 
+/* The record and its code block fill a column of definite height in the panel
+   regime (`flex: 1 1 0`, further down) and scroll inside themselves. Embedded
+   there is no definite height to fill: a flex-basis-0 child of an auto-height
+   column has no free space, so `.json-view` resolves to 0 and the switcher is
+   left sitting over an empty box — the reported defect. Here the record sizes to
+   its own content and the list outside does the scrolling, the same bargain the
+   rest of the embedded inspector makes. This is the one place the two regimes
+   legitimately differ; it is a parameter on the embedded boundary, not a new
+   height rule competing with the panel one. */
+.policy-inspector--embedded .inspector-pane--json .json-view,
+.policy-inspector--embedded .inspector-pane--json .json-view-code {
+  flex: 0 0 auto;
+}
+
 .policy-inspector-empty {
   align-items: center;
   justify-content: center;
