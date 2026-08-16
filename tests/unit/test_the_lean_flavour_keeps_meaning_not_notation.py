@@ -272,8 +272,16 @@ def test_no_generated_rule_name_appears_anywhere_in_the_lean_payload() -> None:
     assert [rule["rule_id"] for rule in payload["rules"]] == ["AI-name0001", "AI-name0002"]
 
     keys = _keys_everywhere(payload)
-    for banned in ("title", "display_name", "generated_name", "rule_name", "group_label", "description"):
+    for banned in ("title", "display_name", "generated_name", "rule_name", "group_label"):
         assert banned not in keys, f"a name-carrying key {banned!r} leaked into the lean payload"
+
+    # No rule carries a name or its source sentence at its own top level: a rule
+    # is identified by `rule_id`, and its words live once in the span dictionary.
+    # (`description` still appears on an *exception*, where it is that carve-out's
+    # own verbatim text — content, not a rule name.)
+    for rule in payload["rules"]:
+        assert "title" not in rule
+        assert "description" not in rule
 
     serialized = to_compact(payload)
     assert _NAME_LIKE not in serialized
