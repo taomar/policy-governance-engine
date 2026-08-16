@@ -27,6 +27,7 @@ import { MarkedQuotation } from "./MarkedQuotation";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyExplainButton } from "./PolicyExplainButton";
 import { RuleName } from "./RuleName";
+import "./PolicyReviewCard.css";
 
 const { Text } = Typography;
 
@@ -507,24 +508,11 @@ export function PolicyReviewCard({
             data-testid="policy-passage"
             data-passage={block.passage.key}
           >
-            {reading.quotations.length > 0 ? (
-              reading.quotations.map((quotation, index) => (
-                <MarkedQuotation
-                  key={`${index}-${quotation.text.slice(0, 32)}`}
-                  text={quotation.text}
-                  marks={quotation.marks}
-                  className="policy-card__passage"
-                  testId="policy-passage-quotation"
-                />
-              ))
-            ) : (
-              <Text type="secondary" className="policy-card__passage-absent">
-                {/* Said rather than left blank: a passage whose text was not
-                    stored and a passage that says nothing are different. */}
-                The source text for this passage was not stored with its rules.
-              </Text>
-            )}
-
+            {/* Rules first, then the passage they were read from. A reviewer
+                meets what the card decided before meeting the document's own
+                words; the words sit beneath the rules as their source, not over
+                them as a wall to read past. The block that carries them is
+                below the list. */}
             <ol className="policy-card__rules">
               {groups.map((group) => (
                 <Fragment key={group.stance}>
@@ -714,6 +702,43 @@ export function PolicyReviewCard({
                 </Fragment>
               ))}
             </ol>
+
+            {/* The passage those rules were read from, beneath them. Where a
+                passage states more than one rule, a short lead keeps the tie
+                legible — the quotation is the source of every rule above it, not
+                only of the last — and is said only then, because a passage of
+                one rule has nothing to disambiguate. Said only when there is a
+                quotation to introduce: a passage whose text was not stored keeps
+                its own sentence below, unintroduced, because absent and present
+                are different states. The words themselves are the stored
+                passage, unaltered and in their own direction; only their
+                position moved. */}
+            {block.rules.length > 1 && reading.quotations.length > 0 && (
+              <Text
+                type="secondary"
+                className="policy-card__passage-lead"
+                data-testid="policy-passage-lead"
+              >
+                The rules above were drawn from this passage:
+              </Text>
+            )}
+            {reading.quotations.length > 0 ? (
+              reading.quotations.map((quotation, index) => (
+                <MarkedQuotation
+                  key={`${index}-${quotation.text.slice(0, 32)}`}
+                  text={quotation.text}
+                  marks={quotation.marks}
+                  className="policy-card__passage"
+                  testId="policy-passage-quotation"
+                />
+              ))
+            ) : (
+              <Text type="secondary" className="policy-card__passage-absent">
+                {/* Said rather than left blank: a passage whose text was not
+                    stored and a passage that says nothing are different. */}
+                The source text for this passage was not stored with its rules.
+              </Text>
+            )}
           </section>
         );
       })}

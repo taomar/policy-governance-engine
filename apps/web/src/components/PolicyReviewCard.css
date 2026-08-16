@@ -1,0 +1,17 @@
+/*
+ * Styles owned by PolicyReviewCard.tsx.
+ *
+ * The card's layout otherwise lives in App.css. This file holds only what this
+ * component added when the passage quotation moved to sit beneath the rules it
+ * was read from: the short lead that introduces that quotation on a passage of
+ * more than one rule.
+ *
+ * The lead is secondary chrome, not a rule's own words, so it takes the same
+ * quiet register as the absent-text line it sits near — a size below the body,
+ * nothing more. It sets no width, height or overflow: the verbatim quotation
+ * beneath it must never be clipped, and a rule spacing this file could impose
+ * is spacing App.css already gives the block.
+ */
+.policy-card__passage-lead {
+  font-size: 12px;
+}
