@@ -32,6 +32,10 @@ import { PolicyReviewCard } from "./components/PolicyReviewCard";
 // number in it is a measurement of one.
 const HEADING = "Section one";
 const GENERATED = "Stated arrangement";
+// A synthetic label written in a script the Latin HEADING shares none of. What
+// it means is beside the point — that it and the heading have no script in
+// common is the whole of why it appears here.
+const FOREIGN_TO_HEADING = "\u0627\u0644\u062a\u0631\u062a\u064a\u0628";
 
 function labelPayload(overrides: Partial<PolicyTopicLabel> = {}): PolicyTopicLabel {
   return {
@@ -108,7 +112,7 @@ function renderCard(
 }
 
 describe("reading a generated label off a policy", () => {
-  it("reports four states, and never a fifth", () => {
+  it("reports five states, and never collapses one into another", () => {
     // The reader must be able to tell "we tried and got nothing" from "nobody
     // has tried". A single nullable string cannot say both.
     expect(policyTopicLabel(policy(labelPayload())).state).toBe("named");
@@ -122,6 +126,12 @@ describe("reading a generated label off a policy", () => {
     expect(
       policyTopicLabel(policy(labelPayload({ text: HEADING }), ["Outer", HEADING])).state,
     ).toBe("redundant");
+    // A name in a script the heading shares none of is a fifth: generated, yet
+    // not readable as a caption on this heading. Neither "missing" nor "repeats".
+    expect(
+      policyTopicLabel(policy(labelPayload({ text: FOREIGN_TO_HEADING }), ["Outer", HEADING]))
+        .state,
+    ).toBe("foreign_to_heading");
   });
 
   it("treats an empty label as a failure and never as a name", () => {
@@ -248,13 +258,16 @@ describe("rendering a generated label beside the document's heading", () => {
   });
 
   it("renders a label in a right-to-left script as its own run", () => {
-    // Direction is a property of the run, never of the page. The label may be
-    // in a different script from the heading beside it, and both must read.
-    const arabic = "\u0627\u0644\u062a\u0631\u062a\u064a\u0628";
-    renderCard(labelPayload({ text: arabic }));
+    // Direction is a property of the run, never of the page. Where the heading
+    // trail beside the label is written in the label's script too, the label is
+    // shown — and when it is, it must render as its own right-to-left run, so it
+    // and the heading each read the way they are written. (Withholding a label
+    // whose script the heading shares none of is a separate rule, held above.)
+    const arabicOuterHeading = "\u0627\u0644\u0645\u0648\u0636\u0648\u0639"; // shares the script, not the words
+    renderCard(labelPayload({ text: FOREIGN_TO_HEADING }), [arabicOuterHeading, HEADING]);
 
     const line = screen.getByTestId("policy-topic-label");
-    expect(line.querySelector("bdi")?.textContent).toBe(arabic);
+    expect(line.querySelector("bdi")?.textContent).toBe(FOREIGN_TO_HEADING);
     expect(document.querySelector(".policy-card__title")?.textContent).toBe(HEADING);
   });
 });

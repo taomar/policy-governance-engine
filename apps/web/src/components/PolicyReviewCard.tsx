@@ -312,10 +312,17 @@ export function PolicyReviewCard({
               heading does not. This line is the most prominent on the card, and
               what it costs is attention, so it has to be carrying something.
 
-              Two ways it can carry nothing, and both now draw nothing:
+              Three ways it can carry nothing, and all three now draw nothing:
 
               The name only repeats the heading. The reader already has that
               answer, in the document's own words, on the next line.
+
+              The name is written in a script the heading shares none of. Set
+              above a heading it shares no letters with, it cannot be read as a
+              shorter name for that heading — it is a second, unreadable one. The
+              generated words are kept in the JSON view, marked as not shown, so
+              nothing is lost; the card simply does not carry a caption its
+              reader cannot read. See `scriptProfile`.
 
               There is no name — none generated yet, or generation attempted and
               refused. This is a deliberate reversal of how this line first

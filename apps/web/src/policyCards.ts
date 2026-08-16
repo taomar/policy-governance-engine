@@ -52,6 +52,7 @@ import type {
   CanonicalRule,
 } from "./api";
 import { candidateEditability } from "./candidateEditability";
+import { scriptsDisjoint } from "./scriptProfile";
 
 /** One rule of a policy, as a card holds it.
  *
@@ -687,6 +688,8 @@ export function policyTitle(
  *
  * - `named` — a label was generated and it says something the heading did not,
  * - `redundant` — a label was generated and it only repeats the heading,
+ * - `foreign_to_heading` — a label was generated in a script the heading shares
+ *   none of, so it cannot be read as naming the heading it sits above,
  * - `unavailable` — one was asked for and nothing usable came back,
  * - `absent` — nobody has asked.
  *
@@ -703,6 +706,14 @@ export function policyTitle(
  * rule testable; conflating it would make "no eyebrow" mean two things and
  * quietly turn a display decision into a claim about the data.
  *
+ * `foreign_to_heading` is withheld for a third reason — not that it repeats the
+ * heading but that it cannot be read against it. A label sharing no script with
+ * the heading it captions is not a shorter name for that heading but a second,
+ * unreadable one, and the card's most prominent line is the wrong place for a
+ * name its reader cannot take in. It keeps its `text`: the words were generated
+ * and the export must still record what they were and that they were withheld —
+ * only the card, where they would sit unreadable above the heading, omits them.
+ *
  * The empty-label case is deliberately absent from this union. An empty reply
  * is refused at generation and stored as an unavailable outcome, so no state
  * downstream ever has to render nothing as if it were a name.
@@ -710,6 +721,7 @@ export function policyTitle(
 export type PolicyTopicLabelState =
   | { readonly state: "named"; readonly text: string; readonly provenance: string }
   | { readonly state: "redundant"; readonly text: string }
+  | { readonly state: "foreign_to_heading"; readonly text: string }
   | { readonly state: "unavailable" }
   | { readonly state: "absent" };
 
@@ -813,6 +825,40 @@ export function labelAddsNothing(
   return unmatched.length <= joiningSymbolCount(heading);
 }
 
+/**
+ * Can the label be read against the heading it sits above at all?
+ *
+ * The card draws the label as a caption on the heading, for the reader to take
+ * the two in together. That only works when they are written in a script the
+ * heading's reader can read: a label sharing no script with the heading is not
+ * a shorter name for it but a second, unreadable one, and putting it in the
+ * card's most prominent line claims a caption that cannot be used.
+ *
+ * Asked as a relation between the two strings and answered by their scripts,
+ * never by their languages — see `scriptProfile`. Measured against the whole
+ * governing chain, document name included, exactly as redundancy is: the same
+ * text, so the label is weighed against everything that already names the card
+ * and withheld only when it shares a script with none of it. Widening the chain
+ * can only add scripts, so it can only keep a label, never withhold one a
+ * narrower comparison would have kept.
+ *
+ * "Shares no script" is emptiness of overlap, not difference of sets: a heading
+ * written in two scripts keeps a label in either one of them, because the
+ * label's script is still one the heading has. So this and `labelAddsNothing`
+ * cannot both fire — words shared, as redundancy needs, are letters shared, and
+ * letters shared are a script shared.
+ */
+function labelForeignToHeading(
+  text: string,
+  headingPath: readonly string[],
+  documentName?: string | null,
+): boolean {
+  const governing = [documentName?.trim() || null, ...headingPath]
+    .filter((name): name is string => Boolean(name))
+    .join(" ");
+  return scriptsDisjoint(text, governing);
+}
+
 /** Ordinals number a section; they never name its subject. */
 function isNotJustDigits(word: string): boolean {
   return !/^\p{N}+$/u.test(word);
@@ -862,6 +908,9 @@ export function policyTopicLabel(
   if (!text) return { state: "unavailable" };
   if (labelAddsNothing(text, policy.heading_path ?? [], documentName)) {
     return { state: "redundant", text };
+  }
+  if (labelForeignToHeading(text, policy.heading_path ?? [], documentName)) {
+    return { state: "foreign_to_heading", text };
   }
   // Provenance travels with the words, not in a lookup somewhere else. A reader
   // asking "where did this come from" is asking about the string in front of
