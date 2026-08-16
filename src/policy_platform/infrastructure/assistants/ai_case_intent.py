@@ -23,14 +23,31 @@ answer* was reported as unsettled, because as a determination it needed the very
 quantity the reviewer was asking about as its output. The answer was in the
 record the whole time, demanded as an input.
 
-WHY THE INTENT IS READ FROM THE QUESTION AND NOTHING ELSE
+WHY THE INTENT IS READ FROM THE QUESTION AGAINST WHAT THE RULES TEST
 
-The intent is a property of what is being asked, not of the policy it is asked
-against or the words any one document happens to use. So `classify_case_intent`
-is given the case and *only* the case, and a model decides it. It is never a
-list of trigger phrases: a vocabulary of "how many" / "can I" / "am I" is a
-property of one language, and this corpus is bilingual. A phrase list would
-classify English and be blind to the Arabic clause that asks the same thing.
+The two kinds divide on one thing: whether the question *supplies* a fact the
+rules test or *asks after* one. "How many hours may a part-timer work?" asks
+after the very quantity the cap rule tests; "a part-timer works thirty hours,
+are they within the cap?" supplies it. They name the same category and differ
+only there. So `classify_case_intent` is given the question *together with the
+facts and quantities the policy's rules test* — drawn from the same lean record
+the gather grounds on — and a model decides which the question does with them. It
+is never a list of trigger phrases: a vocabulary of "how many" / "can I" / "am I"
+is a property of one language, and this corpus is bilingual. The facts it is
+shown are the policy's own, in the document's own words; the cut keys on the
+*structure* of the question against them, not on any word this code carries, so
+it survives Arabic and is tuned to no document.
+
+WHY THE CLASSIFICATION IS DETERMINISTIC
+
+A reviewer who asks the same question twice must get the same kind of answer, or
+the feature cannot be trusted. The reasoning deployment cannot promise that — it
+rejects `temperature=0` outright and does not honour `seed` (see
+`AzureOpenAIClient.chat`). So the classifier runs on the fast deployment at
+`temperature=0`, the one determinism control that deployment honours and the same
+lever the Ask-AI chat uses to stop its wording drifting between runs. Classifying
+is a sort, not a synthesis: it does not need the reasoning budget, and a stable
+answer matters more here than a deeper one.
 
 WHAT THIS DOES NOT DO
 
@@ -54,7 +71,7 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai-case-intent-v3"
+PROMPT_VERSION = "ai-case-intent-v4"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
@@ -97,25 +114,31 @@ DECLINED = "declined"
 FAILED = "failed"
 
 _CLASSIFY_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy into exactly \
-one of two kinds. Read only the question. Do not assume anything about the policy it was put to.
+one of two kinds. You are given the question and, below it, the facts and quantities the policy's rules \
+test — the things a rule is measured against. Decide which kind the question is by what it does with \
+those tested facts, not by any word it happens to use.
 
-- "informational": the reviewer is asking what the policy provides, states, or allows on some \
-subject — a limit, an entitlement, a definition, a procedure. They want the material the policy holds, \
-stated back to them. The thing they ask about is what they want the policy to tell them: it is the \
-answer they are seeking, not a fact they have supplied. Naming their own role or standing — that they \
-hold some position or belong to some group — to point at the part of the policy they mean is \
-orientation, not a case. It says which subject they are asking about; it does not hand over the facts a \
-determination would weigh.
-- "decision": the reviewer has supplied the specific facts a determination turns on — a quantity, a \
-date, an event, a state of affairs they have described — and wants to know how the policy comes out on \
-those facts: whether something is permitted, required, in breach, or within a limit for the situation \
-they gave. What marks this kind is that the facts the governing rule would weigh are already present in \
-the question, offered as inputs to be applied.
+One thing separates the two kinds: whether the question SUPPLIES a tested fact or ASKS AFTER one.
 
-The reliable test is what the reviewer has done with the quantity or fact at issue. If that quantity is \
-what they are asking the policy to state — the output they want back — the question is informational, \
-even when they mention their own situation to place it. If they have already stated it and want the \
-policy applied to it, the question is a decision.
+- "informational": the reviewer is asking the policy to state a fact or quantity it holds — a limit, an \
+entitlement, a definition, a procedure. The value they name is the subject they want told, the answer \
+they are seeking; they have not supplied it. Naming their own role, status, or category — the position \
+they hold or the group they belong to — only points at which part of the policy they mean. It is not \
+one of the tested facts, and it does not turn a request into a case.
+
+- "decision": the reviewer has SUPPLIED one of the tested facts as true of their own situation — a \
+number, a date, an event, a state of affairs — and wants to know how the policy comes out on it: \
+whether something is permitted, required, in breach, or within a limit. What marks this kind is that a \
+fact the governing rule tests is already present in the question, offered as an input to be applied.
+
+The reliable test is what the reviewer has done with the tested fact at issue. Two questions can name \
+the same category and differ only here: one asks what value the policy sets for that category — asking \
+after the quantity the rule tests — while the other states that value as already true of the reviewer's \
+own case, supplying it. The first is informational; the second is a decision.
+
+If a question does both — supplies one tested fact and asks after another — it is a "decision". The \
+determination it calls for will name the rules it rests on and state what they hold, so the part it \
+asks after is answered there rather than dropped.
 
 Judge by what the question is doing, not by any particular word in it. The same question can be phrased \
 as a request, a command, or a statement, and can be written in any language; none of that changes which \
@@ -123,8 +146,8 @@ of the two kinds it is.
 
 Return ONLY a JSON object:
 - "intent": "informational" or "decision".
-- "reasoning": one or two sentences, in plain English, saying what the question is doing and therefore \
-which kind it is."""
+- "reasoning": one or two sentences, in plain English, naming the tested fact at issue and saying \
+whether the question supplied it or asked after it, and therefore which kind it is."""
 
 _INFORMATIONAL_SYSTEM_PROMPT = """A reviewer has asked what a governance policy provides on some \
 subject. You are given the reviewer's question and one policy as a lean JSON record, \
@@ -205,17 +228,39 @@ def _grounding(
     }
 
 
-async def _chat_json(system_prompt: str, user_content: str, *, reasoning_effort: str) -> dict:
+async def _chat_json(
+    system_prompt: str,
+    user_content: str,
+    *,
+    reasoning_effort: str | None = None,
+    deployment: str | None = None,
+    temperature: float | None = None,
+) -> dict:
     """One JSON-mode model call with the same resilience the sibling scenario
     paths use: retry once on a bad parse, and drop `reasoning_effort` if the
-    deployment rejects it rather than failing the whole feature."""
+    deployment rejects it rather than failing the whole feature.
+
+    Two shapes of call share this body and are never mixed. The gather runs on
+    the reasoning deployment with a `reasoning_effort` and no temperature — depth
+    for a synthesis. The classifier runs on the fast deployment with
+    `temperature=0` and no reasoning_effort — the one determinism control that
+    deployment honours (the reasoning deployment rejects `temperature` and does
+    not honour `seed`; see `AzureOpenAIClient.chat`). A temperature call therefore
+    sends no reasoning_effort, and the reasoning-effort fallback below never fires
+    for it.
+    """
 
     settings = get_settings()
     if not settings.ai_enabled:
         raise RuntimeError("Azure OpenAI is not configured")
 
     ai_client = AzureOpenAIClient(settings)
-    effort_to_send: str | None = _normalise_effort(reasoning_effort)
+    target_deployment = deployment or settings.azure_openai_deployment
+    #: A deterministic (temperature) call carries no reasoning_effort; only the
+    #: reasoning-deployment gather does.
+    effort_to_send: str | None = (
+        None if temperature is not None else _normalise_effort(reasoning_effort or "medium")
+    )
     last_error: str | None = None
 
     for attempt in range(2):
@@ -229,10 +274,11 @@ async def _chat_json(system_prompt: str, user_content: str, *, reasoning_effort:
         try:
             raw = await ai_client.chat(
                 messages,
-                deployment=settings.azure_openai_deployment,
+                deployment=target_deployment,
                 json_mode=True,
                 max_tokens=4000,
                 timeout=180.0,
+                temperature=temperature,
                 reasoning_effort=effort_to_send,
             )
         except Exception as exc:  # noqa: BLE001
@@ -245,10 +291,11 @@ async def _chat_json(system_prompt: str, user_content: str, *, reasoning_effort:
                 effort_to_send = None
                 raw = await ai_client.chat(
                     messages,
-                    deployment=settings.azure_openai_deployment,
+                    deployment=target_deployment,
                     json_mode=True,
                     max_tokens=4000,
                     timeout=180.0,
+                    temperature=temperature,
                 )
             else:
                 raise
@@ -264,21 +311,106 @@ async def _chat_json(system_prompt: str, user_content: str, *, reasoning_effort:
     raise RuntimeError(f"AI case-intent call did not produce a valid response after retry: {last_error}")
 
 
-async def classify_case_intent(scenario: str, *, reasoning_effort: str = "medium") -> dict:
-    """Sort the case into `informational` or `decision`, reading only the case.
+def _tested_quantities(payload: dict) -> list[str]:
+    """The facts and quantities the policy's rules test, as short strings.
 
-    Returns ``{"intent": str, "reasoning": str}``. The model is handed the
-    question and nothing else — not the policy, not its rules, not the corpus —
-    because the intent is a property of the question. That is also what keeps
-    this domain-neutral: there is no vocabulary to key on, so there is nothing
-    to translate and nothing tuned to one document.
+    This is the anchor the cut turns on: a determination *supplies* one of these
+    as a fact of the case, an informational request *asks after* one. Each is the
+    policy's own data — a rule's ``required_facts`` first (the named quantities it
+    is measured against, with the unit it is counted in), then the terms the rules
+    speak about from ``facts``, in the document's own words. Nothing here is a
+    vocabulary this code carries: it is read from the record, it is bilingual, and
+    it is tuned to no document, so the cut keys on the *structure* of the question
+    against these — supplied or asked — never on a phrase.
     """
 
-    parsed = await _chat_json(
-        _CLASSIFY_SYSTEM_PROMPT,
-        f"Question: {scenario}",
-        reasoning_effort=reasoning_effort,
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(label: str) -> None:
+        label = " ".join(label.split())
+        if label and label not in seen:
+            seen.add(label)
+            out.append(label)
+
+    for rule in payload.get("rules") or []:
+        for required in (rule or {}).get("required_facts") or []:
+            if not isinstance(required, dict):
+                continue
+            name = str(required.get("name") or required.get("phrase") or "").strip()
+            if not name:
+                continue
+            details = ", ".join(
+                part
+                for part in (
+                    str(required.get("data_type") or "").strip(),
+                    f"in {str(required.get('unit')).strip()}" if required.get("unit") else "",
+                )
+                if part
+            )
+            _add(f"{name} ({details})" if details else name)
+
+    facts = payload.get("facts") or {}
+    if isinstance(facts, dict):
+        for fact in facts.values():
+            if not isinstance(fact, dict):
+                continue
+            _add(str(fact.get("source_phrase") or fact.get("name") or "").strip())
+
+    return out[:80]
+
+
+async def classify_case_intent(
+    scenario: str, *, tested_quantities: list[str] | None = None
+) -> dict:
+    """Sort the case into `informational` or `decision`.
+
+    Returns ``{"intent": str, "reasoning": str}``. The model is handed the
+    question together with ``tested_quantities`` — the facts and quantities the
+    policy's rules test, from :func:`_tested_quantities` — and decides the one
+    thing that separates the two kinds: whether the question *supplies* one of
+    those facts or *asks after* it. Anchoring on the record rather than a
+    vocabulary is what keeps this domain-neutral and lets it survive the corpus's
+    Arabic; passing no quantities (the direct-call shape) leaves the model the
+    question alone, and it sorts on the same supplied-vs-asked structure.
+
+    The call runs on the fast deployment at ``temperature=0`` — the only
+    determinism control that deployment honours — so the same question classifies
+    the same way on every run. Where no fast deployment is configured it degrades
+    to the reasoning deployment, which cannot promise that stability; the feature
+    keeps working, but the guarantee is the fast deployment's to give.
+    """
+
+    settings = get_settings()
+    lines = tested_quantities or []
+    tested_block = (
+        "\n".join(f"- {item}" for item in lines)
+        if lines
+        else "- (none supplied: sort on the question alone)"
     )
+    user_content = (
+        f"Question: {scenario}\n\n"
+        "The facts and quantities the policy's rules test — a determination "
+        "supplies one of these as a fact of the case, an informational request "
+        "asks the policy to state one:\n"
+        f"{tested_block}"
+    )
+
+    fast_deployment = settings.azure_openai_fast_deployment
+    if fast_deployment:
+        parsed = await _chat_json(
+            _CLASSIFY_SYSTEM_PROMPT,
+            user_content,
+            deployment=fast_deployment,
+            temperature=0.0,
+        )
+    else:
+        logger.warning(
+            "no fast deployment configured; classifying on the reasoning deployment, "
+            "which does not guarantee run-to-run stability",
+        )
+        parsed = await _chat_json(_CLASSIFY_SYSTEM_PROMPT, user_content, reasoning_effort="low")
+
     intent = str(parsed.get("intent") or "").strip().lower()
     if intent not in _INTENTS:
         # An unreadable verdict is treated as a determination, the conservative
@@ -441,7 +573,9 @@ async def answer_policy_case(
 
     effort = _normalise_effort(reasoning_effort)
 
-    classification = await classify_case_intent(scenario, reasoning_effort=effort)
+    classification = await classify_case_intent(
+        scenario, tested_quantities=_tested_quantities(payload)
+    )
     intent = classification["intent"]
 
     informational = None

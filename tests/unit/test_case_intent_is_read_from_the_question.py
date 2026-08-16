@@ -1,5 +1,6 @@
-"""What a case *is* is read from the question, by the model, and never from a
-list of words — and the answer is grounded in one lean policy record.
+"""What a case *is* is read by the model — from the question against the facts
+the policy's rules test — and never from a list of words, and the answer is
+grounded in one lean policy record.
 
 WHY THIS FILE EXISTS
 
@@ -25,6 +26,16 @@ override the model or to break a tie. There is deliberately no scan of this
 module's own source for the banned words: the module's docstring names them in
 order to forbid them, and a source scan would catch the prohibition as if it
 were the crime.
+
+WHY THE CLASSIFIER IS ANCHORED, AND WHY THE CALL IS DETERMINISTIC
+
+The cut between the two kinds is whether the question *supplies* a fact the rules
+test or *asks after* one, so the classifier is handed those tested quantities
+alongside the question — the policy's own facts, in the document's own words, not
+its identity. That anchor is data, not a vocabulary, so the no-phrase-list guard
+above still holds. And because a reviewer asking twice must get the same kind of
+answer, the classify call runs on the fast deployment at ``temperature=0`` — the
+one determinism control it honours — which the tests below assert directly.
 
 WHY THE ANSWER IS GROUNDED IN A LEAN RECORD
 
@@ -75,6 +86,7 @@ _DOC_VERSION_ID = "11111111-1111-1111-1111-111111111111"
 class _Settings:
     ai_enabled = True
     azure_openai_deployment = "slow"
+    azure_openai_fast_deployment = "fast"
 
 
 class _StubClient:
@@ -245,20 +257,45 @@ async def test_a_question_worded_as_a_statement_still_follows_the_model(stubbed)
     assert result["intent"] == "informational"
 
 
-async def test_the_classifier_is_handed_the_question_and_nothing_else(stubbed):
-    """Intent is a property of the question, so the classifier is given the
-    question alone — no policy, no rule ids, no digests. If a rule ever reached
-    it, the intent could be tuned to one document's wording."""
+async def test_the_classifier_is_anchored_to_what_the_rules_test(stubbed):
+    """The cut — did the question supply a tested fact or ask after one — needs to
+    know what the rules test, so the classifier is handed those quantities with
+    the question. It is still not handed rule ids or the heavy record: the anchor
+    is the facts the rules are measured against, in the document's own words, not
+    the document's identity, so nothing here tunes the sort to one policy."""
 
-    await ai_case_intent.classify_case_intent("How many hours may a part-timer work?")
+    await ai_case_intent.classify_case_intent(
+        "How many hours may a part-timer work?",
+        tested_quantities=["weekly-hours (number, in hrs per week)", "Part-time regular employees"],
+    )
 
     assert len(stubbed.calls) == 1
     system, user = stubbed.calls[0]["messages"]
     assert "sort one question" in system["content"]
     assert "How many hours" in user["content"]
-    # None of the digest a rule would arrive as.
-    for leaked in ("rule_id", "statement", "concerns", "R-CAP"):
+    # The quantities the rules test reach the classifier: that is the anchor the
+    # supplied-vs-asked cut turns on.
+    assert "weekly-hours (number, in hrs per week)" in user["content"]
+    # But no rule id and none of the heavy record's fields: the classifier is
+    # anchored to what the rules test, never tuned to one document's identity.
+    for leaked in ("rule_id", "R-CAP", "policy_set_id", "evidence_refs"):
         assert leaked not in user["content"]
+
+
+async def test_the_classification_call_is_deterministic(stubbed):
+    """A reviewer asking the same question twice must get the same kind of answer.
+    Stability is the fast deployment's to give, so the classifier calls it at
+    temperature=0 — the one determinism control it honours — and spends no
+    reasoning budget. The reasoning deployment, which rejects temperature and does
+    not honour seed, is never the classifier's."""
+
+    await ai_case_intent.classify_case_intent("How many days of leave may I take?")
+
+    assert len(stubbed.calls) == 1
+    kwargs = stubbed.calls[0]["kwargs"]
+    assert kwargs["deployment"] == "fast"
+    assert kwargs["temperature"] == 0.0
+    assert kwargs.get("reasoning_effort") is None
 
 
 async def test_an_unreadable_verdict_falls_back_to_a_determination(stubbed):

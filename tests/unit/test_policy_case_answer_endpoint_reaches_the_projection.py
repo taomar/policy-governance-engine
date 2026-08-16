@@ -101,6 +101,7 @@ class _Settings:
 
     ai_enabled = True
     azure_openai_deployment = "slow"
+    azure_openai_fast_deployment = "fast"
 
 
 class _StubClient:
