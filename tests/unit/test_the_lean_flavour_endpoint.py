@@ -120,9 +120,9 @@ async def test_the_endpoint_returns_the_lean_flavour_for_a_known_provision(clien
 
     assert response.status_code == 200
     body = response.json()
-    assert body["flavor"] == "lean"
+    assert body["projection"] == "grounding_projection_v1"
     assert body["representation"] == "canonical"
-    assert body["provision_id"] == str(_PROVISION_ID)
+    assert body["envelope"]["provision_id"] == str(_PROVISION_ID)
     assert {rule["rule_id"] for rule in body["rules"]} == set(_RULE_IDS)
 
 
