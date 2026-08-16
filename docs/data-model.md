@@ -1,6 +1,6 @@
 # Data model
 
-26 tables, defined as SQLAlchemy models in `src/policy_platform/domain/models.py`
+29 tables, defined as SQLAlchemy models in `src/policy_platform/domain/models.py`
 and migrated with Alembic (`alembic/versions/`). PostgreSQL 16.
 
 Every table has a UUID primary key and `created_at` / `updated_at` timestamps.
@@ -78,7 +78,10 @@ headings.
 | Table | Purpose |
 |---|---|
 | `extraction_runs` | One extraction attempt: fingerprint, status, error message. |
+| `extraction_stages` | One recorded stage of a document-extraction run. |
 | `candidate_rules` | A non-authoritative drafted rule awaiting human review; carries the review status, reviewer, revision, delta identity against a previous run, the provision it is stated in, and the untouched formulation payload. |
+| `candidate_rule_names` | A short generated handle for what one candidate rule is for. |
+| `provision_topic_labels` | A short generated name for the subject one provision is about. |
 | `correlation_runs` | One cross-rule correlation analysis over a policy set. |
 | `correlation_findings` | One relationship found between rules, with its disposition. |
 | `quality_runs` | An immutable record of one quality evaluation (deterministic + AI findings). |
