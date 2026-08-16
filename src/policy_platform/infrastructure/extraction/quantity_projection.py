@@ -361,7 +361,20 @@ def project_stated_quantity(
     # The threshold phrase is consulted before the predicate because a
     # comparative sitting next to the number qualifies that number, whereas one
     # in the predicate may govern something else the sentence also says.
-    operator = stated_comparison(threshold, rule.predicate)
+    operator = stated_comparison(threshold)
+    if operator is None:
+        # The threshold states a magnitude but no comparison. The predicate may
+        # still supply one -- but only where it has no number of its own to
+        # govern. stated_comparison binds a comparative to the number nearest
+        # it, so where the predicate carries a number the comparison there is
+        # attached to that number; lifting it onto the threshold's magnitude
+        # would assert a limit the sentence states about something else (a bare
+        # count beside "no later than 30 days" is a cap on the days, not the
+        # count). A number-bearing predicate therefore governs itself, and the
+        # threshold is left with no stated comparison rather than a borrowed one.
+        predicate = (rule.predicate or "").strip()
+        if not _NUMBER_RE.search(predicate):
+            operator = stated_comparison(predicate)
     if operator is None:
         return QuantityProjection(
             quantity_text=threshold, refusal=QuantityRefusal.NO_COMPARISON
