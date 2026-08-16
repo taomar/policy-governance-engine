@@ -214,6 +214,83 @@ describe("an informational request is answered from the rules that state it", ()
     expect(grounding.textContent ?? "").toMatch(/Grounded on the 3 rules of this policy/i);
   });
 
+  it("synthesises one answer across the several rules that bear on the question, cites each, and totals nothing", async () => {
+    // The reviewer's own example: a question that bears on two or more rules. The
+    // answer is one policy-level reading that rests on both — the very shape that
+    // looks like the aggregation the no-totalling guard forbids. It is not:
+    // citing the rules an answer rests on names its sources; it never sums their
+    // verdicts, invents a policy-wide ruling, or ranks them. This pins that an
+    // informational answer reading several rules at once stays on the right side
+    // of that line — the reconciliation the guard's assertion never had to change
+    // for.
+    answerPolicyCase.mockResolvedValue({
+      intent: "informational",
+      classification_reasoning: "reads as a request for what the policy provides",
+      reasoning_effort: "low",
+      informational: {
+        status: "answered",
+        answer:
+          "Two rules bear on this: one sets the weekly ceiling, the other fixes the class of employee it applies to.",
+        citations: [{ rule_id: "cap" }, { rule_id: "def" }],
+        note: "",
+        grounding: {
+          prompt_version: "ai-case-intent-v2",
+          rules_available: 3,
+          citations_requested: 2,
+          rules_cited: 2,
+          fabricated_citations: [],
+          oversize: false,
+        },
+      },
+    });
+
+    render(
+      <PolicyCaseRunner
+        policySetKey="a-key"
+        target={A_VERSION}
+        provisionId={A_PROVISION}
+        rules={[
+          rule("cap", "The weekly ceiling", "deterministic", "not more than 24 hrs per week"),
+          rule("def", "Who the ceiling applies to", "ai_ready", "a part-time employee is one engaged by the hour"),
+          rule("z", "A rule that does not bear", "ai_ready"),
+        ]}
+      />,
+    );
+
+    type("How many hours may this kind of employee work, and who counts as one?");
+
+    await waitFor(() => expect(screen.getByTestId("policy-case-answer")).toBeTruthy());
+
+    // One answer, ours, drawn over both rules — not a row per rule.
+    const answer = screen.getByTestId("policy-case-answer-text");
+    expect(answer.getAttribute("data-generated")).toBe("true");
+    expect(answer.textContent ?? "").toMatch(/composed by this app/i);
+
+    // Both rules the answer rests on are cited and resolved to their own title
+    // and the document's own sentence, verbatim — not one, and not a summary that
+    // replaces them.
+    const citations = screen.getAllByTestId("policy-case-citation");
+    expect(citations.length).toBe(2);
+    const citedText = citations.map((c) => c.textContent ?? "").join(" ");
+    expect(citedText).toContain("The weekly ceiling");
+    expect(citedText).toContain("not more than 24 hrs per week");
+    expect(citedText).toContain("Who the ceiling applies to");
+    expect(citedText).toContain("a part-time employee is one engaged by the hour");
+
+    const text = document.body.textContent ?? "";
+    // They are named as the sources the answer rests on, not tallied.
+    expect(text).toMatch(/answer rests on these 2 rules/i);
+    // And nothing is totalled: reading several rules into one answer is not the
+    // arithmetic the guard forbids — no summed pass/fail, no policy-wide verdict.
+    expect(text).not.toMatch(/\d+\s*(of|\/)\s*\d+\s*(passed|failed)/i);
+    expect(text).not.toMatch(/overall verdict/i);
+
+    // Every rule stays reachable, including the one the answer did not rest on.
+    const allRules = screen.getByTestId("policy-case-all-rules");
+    expect(allRules.textContent ?? "").toMatch(/All 3 rules of this policy were read/i);
+    expect(allRules.textContent ?? "").toContain("A rule that does not bear");
+  });
+
   it("reports and refuses a citation to a rule that is not in this policy", async () => {
     // The check with teeth, from the reader's side. The server dropped an id the
     // model cited that names no rule here and reported it; the surface must show
