@@ -18,6 +18,7 @@ from policy_platform.api.routers import (
     notes,
     policy_attestations,
     policy_exceptions,
+    policy_payload,
     policy_sets,
     policy_tests,
 )
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(policy_exceptions.router)
     app.include_router(policy_attestations.router)
+    app.include_router(policy_payload.router)
     app.include_router(extraction.router)
 
     @app.get("/health", tags=["system"])
