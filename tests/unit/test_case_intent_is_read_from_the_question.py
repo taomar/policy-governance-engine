@@ -33,7 +33,11 @@ from typing import Any
 
 import pytest
 
-from policy_platform.contracts.conditions import AllCondition
+from policy_platform.contracts.conditions import (
+    AllCondition,
+    ConditionOperator,
+    FactComparisonCondition,
+)
 from policy_platform.contracts.formulation import CanonicalPolicy, RuleFormulation
 from policy_platform.contracts.policy import RequiredFact
 from policy_platform.infrastructure.assistants import ai_case_intent
@@ -388,8 +392,140 @@ async def test_a_citation_to_a_rule_not_in_the_policy_is_dropped(stubbed):
 
 
 # --------------------------------------------------------------------------- #
-# The two failures are not the same failure, at the policy level.
+# The grounding is reported, and is shown refusing something.
+#
+# A grounding check that is only ever performed and never seen to reject anything
+# is the "validator that could not fail" this repository documents. These tests
+# watch it refuse a citation to a rule that was never in the payload, and prove
+# the refusal is *reported* on the answer rather than only performed in silence.
 # --------------------------------------------------------------------------- #
+
+
+async def test_a_fabricated_citation_is_caught_and_reported(stubbed):
+    """The model cites one rule that exists and one that does not. The real one
+    is kept; the invented one is dropped from the citations *and* named in the
+    grounding, so the check is seen to have refused something rather than merely
+    asserting it stayed grounded."""
+
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "Part-time staff are capped at twenty-four hours per week.",
+        "cited_rule_ids": ["R-CAP", "R-GHOST"],
+        "declined": False,
+        "note": "",
+    }
+
+    info = await ai_case_intent.answer_informational(
+        [_cap_rule(), _bystander_rule()], scenario="How many hours may a part-timer work?"
+    )
+
+    # The answer stands, resting only on the rule that is actually present.
+    assert info["status"] == "answered"
+    assert [c["rule_id"] for c in info["citations"]] == ["R-CAP"]
+
+    # The fabrication is not silently gone: it is reported, and the counts add up.
+    grounding = info["grounding"]
+    assert grounding["fabricated_citations"] == ["R-GHOST"]
+    assert grounding["citations_requested"] == 2
+    assert grounding["rules_cited"] == 1
+    assert grounding["rules_available"] == 2
+    assert grounding["oversize"] is False
+
+
+async def test_an_answer_resting_only_on_a_fabrication_is_not_presented_as_answered(stubbed):
+    """When every id the model offered names no rule in the payload, there is
+    nothing to ground an answer on. It cannot be `answered`, and the fabrication
+    is still reported so a reader can see why the answer did not stand."""
+
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "An answer resting entirely on a rule that is not here.",
+        "cited_rule_ids": ["R-GHOST"],
+        "declined": False,
+        "note": "",
+    }
+
+    info = await ai_case_intent.answer_informational(
+        [_cap_rule()], scenario="How many hours may a part-timer work?"
+    )
+
+    assert info["status"] != "answered"
+    assert info["citations"] == []
+    assert info["grounding"]["fabricated_citations"] == ["R-GHOST"]
+    assert info["grounding"]["rules_cited"] == 0
+
+
+async def test_a_policy_too_large_to_ground_is_declined_not_truncated(stubbed):
+    """When the whole policy's records will not fit one grounded pass, the gather
+    is refused, not trimmed. No model call is made, the refusal is reported as its
+    own grounding fact, and the count is the *whole* policy's — an answer over a
+    silently dropped subset would be the narrowing a reviewer could not see."""
+
+    # Shrink the ceiling so even a two-rule policy exceeds it, rather than build a
+    # giant fixture; the behaviour under test is the size decision, not the size.
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "An answer that must never be composed from a partial policy.",
+        "cited_rule_ids": ["R-CAP"],
+        "declined": False,
+        "note": "",
+    }
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ai_case_intent, "_MAX_RECORD_CHARS", 10)
+        info = await ai_case_intent.answer_informational(
+            [_cap_rule(), _bystander_rule()], scenario="How many hours may a part-timer work?"
+        )
+
+    assert info["status"] == "declined"
+    assert info["citations"] == []
+    assert info["grounding"]["oversize"] is True
+    # The whole policy is still counted, and no rule was quietly dropped to fit.
+    assert info["grounding"]["rules_available"] == 2
+    # The refusal happened before any model call — nothing was sent to be answered.
+    assert stubbed.calls == []
+
+
+async def test_the_record_shown_carries_a_threshold_that_lives_in_the_condition(stubbed):
+    """Generalisation beyond the witness. A rule may state its limit only in its
+    compiled condition — the sentence says "within the weekly ceiling" while the
+    number sits in the fact-comparison. The record shown to the model must carry
+    that number, or an informational answer could never report it. Asserted on
+    what is *sent*, so it holds for any rule whose threshold lives in the tree."""
+
+    threshold_rule = make_rule(
+        "R-THRESHOLD",
+        condition=FactComparisonCondition(
+            fact="weekly-hours",
+            operator=ConditionOperator.LESS_THAN_OR_EQUAL,
+            value=24,
+        ),
+        machine_executable=True,
+    ).model_copy(
+        update={
+            "title": "Weekly ceiling for part-time staff",
+            "required_facts": [RequiredFact(name="weekly-hours", data_type="number", unit="hours")],
+            # The sentence names no number — the limit lives only in the condition.
+            "formulation": RuleFormulation(
+                canonical=CanonicalPolicy(source_text="Part-time staff work within the weekly ceiling.")
+            ),
+        }
+    )
+
+    await ai_case_intent.answer_informational(
+        [threshold_rule], scenario="How many hours may a part-timer work?"
+    )
+
+    # Exactly one call — the gather — and the payload it carried holds the number
+    # and the fact it is compared against, taken from the condition rather than
+    # the sentence.
+    assert len(stubbed.calls) == 1
+    sent = stubbed.calls[0]["messages"][1]["content"]
+    assert "24" in sent
+    assert "weekly-hours" in sent
+    assert "lessThanOrEqual" in sent
+    # And the sentence really did not carry the number, so the payload's "24" can
+    # only have come from the condition.
+    assert "24" not in "Part-time staff work within the weekly ceiling."
 
 
 async def test_a_gather_that_fails_on_a_known_informational_case_is_its_own_state(stubbed):
