@@ -54,7 +54,7 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai-case-intent-v2"
+PROMPT_VERSION = "ai-case-intent-v3"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
@@ -100,21 +100,31 @@ _CLASSIFY_SYSTEM_PROMPT = """You sort one question a reviewer has put to a gover
 one of two kinds. Read only the question. Do not assume anything about the policy it was put to.
 
 - "informational": the reviewer is asking what the policy provides, states, or allows on some \
-subject — a limit, an entitlement, a definition, a procedure. They want the material the policy \
-holds, stated back to them. The subject of their question is something the policy would answer, \
-not a fact about a particular person or event that they have supplied.
-- "decision": the reviewer has described a specific situation — facts about a person, an amount, \
-an event — and wants to know how the policy comes out on it: whether something is permitted, \
-required, in breach, or within a limit for that situation.
+subject — a limit, an entitlement, a definition, a procedure. They want the material the policy holds, \
+stated back to them. The thing they ask about is what they want the policy to tell them: it is the \
+answer they are seeking, not a fact they have supplied. Naming their own role or standing — that they \
+hold some position or belong to some group — to point at the part of the policy they mean is \
+orientation, not a case. It says which subject they are asking about; it does not hand over the facts a \
+determination would weigh.
+- "decision": the reviewer has supplied the specific facts a determination turns on — a quantity, a \
+date, an event, a state of affairs they have described — and wants to know how the policy comes out on \
+those facts: whether something is permitted, required, in breach, or within a limit for the situation \
+they gave. What marks this kind is that the facts the governing rule would weigh are already present in \
+the question, offered as inputs to be applied.
 
-Judge by what the question is doing, not by any particular word in it. The same question can be \
-phrased as a request, a command, or a statement, and can be written in any language; none of that \
-changes which of the two kinds it is.
+The reliable test is what the reviewer has done with the quantity or fact at issue. If that quantity is \
+what they are asking the policy to state — the output they want back — the question is informational, \
+even when they mention their own situation to place it. If they have already stated it and want the \
+policy applied to it, the question is a decision.
+
+Judge by what the question is doing, not by any particular word in it. The same question can be phrased \
+as a request, a command, or a statement, and can be written in any language; none of that changes which \
+of the two kinds it is.
 
 Return ONLY a JSON object:
 - "intent": "informational" or "decision".
-- "reasoning": one or two sentences, in plain English, saying what the question is doing and \
-therefore which kind it is."""
+- "reasoning": one or two sentences, in plain English, saying what the question is doing and therefore \
+which kind it is."""
 
 _INFORMATIONAL_SYSTEM_PROMPT = """A reviewer has asked what a governance policy provides on some \
 subject. You are given the reviewer's question and one policy as a lean JSON record, \
