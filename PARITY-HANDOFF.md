@@ -1398,3 +1398,95 @@ Minor asymmetry worth knowing: the judge endpoint returns no `tested_against`, s
 the client synthesises it from the resolved target. Acceptable, because the judge
 is handed the rule that was loaded from that target - but it is a synthesis, not
 a server assertion.
+
+
+---
+
+## 22. A generated label cannot judge itself without its own document's name
+
+**Status: fixed and guarded (`c578f04`). Read this if you render a policy card
+anywhere new.**
+
+### What was wrong
+
+`policyTopicLabel(policy, documentName?)` calls `labelAddsNothing(text,
+heading_path, documentName)` and returns `{ state: "redundant" }` when the
+generated subject merely repeats the document it came from. **The document's name
+is an input to that judgement.** Deny it, and a label that says nothing renders as
+though it were informative.
+
+`PoliciesTab.tsx` derived **one** document name for the whole page, from
+`openPolicyCard` - whichever policy happened to be open - and passed it to
+**every** card in the list. With nothing open it passed `null` to all of them.
+
+So the container-label defect (a heading-only passage labelled with the
+handbook's own title) was still live on the published surface, by a different
+mechanism from the one that caused it on review. Review fixed it in `715a8fa` by
+resolving per card; this page had never done so.
+
+### Why it was mis-attributed
+
+The producer's brief placed the defect at `PublishedPolicyCard.tsx:145`, calling
+`policyTopicLabel(card.policy)` with no name at all. That file was already deleted
+in `ce8cf82`, so the reported site did not exist - but the *symptom* was real,
+because `PoliciesTab` was reintroducing the same missing input a level up.
+**Deleting the fork did not fix it.** Worth remembering: a defect can survive the
+deletion of the file it was reported in.
+
+### The corrected derivation
+
+Mirrors `ReviewQueue.tsx:724-739` exactly:
+
+```ts
+const documentNameByVersion = useMemo(() => {
+  const byVersion = new Map<string, string>();
+  for (const run of extractionRuns ?? []) {
+    const title = run.document_title?.trim();
+    if (title && !byVersion.has(run.document_version_id)) {
+      byVersion.set(run.document_version_id, title);
+    }
+  }
+  return byVersion;
+}, [extractionRuns]);
+
+const documentNameOf = useCallback(
+  (versionId: string | null | undefined) =>
+    (versionId && documentNameByVersion.get(versionId)) || null,
+  [documentNameByVersion],
+);
+```
+
+Each card asks about its own policy:
+
+```tsx
+documentName={documentNameOf(card.policy.document_version_id)}
+```
+
+The **detail panel keeps `documentName`** - resolved from the open policy - and
+that is correct, because a panel describes exactly one policy.
+
+### The rule to carry forward
+
+**A card is the wrong scope at which to resolve a document name.** A list can hold
+policies from several document versions; today's published list happens not to,
+which is precisely why this survived. Resolve per record, never per page.
+
+If you add a third surface that renders `PolicyReviewCard`, resolve the name from
+`card.policy.document_version_id`. Do not reach for a page-level variable, and do
+not pass `undefined` "for now" - `undefined` is not a neutral default here, it is
+an answer that disables the redundancy check.
+
+### Guards
+
+`oneRuleReadingEverywhere.test.tsx`, in *"the published page expands a rule into
+that same reading"*. Both read the source of `PoliciesTab.tsx`:
+
+- *asks each card's own document for the name, not the page's* - requires
+  `documentName={<fn>(card.…)}` on the card element
+- *hands no card a name resolved from whatever else is open* - rejects
+  `documentName={documentName}` on the card element
+
+Mutation-tested: reverting to the page-wide name fails both. Source-reading rather
+than render-asserting because the difference is invisible in a fixture where every
+policy shares one document - which is every fixture we have, and was also true of
+the live data that hid it.
