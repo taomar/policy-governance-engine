@@ -38,6 +38,7 @@ from pydantic import ValidationError
 
 from policy_platform.contracts.passage import PassageExtraction, PassageSource, PolicyPassage
 from policy_platform.infrastructure.ai.openai_client import (
+    EXTRACTION_SEED,
     AzureOpenAIClient,
     AzureOpenAITransientError,
 )
@@ -403,6 +404,10 @@ class PassageExtractorAgent:
                 max_tokens=16000,
                 timeout=300.0,
                 reasoning_effort=PASSAGE_REASONING_EFFORT,
+                # Measured as making no difference on this deployment; see
+                # EXTRACTION_SEED. Sent so that the determinism controls this
+                # call *can* set are all set and visible in one place.
+                seed=EXTRACTION_SEED,
             )
         except AzureOpenAITransientError as exc:
             # Reported as this agent's own failure so the caller skips the batch

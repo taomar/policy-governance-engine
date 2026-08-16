@@ -40,6 +40,27 @@ _MAX_ATTEMPTS = 4
 _BACKOFF_BASE_SECONDS = 2.0
 _BACKOFF_CAP_SECONDS = 20.0
 
+#: Passed on every extraction call. For the record, not for the effect.
+#:
+#: Measured directly on this deployment and it changes nothing: three batches
+#: were re-read four times each with byte-identical input, and the seeded passes
+#: disagreed with each other exactly as much as unseeded ones — one batch
+#: returned four different passage counts from the same text. The service also
+#: declines to say whether the seed was honoured, since `system_fingerprint` —
+#: the field whose entire purpose is to warn that the backend moved underneath a
+#: seed — comes back null from this resource.
+#:
+#: It is set anyway because the alternative is a blank where a determinism
+#: control should be, and a blank invites the same investigation every few
+#: months. The other two levers do not survive contact at all: `temperature` and
+#: `top_p` are rejected outright by the reasoning deployment with a 400, so this
+#: is the only one of the three that can even be sent.
+#:
+#: The value is arbitrary and its only requirement is that it never change.
+#: Changing it would be indistinguishable, from the delta's point of view, from
+#: the model drifting.
+EXTRACTION_SEED = 20240817
+
 
 class AzureOpenAIError(RuntimeError):
     """Raised when a call to Azure OpenAI fails or the resource isn't configured."""

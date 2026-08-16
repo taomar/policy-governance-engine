@@ -48,6 +48,7 @@ from policy_platform.contracts.formulation import (
     PolicyFormulation,
 )
 from policy_platform.infrastructure.ai.openai_client import (
+    EXTRACTION_SEED,
     AzureOpenAIClient,
     AzureOpenAITransientError,
 )
@@ -475,6 +476,10 @@ class PolicyFormulatorAgent:
                 max_tokens=32000,
                 timeout=420.0,
                 reasoning_effort=FORMULATOR_REASONING_EFFORT,
+                # Measured as making no difference on this deployment; see
+                # EXTRACTION_SEED. Sent so that the determinism controls this
+                # call *can* set are all set and visible in one place.
+                seed=EXTRACTION_SEED,
             )
         except AzureOpenAITransientError as exc:
             # The client already tried again and gave up. Reported as this
