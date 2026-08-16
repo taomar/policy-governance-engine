@@ -1,24 +1,32 @@
-"""Flavour 2 — the lean projection keeps a rule's meaning and drops its notation.
+"""Flavour 2 — ``grounding_projection_v1`` keeps a rule's meaning and de-duplicates its notation.
 
 The lean payload is what a model reads when the case-testing mechanism asks it
-to judge a case. So the properties pinned here are the ones that decide whether
-that judgement can be trusted:
+to judge a case, so the properties pinned here are the ones that decide whether
+that judgement can be trusted. They are written as **relative invariants** —
+compared against the source record or checked for internal consistency — never
+against a corpus count. The projection removes *structural duplication* (the
+same words stored once and referenced) and must never remove *content*.
 
-  * the document's own words survive **uncut** — the quote is the ground truth a
-    verdict is checked against, and a projection that trimmed it to save bytes
-    would have destroyed the one thing that makes the answer checkable
-    (constraint 4);
-  * no generated rule *name* is anywhere in the payload — a cited rule is cited
-    by `rule_id`, and the interface resolves the name, so a name that drifted
-    into the payload would let a model quote a label no reviewer wrote
-    (constraint 8);
-  * at policy scale every live rule is present — a lean form that silently
-    dropped a rule would test the model against a policy missing a clause, and
-    the empty place would look exactly like a policy that never stated it
-    (constraint 10);
-  * an absent `fact` stays an explicit `null`, not an omitted key — "the
-    document supplies this value itself" and "the schema never carried this"
-    are different claims and must not collapse into one (constraint 5).
+The invariants (numbered as in the specification):
+
+  1. every rule and passage in the record is represented in the projection —
+     asserted by comparison against the source, not against a number;
+  2. every source span keeps its hash, page, section and offsets;
+  3. a canonical rule keeps its modality, action, exceptions, outcome, scope,
+     dates, required facts and evidence — its operative meaning, unchanged;
+  4. no evidence reference is orphaned — every ref resolves to a span, and every
+     span is referenced (bidirectional);
+  6. the compact transport form is a deterministic serialization of the same
+     governed dict, so it can never become a second source of truth;
+  7. each repeated source string exists exactly once across the payload — the
+     direct test of the whole exercise;
+  8. DMN/XACML cannot silently contradict the canonical, because no second
+     notation of the rule is carried — only a `dmn_status`.
+
+Plus the standing constraints: the document's words survive **uncut**
+(constraint 4); no generated rule *name* is anywhere in the payload — a rule is
+carried by `rule_id` (constraint 8); and absent / empty / default stay distinct
+where the distinction carries meaning (constraint 5).
 
 Constraint 1: every size or count asserted here is the fixture's own, taken with
 `len(...)` or set-equality. No observed corpus count, and no policy name, is
@@ -56,11 +64,12 @@ from policy_platform.domain.models import (
     SourceDocument,
 )
 from policy_platform.infrastructure.projection.policy_case_payload import (
-    FLAVOR,
+    PROJECTION,
     REPRESENTATION,
     build_case_payload,
     case_payload_for_provision,
-    lean_rule,
+    to_compact,
+    to_pretty,
 )
 from tests.fixtures.factories import make_rule
 
@@ -97,12 +106,15 @@ def _formulated(
     clause_id: str = "E000050",
     document_version_id: str = "version-1",
     exceptions: list[RuleException] | None = None,
+    **rule_overrides,
 ):
     """A real rule with a canonical formulation and one piece of evidence.
 
     Built the way extraction writes them — a canonical subject/predicate/object
     the read path derives attributes and facts from — so the projection runs
-    over the same shapes it meets in production, not a hand-shaped stub.
+    over the same shapes it meets in production, not a hand-shaped stub. A
+    name-like `title` and real run history ride along, so the tests can prove
+    they are left behind.
     """
 
     canonical = CanonicalPolicy(
@@ -117,32 +129,42 @@ def _formulated(
             unit=unit,
         ),
     )
-    return make_rule(rule_id, _EMPTY).model_copy(
-        update={
-            # A name-like label in the record, plus real run history — both of
-            # which the lean form must leave behind.
-            "title": _NAME_LIKE,
-            "description": source_text,
-            "formulation": RuleFormulation(canonical=canonical),
-            "evidence": [
-                EvidenceReference(
-                    document_version_id=document_version_id,
-                    source_hash="h" * 16,
-                    page=7,
-                    section="ignored heading",
-                    clause_id=clause_id,
-                    start_offset=3,
-                    end_offset=99,
-                )
-            ],
-            "lineage": RuleLineage(
-                extraction_run_id="run-should-not-survive",
-                deployment_name="gpt-should-not-survive",
-                prompt_version="p-should-not-survive",
-                source_elements=clause_id,
-            ),
-            "exceptions": exceptions or [],
-        }
+    update = {
+        "title": _NAME_LIKE,
+        "description": source_text,
+        "formulation": RuleFormulation(canonical=canonical),
+        "evidence": [
+            EvidenceReference(
+                document_version_id=document_version_id,
+                source_hash="h" * 16,
+                page=7,
+                section="3. Conditions of Work",
+                clause_id=clause_id,
+                start_offset=3,
+                end_offset=99,
+            )
+        ],
+        "lineage": RuleLineage(
+            extraction_run_id="run-should-not-survive",
+            deployment_name="gpt-should-not-survive",
+            prompt_version="p-should-not-survive",
+            source_elements=clause_id,
+        ),
+        "exceptions": exceptions or [],
+    }
+    update.update(rule_overrides)
+    return make_rule(rule_id, _EMPTY).model_copy(update=update)
+
+
+def _one(rule, **envelope):
+    """Project a single rule and return the whole ``grounding_projection_v1``."""
+
+    return build_case_payload(
+        policy_set_id=envelope.get("policy_set_id", "set-1"),
+        provision_id=envelope.get("provision_id", "prov-1"),
+        provision_key=envelope.get("provision_key", "key-1"),
+        heading_path=envelope.get("heading_path", ["A heading the document wrote"]),
+        rules=[rule],
     )
 
 
@@ -160,15 +182,41 @@ def _keys_everywhere(node) -> set[str]:
     return found
 
 
+def _strings_everywhere(node) -> list[str]:
+    """Every string value appearing anywhere in a nested structure.
+
+    Keys are structure, not content, so they are not collected; only values are.
+    Used to prove a source string is stored exactly once.
+    """
+
+    out: list[str] = []
+    if isinstance(node, dict):
+        for value in node.values():
+            out += _strings_everywhere(value)
+    elif isinstance(node, list):
+        for item in node:
+            out += _strings_everywhere(item)
+    elif isinstance(node, str):
+        out.append(node)
+    return out
+
+
+def _primary_span(payload: dict, rule: dict) -> dict:
+    """The span a rule is quoted from — its first evidence reference."""
+
+    return payload["spans"][rule["evidence_refs"][0]]
+
+
 # --------------------------------------------------------------------------- #
 # Constraint 4 — the document's words survive the projection uncut.
 # --------------------------------------------------------------------------- #
 def test_the_verbatim_source_survives_the_projection_uncut() -> None:
-    """A long exact quote comes back byte-for-byte, not trimmed to a budget.
+    """A long exact quote comes back byte-for-byte through its span, not trimmed.
 
     Equality, not containment: a truncation that kept the opening and dropped
     the tail would pass a substring check while losing exactly the clause a
-    verdict might turn on.
+    verdict might turn on. The quote is resolved the way a consumer resolves it —
+    through the rule's `evidence_refs` into the span dictionary.
     """
 
     subject = "An employee's conduct"
@@ -179,20 +227,17 @@ def test_the_verbatim_source_survives_the_projection_uncut() -> None:
         f"{subject.lower()} be governed by that same standard at all times."
     )
 
-    projected = lean_rule(
-        _formulated("AI-verbatim01", source_text=quote, subject=subject)
-    )
+    payload = _one(_formulated("AI-verbatim01", source_text=quote, subject=subject))
+    rule = payload["rules"][0]
 
-    # The anchor quote, whole.
-    assert projected["source_text"] == quote
+    # The anchor quote, whole, resolved through the grounding reference.
+    assert _primary_span(payload, rule)["text"] == quote
 
-    # The attribute carrying the subject shows the document's words, verbatim.
-    applies = {attr["attribute"]: attr for attr in projected["attributes"]["applies"]}
-    assert applies["subject"]["text"] == subject
-
-    # And the fact named from that phrase keeps the phrase, verbatim, uncut.
-    subject_facts = [fact for fact in projected["facts"] if fact["source_phrase"] == subject]
-    assert subject_facts, "the subject phrase should name a fact, carried verbatim"
+    # The attribute carrying the subject references a fact whose source phrase is
+    # the document's words, verbatim.
+    applies = {a["attribute"]: a for a in rule["attributes"]["applies"]}
+    subject_ref = applies["subject"]["fact_ref"]
+    assert payload["facts"][subject_ref]["source_phrase"] == subject
 
 
 # --------------------------------------------------------------------------- #
@@ -204,8 +249,8 @@ def test_no_generated_rule_name_appears_anywhere_in_the_lean_payload() -> None:
     Two guards. Structural: none of the keys a *rule name* would ride in
     (`title`, `display_name`, `rule_name`, ...) exists anywhere in the payload.
     Textual: the distinctive name-like string parked in each rule's `title` is
-    absent from the serialized JSON. Together they show the projection reads
-    the record's operative content and leaves its labels behind.
+    absent from the serialized JSON. Together they show the projection reads the
+    record's operative content and leaves its labels behind.
 
     Note `name` is deliberately not banned: `PolicyFact.name` is a stable
     identifier derived from the document's own phrase (carried beside it as
@@ -227,61 +272,58 @@ def test_no_generated_rule_name_appears_anywhere_in_the_lean_payload() -> None:
     assert [rule["rule_id"] for rule in payload["rules"]] == ["AI-name0001", "AI-name0002"]
 
     keys = _keys_everywhere(payload)
-    for banned in ("title", "display_name", "generated_name", "rule_name", "group_label"):
+    for banned in ("title", "display_name", "generated_name", "rule_name", "group_label", "description"):
         assert banned not in keys, f"a name-carrying key {banned!r} leaked into the lean payload"
 
-    serialized = json.dumps(payload, ensure_ascii=False)
+    serialized = to_compact(payload)
     assert _NAME_LIKE not in serialized
     # `rule_id` is the identity that is kept, so it is present.
     assert "AI-name0001" in serialized
 
 
 # --------------------------------------------------------------------------- #
-# Constraint 5 — absent and stated are different states, kept different.
+# Constraint 5 — absent / empty / default stay distinct where meaning turns on it.
 # --------------------------------------------------------------------------- #
-def test_an_absent_fact_stays_an_explicit_null_not_an_omitted_key() -> None:
-    """`fact: null` (document supplies the value) is not collapsed to absence.
+def test_a_facts_data_type_stays_an_explicit_null_not_an_omitted_key() -> None:
+    """A fact whose phrase named no kind keeps `data_type: null`, not absence.
 
-    A modality names no fact, so its attribute's `fact` is `None`; a subject
-    does, so its `fact` is set. The projection must keep the `fact` key on both
-    — dropping it on the null one would erase the distinction between "the case
-    supplies nothing here" and "this field was never carried".
+    "the document named no type here" and "this field was never carried" are
+    different claims; dropping the key would collapse them into one.
     """
 
-    projected = lean_rule(
-        _formulated(
-            "AI-fourstate1",
-            source_text="The employee must comply.",
-            subject="the employee",
-            modality="must",
-        )
+    payload = _one(
+        _formulated("AI-fourstate1", source_text="The employee must comply.", subject="the employee")
     )
+    subject_fact = next(iter(payload["facts"].values()))
 
-    applies = {attr["attribute"]: attr for attr in projected["attributes"]["applies"]}
-    outcome = {attr["attribute"]: attr for attr in projected["attributes"]["outcome"]}
+    assert "data_type" in subject_fact
+    assert subject_fact["data_type"] is None
 
-    # The subject names a fact: key present, value set.
-    assert "fact" in applies["subject"]
-    assert applies["subject"]["fact"] is not None
 
-    # The modality names none: key present, value explicitly null.
-    assert "fact" in outcome["modality"]
-    assert outcome["modality"]["fact"] is None
+def test_required_facts_is_emitted_even_when_empty_on_an_ai_rule() -> None:
+    """`required_facts: []` is meaningful on an AI-ready rule, so it is emitted.
 
-    # `data_type` obeys the same rule: present, null when the phrase states none.
-    assert "data_type" in outcome["modality"]
-    assert outcome["modality"]["data_type"] is None
+    The rule's test is words, not named quantities — there are no required facts
+    *because the rule needs none*, which is not the same as the field never being
+    computed. Omitting it would let a reader infer the latter (constraint 5).
+    """
+
+    payload = _one(_formulated("AI-reqfacts01", source_text="Attend punctually.", subject="staff"))
+    rule = payload["rules"][0]
+
+    assert "required_facts" in rule
+    assert rule["required_facts"] == []
 
 
 def test_a_pure_carve_out_exception_keeps_its_null_limit() -> None:
     """An exception with no numeric limit keeps `limit_value: null`, not gone.
 
     "up to 15 days" and "a carve-out with no stated ceiling" are different
-    exceptions; the projection preserves the structured limit's explicit
-    absence rather than dropping the keys and making the two read alike.
+    exceptions; the projection preserves the structured limit's explicit absence
+    rather than dropping the keys and making the two read alike.
     """
 
-    projected = lean_rule(
+    payload = _one(
         _formulated(
             "AI-exception1",
             source_text="Attendance is required, except where excused.",
@@ -297,8 +339,9 @@ def test_a_pure_carve_out_exception_keeps_its_null_limit() -> None:
             ],
         )
     )
+    rule = payload["rules"][0]
 
-    by_id = {item["exception_id"]: item for item in projected["exceptions"]}
+    by_id = {item["exception_id"]: item for item in rule["exceptions"]}
     # The prose is kept verbatim.
     assert by_id["ex-open"]["description"] == "where excused"
     # The open carve-out keeps its null limit, key and all.
@@ -310,118 +353,397 @@ def test_a_pure_carve_out_exception_keeps_its_null_limit() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Structure — a lean *policy* with its rules nested, and only what was chosen.
+# Structure — a lean *policy* (constraint 2), the four sections, the identity.
 # --------------------------------------------------------------------------- #
-def test_the_lean_policy_declares_its_flavour_identity_and_grounding() -> None:
-    """The wrapper is a policy: flavour, identity, headings, rules nested.
+def test_the_projection_declares_its_identity_and_four_sections() -> None:
+    """The wrapper is a policy: its flavour, its envelope, and its dictionaries.
 
-    And each rule grounds to its clause's Azure AI Search key, computed from the
-    rule's own evidence — the one clause-level id kept for tracing an answer.
+    And the envelope carries the identity the user scoped in — policy id,
+    provision id, and (through the spans) the search/AI document id — with the
+    heading path copied verbatim.
     """
 
-    payload = build_case_payload(
+    payload = _one(
+        _formulated("AI-struct001", source_text="X must comply.", subject="X",
+                    clause_id="E000123", document_version_id="ver-77"),
+        heading_path=["10. Some Heading The Document Wrote"],
         policy_set_id="set-9",
         provision_id="prov-9",
         provision_key="prov-key-9",
-        heading_path=["10. Some Heading The Document Wrote"],
-        rules=[
-            _formulated(
-                "AI-struct001",
-                source_text="X must comply.",
-                subject="X",
-                clause_id="E000123",
-                document_version_id="ver-77",
-            )
-        ],
     )
 
-    assert payload["flavor"] == FLAVOR
+    assert payload["projection"] == PROJECTION
     assert payload["representation"] == REPRESENTATION == "canonical"
-    assert payload["policy_set_id"] == "set-9"
-    assert payload["provision_id"] == "prov-9"
-    assert payload["provision_key"] == "prov-key-9"
-    assert payload["heading_path"] == ["10. Some Heading The Document Wrote"]
-    assert payload["rule_count"] == len(payload["rules"]) == 1
+    assert set(payload) >= {"projection", "representation", "envelope", "spans", "facts", "rules"}
 
-    grounding = payload["rules"][0]["grounding"]
-    assert grounding == [{"search_document_id": "ver-77_E000123", "clause_id": "E000123"}]
+    envelope = payload["envelope"]
+    assert envelope["policy_set_id"] == "set-9"
+    assert envelope["provision_id"] == "prov-9"
+    assert envelope["provision_key"] == "prov-key-9"
+    assert envelope["heading_path"] == ["10. Some Heading The Document Wrote"]
+
+    # The one clause-level id kept for tracing: the clause's Azure AI Search key,
+    # computed from the rule's own evidence.
+    span = _primary_span(payload, payload["rules"][0])
+    assert span["clause_id"] == "E000123"
+    assert span["search_document_id"] == "ver-77_E000123"
 
 
-def test_the_lean_rule_drops_run_history_and_redundant_notations() -> None:
+def test_run_history_and_second_notations_are_gone() -> None:
     """Everything chosen out is gone: run history, second notations, versioning.
 
     The drop list, made executable. Each key here is either a restatement of the
-    rule in another notation (dmn/xacml/raw canonical), the executable
-    projection (condition/required_facts), or run/versioning provenance the user
-    scoped out — none of it operative meaning, all of it recoverable from
-    Flavour 1.
+    rule in another notation (dmn table / xacml / raw canonical), the executable
+    projection, or run/versioning provenance the user scoped out — none of it
+    operative meaning, all of it recoverable from Flavour 1.
     """
 
-    rule = lean_rule(
-        _formulated("AI-drop00001", source_text="Y must comply.", subject="Y")
-    )
-    keys = _keys_everywhere(rule)
+    payload = _one(_formulated("AI-drop00001", source_text="Y must comply.", subject="Y"))
+    keys = _keys_everywhere(payload)
 
     for dropped in (
         # Redundant second representations of the same rule.
         "dmn_decisions",
+        "decision_table",
+        "semantic_projection",
         "xacml_view",
+        "xacml",
         "formulation",
-        "condition",
         "condition_provenance",
-        "required_facts",
         "decision_readiness",
-        # Run history / provenance / versioning.
+        # Run history / provenance the identity set excludes.
         "lineage",
-        "schema_version",
-        "policy_version_id",
-        "rule_revision",
-        "authority",
+        "extraction_run_id",
+        "deployment_name",
+        "prompt_version",
         "machine_executable",
         "review_status",
-        # Metadata the identity set excludes.
-        "scope",
         "category",
-        "tags",
-        "related_rule_ids",
-        "priority",
-        "effective_from",
-        "effective_to",
-        # Evidence provenance beyond the grounding key.
-        "source_hash",
-        "start_offset",
-        "end_offset",
     ):
-        assert dropped not in keys, f"{dropped!r} should not survive into the lean rule"
+        assert dropped not in keys, f"{dropped!r} should not survive into the lean payload"
 
-    # What is kept: identity, the route, the verbatim source, the operative
-    # meaning, and the grounding key.
+    rule = payload["rules"][0]
+    # What is kept on a rule: identity, route, the operative meaning, the DMN
+    # status, and the grounding references.
     assert set(rule) >= {
         "rule_id",
         "rule_type",
         "evaluation_mode",
         "ambiguity_status",
-        "source_text",
         "effect",
         "attributes",
         "facts",
-        "grounding",
+        "required_facts",
+        "evidence_refs",
+        "dmn_status",
     }
 
 
 def test_a_hand_authored_rule_without_a_formulation_projects_without_error() -> None:
     """A rule that never went through the formulator has no canonical to derive
-    from; it projects with an empty source quote rather than failing."""
+    from; it projects with no facts and no grounding rather than failing."""
 
-    projected = lean_rule(make_rule("AI-handmade01", _EMPTY))
+    payload = _one(make_rule("AI-handmade01", _EMPTY))
+    rule = payload["rules"][0]
 
-    assert projected["rule_id"] == "AI-handmade01"
-    assert projected["source_text"] == ""
-    assert projected["attributes"] == {"applies": [], "outcome": []}
+    assert rule["rule_id"] == "AI-handmade01"
+    assert rule["attributes"] == {"applies": [], "outcome": []}
+    assert rule["facts"] == []
+    assert rule["evidence_refs"] == []
 
 
 # --------------------------------------------------------------------------- #
-# Constraint 10 — at policy scale, every live rule is present, and only those.
+# Invariant 3 — the canonical rule keeps its operative meaning, unchanged.
+# --------------------------------------------------------------------------- #
+def test_the_canonical_meaning_survives_modality_action_exceptions_outcome() -> None:
+    """Modality, action, the outcome table and the carve-out all come through.
+
+    These are the things a verdict turns on; a projection that dropped or altered
+    any of them would change what the rule means (constraint 2 / invariant 3).
+    """
+
+    source = make_rule("AI-meaning001", _EMPTY, effect_action="grant_leave")
+    rule_in = _formulated(
+        "AI-meaning001",
+        source_text="A manager must approve leave over ten days.",
+        subject="a manager",
+        modality="must",
+        exceptions=[RuleException(exception_id="ex-1", description="emergencies")],
+    ).model_copy(update={"effect": source.effect})
+
+    rule = _one(rule_in)["rules"][0]
+
+    assert rule["modality"] == "must"
+    assert rule["effect"]["action"] == "grant_leave"
+    assert rule["effect"]["type"] == source.effect.type.value
+    assert [e["exception_id"] for e in rule["exceptions"]] == ["ex-1"]
+    # The outcome table is present (the modality rides there), keeping the rule's
+    # deontic force.
+    assert rule["attributes"]["outcome"]
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 7 — each repeated source string exists exactly once.
+# --------------------------------------------------------------------------- #
+def test_a_source_string_two_rules_share_is_stored_exactly_once() -> None:
+    """Two rules grounded in the same clause text carry it once, by reference.
+
+    This is the direct test of the whole exercise: the sentence lives once, in
+    the span dictionary, and both rules point at it. The count is taken over the
+    payload's own string values, not against any corpus number.
+    """
+
+    sentence = "Attendance records are retained for the statutory retention period."
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-share0001", source_text=sentence, subject="records",
+                        clause_id="E000050", document_version_id="v-1"),
+            _formulated("AI-share0002", source_text=sentence, subject="retention",
+                        clause_id="E000050", document_version_id="v-1"),
+        ],
+    )
+
+    # Exactly one span carries the sentence, and it appears once in the payload.
+    carrying = [s for s in payload["spans"].values() if s.get("text") == sentence]
+    assert len(carrying) == 1
+    assert _strings_everywhere(payload).count(sentence) == 1
+
+    # Both rules point at that one span.
+    ref0 = payload["rules"][0]["evidence_refs"][0]
+    ref1 = payload["rules"][1]["evidence_refs"][0]
+    assert ref0 == ref1
+
+
+def test_a_fact_two_rules_share_is_stored_once_and_referenced_by_both() -> None:
+    """A repeated fact phrase lives once in the dictionary; rules reference it.
+
+    The phrase the user saw twice — once in an attribute, once in the fact model
+    — is now one stored string pointed at from both places.
+    """
+
+    phrase = "the employee"
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-fact00001", source_text="First clause.", subject=phrase),
+            _formulated("AI-fact00002", source_text="Second clause.", subject=phrase),
+        ],
+    )
+
+    applies0 = {a["attribute"]: a for a in payload["rules"][0]["attributes"]["applies"]}
+    applies1 = {a["attribute"]: a for a in payload["rules"][1]["attributes"]["applies"]}
+    ref0 = applies0["subject"]["fact_ref"]
+    ref1 = applies1["subject"]["fact_ref"]
+
+    # Both rules reference one dictionary entry, and the phrase is stored once.
+    assert ref0 == ref1
+    assert ref0 in payload["facts"]
+    assert _strings_everywhere(payload).count(phrase) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 4 — no evidence reference is orphaned (bidirectional).
+# --------------------------------------------------------------------------- #
+def test_every_evidence_ref_resolves_and_every_span_is_referenced() -> None:
+    """Refs and spans are in exact correspondence — none dangling, none unused.
+
+    A ref that resolved to nothing would ground an answer in a passage the
+    payload does not carry; a span nothing referenced would be dead weight. Both
+    are failures the projection must not commit.
+    """
+
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-ref000001", source_text="One.", subject="a", clause_id="E1"),
+            _formulated("AI-ref000002", source_text="Two.", subject="b", clause_id="E2"),
+            _formulated("AI-ref000003", source_text="Three.", subject="c", clause_id="E3"),
+        ],
+    )
+
+    referenced = {ref for rule in payload["rules"] for ref in rule["evidence_refs"]}
+    spans = set(payload["spans"])
+
+    # Every ref resolves to a span.
+    assert referenced <= spans
+    # And every span is referenced — nothing orphaned either way.
+    assert spans == referenced
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 2 — every source span keeps its hash, page, section and offsets.
+# --------------------------------------------------------------------------- #
+def test_the_span_keeps_hash_page_section_and_offsets() -> None:
+    """The clause's provenance is preserved on the span (once), not dropped.
+
+    Preserved on the span rather than repeated on every rule that cites it —
+    de-duplication, not loss (constraints 3 and 4).
+    """
+
+    payload = _one(
+        _formulated("AI-prov00001", source_text="A clause.", subject="thing",
+                    clause_id="E000123", document_version_id="ver-9")
+    )
+    span = _primary_span(payload, payload["rules"][0])
+
+    assert span["source_hash"] == "h" * 16
+    assert span["page"] == 7
+    assert span["section"] == "3. Conditions of Work"
+    assert span["start_offset"] == 3
+    assert span["end_offset"] == 99
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 8 — DMN/XACML cannot silently contradict the canonical.
+# --------------------------------------------------------------------------- #
+def test_dmn_collapses_to_a_status_with_no_second_notation_to_contradict() -> None:
+    """The DMN block becomes a status; no table, no restatement is carried.
+
+    The block never held a decision table in the corpus and its semantic
+    projection only restates the canonical, so neither is carried. What remains
+    is a status string — a real per-rule signal that cannot disagree with a rule
+    it does not restate.
+    """
+
+    rule = _one(_formulated("AI-dmn000001", source_text="Z must comply.", subject="Z"))["rules"][0]
+
+    assert isinstance(rule["dmn_status"], str)
+    keys = _keys_everywhere(rule)
+    assert "decision_table" not in keys
+    assert "semantic_projection" not in keys
+    assert "xacml" not in keys
+
+
+# --------------------------------------------------------------------------- #
+# The envelope — values every rule shares are stored once; overrides only differ.
+# --------------------------------------------------------------------------- #
+def test_shared_values_are_hoisted_to_the_envelope_and_not_repeated() -> None:
+    """Authority, dates and the document id every rule shares live once.
+
+    When two rules agree, the value is in the envelope and neither rule repeats
+    it. A rule carries one of these back only when it *differs* — which is the
+    whole point of the envelope.
+    """
+
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-env000001", source_text="One.", subject="a", document_version_id="v-1"),
+            _formulated("AI-env000002", source_text="Two.", subject="b", document_version_id="v-1"),
+        ],
+    )
+
+    envelope = payload["envelope"]
+    # The shared document id and effective date are hoisted.
+    assert envelope["document_version_id"] == "v-1"
+    assert "effective_from" in envelope
+    assert "authority" in envelope
+
+    # And no rule repeats the shared values.
+    for rule in payload["rules"]:
+        assert "authority" not in rule
+        assert "effective_from" not in rule
+        assert "document_version_id" not in rule
+
+
+def test_a_real_difference_between_rules_is_never_erased() -> None:
+    """When rules disagree on a value, de-duplication must not flatten them.
+
+    The envelope hoists only what *every* rule shares, so a field the rules
+    disagree on stays off the envelope and each rule carries its own — the
+    outlier's distinct authority and date survive intact rather than being
+    silently unified with its sibling's.
+    """
+
+    from datetime import date
+
+    from tests.fixtures.factories import make_authority
+
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-ovr000001", source_text="One.", subject="a"),
+            _formulated(
+                "AI-ovr000002",
+                source_text="Two.",
+                subject="b",
+                authority=make_authority(rank=99, owner="board"),
+                effective_from=date(2030, 1, 1),
+            ),
+        ],
+    )
+
+    envelope = payload["envelope"]
+    # Nothing shared to hoist, so the disputed fields stay off the envelope.
+    assert "authority" not in envelope
+    assert "effective_from" not in envelope
+
+    first, second = payload["rules"]
+    # Each rule keeps its own value; the difference is preserved, not collapsed.
+    assert first["authority"] == {"level": "corporate", "owner": "test-owner", "rank": 10}
+    assert second["authority"] == {"level": "corporate", "owner": "board", "rank": 99}
+    assert first["authority"] != second["authority"]
+    assert second["effective_from"] == "2030-01-01"
+    assert first["effective_from"] != second["effective_from"]
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 6 — the compact transport form is a deterministic serialization.
+# --------------------------------------------------------------------------- #
+def test_the_compact_form_is_a_deterministic_view_never_a_second_source() -> None:
+    """Compact bytes parse back to the same governed dict, byte-stable each time.
+
+    The compact form is generated from the dict, so it can never drift into a
+    second source of truth: parsing it yields exactly the dict it came from, and
+    serializing twice yields the same bytes.
+    """
+
+    payload = _one(_formulated("AI-compact001", source_text="A must comply.", subject="A"))
+
+    compact = to_compact(payload)
+    # No indentation — it is the transport form.
+    assert "\n" not in compact
+    # Deterministic, and a faithful view of the same dict.
+    assert to_compact(payload) == compact
+    assert json.loads(compact) == payload
+    # The pretty diagnostic form is the same content, just indented.
+    assert json.loads(to_pretty(payload)) == payload
+
+
+def test_arabic_source_text_survives_uncut_and_unescaped() -> None:
+    """Mixed Arabic/English source is preserved exactly (constraint 9).
+
+    The transport serializer must not escape non-ASCII — an escaped payload would
+    read as gibberish to a model and hide whether the words survived.
+    """
+
+    arabic = "يجب على الموظف الالتزام بقواعد السلوك المهني في جميع الأوقات."
+    payload = _one(_formulated("AI-arabic001", source_text=arabic, subject="الموظف"))
+
+    span = _primary_span(payload, payload["rules"][0])
+    assert span["text"] == arabic
+    # Present literally in the transport bytes, not as \uXXXX escapes.
+    assert arabic in to_compact(payload)
+
+
+# --------------------------------------------------------------------------- #
+# Invariant 1 — at policy scale every live rule and passage is represented.
 # --------------------------------------------------------------------------- #
 async def _session() -> tuple[AsyncSession, object]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -523,14 +845,15 @@ async def _seed(session: AsyncSession, *, live_rule_ids: list[str]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_every_live_rule_in_the_record_is_present_in_the_lean_policy() -> None:
-    """No rule is silently dropped at policy scale, and no stranger creeps in.
+async def test_every_live_rule_and_passage_is_present_in_the_projection() -> None:
+    """No rule or passage is silently dropped at policy scale (invariant 1).
 
-    Set-equality over rule ids, not a length check: it fails on a drop of any
-    size and on any extra, which is the property a reviewer needs when the empty
-    place a lost rule leaves is indistinguishable from a policy that never wrote
-    it. The superseded rule and the other provision's rule are the negative
-    controls — the current set is exactly this provision's live rules.
+    Set-equality over rule ids and over passage texts, not a length check: it
+    fails on a drop of any size and on any extra, which is the property a
+    reviewer needs when the empty place a lost rule leaves is indistinguishable
+    from a policy that never wrote it. The superseded rule and the other
+    provision's rule are the negative controls — the current set is exactly this
+    provision's live rules. Compared against the seeded source, never a number.
     """
 
     # A fixture large enough that rules outnumber anything a stray default page
@@ -544,12 +867,15 @@ async def test_every_live_rule_in_the_record_is_present_in_the_lean_policy() -> 
         payload = await case_payload_for_provision(session, _PROVISION_ID)
 
         assert payload is not None
+        # Every live rule, and only those.
         returned = {rule["rule_id"] for rule in payload["rules"]}
         assert returned == set(live_rule_ids)
-        # Whole, not a prefix; and nothing extra folded in.
-        assert payload["rule_count"] == len(payload["rules"]) == len(live_rule_ids)
         assert "AI-superseded" not in returned
         assert "AI-elsewhere" not in returned
+
+        # Every rule's passage is represented in the span dictionary.
+        passages = {span["text"] for span in payload["spans"].values() if "text" in span}
+        assert passages == {f"{rule_id} states something." for rule_id in live_rule_ids}
     finally:
         await session.close()
         await engine.dispose()
