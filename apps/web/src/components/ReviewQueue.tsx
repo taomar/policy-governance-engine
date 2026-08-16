@@ -67,7 +67,7 @@ import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
-import { approvedReadyPolicies } from "../approvedReadyDrawer";
+import { approvedReadyPolicies, approvedReadyScale } from "../approvedReadyDrawer";
 import { reviewTabCounts } from "../reviewTabCounts";
 import {
   policyUnitCount,
@@ -1792,9 +1792,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           type="success"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`${approvedUnpublished.length} approved rule${
-            approvedUnpublished.length === 1 ? "" : "s"
-          } ready to publish`}
+          message={`${approvedReadyScale(
+            approvedDrawerPolicies.length,
+            approvedUnpublished.length,
+          )} ready to publish`}
           description={
             <Text type="secondary">
               Approved rules are not live yet. Publishing creates an immutable, numbered version — that is what the{" "}
@@ -2421,8 +2422,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             </div>
             <div className="project-overview-panel__body">
             <Paragraph type="secondary">
-              {approvedUnpublished.length} approved candidate(s) ready to publish into a new version, carrying forward
-              all rules from the current active version.
+              {approvedReadyScale(approvedDrawerPolicies.length, approvedUnpublished.length)} ready to publish into a
+              new version, carrying forward all rules from the current active version.
             </Paragraph>
             {publishDiff && approvedUnpublished.length > 0 && (
               <Space wrap style={{ marginBottom: 16 }}>

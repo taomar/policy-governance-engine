@@ -39,6 +39,7 @@
 
 import type { CandidateRule } from "./api";
 import { policyTitle, type PolicyCard } from "./policyCards";
+import { recordScaleLabel } from "./policyRecordFacts";
 
 /** One policy in the approved-ready drawer. */
 export interface ApprovedReadyPolicy {
@@ -91,4 +92,27 @@ export function approvedReadyPolicies(
   }
 
   return order.map((key) => byKey.get(key)!);
+}
+
+/**
+ * How the approved-but-unpublished set is sized where it is announced — the
+ * banner over the queue and the publish panel — said in both units, the policy
+ * leading (constraint 2).
+ *
+ * `policyGroups` is `approvedReadyPolicies(...).length`, the policies the approved
+ * records amount to; `rules` is how many approved records there are. The two are
+ * a pair, not one derived from the other: one decided policy commonly holds
+ * several rules, and a reviewer sizing the publish sees "1 policy · 4 rules", not
+ * "4 approved rules" — four things to weigh where there is one.
+ *
+ * A policy figure of zero over a non-empty rule set is not "no policies". Every
+ * approved rule belongs to a policy, so zero groups means the policies were not
+ * assembled yet — the cards still loading — which is absent, not empty
+ * (constraint 5). The label then states the rule count and names it as rules,
+ * rather than printing "0 policies", a measurement nobody took. `recordScaleLabel`
+ * is the same joiner the drawer's own count uses, so all three read alike.
+ */
+export function approvedReadyScale(policyGroups: number, rules: number): string {
+  const policies = policyGroups > 0 ? policyGroups : null;
+  return recordScaleLabel(policies, rules);
 }

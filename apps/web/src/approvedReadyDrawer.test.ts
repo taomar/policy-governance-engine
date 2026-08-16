@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import type { AssembledPolicy, CandidateRule, CanonicalRule } from "./api";
 import type { PolicyCard } from "./policyCards";
 import { policyUnitCount } from "./policyRecordFacts";
-import { approvedReadyPolicies } from "./approvedReadyDrawer";
+import { approvedReadyPolicies, approvedReadyScale } from "./approvedReadyDrawer";
 
 /** A canonical rule carrying only the title the drawer reads when it has no
  *  card to borrow one from. The rest is the shape the type demands. */
@@ -161,5 +161,32 @@ describe("empty is said, not vanished", () => {
     // grouping hands back an empty list rather than throwing or guessing.
     expect(approvedReadyPolicies([], [card("prov-A", "A heading")])).toEqual([]);
     expect(approvedReadyPolicies([], [])).toEqual([]);
+  });
+});
+
+describe("the ready-to-publish scale leads with the policy and keeps the rule (constraint 2)", () => {
+  // The banner over the queue and the publish panel used to read the approved set
+  // as "N approved rules" / "N approved candidate(s)" — the rule count alone. GMU's
+  // real set is 4 rules in 1 policy, so that sized one decided policy as four
+  // things to weigh. This pins the honest shape the drawer already uses: the
+  // policy leads, the rule stays, and neither is dropped (constraint 11).
+  it("says both units, policy first, for the real approved set", () => {
+    expect(approvedReadyScale(1, 4)).toBe("1 policy · 4 rules");
+  });
+
+  it("keeps both nouns singular at one", () => {
+    expect(approvedReadyScale(1, 1)).toBe("1 policy · 1 rule");
+  });
+
+  it("pluralises both when there are several", () => {
+    expect(approvedReadyScale(2, 7)).toBe("2 policies · 7 rules");
+  });
+
+  it("falls back to the rule count, named as rules, when no policy was assembled (constraint 5)", () => {
+    // Every approved rule belongs to a policy, so zero groups over a non-empty
+    // rule set is not "no policies" — it is "not measured yet", the cards still
+    // loading. Absent is not empty: it states the rules and names them as rules,
+    // and never prints "0 policies", a figure nobody took.
+    expect(approvedReadyScale(0, 4)).toBe("4 rules");
   });
 });
