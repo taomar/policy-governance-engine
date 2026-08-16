@@ -89,7 +89,7 @@ Publishing:
 
 - carries forward unchanged live rules;
 - adds or supersedes approved candidates by `rule_id`;
-- snapshots aggregate limits and evidence references;
+- snapshots evidence references;
 - activates one new `ApprovedPolicyVersion`;
 - writes an audit event;
 - re-runs active regression guards.
@@ -105,7 +105,6 @@ version.
 | **Tests** | Generate or author sealed scenarios, run them blind, and compare expected to actual behavior. |
 | **Regression** | Preserve representative passing scenarios and re-run them across later published versions. |
 | **Compare** | Compute an exact rule-level diff between two published snapshots, with an optional AI narrative. |
-| **Aggregate Limits** | Define and preview ceilings shared across several rules. |
 
 AI may propose findings or scenarios. Python validation and the deterministic
 engine decide what is accepted, executable, passing, or failing.
@@ -147,7 +146,7 @@ projects. Inside a project, tabs follow the lifecycle:
 
 ```text
 Author:   Overview -> Documents -> Review
-Publish:  Policies -> Aggregate Limits -> Compare
+Publish:  Policies -> Compare
 Assure:   Quality -> Tests -> Regression
 Operate:  Decision Log
 ```
