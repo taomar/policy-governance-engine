@@ -116,34 +116,49 @@ the feature is described, for you to decide:
 Line numbers for architecture.md and data-model.md are as of this analysis; the
 corrections above add rows to both, so their later lines shift down by a few.
 
-### Resolution — the retirement landed partially; 15 removed, 7 kept on evidence
+### Resolution — the retirement landed partially; 10 removed, 12 kept or restored
 
 You later confirmed the retirement and the code removal landed. On checking each
-reference against the current code, the removal proved **partial**, which split
-the 22 references cleanly:
+reference against the current code and database, the removal proved **partial** —
+layered, not wholesale — which split the 22 references three ways:
 
-- **Gone and verified gone** — the authoring, management, and persistence surface:
-  the endpoints (8 operations under the `policy-sets` tag), the infrastructure
-  `aggregates/` package (14 sub-packages became 13), both tables
-  (`policy_aggregate_limits`, `approved_aggregate_limits`; 29 tables became 27),
-  and the web page/tab (no component or route survives; only two stale code
-  comments name the old page). The package listing quoted earlier in this report
-  predates that removal.
+- **Removed, verified gone** — the authoring, management, and API surface: the
+  endpoints (8 operations under the `policy-sets` tag), the infrastructure
+  aggregates package (thirteen sub-packages, down from fourteen), the ORM model
+  classes (`Base.metadata` fell from 29 mapped tables to 27; neither aggregate
+  class remains in `src/policy_platform/domain/models.py`), and the web page/tab
+  (no component or route survives; only two stale code comments name the old
+  page). The infrastructure listing quoted earlier in this report predates that
+  removal.
+- **Retained by decision** — the two physical tables `policy_aggregate_limits`
+  and `approved_aggregate_limits` still exist in PostgreSQL (verified: 29 domain
+  base tables) and were deliberately not dropped. They are no longer ORM-mapped
+  and their surface and page are retired, but the schema is unchanged, so
+  `data-model.md` documents them as retained pending a decision rather than gone.
+  Writing them out of the data model would be false in the other direction.
 - **Still present and tested** — the evaluation layer: the contract
   (`AggregateLimit`, and the `aggregate_breaches` field on the evaluation
-  response), the evaluator step (`_evaluate_aggregate_limits`), the web render
-  (`EvaluationResultView.tsx`), and `tests/unit/test_aggregate_limits.py`
-  (5 tests, all passing). It is vestigial in practice — nothing can now populate
-  a limit, so the field is always empty — but the contract and its tests are
-  intact, so the docs that name it are still true.
+  response), the evaluator step (`_evaluate_aggregate_limits`, still called by
+  `evaluate_policy`), the web render (`EvaluationResultView.tsx`), and
+  `tests/unit/test_aggregate_limits.py` (5 tests, all passing through
+  `evaluate_policy`). It is vestigial in practice — nothing now populates a limit
+  from the database, so the field is always empty — but the contract, the
+  pipeline step, and their tests are intact, so the docs and diagrams that name
+  them are still true. The flowchart node was restored after I removed it in
+  error.
 
-**15 references removed** (surface, tab, publish snapshot, extraction output):
-api.md 31; architecture.md 77, 228; capability-flows.md 86, 95, 200;
-data-model.md 20, 37, 97; workflows.md 92, 108, 150; user-guide.md 98, 353;
-policy-standards-research.md 72.
+**10 references removed** (surface, tab, publish snapshot, extraction output):
+api.md 31; architecture.md 77, 228; capability-flows.md 200; workflows.md 92,
+108, 150; user-guide.md 98, 353; policy-standards-research.md 72.
 
-**7 references kept, with evidence:**
+**12 references kept or restored, with evidence:**
 
+- data-model.md 20, 37, 97 — the ER edge and the two table rows. The tables are
+  retained in PostgreSQL, so the schema description is unchanged; annotated as
+  retained pending a decision. Restored after an earlier removal.
+- capability-flows.md 86, 95 — the `Evaluate aggregate limits` node in the
+  evaluation flowchart. `evaluate_policy` still runs the step, so the diagram
+  must show it. Restored after an earlier removal.
 - workflows.md 124, user-guide.md 309 — the `aggregate_breaches` result field;
   still declared by the contract, computed by the evaluator, and rendered by the
   web. Removing them would make the docs contradict the code in the other
