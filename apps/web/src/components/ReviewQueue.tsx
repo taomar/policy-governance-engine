@@ -1687,11 +1687,12 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           <Text type="secondary">Decide candidate records from their source, condition, outcome, and exceptions.</Text>
         </div>
         <Space wrap className="review-page-actions">
-          {/* Drafting a rule is a queue-level action, and the empty queue points
-              here ("write one by hand … above"), so it lives in the page actions
-              where it shows whether or not any records exist — not in the panel
-              header (removed) or the controls bar (which the empty queue hides). */}
-          {selectedKey && (
+          {/* Drafting a candidate is a queue-level action that used to sit in
+              the panel header (removed with the second heading), so it moves up
+              into the page actions. It keeps its original visibility — a
+              selected record in a non-empty queue — so this is a relocation,
+              not a change to when the button appears. */}
+          {selectedKey && totalCandidates > 0 && (
             <Button
               type={showDraftForm ? "default" : "primary"}
               icon={!showDraftForm && <PlusOutlined />}
