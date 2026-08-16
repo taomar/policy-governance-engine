@@ -116,6 +116,48 @@ the feature is described, for you to decide:
 Line numbers for architecture.md and data-model.md are as of this analysis; the
 corrections above add rows to both, so their later lines shift down by a few.
 
+### Resolution — the retirement landed partially; 15 removed, 7 kept on evidence
+
+You later confirmed the retirement and the code removal landed. On checking each
+reference against the current code, the removal proved **partial**, which split
+the 22 references cleanly:
+
+- **Gone and verified gone** — the authoring, management, and persistence surface:
+  the endpoints (8 operations under the `policy-sets` tag), the infrastructure
+  `aggregates/` package (14 sub-packages became 13), both tables
+  (`policy_aggregate_limits`, `approved_aggregate_limits`; 29 tables became 27),
+  and the web page/tab (no component or route survives; only two stale code
+  comments name the old page). The package listing quoted earlier in this report
+  predates that removal.
+- **Still present and tested** — the evaluation layer: the contract
+  (`AggregateLimit`, and the `aggregate_breaches` field on the evaluation
+  response), the evaluator step (`_evaluate_aggregate_limits`), the web render
+  (`EvaluationResultView.tsx`), and `tests/unit/test_aggregate_limits.py`
+  (5 tests, all passing). It is vestigial in practice — nothing can now populate
+  a limit, so the field is always empty — but the contract and its tests are
+  intact, so the docs that name it are still true.
+
+**15 references removed** (surface, tab, publish snapshot, extraction output):
+api.md 31; architecture.md 77, 228; capability-flows.md 86, 95, 200;
+data-model.md 20, 37, 97; workflows.md 92, 108, 150; user-guide.md 98, 353;
+policy-standards-research.md 72.
+
+**7 references kept, with evidence:**
+
+- workflows.md 124, user-guide.md 309 — the `aggregate_breaches` result field;
+  still declared by the contract, computed by the evaluator, and rendered by the
+  web. Removing them would make the docs contradict the code in the other
+  direction. Kept and flagged.
+- testing.md 35, 80 — the tested-behavior cell and the `-k` selector. One premise
+  handed to me was that the selector matched nothing; measured, the documented
+  selector `pytest tests\unit -k "engine or condition or precedence or target or
+  aggregate"` selects **306 tests, all passing**, of which **8** are matched by
+  the `aggregate` token (5 in `test_aggregate_limits.py`). The selector is live,
+  so both lines are accurate and were kept.
+- policy-standards-research.md 15, 16, 39 — a DMN/Camunda standards survey. They
+  map DMN COLLECT aggregators to the aggregate-limit evaluation logic, which still
+  exists; they are industry-concept research, not shipped-feature claims. Kept.
+
 ## Reported to you, not edited
 
 `docs/HANDOVER.md` and `docs/failures/` are owned elsewhere. Nothing in them was
