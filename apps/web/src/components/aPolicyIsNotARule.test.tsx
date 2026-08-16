@@ -25,7 +25,9 @@
  *  - Each panel names which kind of record it is showing. Without it, a reader
  *    tells them apart by counting identifiers, which is what failed.
  *  - The statement is a button, and only the statement. A tidy-up that widened
- *    it to the row would swallow the badges and the menu beside it.
+ *    it to the row would swallow the badges and the reading beside it.
+ *  - All of it through ONE card. The published page used to draw its own, and
+ *    each promise here had to be kept twice; the copy kept the older answer.
  *
  * Nothing here is a phrase from any document, and no number in it is a
  * measurement of one.
@@ -35,8 +37,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import type { AssembledPolicy, CandidateRule, CanonicalRule } from "../api";
 import { buildPolicyCards } from "../policyCards";
 import { policyRecord } from "./policyTabPanes";
-import { isOutsideWindow } from "./PoliciesTab";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import { PolicyReviewCard } from "./PolicyReviewCard";
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -210,20 +211,25 @@ describe("a sealed record reports no review to be in progress", () => {
 });
 
 describe("a rule's own words are the way into it", () => {
-  function renderCard(props: Partial<React.ComponentProps<typeof PublishedPolicyCard>> = {}) {
+  // Rendered through the one card both surfaces use. It used to be rendered
+  // through a second card that only the published page had, and every promise
+  // below had to be made twice — which is how the published page came to keep
+  // an older answer to each of them.
+  function renderCard(props: Partial<React.ComponentProps<typeof PolicyReviewCard>> = {}) {
     const card = publishedCard(["r1", "r2"]);
     const rendered = render(
-      <PublishedPolicyCard
+      <PolicyReviewCard
         card={card}
         open={false}
-        selectedForExport={false}
-        indeterminateForExport={false}
-        onToggleExportSelection={() => {}}
+        selected={false}
+        indeterminate={false}
+        statusColor={() => "default"}
+        statusLabel={(status) => status}
+        findingsFor={() => 0}
+        onToggleSelect={() => {}}
         onOpen={() => {}}
         onSelectRule={() => {}}
-        onToggleRule={() => {}}
         policySetKey="a-set"
-        policyVersionId="a-version"
         {...props}
       />,
     );
@@ -251,15 +257,18 @@ describe("a rule's own words are the way into it", () => {
     expect(onSelectRule.mock.calls[0][0].rule_id).toBe("r2");
   });
 
-  it("wraps the statement only, leaving the controls beside it out of the button", () => {
+  it("wraps the statement only, leaving what is beside it out of the button", () => {
     // Nesting a button inside a button is invalid, and the inner one loses its
-    // place in the tab order. The row's menu and its Ask control must stay
-    // reachable in their own right.
+    // place in the tab order. Everything the row shows besides the statement —
+    // the badges, and the reading of when the rule applies — has to stay
+    // outside it, addressable and, where it is a control, focusable.
     renderCard();
     const row = screen.getAllByTestId("policy-card-rule")[0];
     const opener = within(row).getByTestId("policy-card-rule-open");
     expect(opener.querySelector("button")).toBeNull();
-    expect(within(row).getAllByRole("button").length).toBeGreaterThan(1);
+    const reading = row.querySelector(".policy-card__rule-reading");
+    expect(reading).not.toBeNull();
+    expect(opener.contains(reading)).toBe(false);
   });
 
   it("marks the row the panel is showing, and only that row", () => {
@@ -295,43 +304,10 @@ describe("a rule's own words are the way into it", () => {
     const onOpen = vi.fn();
     const onSelectRule = vi.fn();
     renderCard({ onOpen, onSelectRule });
-    fireEvent.click(screen.getByRole("button", { name: /A heading/ }));
+    // Exact, because the row of controls beside the heading names it too ("Open
+    // details for A heading"). What is asserted is the heading itself.
+    fireEvent.click(screen.getByRole("button", { name: "A heading" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onSelectRule).not.toHaveBeenCalled();
-  });
-});
-
-describe("the panel is brought back only when it cannot be seen", () => {
-  // The card list is taller than the panel beside it, so a reader who scrolled
-  // down to reach a rule has scrolled the panel off the top of the window. The
-  // click then answers them somewhere they are not looking, which is
-  // indistinguishable from the click having done nothing — and "nothing
-  // happened" is exactly what was reported.
-  const windowHeight = 800;
-
-  it("counts a panel above the window as out of sight", () => {
-    expect(isOutsideWindow({ top: -900, bottom: -100 }, windowHeight)).toBe(true);
-  });
-
-  it("counts a panel below the window as out of sight", () => {
-    expect(isOutsideWindow({ top: 900, bottom: 1700 }, windowHeight)).toBe(true);
-  });
-
-  it("leaves a panel that is partly visible alone", () => {
-    // Both partial cases. Pulling the page under a reader to gain a few pixels
-    // of a panel they are already reading is worse than leaving them still.
-    expect(isOutsideWindow({ top: -100, bottom: 700 }, windowHeight)).toBe(false);
-    expect(isOutsideWindow({ top: 700, bottom: 1500 }, windowHeight)).toBe(false);
-  });
-
-  it("leaves a fully visible panel alone", () => {
-    expect(isOutsideWindow({ top: 40, bottom: 760 }, windowHeight)).toBe(false);
-  });
-
-  it("treats a panel resting exactly on either edge as out of sight", () => {
-    // Zero visible pixels is not visible. This is also what an unmeasured node
-    // reports, so the boundary has to fall on the side that brings it back.
-    expect(isOutsideWindow({ top: -800, bottom: 0 }, windowHeight)).toBe(true);
-    expect(isOutsideWindow({ top: windowHeight, bottom: 1600 }, windowHeight)).toBe(true);
   });
 });

@@ -216,6 +216,25 @@ export function unplacedRules<T extends PolicyRecordInput>(
   return placement(policies, candidates).unplaced as T[];
 }
 
+/**
+ * The policies a narrowing answers, each still whole.
+ *
+ * The rule this encodes: a search or a facet filter selects *policies*. It never
+ * selects some of a policy's rules and leaves the rest out, because the result
+ * is a card that looks exactly like a whole policy and is not one — and a reader
+ * has no way to tell the difference, since a policy with three rules and a
+ * nine-rule policy showing three render identically.
+ *
+ * The card objects are returned by identity, not rebuilt, so there is no path by
+ * which a narrowing could alter what a card contains even by accident.
+ */
+export function cardsAnsweringNarrowing(
+  cards: readonly PolicyCard[],
+  matchedRuleIds: ReadonlySet<string>,
+): PolicyCard[] {
+  return cards.filter((card) => card.rules.some((entry) => matchedRuleIds.has(entry.rule_id)));
+}
+
 interface Placement {
   cards: PolicyCard[];
   unplaced: PolicyRecordInput[];
@@ -392,7 +411,13 @@ export function passageQuotations(rules: readonly CanonicalRule[]): string[] {
  * under. An empty result means no citation recorded a heading, which is a fact
  * about how the document was read and is stated as such rather than filled in.
  */
-export function passageHeading(rules: readonly CanonicalRule[]): string {
+/** Every distinct heading the rules of one passage cite, in the order first cited.
+ *
+ *  Kept as the list rather than a sentence because a passage that cites two
+ *  headings cites two things, and a caller drawing them one per line needs to
+ *  know where one ends. `passageHeading` joins them for callers that want a
+ *  single run of text. */
+export function passageHeadings(rules: readonly CanonicalRule[]): string[] {
   const headings: string[] = [];
   for (const rule of rules) {
     for (const reference of rule.evidence) {
@@ -400,7 +425,11 @@ export function passageHeading(rules: readonly CanonicalRule[]): string {
       if (heading && !headings.includes(heading)) headings.push(heading);
     }
   }
-  return headings.join(" · ");
+  return headings;
+}
+
+export function passageHeading(rules: readonly CanonicalRule[]): string {
+  return passageHeadings(rules).join(" · ");
 }
 
 /** The page a passage sits on, when the assembly recorded one. */

@@ -1,8 +1,9 @@
 import { Fragment } from "react";
 import { Button, Checkbox, Space, Tag, Tooltip, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
-import type { PolicyCard } from "../policyCards";
+import type { PolicyCard, PolicyCardRule } from "../policyCards";
 import { candidateEditability } from "../candidateEditability";
+
 import {
   passagePageLabel,
   passageQuotations,
@@ -129,6 +130,7 @@ export function PolicyReviewCard({
   onSelectRule,
   selectedRuleId,
   documentName,
+  policySetKey,
 }: {
   card: PolicyCard;
   /** Every reviewable rule of this policy is in the bulk selection. */
@@ -140,7 +142,11 @@ export function PolicyReviewCard({
   statusColor: (status: string) => string;
   statusLabel: (status: string) => string;
   findingsFor: (ruleId: string) => number;
-  onToggleSelect: () => void;
+  /** How a bulk selection is recorded, never whether one may be taken. Absent
+   *  where the surrounding surface has nothing to gather records for, which is
+   *  a fact about the surface; *what* a selection gathers is a fact about the
+   *  records, and is read from them below. */
+  onToggleSelect?: () => void;
   onOpen: () => void;
   /** How a decision is recorded, never whether one may be: that is read from
    *  the records themselves. Absent when there is nothing this surface can do
@@ -154,11 +160,16 @@ export function PolicyReviewCard({
    *  permission: opening a rule is a read, and a sealed record opens the same
    *  way a record under review does.
    *
-   *  Takes the row's own identity rather than the rule it holds. `rule_id` is a
-   *  hash of the rule's content, so two rules a passage states in identical
-   *  words share one, and a caller resolving a click by `rule_id` can open a
-   *  different rule than the reviewer pointed at. */
-  onSelectRule?: (recordId: string) => void;
+   *  Takes the row's own entry on the card rather than an identifier. The two
+   *  surfaces address a record by different handles — a queue opens the draft
+   *  row it is deciding, a published version opens the rule it published — and
+   *  the entry carries both, so each caller takes what it has. Resolving one
+   *  from the other here would be this card holding a second opinion on which
+   *  record a click meant, and `rule_id` is a hash of the rule's content: two
+   *  rules a passage states in identical words share one, so a caller resolving
+   *  a click by `rule_id` can open a different rule than the reviewer pointed
+   *  at. */
+  onSelectRule?: (entry: PolicyCardRule) => void;
   /** Which rule the panel is currently showing, so the row can say so. Absent
    *  and "none selected" are the same here: neither marks a row. */
   selectedRuleId?: string | null;
@@ -168,6 +179,12 @@ export function PolicyReviewCard({
    *  because a surface that cannot attribute a policy to a document should ask
    *  the narrower question rather than guess at the answer. */
   documentName?: string | null;
+  /** The policy set these records belong to. Needed only to look up the name
+   *  this app generated for a rule that has no draft row: a draft row is named
+   *  by its own id, and a published rule by its set and its rule id. Absent on
+   *  a surface with no set in hand, and a rule then shows no generated name —
+   *  which is what a card with none showed before names existed. */
+  policySetKey?: string;
 }) {
   const title = policyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy, documentName);
@@ -207,6 +224,13 @@ export function PolicyReviewCard({
   //
   // The handlers say *how* a decision is recorded. They never say whether one
   // may be.
+  //
+  // Read off each record's own state through `candidateEditability`, the one
+  // place in this app that knows what a state permits — not off `reviewableIds`,
+  // which is that same function already applied by `buildPolicyCards`. The two
+  // cannot disagree on a card this app builds, and asking the records directly
+  // keeps the guard on the record rather than one step away on a list a future
+  // builder is free to fill differently.
   const decidable = card.rules.some(
     (rule) => candidateEditability(rule.reviewStatus).canReview,
   );
@@ -260,13 +284,30 @@ export function PolicyReviewCard({
       aria-label={`Policy ${title.text || card.policy.key}`}
     >
       <div className="policy-card__head">
-        {decidable && (
+        {onToggleSelect && (
           <Checkbox
             checked={selected}
             indeterminate={indeterminate}
             onChange={onToggleSelect}
             onClick={(e) => e.stopPropagation()}
-            title={`Select this policy and all ${card.reviewableIds.length} of its rules still open for review`}
+            // What a tick gathers is read from the records, not from the page.
+            // Where they can still be decided it gathers the ones still open,
+            // because that is what one Approve would write to. Where they are
+            // sealed there is nothing to decide and a selection is a way of
+            // taking a copy away, so it gathers all of them. Neither wording is
+            // a claim about which surface this is.
+            //
+            // Counted two different ways because the two ticks do two different
+            // things. Where a decision is still open the tick gathers exactly
+            // the ids the caller's Approve would write to, so it names that
+            // list. Where the records are sealed there is no such list and the
+            // tick gathers the card's rules, so it counts them directly rather
+            // than reading back a tally taken elsewhere.
+            title={
+              decidable
+                ? `Select this policy and all ${card.reviewableIds.length} of its rules still open for review`
+                : `Select this policy and all ${card.rules.length} of its rules, to read them together`
+            }
           />
         )}
         <div className="policy-card__headings">
@@ -389,7 +430,7 @@ export function PolicyReviewCard({
                   // Both routes are ordinary. A section holding one of each is
                   // the common shape of a real document, not a half-finished
                   // version of a better one.
-                  "Where the source states a test as a comparison it is evaluated directly. Where the source states it in words it is decided by reading. Every rule of this policy takes this route; where they differ, each rule below says which it takes."
+                  "Where the source states a test as a comparison the rule takes the Deterministic route and the engine computes it. Where the source states it in words the rule takes the AI Ready route and a judge reads it against the case. Every rule of this policy takes this route; where they differ, each rule below says which it takes."
                 }
               >
                 <Tag variant="filled" className="policy-card__route">
@@ -525,8 +566,23 @@ export function PolicyReviewCard({
                           words. Renders nothing at all until one has been
                           generated, so a card with none is the card that was
                           here before. Marked as ours by the same ✦ the
-                          generated subject label uses at the top of this card. */}
-                      <RuleName candidateId={rule.recordId} variant="block" />
+                          generated subject label uses at the top of this card.
+
+                          Which handle names it is a property of the record: a
+                          draft row is named by its own id, a rule with no draft
+                          row by the set it was published in. Asked the wrong
+                          way round — a published rule id sent as a draft row id
+                          — the lookup resolves to nothing and the rule silently
+                          loses its name. */}
+                      {rule.candidate || !policySetKey ? (
+                        <RuleName candidateId={rule.recordId} variant="block" />
+                      ) : (
+                        <RuleName
+                          policySetKey={policySetKey}
+                          ruleId={rule.rule_id}
+                          variant="block"
+                        />
+                      )}
                       <div className="policy-card__rule-line">
                         {/* Only the rule's own words are the target. The badges,
                             tags and finding count that follow are separate
@@ -559,7 +615,7 @@ export function PolicyReviewCard({
                               data-testid="policy-card-rule-open"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                onSelectRule(rule.recordId);
+                                onSelectRule(rule);
                               }}
                             >
                               {statement}
@@ -653,7 +709,7 @@ export function PolicyReviewCard({
       })}
 
       {card.hiddenByFilter > 0 && (
-        <Text type="secondary" className="policy-card__partial">
+        <Text type="secondary" className="policy-card__partial" data-testid="policy-card-partial">
           {/* The content-kind split that used to make cards partial is gone, and
               with it every word about lanes, kinds and where a record went. What
               is left says two things and names no control, because the cause is
@@ -667,7 +723,8 @@ export function PolicyReviewCard({
           This card holds {card.rules.length} of the {card.policy.rule_count} rules this policy
           states. The rest were superseded by a later extraction, or their records are
           not among those loaded here.{" "}
-          Approving here decides the {card.reviewableIds.length === 1 ? "rule" : "rules"} shown above.
+          {decidable &&
+            `Approving here decides the ${card.reviewableIds.length === 1 ? "rule" : "rules"} shown above.`}
         </Text>
       )}
     </article>

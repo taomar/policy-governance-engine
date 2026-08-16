@@ -105,7 +105,12 @@ function card(shownIds: string[], allIds: string[]): PolicyCard {
     evaluation_mode: "deterministic",
     ...fromDraftRow({
       id: `candidate-${index}`,
-      review_status: "pending",
+      // The status this app actually issues for a record still open. A card
+      // whose rules read `pending` is a card `buildPolicyCards` could not
+      // build: `candidateEditability` does not know that word, so the rules
+      // would say sealed while `reviewableIds` below said open, and the card
+      // would be asked to render a contradiction no real record can express.
+      review_status: "candidate",
       rule_type: "obligation",
       rule: {
         rule_id,
@@ -259,7 +264,8 @@ function mixedCard(): PolicyCard {
       evaluation_mode: "deterministic",
       ...fromDraftRow({
         id: `candidate-${index}`,
-        review_status: "pending",
+        // As above: the word the app issues for an open record.
+        review_status: "candidate",
         rule_type: "obligation",
         rule: {
           rule_id: `r${index}`,

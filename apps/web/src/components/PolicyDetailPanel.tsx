@@ -117,6 +117,7 @@ export function PolicyDetailPanel({
   onApprove,
   onReject,
   policySetKey,
+  policyVersionId,
   policyActions,
   ruleActions,
   actions,
@@ -152,6 +153,13 @@ export function PolicyDetailPanel({
    *  is simply absent when nothing can say which set the question is about,
    *  rather than drawn and then failing when it is pressed. */
   policySetKey?: string;
+  /** The published version this panel is showing the policy *at*, where there is
+   *  one. Part of a sealed record's identity, not a decoration: the draft row
+   *  behind a published rule carries the same key and may since have been
+   *  revised, so a question asked without the version can be answered from the
+   *  wrong record. A candidate under review has no published version and passes
+   *  nothing, which is a different fact from passing an unknown one. */
+  policyVersionId?: string | null;
   /** What the host can do to this policy beyond deciding it. Handlers, not
    *  flags: the panel does not decide who may do what, and the host does not
    *  decide how a menu is drawn. Absent handlers simply produce fewer entries. */
@@ -179,9 +187,11 @@ export function PolicyDetailPanel({
    *  has not simply passes nothing and the tab says so. */
   history?: readonly PolicySightingView[] | null;
   historyLoading?: boolean;
-  /** Asked for when the reader opens History, not before. The same policy key
-   *  serves a candidate and its published sightings, so a policy under review
-   *  can show what has already been published of it. */
+  /** Asked for once, when the policy is opened — not when a tab is clicked.
+   *  Overview traces the policy and where it has been published is a link of
+   *  that chain, so the answer has to be in hand before the reader goes looking
+   *  for it. The same policy key serves a candidate and its published sightings,
+   *  so a policy under review can show what has already been published of it. */
   onRequestHistory?: (provisionKey: string) => void;
   /** The policy set's extraction runs, each carrying the document and document
    *  version it read. One already-loaded list resolves the whole chain from a
@@ -271,6 +281,7 @@ export function PolicyDetailPanel({
         key="ask"
         policy={card.policy}
         policySetKey={policySetKey}
+        policyVersionId={policyVersionId ?? undefined}
       />
     ) : null,
   ].filter(Boolean);
@@ -430,11 +441,12 @@ export function PolicyDetailPanel({
       <Tabs
         className="policy-detail-panel__tabs"
         defaultActiveKey="overview"
-        onChange={(next) => {
-          if (next === "history" && history == null && !historyLoading) {
-            onRequestHistory?.(card.policy.key);
-          }
-        }}
+        /* No ask on tab change. History is fetched once when the policy is
+           opened, above, because Overview traces where the policy was published
+           and that is a fact needed to judge it — not something to go and find
+           after a click. A second ask here would fire again whenever the first
+           one had not yet come back, which is every reader who opens History
+           quickly. */
         items={[
           {
             key: "overview",
@@ -658,7 +670,15 @@ export function PolicyDetailPanel({
                                     <dd>{canonical.rule_revision}</dd>
                                   </div>
                                   <div>
-                                    <dt>Candidate record</dt>
+                                    <dt>
+                                      {/* Named for what it is. A draft row and a
+                                          published row are different records
+                                          with different lifetimes, and calling
+                                          a published one a candidate tells a
+                                          reader tracing it to look in a table
+                                          that does not hold it. */}
+                                      {rule.candidate ? "Candidate record" : "Published record"}
+                                    </dt>
                                     <dd className="policy-row-mono">
                                       {rule.recordId}
                                     </dd>

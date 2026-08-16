@@ -73,6 +73,11 @@ function card(topic: PolicyTopicLabel | null, headingPath?: string[]): PolicyCar
     passages: [],
     rules: [],
     reviewableIds: [],
+    // A card always carries the full list beside the reviewable one; the
+    // selection tick names how many records it would gather, and on a card
+    // with nothing left to decide that number comes from here.
+    allIds: [],
+    reviewStatuses: [],
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }

@@ -190,7 +190,7 @@ describe("a card says what it is made of", () => {
   });
 });
 
-describe("the two surfaces that state this fact", () => {
+describe("the surface that states this fact", () => {
   // The project carries no node types, and a path walk can silently resolve to
   // the wrong root and read nothing at all. Same idiom as `routeNotFault`, for
   // the same reason.
@@ -206,25 +206,29 @@ describe("the two surfaces that state this fact", () => {
     return found;
   };
 
-  it("read it from the same module rather than each from the records", () => {
-    const review = read("PolicyReviewCard.tsx");
-    const published = read("PublishedPolicyCard.tsx");
+  it("reads it from the shared module rather than from the records", () => {
+    const card = read("PolicyReviewCard.tsx");
 
-    for (const source of [review, published]) {
-      expect(source).toContain("policyCompositionLabel");
-      // Neither surface may decide for itself what counts as context. The one
-      // literal that names the axis lives in `policyRecordFacts`.
-      expect(source).not.toContain('"informational"');
-    }
+    expect(card).toContain("policyCompositionLabel");
+    // No surface may decide for itself what counts as context. The one literal
+    // that names the axis lives in `policyRecordFacts`.
+    expect(card).not.toContain('"informational"');
   });
 
-  it("name the fact the same way, so one reader learns it once", () => {
-    const review = read("PolicyReviewCard.tsx");
-    const published = read("PublishedPolicyCard.tsx");
-    const tooltip = /title="(What this policy is made of[^"]*)"/;
+  it("is the only one, so one reader learns the fact once", () => {
+    // This used to read two files and check they agreed, because the published
+    // page drew its own card. Agreement between copies is the weaker promise:
+    // it can only be kept by whoever remembers there are two. Four reported
+    // faults were the copy holding an older answer, so what is asserted now is
+    // that there is nothing to disagree with.
+    //
+    // Test files state the identifier while checking for it, which is not a
+    // second surface.
+    const statingIt = Object.keys(sources)
+      .filter((path) => !path.endsWith(".test.tsx"))
+      .filter((path) => sources[path].includes('data-testid="policy-composition"'))
+      .sort();
 
-    expect(review).toContain('data-testid="policy-composition"');
-    expect(published).toContain('data-testid="policy-composition"');
-    expect(review.match(tooltip)?.[1]).toBe(published.match(tooltip)?.[1]);
+    expect(statingIt).toEqual(["./PolicyReviewCard.tsx"]);
   });
 });

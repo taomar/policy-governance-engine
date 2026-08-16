@@ -1721,6 +1721,17 @@
   margin-top: 2px;
 }
 
+/* The unit the number above was measured in. A flow tile shows one numeral,
+   and a numeral with no unit beside a queue of policies holding many rules
+   is ambiguous by construction -- the same "32" could be either. This line
+   names both counts so the tile can never be read as the wrong one. */
+.project-flow-detail {
+  font-size: 11px;
+  color: var(--text-muted, #9ca3af);
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
 .project-flow-connector {
   display: flex;
   align-items: center;
@@ -4018,6 +4029,7 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  min-height: 0;
   flex: 1 1 520px;
   max-width: 760px;
 }
@@ -4100,6 +4112,7 @@
 .policies-toolbar {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   gap: 8px;
   background: #fff;
   border: 1px solid var(--border);
@@ -4137,6 +4150,7 @@
 
 .policy-export-bar {
   min-height: 38px;
+  flex: 0 0 auto;
   padding: 6px 9px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -4145,6 +4159,49 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* The policies, in a container of their own that scrolls.
+ *
+ * WHY THIS EXISTS, AND WHAT IT REPLACED
+ *
+ * The list had no scroller, so the only one on the page was the document. A
+ * reader who scrolled down far enough to reach the twelfth policy had scrolled
+ * the detail panel beside it off the top of the window, and clicking a rule
+ * then answered them somewhere they could not see — indistinguishable from the
+ * click having done nothing, which is what was reported.
+ *
+ * It was compensated for in script: measure the panel, and scroll the page back
+ * if it had left the window. That is a second mechanism for a layout problem,
+ * and it moved the page under a reader to do it. The list scrolling inside a
+ * fixed-height workspace means the panel never leaves the window in the first
+ * place, so the measuring and the scrolling are both gone.
+ *
+ * This is the arrangement the review queue already had — `.candidate-list`
+ * inside `.review-workspace-list` — and the two surfaces now scroll alike. */
+.published-policy-list {
+  flex: 1 1 auto;
+  min-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: var(--r-lg);
+  padding: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.policies-workspace--narrow .published-policy-list {
+  /* Nothing above it is a fixed height on a narrow screen, so a flexed child
+     has nothing to fill. It grows with the page instead, which is the reading
+     posture on a phone, and the panel is a drawer there rather than a column
+     beside it — so it cannot be scrolled out of view. */
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .policy-export-count {
@@ -5193,6 +5250,54 @@
   min-height: 0;
 }
 
+/* The same inspector, opened in place under the row it belongs to.
+ *
+ * As the destination panel it owns a column of fixed height and scrolls inside
+ * it. Embedded it has no height of its own — it is as tall as the rule is long
+ * — and the list it sits in does the scrolling. A pane that kept its own
+ * scroller here would put a second scrollbar inside the first, which is how a
+ * reader ends up unable to reach the end of a rule they can see the top of. */
+.policy-inspector--embedded {
+  height: auto;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: #fff;
+}
+
+.policy-inspector--embedded .policy-inspector-header {
+  padding-top: 10px;
+}
+
+.policy-inspector--embedded .policy-inspector-tabs,
+.policy-inspector--embedded .policy-inspector-tabs > .ant-tabs-body-holder,
+.policy-inspector--embedded .policy-inspector-tabs > .ant-tabs-body-holder > .ant-tabs-body,
+.policy-inspector--embedded .policy-inspector-tabs .ant-tabs-content-holder {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.policy-inspector--embedded .policy-inspector-tabs .ant-tabs-content,
+.policy-inspector--embedded .policy-inspector-tabs .ant-tabs-tabpane,
+.policy-inspector--embedded .policy-inspector-tabs > .ant-tabs-content-active,
+.policy-inspector--embedded .policy-inspector-tabs > .ant-tabs-body-holder > .ant-tabs-content-active,
+.policy-inspector--embedded
+  .policy-inspector-tabs
+  > .ant-tabs-body-holder
+  > .ant-tabs-body
+  > .ant-tabs-content-active {
+  height: auto !important;
+  min-height: 0;
+  overflow: visible;
+}
+
+.policy-inspector--embedded .inspector-pane--json {
+  height: auto;
+  overflow: visible;
+}
+
 .policy-inspector-empty {
   align-items: center;
   justify-content: center;
@@ -5466,7 +5571,7 @@
 
 /* What the source's wording admits — see AmbiguityNoteView.tsx. The banner
    variant sits in the inspector header beside Approve/Reject; the section
-   variant sits on the Parties & readiness tab and renders for every status. */
+   variant sits on the Parties & routes tab and renders for every status. */
 .ambiguity-note--banner {
   margin-bottom: 10px;
 }
@@ -12309,4 +12414,29 @@
 
 .composition-focus__consequence:empty {
   display: none;
+}
+
+/* THE UNIT TRAVELS WITH THE NUMBER.
+   A status pill has no room for a sentence, so the number it leads with carries
+   its unit immediately beside it and the other count follows in smaller type.
+   A policy is what gets reviewed, approved and published; rules are its
+   contents, and a strip quoting only rules answers a question nobody asked.
+   Neither number is dropped and neither is summed into the other. */
+.review-status-tab-unit {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.review-status-tab-sub {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.review-status-tab-sub::before {
+  content: "·";
+  margin-right: 5px;
 }

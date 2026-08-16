@@ -34,8 +34,9 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { AssembledPolicy, CanonicalRule } from "../api";
-import { buildPublishedPolicyCards } from "../publishedPolicyCards";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import { buildPolicyCards } from "../policyCards";
+import { PolicyReviewCard } from "./PolicyReviewCard";
+import { PolicyDetailPanel } from "./PolicyDetailPanel";
 
 // jsdom implements neither, and the component library measures its own layout.
 // Neither stub affects what is asserted here, which is what the card renders.
@@ -145,6 +146,16 @@ function policy(ruleIds: string[], statedRuleCount = ruleIds.length): AssembledP
   } as unknown as AssembledPolicy;
 }
 
+/**
+ * The published surface as the page actually draws it: the card, and the panel
+ * that opens beside it.
+ *
+ * Both, because there is no longer a component that is "the published card" —
+ * there is the one card the review queue draws and the one panel it opens, and
+ * what makes this surface read-only is what the *record* says, plus the handlers
+ * this page withholds. Asserting over the card alone would let a decision
+ * control reappear in the panel and pass.
+ */
 function renderCard({
   ruleIds = ["r1", "r2"],
   statedRuleCount,
@@ -154,31 +165,61 @@ function renderCard({
   statedRuleCount?: number;
   onRevise?: (rule: CanonicalRule) => void;
 } = {}) {
-  const cards = buildPublishedPolicyCards(
+  const cards = buildPolicyCards(
     [policy(ruleIds, statedRuleCount)],
-    ruleIds.map((id) => rule(id)),
+    ruleIds.map((id) => ({ rule: rule(id) })),
   );
+  const card = cards[0];
+  const statusColor = () => "purple";
+  const statusLabel = (status: string) => status;
   return render(
-    <PublishedPolicyCard
-      card={cards[0]}
-      open={false}
-      selectedForExport={false}
-      indeterminateForExport={false}
-      onToggleExportSelection={() => {}}
-      onOpen={() => {}}
-      onSelectRule={() => {}}
-      onToggleRule={() => {}}
-      onRevise={onRevise}
-      onViewHistory={() => {}}
-      policySetKey="a-set"
-      policyVersionId="a-version"
-    />,
+    <>
+      <PolicyReviewCard
+        card={card}
+        selected={false}
+        indeterminate={false}
+        open
+        policySetKey="a-set"
+        statusColor={statusColor}
+        statusLabel={statusLabel}
+        findingsFor={() => 0}
+        onToggleSelect={() => {}}
+        onOpen={() => {}}
+        onSelectRule={() => {}}
+        selectedRuleId={null}
+        documentName={null}
+      />
+      <PolicyDetailPanel
+        card={card}
+        statusColor={statusColor}
+        statusLabel={statusLabel}
+        policySetKey="a-set"
+        ruleActions={(ruleId) => {
+          const entry = card.rules.find((r) => r.rule_id === ruleId);
+          if (!entry) return {};
+          return onRevise ? { revise: () => onRevise(entry.rule) } : {};
+        }}
+      />
+    </>,
   );
 }
 
 afterEach(() => {
   cleanup();
 });
+
+/**
+ * The kebab on a rule row, reached the way a reader reaches it.
+ *
+ * The panel opens on its summary; the rules themselves are one tab along. That
+ * is a navigation, not a fact hidden behind a click — every fact needed to
+ * judge this record is on the summary already. What is behind the tab is the
+ * per-rule *actions*, and an action is not a fact.
+ */
+function ruleKebab(ruleTitle = "Title for r1") {
+  fireEvent.click(screen.getByRole("tab", { name: "Reading" }));
+  return screen.getByRole("button", { name: `More actions for ${ruleTitle}` });
+}
 
 describe("a published policy on the page that reads published versions", () => {
   it("draws nothing that would record a decision or rewrite the record", () => {
@@ -211,10 +252,8 @@ describe("a published policy on the page that reads published versions", () => {
     // removing this one: revising does not change the published record, it
     // starts a new draft beside it.
     renderCard({ onRevise: () => {} });
-    const kebabs = screen.getAllByTestId("record-actions-menu");
-    expect(kebabs.length).toBeGreaterThan(0);
     // Opened, because a kebab that exists proves nothing about what is in it.
-    fireEvent.click(kebabs[0]);
+    fireEvent.click(ruleKebab());
     const offered = within(screen.getByRole("menu"))
       .getAllByRole("menuitem")
       .map((item) => item.getAttribute("data-action"));
@@ -226,24 +265,46 @@ describe("a published policy on the page that reads published versions", () => {
     // id and reading a history are reads — but it must not offer a route the
     // caller did not supply.
     renderCard();
-    const kebabs = screen.getAllByTestId("record-actions-menu");
-    expect(kebabs.length).toBeGreaterThan(0);
-    fireEvent.click(kebabs[0]);
+    fireEvent.click(ruleKebab());
     const offered = within(screen.getByRole("menu"))
       .getAllByRole("menuitem")
       .map((item) => item.getAttribute("data-action"));
     expect(offered).not.toContain("revise");
   });
+
+  it("offers no decision on the policy either, whatever the caller wires", () => {
+    // The policy-scope menu is a second place a decision control could arrive,
+    // and it is drawn even when no rule row is on screen.
+    renderCard({ onRevise: () => {} });
+    fireEvent.click(screen.getByRole("button", { name: "More actions for A heading" }));
+    const offered = within(screen.getByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("data-action"));
+    for (const forbidden of [
+      "edit",
+      "suggest-rewrite",
+      "request-changes",
+      "override-approve",
+      "override-reject",
+    ]) {
+      expect(offered).not.toContain(forbidden);
+    }
+  });
 });
 
 describe("a published policy is never shown as less than it is", () => {
-  it("says so, with the number, when the current narrowing hides part of it", () => {
+  it("says so, with the numbers, when the current narrowing hides part of it", () => {
     renderCard({ ruleIds: ["r1"], statedRuleCount: 3 });
     const partial = screen.getByTestId("policy-card-partial");
-    // The words matter as much as the number: a reader seeing one rule under a
-    // heading has no way to know two more exist unless the card says it.
-    expect(partial.textContent).toMatch(/2/);
-    expect(partial.textContent).toMatch(/more rules of this policy/i);
+    // The words matter as much as the numbers: a reader seeing one rule under a
+    // heading has no way to know the policy states more unless the card says
+    // it. Both numbers are asserted rather than the difference between them,
+    // because that is what the one surviving card prints — a reader is told
+    // how much is here and how much the policy states, and is not asked to
+    // trust a subtraction this system performed out of sight.
+    expect(partial.textContent).toMatch(/\b1\b/);
+    expect(partial.textContent).toMatch(/\b3\b/);
+    expect(partial.textContent).toMatch(/rules this policy\s+states/i);
   });
 
   it("stays silent when it is showing the whole policy", () => {
@@ -255,7 +316,7 @@ describe("a published policy is never shown as less than it is", () => {
     renderCard({ ruleIds: ["r1", "r2", "r3"] });
     // The failure this replaces split one policy's rules across several
     // headings this system invented. All of them must be on one card.
-    expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(3);
-    expect(screen.getAllByTestId("published-policy-card")).toHaveLength(1);
+    expect(within(screen.getByTestId("policy-card")).getAllByTestId("policy-card-rule")).toHaveLength(3);
+    expect(screen.getAllByTestId("policy-card")).toHaveLength(1);
   });
 });

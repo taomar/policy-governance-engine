@@ -77,7 +77,7 @@ const ONLY_IN_JSON = "Evaluator JSON";
 const ONLY_IN_NOTES = "Review discussion";
 const ARABIC_RUN = "إنذار كتابي";
 
-const EVERY_TAB = ["Overview", "Logic", "Parties & readiness", "Scope", "History", "Notes", "JSON"];
+const EVERY_TAB = ["Overview", "Logic", "Parties & routes", "Scope", "History", "Notes", "JSON"];
 
 function canonical(ruleId: string): CanonicalRule {
   return {

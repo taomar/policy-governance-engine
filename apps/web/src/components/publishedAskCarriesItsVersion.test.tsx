@@ -34,9 +34,10 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { AssembledPolicy, CanonicalRule } from "../api";
-import { buildPublishedPolicyCards } from "../publishedPolicyCards";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import type { ApprovedPolicyVersion, AssembledPolicy, CanonicalRule } from "../api";
+import { buildPolicyCards } from "../policyCards";
+import { PolicyDetailPanel } from "./PolicyDetailPanel";
+import { PolicyInspector } from "./PolicyInspector";
 
 // Both dialogs belong to other components. What this file is responsible for is
 // what reaches them, so each is replaced by something that records the identity
@@ -158,19 +159,29 @@ function policy(key: string, ruleIds: string[]): AssembledPolicy {
 const A_SET = "a-policy-set";
 const A_VERSION = "a-published-version";
 
-function renderCard(ruleIds: string[] = ["r1", "r2"]) {
-  const [card] = buildPublishedPolicyCards([policy("a-policy", ruleIds)], ruleIds.map((id) => rule(id)));
+function aPublishedVersion(): ApprovedPolicyVersion {
+  return {
+    id: A_VERSION,
+    version_number: 1,
+    approved_by: "An approver",
+    approved_at: new Date(0).toISOString(),
+    effective_from: "1970-01-01",
+    effective_to: null,
+  } as unknown as ApprovedPolicyVersion;
+}
+
+/** The whole-policy ask, where a reader meets it: on the panel that both pages
+ *  open a policy into. */
+function renderPolicy(ruleIds: string[] = ["r1", "r2"]) {
+  const [card] = buildPolicyCards(
+    [policy("a-policy", ruleIds)],
+    ruleIds.map((id) => ({ rule: rule(id) })),
+  );
   render(
-    <PublishedPolicyCard
+    <PolicyDetailPanel
       card={card}
-      open={false}
-      selectedForExport={false}
-      indeterminateForExport={false}
-      onToggleExportSelection={() => {}}
-      onOpen={() => {}}
-      onSelectRule={() => {}}
-      onToggleRule={() => {}}
-      onViewHistory={() => {}}
+      statusColor={() => "default"}
+      statusLabel={(status) => status}
       policySetKey={A_SET}
       policyVersionId={A_VERSION}
     />,
@@ -178,32 +189,50 @@ function renderCard(ruleIds: string[] = ["r1", "r2"]) {
   return card;
 }
 
-describe("asking about a published record", () => {
-  it("reaches the rule's own ask with the version the card is showing", () => {
-    const card = renderCard(["r1", "r2"]);
-    const buttons = screen.getAllByTestId("published-rule-ask-ai");
-    expect(buttons).toHaveLength(card.rules.length);
+/** The one-rule ask, where a reader meets it: on the rule's own reading. That
+ *  reading is one component now, so this covers the published page, the review
+ *  panel and the inline expansion at once — which is the whole reason the ask
+ *  moved here from a card only one of the three had. */
+function renderRule(id: string) {
+  const shown = rule(id);
+  render(
+    <PolicyInspector
+      rule={shown}
+      policySetKey={A_SET}
+      publishedVersion={aPublishedVersion()}
+    />,
+  );
+  return shown;
+}
 
-    fireEvent.click(buttons[0]);
+describe("asking about a published record", () => {
+  it("reaches the rule's own ask with the version the reading is of", () => {
+    const shown = renderRule("r1");
+    fireEvent.click(screen.getByTestId("published-rule-ask-ai"));
     const opened = screen.getByTestId("rule-ask-opened");
-    expect(opened.getAttribute("data-rule-id")).toBe(card.rules[0].rule_id);
+    expect(opened.getAttribute("data-rule-id")).toBe(shown.rule_id);
     expect(opened.getAttribute("data-policy-set-key")).toBe(A_SET);
     expect(opened.getAttribute("data-policy-version-id")).toBe(A_VERSION);
   });
 
-  it("asks about the rule the reader clicked and not the first one", () => {
-    const card = renderCard(["r1", "r2"]);
-    const buttons = screen.getAllByTestId("published-rule-ask-ai");
-    fireEvent.click(buttons[buttons.length - 1]);
-    expect(screen.getByTestId("rule-ask-opened").getAttribute("data-rule-id")).toBe(
-      card.rules[card.rules.length - 1].rule_id,
-    );
+  it("asks about the rule on screen, not about some other one", () => {
+    const shown = renderRule("r2");
+    fireEvent.click(screen.getByTestId("published-rule-ask-ai"));
+    expect(screen.getByTestId("rule-ask-opened").getAttribute("data-rule-id")).toBe(shown.rule_id);
+  });
+
+  it("withholds the rule's ask when the version is not known", () => {
+    // Not a permission — a reader of a draft may ask too. It is that a rule id
+    // without its version does not name a record, so there is nothing to route
+    // the question to. Absent is the honest answer; a button that asked anyway
+    // would be answered from whichever record happened to share the id.
+    render(<PolicyInspector rule={rule("r1")} policySetKey={A_SET} />);
+    expect(screen.queryByTestId("published-rule-ask-ai")).toBeNull();
   });
 
   it("offers the same question of the whole policy", () => {
-    renderCard(["r1"]);
-    const button = screen.getByTestId("policy-ask-ai");
-    fireEvent.click(button);
+    renderPolicy(["r1"]);
+    fireEvent.click(screen.getByTestId("policy-ask-ai"));
     expect(screen.getByTestId("policy-ask-opened")).toBeTruthy();
   });
 });

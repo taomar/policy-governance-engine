@@ -7,23 +7,23 @@
  * it, because two will be corrected separately and will then disagree without
  * anyone noticing which one is on screen.
  *
- * The published module used to carry its own copy of both. It could not do
- * otherwise: the shared card model named a reviewable draft row, and a published
- * record is not one. That has been fixed, the copies are gone, and these tests
- * are what keeps them gone.
+ * The published page used to carry its own copy of both, in a module and a
+ * component forked from the queue's. It could not do otherwise at first: the
+ * shared card model named a reviewable draft row, and a published record is not
+ * one. Then the model learned to read a record that has no draft row, the copies
+ * decayed into adapters, and four separate user-visible faults were still being
+ * reported because a fork cannot inherit a fix. The fork is gone. These tests
+ * are what keeps it gone.
  *
- * They assert agreement, not sameness of source. A future implementation may
- * legitimately want the published page's narrower shape -- what it may not do is
- * answer a question differently from the queue for the same records.
+ * They assert agreement for the two ways a record *enters* the shared model --
+ * as a draft row under review, or as a sealed published rule -- because that is
+ * the only difference the two pages still have. A card built either way must
+ * answer every shared question the same, and the difference must show up only
+ * where the record itself differs: in what may be decided about it.
  */
 import { describe, expect, it } from "vitest";
 import type { AssembledPolicy, CanonicalRule } from "./api";
 import { buildPolicyCards, policyTitle, sharedRuleFacets } from "./policyCards";
-import {
-  buildPublishedPolicyCards,
-  publishedPolicyTitle,
-  publishedSharedFacets,
-} from "./publishedPolicyCards";
 
 function rule(id: string, over: Record<string, unknown> = {}): CanonicalRule {
   return {
@@ -69,103 +69,115 @@ function policy(rules: readonly CanonicalRule[], heading: string | null): Assemb
   } as unknown as AssembledPolicy;
 }
 
-/** The same records, arranged by each surface's own entry point. */
+/**
+ * The same records entered the two ways the two pages enter them.
+ *
+ * One builder, called twice. There is no second entry point to call any more,
+ * which is the point: the published page hands the shared builder a rule with no
+ * draft row, and the queue hands it a draft row carrying one.
+ */
 function bothWays(rules: readonly CanonicalRule[], heading: string | null) {
   const policies = [policy(rules, heading)];
   const [queued] = buildPolicyCards(
     policies,
     rules.map((one) => ({ rule: one, review_status: "candidate", id: `record-${one.rule_id}` })),
   );
-  const [published] = buildPublishedPolicyCards(policies, rules);
+  const [published] = buildPolicyCards(
+    policies,
+    rules.map((one) => ({ rule: one })),
+  );
   return { queued, published };
 }
 
-/**
- * The queue's answer as the published page states it.
- *
- * The only licensed difference between the two is that this page reports an
- * absent facet as null where the shared reading may report it as the empty
- * string it read. Applying that here rather than asserting the raw values keeps
- * the tests about agreement, and keeps the one permitted difference written down
- * in one place instead of assumed at each call.
- */
-function asPublishedWouldState(facets: {
-  ruleType: string | null;
-  effectType: string | null;
-  route: string | null;
-}) {
-  return {
-    ruleType: facets.ruleType || null,
-    effectType: facets.effectType || null,
-    route: facets.route || null,
-  };
-}
-
 describe("what names a policy is asked once", () => {
-  it("gives the same title on both surfaces when the document supplied a heading", () => {
+  it("gives the same title however the record entered when the document supplied a heading", () => {
     const { queued, published } = bothWays([rule("r0"), rule("r1")], "A heading");
-    expect(publishedPolicyTitle(published.policy, published.passages)).toEqual(
+    expect(policyTitle(published.policy, published.passages)).toEqual(
       policyTitle(queued.policy, queued.passages),
     );
   });
 
-  it("gives the same title on both surfaces when it must fall back to the passage", () => {
+  it("gives the same title however the record entered when it must fall back to the passage", () => {
     // The branch that differs between a heading and none is exactly where two
     // copies would drift, because it is the one a fix would touch.
     const { queued, published } = bothWays([rule("r0"), rule("r1")], null);
-    expect(publishedPolicyTitle(published.policy, published.passages)).toEqual(
+    expect(policyTitle(published.policy, published.passages)).toEqual(
       policyTitle(queued.policy, queued.passages),
     );
-  });
-
-  it("is the queue's own function, so it cannot answer differently", () => {
-    expect(publishedPolicyTitle).toBe(policyTitle);
   });
 });
 
 describe("what a policy's rules agree on is asked once", () => {
-  it("agrees with the shared reading where every rule matches", () => {
+  /** Everything the two records can be asked *except* their review status,
+   *  which is not a page difference but the record's own answer: a draft row
+   *  says where it is in a review, a sealed rule says it is published. Compared
+   *  as a whole so a facet added later is compared without this file changing. */
+  function facetsApartFromStatus(card: Parameters<typeof sharedRuleFacets>[0]) {
+    const { reviewStatus: _reviewStatus, ...rest } = sharedRuleFacets(card);
+    return rest;
+  }
+
+  it("agrees where every rule matches", () => {
     const { queued, published } = bothWays([rule("r0"), rule("r1")], "A heading");
-    expect(publishedSharedFacets(published)).toEqual(
-      asPublishedWouldState(sharedRuleFacets(queued)),
-    );
+    expect(facetsApartFromStatus(published)).toEqual(facetsApartFromStatus(queued));
   });
 
-  it("agrees with the shared reading where the rules differ", () => {
+  it("agrees where the rules differ, and reports the disagreement as one", () => {
     const rules = [
       rule("r0"),
       rule("r1", {
         rule_type: "definition",
+        // A route, not a fault. A card holding a rule decided by a person and a
+        // rule decided by a model agrees on neither, and says so.
         evaluation_mode: "ai_ready",
         effect: { type: "informational" },
       }),
     ];
     const { queued, published } = bothWays(rules, "A heading");
-    const facets = publishedSharedFacets(published);
-    expect(facets).toEqual(asPublishedWouldState(sharedRuleFacets(queued)));
+    const facets = sharedRuleFacets(published);
+    expect(facetsApartFromStatus(published)).toEqual(facetsApartFromStatus(queued));
     // And the disagreement is reported as one, not flattened to a first value.
-    expect(facets.ruleType).toBeNull();
-    expect(facets.route).toBeNull();
+    expect(facets.ruleType).toBeFalsy();
+    expect(facets.route).toBeFalsy();
   });
 
-  it("says null, not the empty string, for a facet no rule stated", () => {
-    // The published page's callers ask `=== null`. A shared-but-absent facet
-    // reaching them as "" would read as a value they could print.
+  it("agrees on a facet no rule stated", () => {
     const rules = [rule("r0", { effect: undefined }), rule("r1", { effect: undefined })];
-    const { published } = bothWays(rules, "A heading");
-    expect(publishedSharedFacets(published).effectType).toBeNull();
+    const { queued, published } = bothWays(rules, "A heading");
+    expect(sharedRuleFacets(published).effectType).toEqual(sharedRuleFacets(queued).effectType);
   });
 
-  it("reports the facets this page draws and no others", () => {
-    // The shared reading also carries the review status and the revision of the
-    // row under each rule. Both are true of a published card and neither is
-    // drawn on it, so they are dropped here rather than answered differently --
-    // and the difference between dropping and recomputing is the whole point.
-    const { published } = bothWays([rule("r0")], "A heading");
-    expect(Object.keys(publishedSharedFacets(published)).sort()).toEqual([
-      "effectType",
-      "route",
-      "ruleType",
-    ]);
+  it("reports each record's own review status rather than one for both", () => {
+    // The guard for the exclusion above: it would also pass if the facet had
+    // been dropped, or if both records reported the same thing.
+    const { queued, published } = bothWays([rule("r0"), rule("r1")], "A heading");
+    expect(sharedRuleFacets(queued).reviewStatus).toBe("candidate");
+    expect(sharedRuleFacets(published).reviewStatus).toBe("published");
+  });
+});
+
+describe("what differs is the record, not the page", () => {
+  it("offers a decision on a draft row and none on a sealed one", () => {
+    // The single licensed difference between the two, and it is derived from
+    // each record through `candidateEditability` rather than set by a caller.
+    // Everything the published page does *not* offer follows from this one fact.
+    const { queued, published } = bothWays([rule("r0"), rule("r1")], "A heading");
+    expect(queued.reviewableIds.length).toBe(2);
+    expect(published.reviewableIds.length).toBe(0);
+    // Both still hold every rule. A sealed policy is not a shorter policy.
+    // The ids differ because the records do — a draft row is known by its row,
+    // a sealed rule by itself — but neither list is short of the other.
+    expect(published.allIds.length).toBe(queued.allIds.length);
+    expect(published.rules.length).toBe(queued.rules.length);
+    expect(published.rules.map((entry) => entry.rule_id)).toEqual(
+      queued.rules.map((entry) => entry.rule_id),
+    );
+  });
+
+  it("names a published rule by the rule, having no draft row to name it by", () => {
+    const { queued, published } = bothWays([rule("r0")], "A heading");
+    expect(queued.rules[0].recordId).toBe("record-r0");
+    expect(published.rules[0].recordId).toBe("r0");
+    expect(published.rules[0].candidate).toBeUndefined();
   });
 });

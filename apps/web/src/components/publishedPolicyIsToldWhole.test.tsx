@@ -38,16 +38,16 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AssembledPolicy, CanonicalRule } from "../api";
 import {
-  buildPublishedPolicyCards,
-  publishedCardsAnsweringNarrowing,
-  publishedPolicyJsonDocument,
-} from "../publishedPolicyCards";
+  buildPolicyCards,
+  cardsAnsweringNarrowing,
+  policyJsonDocument,
+} from "../policyCards";
 import {
   PARTIES_AND_ROUTES_TAB_LABEL,
   policyRecord,
   type PolicySightingView,
 } from "./policyTabPanes";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import { PolicyDetailPanel } from "./PolicyDetailPanel";
 
 // jsdom implements neither, and the component library measures its own layout.
 // Stubbed once for the file: restoring them between tests strips the stub for
@@ -153,8 +153,8 @@ function cardsFor(spec: Record<string, string[]>) {
   const policies = Object.entries(spec).map(([key, ids]) => policy(key, ids));
   const rules = Object.values(spec)
     .flat()
-    .map((id) => rule(id));
-  return buildPublishedPolicyCards(policies, rules);
+    .map((id) => ({ rule: rule(id) }));
+  return buildPolicyCards(policies, rules);
 }
 
 /** The questions a reviewer can ask of a policy, named as a reader sees them.
@@ -180,18 +180,11 @@ const QUESTIONS = [
 function renderOne(ruleIds: string[] = ["r1", "r2"]) {
   const [card] = cardsFor({ "a-policy": ruleIds });
   return render(
-    <PublishedPolicyCard
+    <PolicyDetailPanel
       card={card}
-      open={false}
-      selectedForExport={false}
-      indeterminateForExport={false}
-      onToggleExportSelection={() => {}}
-      onOpen={() => {}}
-      onSelectRule={() => {}}
-      onToggleRule={() => {}}
-      onViewHistory={() => {}}
+      statusColor={() => "purple"}
+      statusLabel={(status) => status}
       policySetKey="a-set"
-      policyVersionId="a-version"
     />,
   );
 }
@@ -203,21 +196,14 @@ function renderWithHistory(props: {
 }) {
   const [card] = cardsFor({ "a-policy": ["r1"] });
   render(
-    <PublishedPolicyCard
+    <PolicyDetailPanel
       card={card}
-      open={false}
-      selectedForExport={false}
-      indeterminateForExport={false}
-      onToggleExportSelection={() => {}}
-      onOpen={() => {}}
-      onSelectRule={() => {}}
-      onToggleRule={() => {}}
-      onViewHistory={() => {}}
+      statusColor={() => "purple"}
+      statusLabel={(status) => status}
+      policySetKey="a-set"
       history={props.history ?? null}
       historyLoading={props.historyLoading}
       onRequestHistory={props.onRequestHistory}
-      policySetKey="a-set"
-      policyVersionId="a-version"
     />,
   );
   return { card };
@@ -231,21 +217,20 @@ describe("a published policy answers the same questions the queue does", () => {
     });
   }
 
-  it("opens on the document's own words, not on this app's account of them", () => {
+  it("opens on what this record is, the same as the queue's panel does", () => {
     renderOne();
-    // A card in a list is scanned, and what a reader scans for is what the
-    // document says. The detail panel opens on Overview instead, and the
-    // difference is not an inconsistency: a panel is opened deliberately to
-    // inspect one policy, where the question "what is this record" comes
-    // first. Reaching the other seven questions is one click either way.
-    expect(screen.getByRole("tab", { name: "Reading", selected: true })).toBeTruthy();
+    // One panel, one opening question, on both surfaces. It used to open on
+    // "Reading" here and "Overview" there, because this page drew its own card
+    // with its own tab strip; a reader moving between the two met a different
+    // first answer to the same click. There is one strip now.
+    expect(screen.getByRole("tab", { name: "Overview", selected: true })).toBeTruthy();
   });
 });
 
 describe("a narrowing chooses policies, never parts of one", () => {
   it("keeps a policy whole when only one of its rules answered", () => {
     const cards = cardsFor({ "a-policy": ["r1", "r2", "r3"] });
-    const shown = publishedCardsAnsweringNarrowing(cards, new Set(["r2"]));
+    const shown = cardsAnsweringNarrowing(cards, new Set(["r2"]));
     expect(shown).toHaveLength(1);
     // Identity, not shape: a rebuilt card with the same fields would pass a
     // deep comparison while having had its contents chosen for it.
@@ -255,13 +240,13 @@ describe("a narrowing chooses policies, never parts of one", () => {
 
   it("drops a policy no rule of which answered", () => {
     const cards = cardsFor({ "policy-a": ["r1"], "policy-b": ["r2"] });
-    const shown = publishedCardsAnsweringNarrowing(cards, new Set(["r2"]));
+    const shown = cardsAnsweringNarrowing(cards, new Set(["r2"]));
     expect(shown.map((card) => card.policy.key)).toEqual(["policy-b"]);
   });
 
   it("shows every policy when everything answers", () => {
     const cards = cardsFor({ "policy-a": ["r1"], "policy-b": ["r2"] });
-    const shown = publishedCardsAnsweringNarrowing(cards, new Set(["r1", "r2"]));
+    const shown = cardsAnsweringNarrowing(cards, new Set(["r1", "r2"]));
     expect(shown).toHaveLength(cards.length);
   });
 });
@@ -269,7 +254,7 @@ describe("a narrowing chooses policies, never parts of one", () => {
 describe("the policy as one document", () => {
   it("holds every rule the card holds", () => {
     const [card] = cardsFor({ "a-policy": ["r1", "r2", "r3"] });
-    const document = publishedPolicyJsonDocument(card);
+    const document = policyJsonDocument(card);
     const passages = document.passages as { rules: CanonicalRule[] }[];
     const serialised = passages.flatMap((passage) => passage.rules.map((r) => r.rule_id));
     expect(serialised).toEqual(["r1", "r2", "r3"]);
@@ -277,7 +262,7 @@ describe("the policy as one document", () => {
 
   it("carries the rules themselves and not a husk of them", () => {
     const [card] = cardsFor({ "a-policy": ["r1"] });
-    const document = publishedPolicyJsonDocument(card);
+    const document = policyJsonDocument(card);
     const passages = document.passages as { rules: CanonicalRule[] }[];
     expect(passages[0].rules[0]).toBe(card.rules[0].rule);
   });
@@ -304,25 +289,33 @@ describe("the neutral view a shared pane reads", () => {
 
 /**
  * History is the one tab whose data is fetched per policy rather than per page.
- * A version holds many policies; loading every one of their histories to render
- * a tab most readers never open spends a request per policy on nothing. So the
- * card asks when the reader asks, and these fix that contract.
+ *
+ * The card this page used to draw asked only when the reader opened History,
+ * because there was one card per policy on screen and asking on render would
+ * have spent a request per card. The panel is not a card: exactly one is
+ * mounted, for the one policy the reader chose. So it asks once on open — and
+ * it must, because Overview traces where this policy has been published, and
+ * that trace is a fact needed to judge the record. Leaving it behind the
+ * History tab would put it behind a click.
+ *
+ * What still has to hold is that it is asked for once, and never for something
+ * already held or already out.
  */
-describe("history is asked for when it is opened, and only then", () => {
-  it("does not ask before the reader opens the tab", () => {
+describe("history is asked for once, when the policy is opened", () => {
+  it("asks for this policy by the key that survives a re-extraction", () => {
     const asked: string[] = [];
-    renderWithHistory({ onRequestHistory: (key) => asked.push(key) });
-    expect(asked).toEqual([]);
+    const { card } = renderWithHistory({ onRequestHistory: (key) => asked.push(key) });
+    expect(asked).toEqual([card.policy.key]);
   });
 
-  it("asks for this policy by the key that survives a re-extraction", () => {
+  it("does not ask again when the reader opens the tab it feeds", () => {
     const asked: string[] = [];
     const { card } = renderWithHistory({ onRequestHistory: (key) => asked.push(key) });
     fireEvent.click(screen.getByRole("tab", { name: "History" }));
     expect(asked).toEqual([card.policy.key]);
   });
 
-  it("does not ask again for a history it already holds", () => {
+  it("does not ask for a history it already holds", () => {
     const asked: string[] = [];
     renderWithHistory({
       onRequestHistory: (key) => asked.push(key),

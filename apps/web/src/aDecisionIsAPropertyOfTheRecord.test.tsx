@@ -14,11 +14,18 @@
  * These tests wire the handlers deliberately, because that is the mistake being
  * guarded against. If the card is ever reverted to asking about its props, every
  * one of them fails.
+ *
+ * One thing the card *does* read from its wiring: whether a selection tick is
+ * drawn at all. That is a fact about the surface — a page with no export and no
+ * bulk decision has nothing to gather records for — and it is separate from what
+ * a tick gathers, which is still read from the records. A sealed policy can be
+ * ticked to be taken away; it cannot be ticked into a decision.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { CanonicalRule } from "./api";
 import { fromDraftRow, type PolicyCard } from "./policyCards";
+import { candidateEditability } from "./candidateEditability";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
 import { ActorProvider } from "./ActorContext";
 
@@ -68,8 +75,15 @@ function cardOf(statuses: readonly string[], markedWhole = false): PolicyCard {
     },
     passages: [{ passage: { key: "a-passage" }, rules }],
     rules,
-    reviewableIds: [],
+    // Filled the way `buildPolicyCards` fills it, so the fixture is a card this
+    // app could actually build. The guard this file exists for is that wiring
+    // the handlers does not make a sealed record decidable — not that the card
+    // can be handed a list that contradicts the records it holds.
+    reviewableIds: rules
+      .filter((one) => candidateEditability(one.reviewStatus).canReview)
+      .map((one) => one.recordId),
     allIds: rules.map((one) => one.recordId),
+    reviewStatuses: [...new Set(rules.map((one) => one.reviewStatus))],
     hiddenByFilter: 0,
   } as unknown as PolicyCard;
 }
@@ -107,7 +121,39 @@ describe("what may be decided is read from the record", () => {
   });
 
   it("offers no way to gather a sealed policy into a decision either", () => {
+    // A tick may still be offered — a sealed policy can be gathered to be taken
+    // away, and the published page counts and exports whole policies — but what
+    // it gathers must not be a decision. It says so in words, and the controls
+    // that would write one are absent.
     draw(cardOf(["published"]));
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+    const tick = screen.queryByRole("checkbox");
+    if (tick) {
+      expect(tick.getAttribute("title") ?? tick.closest("[title]")?.getAttribute("title") ?? "").not.toMatch(
+        /open for review/i,
+      );
+    }
+  });
+
+  it("offers no tick at all where the surface has nothing to gather records for", () => {
+    // Whether a selection is offered is a fact about the surface, not about the
+    // records: a page with no export and no bulk decision passes no handler, and
+    // the card draws no control that would lead nowhere.
+    render(
+      <ActorProvider>
+        <PolicyReviewCard
+          card={cardOf(["candidate"])}
+          selected={false}
+          indeterminate={false}
+          open={false}
+          statusColor={() => "blue"}
+          statusLabel={(status) => status}
+          findingsFor={() => 0}
+          onOpen={() => {}}
+        />
+      </ActorProvider>,
+    );
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
@@ -191,10 +237,17 @@ describe("reading a rule is not deciding it", () => {
     // `rule_id` is a hash of the rule's content, so a passage stating two rules
     // in identical words gives them one between them. Resolving a click through
     // it opens whichever came first, which is not the one that was pointed at.
+    //
+    // The card hands back the row's own entry rather than one identifier,
+    // because the two surfaces address a record by different handles — a queue
+    // opens the draft row it is deciding, a published version opens the rule it
+    // published. Each caller takes the handle it has; the card holds no second
+    // opinion about which one a click meant.
     const { onSelectRule } = drawWithReader(cardOf(["candidate", "candidate", "candidate"]));
     fireEvent.click(screen.getByRole("button", { name: /A statement r2/ }));
     expect(onSelectRule).toHaveBeenCalledTimes(1);
-    expect(onSelectRule.mock.calls[0][0]).toBe("record-2");
+    expect(onSelectRule.mock.calls[0][0].recordId).toBe("record-2");
+    expect(onSelectRule.mock.calls[0][0].rule_id).toBe("r2");
   });
 
   it("leaves everything else on the row reachable on its own", () => {
@@ -278,6 +331,6 @@ describe("reading a rule is not deciding it", () => {
     expect(controls.length).toBe(2);
     expect(controls[1].tagName).toBe("BUTTON");
     fireEvent.click(controls[1]);
-    expect(onSelectRule.mock.calls[0][0]).toBe("record-1");
+    expect(onSelectRule.mock.calls[0][0].recordId).toBe("record-1");
   });
 });

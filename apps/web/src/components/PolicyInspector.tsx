@@ -31,6 +31,7 @@ import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PARTIES_AND_ROUTES_TAB_LABEL } from "./policyTabPanes";
 import { RuleScenarioTester } from "./RuleScenarioTester";
+import { PublishedRuleAskAiButton } from "./PublishedRuleAskAiButton";
 import { RuleVersionHistory } from "./RuleVersionHistory";
 import {
   RuleJsonPane,
@@ -73,8 +74,32 @@ interface PolicyInspectorProps {
    * call the real-engine-backed scenario endpoint. Omit only if that tab
    * should be hidden (e.g. no policy set context is available yet). */
   policySetKey?: string;
-  activeTabKey: string;
-  onTabChange: (key: string) => void;
+  /**
+   * Which question is open, where the surrounding surface holds that state.
+   *
+   * Optional, because this component has two placements and only one of them
+   * has anywhere to keep it. As the destination panel the workspace owns the
+   * tab, so arriving at a rule from its History leaves the reader on History.
+   * Embedded under a row's `Details` there is no workspace state to own it —
+   * several rows can be open at once and each is its own reading — so it keeps
+   * its own. Uncontrolled is the *absence* of an owner, not a default: passing
+   * `activeTabKey` without `onTabChange` would freeze the strip, so the two
+   * travel together.
+   */
+  activeTabKey?: string;
+  onTabChange?: (key: string) => void;
+  /**
+   * Where this inspector is drawn.
+   *
+   * `panel` is the destination column or drawer, which owns its own height and
+   * scrolls. `embedded` is the same reading opened in place under the row it
+   * belongs to — inside a card or a list — so it drops the window chrome and
+   * lets the page it sits in do the scrolling.
+   *
+   * It is a placement, not a permission. Nothing here reads it to decide what a
+   * reader may do; what a rule offers is read from the rule.
+   */
+  variant?: "panel" | "embedded";
   onRevise?: (rule: CanonicalRule) => void;
   /** Jump the master/detail view to another rule — wired to clickable
    * relationship/variation references so "linked to other policy" is an
@@ -135,6 +160,7 @@ export function PolicyInspector({
   policySetKey,
   activeTabKey,
   onTabChange,
+  variant = "panel",
   onRevise,
   onSelectRule,
   onClose,
@@ -149,6 +175,12 @@ export function PolicyInspector({
   recordLabel = "policy",
   shownAsReference = false,
 }: PolicyInspectorProps) {
+  /** Held only for the placement that has no owner for it. Initialised to the
+   *  first question rather than to whatever a controlled caller last chose, so
+   *  an embedded reading always opens where every other one does. */
+  const [ownTabKey, setOwnTabKey] = useState("overview");
+  const tabKey = activeTabKey ?? ownTabKey;
+  const changeTab = onTabChange ?? setOwnTabKey;
   const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
   const [docMetaByVersionId, setDocMetaByVersionId] = useState<Map<string, DocumentMeta>>(new Map());
   const [bodyViewer, setBodyViewer] = useState<{ documentVersionId: string; clauseId: string | null; page: number | null } | null>(null);
@@ -582,7 +614,7 @@ export function PolicyInspector({
   const json = <RuleJsonPane rule={rule} sourceLabels={sourceLabels} />;
 
   return (
-    <div className="policy-inspector">
+    <div className={`policy-inspector${variant === "embedded" ? " policy-inspector--embedded" : ""}`}>
       <div className="policy-inspector-header">
         {/* Which of the two records this panel is answering about.
          *
@@ -611,7 +643,7 @@ export function PolicyInspector({
               </Tooltip>
             )}
             {!rule.machine_executable && (
-              <Tooltip title="Hand-authored policy, decided by reading">
+              <Tooltip title="The source states this rule's test in words rather than as a comparison, so a reviewer settles a case by reading it. It is reviewable and publishable as it stands.">
                 <ToolOutlined className="policy-row-flag" />
               </Tooltip>
             )}
@@ -737,13 +769,27 @@ export function PolicyInspector({
               Revise
             </Button>
           )}
+          {/* Asking a question about a rule is a read, so nothing about who is
+              looking gates it. What gates it is whether the rule can be named
+              to the server: a rule id alone does not identify a published
+              record, because the draft row that produced it carries the same id.
+              Both parts of the identity present, or no button.
+              This used to live on the published page's own card, which is the
+              only reason a reader on any other surface could not ask. */}
+          {policySetKey && publishedVersion?.id && (
+            <PublishedRuleAskAiButton
+              rule={rule}
+              policySetKey={policySetKey}
+              policyVersionId={publishedVersion.id}
+            />
+          )}
           {additionalActions}
         </Space>
       </div>
 
       <Tabs
-        activeKey={activeTabKey}
-        onChange={onTabChange}
+        activeKey={tabKey}
+        onChange={changeTab}
         className="policy-inspector-tabs"
         items={[
           { key: "overview", label: "Overview", children: overview },

@@ -22,6 +22,14 @@
  * touched. Read from the two components instead, so the test cannot be brought
  * into line with a half-finished change; it can only pass when they agree.
  *
+ * WHAT CHANGED, AND WHY THIS STILL EARNS ITS PLACE
+ *
+ * There is now one component, so the two halves below differ only in the
+ * *record* they are given: draft rows on one side, bare published rules on the
+ * other. That is the strongest form this can take — the drift it was written
+ * against can no longer be spelled as a second file, only as a branch inside
+ * the one file, and a branch is exactly what this catches.
+ *
  * WHAT IT DOES NOT ASSERT
  *
  * Not that the two pages are identical. They must differ: a draft can be
@@ -37,9 +45,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssembledPolicy, CanonicalRule } from "../api";
 import { buildPolicyCards } from "../policyCards";
-import { buildPublishedPolicyCards } from "../publishedPolicyCards";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
 
 vi.mock("./PolicyLogicTable", () => ({
   PolicyLogicTable: () => <div data-testid="logic" />,
@@ -178,21 +184,20 @@ function questionsOnTheReviewSurface(): string[] {
 }
 
 function questionsOnThePublishedSurface(): string[] {
-  const [card] = buildPublishedPolicyCards(
+  // The same panel, built from the other kind of record: bare rules, with no
+  // draft row behind them and so nothing to decide. Both halves of this test
+  // now go through one component, which is the point — the assertion below is
+  // no longer "two files agree" but "one file does not branch on which page it
+  // is drawn on". A future `if (published) hide tab` is what it catches.
+  const [card] = buildPolicyCards(
     policies(),
-    RULE_IDS.map((id) => rule(id)),
+    RULE_IDS.map((id) => ({ rule: rule(id) })),
   );
   render(
-    <PublishedPolicyCard
+    <PolicyDetailPanel
       card={card}
-      open={false}
-      selectedForExport={false}
-      indeterminateForExport={false}
-      onToggleExportSelection={() => {}}
-      onOpen={() => {}}
-      onSelectRule={() => {}}
-      onToggleRule={() => {}}
-      onViewHistory={() => {}}
+      statusColor={() => "default"}
+      statusLabel={(status) => status}
       policySetKey="a-set"
       policyVersionId="a-version"
     />,

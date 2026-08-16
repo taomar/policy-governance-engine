@@ -30,16 +30,39 @@
  */
 import { describe, expect, it } from "vitest";
 import type { AssembledPolicy, CanonicalRule } from "./api";
-import { buildPolicyCards } from "./policyCards";
 import {
-  buildPublishedPolicyCards,
-  policyComposition,
-  policyCompositionLabel,
-  publishedPolicyTitle,
-  publishedSharedFacets,
-  unplacedPublishedRules,
-  type PublishedPolicyCardRule,
-} from "./publishedPolicyCards";
+  buildPolicyCards,
+  policyTitle,
+  sharedRuleFacets,
+  unplacedRules,
+  type PolicyCard,
+  type PolicyCardRule,
+} from "./policyCards";
+import { policyComposition, policyCompositionLabel } from "./policyRecordFacts";
+
+/**
+ * A published version's rules, entered the way a published version enters them.
+ *
+ * The rule and nothing else: a published row carries no draft id and no review
+ * state, and the shared builder reads that absence as published rather than as
+ * unrecognised. This used to be a second exported builder in a second module,
+ * which is exactly how the published page came to be a fork; it is two lines
+ * over the one builder, kept local to this file because these tests are about
+ * what that entry shape produces.
+ */
+function publishedCards(
+  policies: readonly AssembledPolicy[],
+  rules: readonly CanonicalRule[],
+): PolicyCard[] {
+  return buildPolicyCards(policies, rules.map((one) => ({ rule: one })));
+}
+
+function unplacedPublished(
+  policies: readonly AssembledPolicy[],
+  rules: readonly CanonicalRule[],
+): CanonicalRule[] {
+  return unplacedRules(policies, rules.map((one) => ({ rule: one }))).map((entry) => entry.rule);
+}
 
 function rule(
   ruleId: string,
@@ -89,7 +112,7 @@ function rule(
 /** A rule as it sits on a card, built the way a *published* record reaches one:
  *  carrying no draft id and no review state of its own, so the shared builder's
  *  reading of that absence is what these assertions exercise. */
-function asCardRule(record: CanonicalRule): PublishedPolicyCardRule {
+function asCardRule(record: CanonicalRule): PolicyCardRule {
   return {
     rule_id: record.rule_id,
     rule: record,
@@ -147,8 +170,8 @@ describe("placing published rules into the policies their version records", () =
     // One rule the version serves that no policy claims. It must survive.
     const rules = ["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => rule(id));
 
-    const cards = buildPublishedPolicyCards(policies, rules);
-    const unplaced = unplacedPublishedRules(policies, rules);
+    const cards = publishedCards(policies, rules);
+    const unplaced = unplacedPublished(policies, rules);
 
     const placedIds = cards.flatMap((card) => card.rules.map((entry) => entry.rule_id));
     const allIds = [...placedIds, ...unplaced.map((r) => r.rule_id)].sort();
@@ -165,7 +188,7 @@ describe("placing published rules into the policies their version records", () =
         { key: "two-b", ruleIds: ["r4", "r5"] },
       ]),
     ];
-    const cards = buildPublishedPolicyCards(
+    const cards = publishedCards(
       policies,
       ["r5", "r3", "r4"].map((id) => rule(id)),
     );
@@ -179,14 +202,14 @@ describe("placing published rules into the policies their version records", () =
   it("counts what a narrowing is holding back, so a fragment is never shown as a whole", () => {
     const policies = [policy("one", [{ key: "one-a", ruleIds: ["r1", "r2", "r3"] }])];
 
-    const whole = buildPublishedPolicyCards(
+    const whole = publishedCards(
       policies,
       ["r1", "r2", "r3"].map((id) => rule(id)),
     );
     expect(whole[0].hiddenByFilter).toBe(0);
 
     // The same policy, with a narrowing that matched only one of its rules.
-    const narrowed = buildPublishedPolicyCards(policies, [rule("r1")]);
+    const narrowed = publishedCards(policies, [rule("r1")]);
     expect(narrowed[0].rules).toHaveLength(1);
     expect(narrowed[0].hiddenByFilter).toBe(
       policies[0].rule_count - narrowed[0].rules.length,
@@ -198,7 +221,7 @@ describe("placing published rules into the policies their version records", () =
       policy("one", [{ key: "one-a", ruleIds: ["r1"] }]),
       policy("two", [{ key: "two-a", ruleIds: ["r2"] }]),
     ];
-    const cards = buildPublishedPolicyCards(policies, [rule("r2")]);
+    const cards = publishedCards(policies, [rule("r2")]);
     expect(cards.map((card) => card.policy.key)).toEqual(["two"]);
   });
 });
@@ -206,8 +229,8 @@ describe("placing published rules into the policies their version records", () =
 describe("what a published card says about itself", () => {
   it("names a policy by its heading, and says so when it has none", () => {
     const withHeading = policy("one", [{ key: "one-a", ruleIds: ["r1"] }]);
-    expect(publishedPolicyTitle(withHeading, []).source).toBe("heading");
-    expect(publishedPolicyTitle(withHeading, []).text).toBe(withHeading.heading);
+    expect(policyTitle(withHeading, []).source).toBe("heading");
+    expect(policyTitle(withHeading, []).text).toBe(withHeading.heading);
 
     // `heading` is the document's own characters, so "no heading" is the empty
     // string rather than a null: the server sends what the document wrote.
@@ -218,43 +241,46 @@ describe("what a published card says about itself", () => {
     };
     // With no heading and no passage to read one from, the card must not
     // invent a name: it reports that it has none.
-    expect(publishedPolicyTitle(headless, []).source).toBe("unnamed");
+    expect(policyTitle(headless, []).source).toBe("unnamed");
   });
 
   it("reports a facet as shared only when every rule of the policy has it", () => {
     const uniformPolicy = [policy("one", [{ key: "one-a", ruleIds: ["r1", "r2"] }])];
 
-    const uniform = buildPublishedPolicyCards(uniformPolicy, [
+    const uniform = publishedCards(uniformPolicy, [
       rule("r1"),
       rule("r2"),
     ]);
-    expect(publishedSharedFacets(uniform[0]).route).toBe("ai_ready");
-    expect(publishedSharedFacets(uniform[0]).ruleType).toBe("obligation");
+    expect(sharedRuleFacets(uniform[0]).route).toBe("ai_ready");
+    expect(sharedRuleFacets(uniform[0]).ruleType).toBe("obligation");
 
     const mixedPolicy = [
       policy("one", [{ key: "one-a", ruleIds: ["r1", "r2"] }], {}, { r2: "deterministic" }),
     ];
-    const mixed = buildPublishedPolicyCards(mixedPolicy, [
+    const mixed = publishedCards(mixedPolicy, [
       rule("r1"),
       rule("r2", { evaluation_mode: "deterministic", rule_type: "prohibition" }),
     ]);
     // A shared badge over rules that differ would be a claim about the policy
     // that is false of half of it, so the card must fall back to per-rule.
-    expect(publishedSharedFacets(mixed[0]).route).toBeNull();
-    expect(publishedSharedFacets(mixed[0]).ruleType).toBeNull();
+    // The shared reading reports "nothing agreed" as the empty string it read,
+    // which is a different fact from a facet no rule stated — both are absent
+    // of a value, and neither is a value.
+    expect(sharedRuleFacets(mixed[0]).route).toBeFalsy();
+    expect(sharedRuleFacets(mixed[0]).ruleType).toBeFalsy();
   });
 
   it("describes what a policy is made of, and stays silent when there is nothing to contrast", () => {
     const deciding = [rule("r1"), rule("r2")].map((r) => asCardRule(r));
     // Every rule decides a case. "2 decide cases · 0 supply a meaning" tells a
     // reader nothing they cannot see from the rule count.
-    expect(policyCompositionLabel(policyComposition(deciding))).toBeNull();
+    expect(policyCompositionLabel(policyComposition(deciding.map((e) => e.rule)))).toBeNull();
 
     const mixed = [
       ...deciding,
       asCardRule(rule("r3", { effect: { type: "informational" } as CanonicalRule["effect"] })),
     ];
-    const counts = policyComposition(mixed);
+    const counts = policyComposition(mixed.map((e) => e.rule));
     expect(counts).toEqual({ decide: 2, define: 1, unstated: 0 });
     const label = policyCompositionLabel(counts);
     expect(label).toBeTruthy();
@@ -285,7 +311,7 @@ describe("read-only as a fact about the record", () => {
   const A_POLICY = [policy("p", [{ key: "p-a", ruleIds: ["r1", "r2"] }])];
 
   it("offers no decision on a published version's rules", () => {
-    const [card] = buildPublishedPolicyCards(A_POLICY, [rule("r1"), rule("r2")]);
+    const [card] = publishedCards(A_POLICY, [rule("r1"), rule("r2")]);
     expect(card.rules).toHaveLength(2);
     expect(card.reviewableIds).toEqual([]);
     // Every rule is still addressable — a sealed record is read, copied and
@@ -294,7 +320,7 @@ describe("read-only as a fact about the record", () => {
   });
 
   it("carries no draft row behind a published rule", () => {
-    const [card] = buildPublishedPolicyCards(A_POLICY, [rule("r1"), rule("r2")]);
+    const [card] = publishedCards(A_POLICY, [rule("r1"), rule("r2")]);
     for (const entry of card.rules) {
       // A synthesised draft row would be a record no table holds, keyed by an
       // id that resolves to nothing, and everything downstream reaching for one
