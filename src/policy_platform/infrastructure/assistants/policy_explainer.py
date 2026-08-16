@@ -276,6 +276,12 @@ class ExplainSource:
     rules: tuple[RuleFacts, ...]
     #: How many rules the policy holds, including any the budget excluded.
     rule_count: int
+    #: The language the reader asked the reading to come back in, as a BCP-47
+    #: tag — or None for the model's own, which is the heading's. Pre-validated
+    #: by `build_source`; part of the digest only when set, so a request that
+    #: names no language keys exactly as it did before this field existed and
+    #: shares every cache entry already written under that key.
+    answer_language: str | None = None
 
     @property
     def covered_rule_count(self) -> int:
@@ -310,6 +316,12 @@ class ExplainSource:
     @property
     def digest(self) -> str:
         payload = f"{PROMPT_VERSION}\n{self.request_body}"
+        # Appended only when a language was actually asked for. A None must leave
+        # the payload — and so every cached key — byte-for-byte what it was
+        # before this field existed; a distinct language earns a distinct key, so
+        # one language's reading is never handed back in place of another's.
+        if self.answer_language:
+            payload = f"{payload}\n{self.answer_language}"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @property
@@ -395,11 +407,34 @@ def facts_for_rule(payload: dict) -> RuleFacts:
     )
 
 
+#: A BCP-47 language tag, matched with `fullmatch` so a trailing newline is a
+#: rejection rather than a smuggled line break. The same expression the ask path
+#: uses; a copy rather than a shared import because it is one line and the two
+#: paths reach different models, so a change meant for one is not silently made
+#: to both.
+_LANGUAGE_TAG = re.compile(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}")
+
+
+def _valid_language(tag: str | None) -> str | None:
+    """A language tag only when it is well-formed, else None.
+
+    A value that is not a tag is treated as no request at all — no directive is
+    appended and the digest is left unchanged — so a malformed or hostile string
+    can neither inject a line into the prompt nor split the cache off from the
+    reading it should share.
+    """
+
+    if tag and _LANGUAGE_TAG.fullmatch(tag):
+        return tag
+    return None
+
+
 def build_source(
     heading_path: Sequence[str],
     payloads: Sequence[dict],
     *,
     max_chars: int = MAX_RECORD_CHARS,
+    answer_language: str | None = None,
 ) -> ExplainSource:
     """The input for one policy: its heading chain, and its rules' records.
 
@@ -426,6 +461,7 @@ def build_source(
         heading_path=tuple(part for part in (h.strip() for h in heading_path) if part),
         rules=tuple(within),
         rule_count=len(usable),
+        answer_language=_valid_language(answer_language),
     )
 
 
@@ -470,6 +506,38 @@ of document usually says. If the record is thin, your explanation is thin. If \
 you cannot explain it without supplying something, answer {decline}.""".format(
     decline=DECLINE_REPLY
 )
+
+
+def _explain_language_directive(tag: str) -> str:
+    """Ask for the explanation in one language, and move nothing else.
+
+    Shorter than the ask path's twin because this reply carries no quotation to
+    protect. The ask path returns the document's own sentences inside its JSON
+    and must forbid their translation; this path returns continuous prose in the
+    app's own voice, and the document's verbatim sentences are never shown to the
+    model (see the module docstring) — they reach the reader from the record
+    untouched. So the only thing to say is which language this app's reading is
+    written in, named by the tag so the sentence reads the same for a language
+    nobody has chosen yet.
+
+    Appended last, after the rule against adding. That rule is written to sit
+    last because last is weighed heaviest, and the same finding says a language
+    instruction drifts unless it too is last. Both cannot be, so the language
+    line restates the rule against adding inside itself rather than displacing
+    it: the reading comes back in another language and is still only what the
+    record holds, never more.
+    """
+
+    return (
+        "\n\nLANGUAGE OF YOUR EXPLANATION.\n"
+        "The reader has asked for this explanation in the language written as the "
+        f'IETF BCP-47 tag "{tag}". Write the whole of it in that language, using '
+        "that language's own script, whatever language the heading is written in. "
+        "This replaces only the instruction to write in the heading's language. "
+        "Everything else holds, the rule against adding above most of all: an "
+        "explanation in another language is still only what the record states, "
+        "never a word more."
+    )
 
 
 def validate_explanation(reply: str, source: ExplainSource) -> tuple[str | None, str | None]:
@@ -584,10 +652,19 @@ async def generate_explanation(
     code: str | None = UNAVAILABLE_REPLY_UNUSABLE
     try:
         ask = client or AzureOpenAIClient(settings)
+        # The base prompt writes in the heading's language and keeps the rule
+        # against adding last. A reader can ask for another language instead;
+        # only then is a directive appended, so the default request stays the
+        # exact prompt it has always been. Re-checked here rather than trusted
+        # from the field, so a source built by hand cannot carry an unvalidated
+        # tag into the text.
+        system_prompt = _EXPLAIN_SYSTEM_PROMPT
+        if source.answer_language and _LANGUAGE_TAG.fullmatch(source.answer_language):
+            system_prompt += _explain_language_directive(source.answer_language)
         for attempt_number in range(ASK_ATTEMPTS):
             reply = await ask.chat(
                 [
-                    {"role": "system", "content": _EXPLAIN_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": source.request_body},
                 ],
                 deployment=deployment,
@@ -671,6 +748,7 @@ async def explain_provision(
     provision_id: uuid.UUID,
     use_ai: bool = True,
     regenerate: bool = False,
+    answer_language: str | None = None,
     client: AzureOpenAIClient | None = None,
 ) -> dict:
     """What one policy's record states, deterministically, plus an explanation.
@@ -684,6 +762,13 @@ async def explain_provision(
     simply holds no rules is not an error — a bilingual document writes headings
     with nothing under them — so that returns a populated result with an
     unavailable code rather than raising.
+
+    `answer_language` is an optional BCP-47 tag for the language the reading
+    should come back in. Omitted, the reading is written in the heading's own
+    language and the request is unchanged from before this argument existed —
+    same prompt, same digest, same cache entry. Given, only this app's reading
+    takes that language: the document's own sentences are never shown to the
+    model and are returned untouched, so no quotation is ever translated.
     """
 
     provision = await session.get(DocumentProvision, provision_id)
@@ -706,7 +791,7 @@ async def explain_provision(
     ]
 
     heading_path = [str(part) for part in (provision.heading_path_json or [])]
-    source = build_source(heading_path, payloads)
+    source = build_source(heading_path, payloads, answer_language=answer_language)
 
     result: dict = {
         "provision_id": str(provision_id),

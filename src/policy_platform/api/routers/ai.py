@@ -383,6 +383,7 @@ async def explain_provision(
     provision_id: uuid.UUID,
     regenerate: bool = False,
     narrative: bool = True,
+    answer_language: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Say in plain words what one policy's extracted record requires.
@@ -402,6 +403,12 @@ async def explain_provision(
     extraction error the reviewer is here to find. What comes back describes
     what was extracted, which is the thing under review.
 
+    `answer_language` is an optional BCP-47 tag for the language the reading
+    should come back in; omitted, it is the heading's own. Only this app's
+    reading takes it — the document's verbatim sentences are never sent to the
+    model and are returned unchanged, so no quotation is translated. A value that
+    is not a well-formed tag is treated as none rather than refused.
+
     A POST because it may spend a model call. It writes nothing.
     """
 
@@ -411,6 +418,7 @@ async def explain_provision(
             provision_id=provision_id,
             use_ai=narrative,
             regenerate=regenerate,
+            answer_language=answer_language,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
