@@ -534,3 +534,133 @@ field on the reply, following the existing `grounding` idiom rather than a new
 mechanism, plus an Alert in `AskAiModal` with copy in the i18n table so the
 caption guard stays green. It touches three files no single slice owned.
 
+---
+
+## 9. Third session — what building a two-agent feature taught
+
+This session built the policy case-testing feature and the lean policy payload
+across several agents at once. The product outcomes are in the commit log; these
+are the things that cost time and would cost it again.
+
+### 9.1 A running server is not the code you just wrote — and this fired three times
+
+The single most expensive pattern of the session, in one day:
+
+1. A language parameter was threaded through the API. The user tested it and
+   reported the toggle answered in English. The parameter was on disk and absent
+   from the running process.
+2. A case classifier endpoint was written. The user tested it and got the old
+   behaviour. The endpoint was on disk and absent from the running process — and
+   the client was written to **fail closed**, so it silently used the old path.
+3. A projection was rewritten. Its own author measured the live endpoint,
+   concluded the code was running from "a different integration checkout", and
+   asked for a re-composition. There was one checkout. The server was stale.
+
+The third is the instructive one: a competent agent invented an elaborate wrong
+explanation rather than the simple one. **When something on disk is not visible
+at runtime, suspect the process before the topology.**
+
+The check that settles it in seconds, and which should be the reflex:
+```powershell
+(Invoke-WebRequest "http://127.0.0.1:8050/openapi.json" -UseBasicParsing).Content |
+  ConvertFrom-Json | ForEach-Object { $_.paths.PSObject.Properties.Name.Count }
+```
+Compare the route list against the disk. A count that has not moved is a stale
+process, every time.
+
+**Defence:** restart after every backend commit, not at the end of a batch, and
+verify by asserting on a **new route or field** — never on uptime. A client that
+fails closed is correct design and makes this failure silent, so the two
+together are worse than either.
+
+### 9.2 Two agents will build two halves that do not meet
+
+One agent built a lean payload that deliberately drops `policy_set_id`,
+`rule_revision`, `title`, `authority`, `scope`, `condition` and `effective_from`.
+Another built the endpoint that consumes it — and parsed its input into the full
+`CanonicalRule` model, which **requires all seven**. Both were correct against
+their own brief. Together they were incompatible.
+
+Naming the seam is not enough: both agents were given the same module path and
+function name, and still built halves that could not meet. What settled it was
+**calling the two live endpoints against each other** and reading the 422.
+
+**Defence:** when a feature spans agents, the producer exercises the seam end to
+end before either agent reports done. A passing test on each side proves each
+side, not the join.
+
+### 9.3 Normalisation moves a cost, it does not remove it
+
+The lean payload was restructured into a span dictionary so each source passage
+is stored once. That is sound, and it measured well — the headline policy went
+from 51,260 to 25,508 `o200k_base` tokens.
+
+But the verbatim text moved from the rule to `spans[ref].text`, and the citation
+builder — written against the flat shape — kept returning citations with no
+quote. The answer stayed correct while its evidence silently emptied.
+
+**Defence:** every indirection has to be resolved by **every** consumer. When you
+normalise, enumerate the readers before you commit, and check the ones written
+earlier.
+
+### 9.4 Measure the right denominator
+
+I reported that a policy had 63 spans for 63 rules and concluded the dictionary
+was de-duplicating nothing. The agent showed I had counted **total** spans,
+including text-free supporting ones; the text-bearing ratio was 55/63, and
+corpus-wide the median was 0.85. The fact dictionary was even further out: I used
+`facts / rules`, when the metric that matters is `distinct / references` — 1188
+distinct across 2932 references, 2.5× reuse.
+
+Both of my numbers were real. Both denominators were wrong.
+
+### 9.5 Non-determinism only appears if you run it more than once
+
+The case classifier returned `informational` for a question, then `decision` for
+the identical request seconds later. One call would have shown either. The defect
+was only visible by repeating the same input.
+
+The fix was not more prompt effort but a better boundary: the question was being
+classified on whether it *named a category*, which makes every question a
+determination since every question says who is asking. The cut that holds is
+whether the question **supplies** the quantity the rule tests or **asks for** it.
+Both of the user's example sentences say "part-time"; only one supplies "30
+hours". After the re-cut: 4/4 and 3/3 across the pair.
+
+**Defence:** any model-backed classification is a distribution. Run it several
+times on the same input before believing it.
+
+### 9.6 Agents correcting the producer — keep asking for this
+
+Every one of these was the agent refusing to confirm what I had asserted:
+
+- I called an Arabic label above an English heading a bidi bug on the case panel.
+  The agent pulled **all 62** Arabic-bearing quotes from the live corpus and found
+  every one begins with a Latin character — they are bilingual table
+  serialisations starting with a row number or an English column — so the
+  existing behaviour was already right and its fix was not load-bearing. It said
+  so rather than claim the win.
+- I listed the zero-valued status tabs as redundant. The agent kept them: "no
+  policies approved" versus "you were not told" is the distinction constraint 11
+  exists to protect.
+- I called `attributes[].text` and `facts[].source_phrase` duplicated. The agent
+  kept both, because a predicate with no fact exists **only** in the first, so
+  collapsing them would have lost content rather than notation.
+
+The pattern: I was pattern-matching from a screenshot; they measured. Ask for the
+measurement, and make it safe to come back with "your premise is wrong".
+
+### 9.7 Documentation and guards drift in opposite directions
+
+Two related failures. A guard's **prose** went stale when the layout it described
+was deliberately changed — the assertions still held, only the comment lied. And
+an endpoint was found with `include_in_schema=False`, hiding it from the OpenAPI
+document and therefore from the docs-count guards; the guard that exists to catch
+exactly that says so in its own docstring: *a count floor can stay healthy while
+the scan quietly narrows*.
+
+**Defence:** when you change a behaviour a guard describes, reword the guard in
+the same commit and say the assertion was untouched. Never make a guard quiet by
+hiding its subject from it.
+
+
