@@ -1,0 +1,31 @@
+/*
+ * The Logic tab's own styling, kept out of the global sheet.
+ *
+ * WHY THIS FILE EXISTS
+ *
+ * Almost everything this tab draws is already styled in the app's main sheet —
+ * the rule blocks, the passage heads, the signature marks, the trees. This file
+ * is not a second home for any of that. It holds only what is true of the
+ * generated name *here* and nowhere else, so the shared `.rule-name` voice — its
+ * mark, its caption, its tertiary colour, its two-line shape — stays in one
+ * place and is not restated, and cannot drift between surfaces.
+ *
+ * THE ONE THING IT ADJUSTS
+ *
+ * A rule in this tab is a flex column that spaces its own rows evenly. The block
+ * form of the generated name also carries a bottom margin, for the card surface
+ * where it stands alone above a rule with no such column around it. Here those
+ * two spacings stack, so the name would sit further from the rule it heads than
+ * that rule's own parts sit from each other — reading as something floating
+ * between two rules rather than as the handle for the one below it. The margin
+ * is dropped in this context so the column's own rhythm governs, and the name
+ * heads its rule. Nothing else about the name is touched: it is our words, it
+ * says so, and it takes none of the quotation styling reserved for the
+ * document's own characters.
+ *
+ * Scoped to a direct child of a logic rule so it can never reach the same name
+ * on the card, in the overview roster, or anywhere else it is drawn.
+ */
+.policy-logic__rule > .rule-name--block {
+  margin-block-end: 0;
+}

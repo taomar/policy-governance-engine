@@ -14,6 +14,8 @@ import { policyLogicShape } from "../policyLogicShape";
 import { policyRouteLabel } from "../policyGrouping";
 import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
+import { RuleName } from "./RuleName";
+import "./policyLogic.css";
 
 const { Text } = Typography;
 
@@ -151,7 +153,7 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
                   section onto one card must not merge its sentences into one. */}
               <PassageHead block={block} />
               {block.rules.map((rule) => (
-                <RuleBlock key={rule.ruleId} rule={rule} />
+                <RuleBlock key={rule.ruleId} rule={rule} policySetKey={card.policy_set_key} />
               ))}
             </section>
           ))}
@@ -326,7 +328,19 @@ function blockId(ruleId: string): string {
 }
 
 /** One rule, whole: what it is called, then what scopes it, then what follows. */
-function RuleBlock({ rule }: { rule: LogicRuleReading }) {
+function RuleBlock({
+  rule,
+  policySetKey,
+}: {
+  rule: LogicRuleReading;
+  /** The set this rule's card was built from, or `null` where the build was not
+   *  told. A generated name is looked up by (set, rule id) — the one handle that
+   *  resolves on the review queue and inside a sealed version alike — so with no
+   *  set nothing is asked, which is a fact about this card and never a fault of
+   *  the rule. Never the draft-row id: this view holds no draft row, and the
+   *  shape both surfaces share must never carry one. */
+  policySetKey: string | null;
+}) {
   const [applies, outcome] = rule.branches;
   return (
     <article
@@ -338,6 +352,16 @@ function RuleBlock({ rule }: { rule: LogicRuleReading }) {
       // order when nothing has, so the reading order is unchanged.
       tabIndex={-1}
     >
+      {/* What this rule is called: the short handle this app generated for it,
+          so a reader can tell it from its siblings without reading all of them
+          first. It is ours and says so, it is a finding aid and never a reading,
+          and it is a different kind of thing from the rule's own title below —
+          which is the document's verbatim words. It is looked up by the set the
+          card carries and renders nothing at all where no set was given or no
+          name was generated: the rule then reads exactly as it did before. */}
+      {policySetKey && (
+        <RuleName policySetKey={policySetKey} ruleId={rule.ruleId} variant="block" />
+      )}
       <div className="policy-logic__rule-line">
         <span className="policy-card__rule-ordinal" aria-hidden>
           {rule.ordinal}
