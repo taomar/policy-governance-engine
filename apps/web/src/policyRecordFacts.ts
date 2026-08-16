@@ -218,7 +218,7 @@ export function recordProgressLabel(
 }
 
 /**
- * What a badge should show for outstanding review, and what to say it is.
+ * What a count badge should show for a policy/rule pair, and what to say it is.
  *
  * A badge is a bare number in a pill: it has no room for a unit, so the number
  * has to be the one the reader assumes. Beside a queue of policies that is the
@@ -239,9 +239,20 @@ export interface ReviewBacklogBadge {
   hint: string;
 }
 
-export function reviewBacklogBadge(
+/**
+ * The lead-with-policies badge, shared by every tab that counts a policy/rule
+ * pair. The pill carries the policy count — the unit the work is governed in —
+ * and the `hint` states both numbers via `recordScaleLabel` so the bare pill is
+ * never read in a unit the reader supplied. `trailingClause` says what the pair
+ * is being counted for ("waiting for a decision.", "in the currently active
+ * published version."), and is capitalised into a standalone line only when
+ * there is no count to lead with yet. An absent policy count falls back to the
+ * rule count and *says so*; it never invents a policy figure or a measured zero.
+ */
+export function recordScaleBadge(
   rules: number | null | undefined,
   policies: number | null | undefined,
+  trailingClause: string,
 ): ReviewBacklogBadge {
   const ruleCount = typeof rules === "number" ? rules : null;
   const policyCount = typeof policies === "number" ? policies : null;
@@ -251,17 +262,33 @@ export function reviewBacklogBadge(
       value: policyCount === 0 ? null : policyCount,
       hint:
         ruleCount === null
-          ? `${policyCount} ${policyCount === 1 ? "policy" : "policies"} waiting for a decision.`
-          : `${recordScaleLabel(policyCount, ruleCount)} waiting for a decision.`,
+          ? `${policyCount} ${policyCount === 1 ? "policy" : "policies"} ${trailingClause}`
+          : `${recordScaleLabel(policyCount, ruleCount)} ${trailingClause}`,
     };
   }
   if (ruleCount !== null) {
     return {
       value: ruleCount === 0 ? null : ruleCount,
-      hint: `${recordScaleLabel(null, ruleCount)} waiting for a decision.`,
+      hint: `${recordScaleLabel(null, ruleCount)} ${trailingClause}`,
     };
   }
-  return { value: null, hint: "Waiting for a decision." };
+  const [first, ...rest] = trailingClause;
+  return { value: null, hint: first ? `${first.toUpperCase()}${rest.join("")}` : trailingClause };
+}
+
+/**
+ * The review tab's backlog badge: `recordScaleBadge` with the review wording.
+ *
+ * Kept as a named wrapper because its call sites read as "the review badge" and
+ * its exact phrasing ("… waiting for a decision.") is pinned by tests; the
+ * lead-with-policies logic itself lives once, in `recordScaleBadge`, so the
+ * publish tab cannot drift from it.
+ */
+export function reviewBacklogBadge(
+  rules: number | null | undefined,
+  policies: number | null | undefined,
+): ReviewBacklogBadge {
+  return recordScaleBadge(rules, policies, "waiting for a decision.");
 }
 
 /** One route through the policy's rules, with how many take it. */

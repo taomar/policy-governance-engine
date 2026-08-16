@@ -49,7 +49,7 @@ import { PolicyValidationLab } from "./PolicyValidationLab";
 import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
-import { reviewBacklogBadge } from "../policyRecordFacts";
+import { recordScaleBadge, reviewBacklogBadge } from "../policyRecordFacts";
 
 const { Text, Paragraph } = Typography;
 
@@ -135,8 +135,12 @@ const TAB_META: TabMeta[] = [
     label: "Policies",
     group: "publish",
     icon: <SafetyCertificateOutlined />,
-    hint: "Rules in the currently active published version.",
-    count: "policies",
+    /* Both the badge and this hint are replaced at render time by
+       `recordScaleBadge`, so the pill leads with published policies — the unit
+       this tab is counted in — and the hover names both policies and rules. The
+       static text below is what shows before any counts have loaded. */
+    hint: "Published policies in the currently active version.",
+    count: "published_policies",
   },
   {
     key: "compare",
@@ -505,18 +509,25 @@ ${GROUP_DIVIDER_CSS.split(",\n")
             activeKey={activeTab}
             onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
             items={VISIBLE_TAB_META.map((meta) => {
-          /* The review tab is badged in policies rather than rules: a policy is
-             what a reviewer decides, so the rule count answers a question they
-             are not asking. The helper also returns the wording, because a pill
-             has no room for a unit and a bare number must not be left to be
-             guessed at — and it degrades to the rule count, saying so, when the
-             policy count is not served. */
-          const backlog =
+          /* Review and Policies are both badged in policies — the unit the work
+             is decided and governed in — with rules carried in the hover: a
+             policy is what a reviewer approves and what a version publishes, so
+             a rule count under either label overstates the work. `recordScaleBadge`
+             returns the wording too, because a pill has no room for a unit and a
+             bare number must not be left to be guessed at, and it degrades to the
+             rule count, saying so, when the policy count is not served. */
+          const scaleBadge =
             meta.key === "review"
               ? reviewBacklogBadge(counts?.review_pending, counts?.review_pending_policies)
-              : null;
-          const value = backlog ? backlog.value : meta.count ? counts?.[meta.count] : undefined;
-          const hint = backlog && counts ? backlog.hint : meta.hint;
+              : meta.key === "policies"
+                ? recordScaleBadge(
+                    counts?.policy_rules,
+                    counts?.published_policies,
+                    "in the currently active published version.",
+                  )
+                : null;
+          const value = scaleBadge ? scaleBadge.value : meta.count ? counts?.[meta.count] : undefined;
+          const hint = scaleBadge && counts ? scaleBadge.hint : meta.hint;
           return {
             key: meta.key,
             label: (

@@ -125,7 +125,20 @@ export interface WorkspaceCounts {
    *  queue over work that is plainly there. Callers must fall back to
    *  `review_pending` and say which unit they are showing. */
   review_pending_policies?: number;
-  policies: number;
+  /** Rules in the currently active published version — kept because a policy is
+   *  made of rules and the count answers "how big is what's live". Named
+   *  `policy_rules`, not `policies`, so it can never be read as a policy count:
+   *  the tab strip labels its badge "Policies", and a rule count under that label
+   *  overstates how many policies are live. */
+  policy_rules: number;
+  /** Distinct published policies in the active version — the unit the tab is
+   *  counted in. Optional because absent is a real state and not zero: a server
+   *  not restarted since this field was added serves the object without it, and a
+   *  client reading the missing key as 0 would badge an empty tab over a version
+   *  that plainly holds rules. Callers fall back to `policy_rules` and say which
+   *  unit they are showing. A genuine no-active-version set reports 0 here, a
+   *  measured zero that is distinct from this absence. */
+  published_policies?: number;
   versions: number;
   tests: number;
   regression_tests: number;

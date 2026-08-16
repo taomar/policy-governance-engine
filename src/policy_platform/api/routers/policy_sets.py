@@ -442,8 +442,21 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
         `count`s partition the pending rows on whether `provision_id` is null,
         and every pending row is in exactly one of them. Dropping the second
         would let a queue that plainly holds work badge nothing.
-      * `policies` counts rules in the *active* version, not every approved rule
-        ever published; approved versions are immutable and accumulate.
+      * `policy_rules` counts rules in the *active* version, not every approved
+        rule ever published; approved versions are immutable and accumulate.
+      * `published_policies` counts that same active version in the unit it is
+        governed in -- the policy. A published policy holds many rules, so the
+        rule count answers a question the "Policies" tab is not asking and a
+        badge carrying it under that label overstates how many policies are
+        live. It is a second number rather than a replacement because both are
+        true and are not derivable from one another.
+
+        A rule attached to no provision is its own policy: nothing groups it, so
+        it is one more published unit. The two `count`s therefore partition the
+        active version's rules on whether `provision_key` is null -- every rule
+        is in exactly one -- so adding the provision-less rules to the distinct
+        provision count is not double-counting, exactly as the review pair
+        partitions pending candidates on `provision_id`.
       * `exceptions_open` counts undecided requests only — a decided exception
         is history, not a task.
     """
@@ -474,7 +487,15 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
                          AND provision_id IS NULL) AS review_pending_policies,
                   (SELECT count(*) FROM approved_rules ar
                      JOIN approved_policy_versions v ON ar.policy_version_id = v.id
-                     WHERE v.policy_set_id = :sid AND v.is_active) AS policies,
+                     WHERE v.policy_set_id = :sid AND v.is_active) AS policy_rules,
+                  (SELECT count(DISTINCT ar.provision_key) FROM approved_rules ar
+                     JOIN approved_policy_versions v ON ar.policy_version_id = v.id
+                     WHERE v.policy_set_id = :sid AND v.is_active
+                       AND ar.provision_key IS NOT NULL)
+                  + (SELECT count(*) FROM approved_rules ar
+                       JOIN approved_policy_versions v ON ar.policy_version_id = v.id
+                       WHERE v.policy_set_id = :sid AND v.is_active
+                         AND ar.provision_key IS NULL) AS published_policies,
                   (SELECT count(*) FROM approved_policy_versions WHERE policy_set_id = :sid) AS versions,
                   (SELECT count(*) FROM policy_tests WHERE policy_set_id = :sid) AS tests,
                   (SELECT count(*) FROM policy_tests
