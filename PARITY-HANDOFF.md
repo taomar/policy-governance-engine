@@ -1007,3 +1007,125 @@ The two tests that draw the whole thing now state their own limit with the
 reason written down, so a completeness test stops reporting a fault that is not
 there. **The cost itself is real and is yours**: a reviewer scrolling a queue of
 large policies will feel what a test just measured.
+
+---
+
+## Item 19 - a test is offered only where one can run, and a case can be put to a whole policy
+
+A reviewer pressed **Write scenarios for every rule with no test** on a set that
+has never been published, and was told the set *"has no active approved version
+to propose tests against"*. The message named the real cause, which is more than
+most do. The defect was upstream of it: **the control was drawn somewhere it
+could not act.**
+
+### What decides whether a rule can be tested
+
+Two facts about the record, and nothing about the page it is drawn on:
+
+- **how the rule states its test** - a comparison the engine computes, or words a
+  judge reads;
+- **whether a version of it has been published** - because only a published
+  package gives the engine something to compute against.
+
+`testingDoor(rule, publishedVersionId)` in `policyTesting.ts` combines them and
+returns one of three doors:
+
+| door | meaning |
+|---|---|
+| `judge-case` | stated in words. The judge is handed **the rule itself**; no version is involved, so this door is open from the moment the rule is drafted. |
+| `engine-scenario` | a comparison, and a published version exists to compute against. |
+| `engine-awaits-publication` | a comparison, with nothing published yet. |
+
+**The third is not a fault and is never worded as one.** The rule is sound; the
+instrument has not yet been given the thing it checks against. The row says
+*Once published*, not *cannot be tested*.
+
+This is derived, not passed. `ReviewQueue` already supplies
+`policyVersionId: null` and `PoliciesTab` a real version, so the two surfaces
+differ correctly without either of them knowing which surface it is - the same
+shape as `candidateEditability`.
+
+### Why the batch verb is `null` rather than a function that refuses
+
+`PolicyTesting.generate` is now `((ruleIds) => Promise<void>) | null`. Without a
+version there is **no request to make** - the endpoint builds its rule list from
+the published package - so this is not a request that gets turned down. Putting
+that in the type means no later edit can wire a control to a verb that cannot
+run; the compiler asks the caller what it draws when there is nothing to call.
+
+### A silent mismatch this also closed, on the review side
+
+The batch call previously sent `policy_version_id: undefined`. On a set with
+**no** published version the server raised, which is the error the user saw. On a
+set **with** published versions it did something worse: it fell back to
+`get_active_version` and proposed tests against the *published* package using
+*candidate* rule ids. No error, wrong subject. Requiring the version removes it.
+
+### A case can be put to a whole policy - and the answers are not totalled
+
+`PolicyCaseRunner.tsx` asks one scenario of every rule in a policy, each through
+its own decider, and lists the answers side by side.
+
+**They are deliberately not added up.** The engine computes whether a case
+*satisfies* a rule; the judge reads whether a rule *applies* to a case. Those are
+different questions, so their answers are not points on one scale and there is no
+honest *"9 of 12 passed"*. The roll-up reports **what was asked and what came
+back**, per decider. A guard test asserts no wording ranks the two routes and no
+count spans them.
+
+### The confidence figure the brief asked for, and why it is not there
+
+The brief asked the judged route to return *"a verdict, with confidence"*. It
+does return the third thing confidence is reaching for - but as a state a
+reviewer can act on rather than a number:
+
+- `contracts/correlation.py` bans invented probabilities outright. A model asked
+  for a figure supplies one; `0.91` **reads as measurement when it is invention**.
+- `RuleScenarioTester.tsx`'s module docstring records the display consequence:
+  beside a computed answer, a percentage reads as *the judged route apologising
+  for itself* - which is the `ai_ready`-as-deficiency framing the build guards
+  exist to reject. It would have been the seventh evasion, arriving through a
+  brief rather than through copy.
+- The judged route already answers in three states, and the third -
+  *"The case as described does not settle it"*, with the facts the case would
+  have to state - tells a reviewer **what to do next**. `0.62` does not.
+
+`noDoorThatCannotOpen.test.tsx` holds a `CONFIDENCE_NUMBER` guard
+(`/\bconfidence\b[^.]*\d/i`, `/\d+\s*%/`, `/\b0\.\d+\b/`) alongside a `RANKING`
+list of twelve regexes. Both mutation-proved.
+
+### Tests
+
+`apps/web/src/components/noDoorThatCannotOpen.test.tsx`, 13 tests in three
+groups: *a control is drawn only where it can act*, *each route is asked of its
+own decider*, *a policy can be put to a case, and the answers are not totalled*.
+
+**Six mutations, all caught**: offering the batch verb unconditionally; letting
+an engine rule reach a version-scoped call with no version; making the door
+ignore publication; printing `(confidence 0.87)` beside an answer; printing an
+*"overall verdict N of M passed"*; wording the awaiting-publication row as
+*"Those rules cannot be tested here"*.
+
+Worth knowing for whoever edits this next: *offering the batch verb
+unconditionally* breaks only the **hook** test, not the pane test - the pane test
+passes `generate: null` directly. The two cover different seams and both are
+needed.
+
+### Live proof
+
+On the unpublished set that produced the error: **no** version-scoped control is
+reachable, the judge doors are, and a real policy-scope run returned nine judged
+answers with reasoning - including one *"does not settle it"* keeping its missing
+-fact chips. On a published set the version-scoped controls are still there. No
+counts from either run appear anywhere in the code.
+
+### Two findings routed out of this work
+
+**To `dev-rulename` - `policyCompositionSentence` in `policyCards.ts`.** It reads
+*"Its one rule decides a case."* **"A case"** is engine vocabulary. A compliance
+officer does not know what a case is here; it means *a situation the policy is
+applied to*. Same sentence, same file as item 11.
+
+**To `dev-rulename` and `dev-onedetail` - the render cost above.** Restated
+because it is now measured twice: the largest policy costs about six seconds to
+draw on this machine.
