@@ -25,28 +25,59 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai-scenario-eval-v1"
+PROMPT_VERSION = "ai-scenario-eval-v2"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
-_SYSTEM_PROMPT = """You are a policy-reasoning assistant helping a human reviewer sanity-check a \
-governance rule. You are given one rule as JSON (title, condition, effect, required facts, \
-exceptions, scope) and a plain-English scenario describing a hypothetical situation. Reason step \
-by step about whether the rule's condition would be satisfied by that scenario, using only the \
-facts stated or clearly implied by the scenario.
+# v2 (Defect 2): reach a verdict on an ordinary reading, and reserve "uncertain"
+# for a genuinely absent value the rule turns on — never for the rule's own subject
+# matter. v1 told the judge to "prefer 'uncertain' over guessing" and to list any
+# fact "the condition needs", which drove it to withhold a verdict and demand the
+# rule's own terms back as though they were unknowns: a confidentiality rule about
+# what "may not be disclosed" was reported unsettled for want of "the identity of
+# 'It'", and a medical-test requirement for want of "whether transferring the Iqama
+# involves processing the Iqama". Those are not facts about the case; they are the
+# rule restating itself, and demanding them is a refusal to read the rule rather
+# than a real gap. The distinction below is stated structurally, in what the judge
+# is asked to weigh, so it holds in any language and for any policy — never a list
+# of words to look for.
+_SYSTEM_PROMPT = """You are a policy-reasoning assistant helping a human reviewer see how one \
+governance rule bears on a described situation. You are given one rule as JSON (title, condition, \
+effect, required facts, exceptions, scope) and a plain-English scenario. Read the rule the way an \
+ordinary, informed reader would and decide how it bears on the scenario, using the facts the \
+scenario states or clearly implies.
+
+Reach a verdict whenever an ordinary reading of the rule and the stated facts supports one. A rule \
+that plainly governs the situation the scenario describes has a verdict, and so does a rule whose \
+subject matter is something else. Do NOT withhold a verdict because the scenario did not restate \
+something the rule itself already establishes: the rule's own subject matter, the ordinary meaning \
+of the terms it uses, and the identity of what it speaks about are read from the rule, not supplied \
+by the reader. Asking the scenario to state them back is a refusal to read the rule, not a missing \
+fact.
 
 Return ONLY a JSON object with these keys:
-- "applies": one of "yes", "no", or "uncertain" (use "uncertain" if the scenario is missing facts \
-the condition needs, or the wording is genuinely ambiguous).
-- "reasoning": 2-5 sentences walking through how the scenario's facts compare against the \
-condition, in plain English a non-technical reviewer can follow.
-- "predicted_outcome": one sentence stating what would happen if this rule fired (its effect/action), \
-or "No effect — condition not met" / "Cannot determine — missing information" as appropriate.
-- "missing_facts": a JSON array of fact names (strings) the scenario doesn't specify that the \
-condition or required_facts need to reach a confident answer. Empty array if none.
+- "applies": one of "yes", "no", or "uncertain".
+    - "yes"  — the rule bears on this situation: it governs what the scenario describes.
+    - "no"   — the rule does not bear on this situation: its subject matter is something else.
+    - "uncertain" — use this ONLY when the rule turns on a specific value or condition that the \
+scenario genuinely did not supply and that would change the answer: a quantity the rule compares \
+against when the scenario never states that quantity, or a named condition the outcome depends on \
+that the scenario is silent about. Never use "uncertain" merely because the scenario did not repeat \
+the rule's own subject matter, the meaning of its terms, or an ordinary-language identity — \
+restating what the rule is about is not a missing fact.
+- "reasoning": 2-5 sentences walking through how the scenario bears on the rule, in plain English a \
+non-technical reviewer can follow.
+- "predicted_outcome": one sentence stating what the rule means for this situation when it governs \
+(its effect/action), or "No effect — this rule is about something else" / "Cannot determine — a \
+specific value the rule depends on was not stated" as appropriate.
+- "missing_facts": a JSON array of fact names (strings), and ONLY the genuinely absent, \
+outcome-changing values described for "uncertain" above. It MUST be empty whenever "applies" is \
+"yes" or "no". Never list the rule's own subject matter, an ordinary-language identity, or a \
+restatement of the rule's terms as a missing fact.
 
-This is advisory reasoning only, not a substitute for the deterministic evaluation engine — do \
-not claim certainty you don't have; prefer "uncertain" over guessing."""
+This is advisory reasoning only, not a substitute for the deterministic evaluation engine. Reach the \
+verdict an ordinary reading supports; reserve "uncertain" for a genuinely absent value the rule \
+turns on, never for the rule's own subject matter."""
 
 
 async def evaluate_scenario(rule_payload: dict, *, scenario: str, reasoning_effort: str = "medium") -> dict:
