@@ -15,9 +15,8 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from policy_platform.contracts.policy import AggregateLimit, CanonicalRule
+from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.domain.models import (
-    ApprovedAggregateLimit,
     ApprovedPolicyVersion,
     ApprovedRule,
     RuleException,
@@ -43,7 +42,6 @@ async def import_approved_policy_version(
     approved_by: str,
     is_active: bool,
     rules: list[CanonicalRule],
-    aggregate_limits: list[AggregateLimit] | None = None,
     provisions: Mapping[str, ProvisionSnapshot] | None = None,
 ) -> ApprovedPolicyVersion:
     """Snapshot an approved rule set as a new immutable version.
@@ -172,24 +170,6 @@ async def import_approved_policy_version(
                     ev_dict["clause_id"] = None
                 evidence_dicts.append(ev_dict)
             await evidence_repo.bulk_create(rule_id=approved_rule.id, evidence=evidence_dicts)
-
-    # Aggregate limits have no per-candidate review workflow (they're
-    # structural policy-set configuration, not prose) — the caller passes the
-    # policy set's current full draft list, which is snapshotted verbatim as
-    # this version's immutable record (Rule 5.3), mirroring how `rules` above
-    # represents the full rule set rather than only what changed.
-    for agg in aggregate_limits or []:
-        session.add(
-            ApprovedAggregateLimit(
-                policy_version_id=version.id,
-                aggregate_key=agg.aggregate_id,
-                description=agg.description,
-                contributing_rules_json=[c.model_dump(mode="json") for c in agg.contributing_rules],
-                aggregator=agg.aggregator,
-                max_value=agg.max_value,
-                period=agg.period,
-            )
-        )
 
     await session.flush()
     return version

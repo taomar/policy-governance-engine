@@ -15,26 +15,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.api.schemas import (
-    AggregateEligibilityResponse,
-    AggregateLimitResponse,
     ApprovedPolicyVersionResponse,
-    CreateAggregateLimitRequest,
     CreatePolicySetRequest,
     ImportPolicyVersionRequest,
     MarkPolicySetReviewedRequest,
     PolicySetResponse,
-    PreviewAggregateLimitRequest,
-    PreviewAggregateLimitResponse,
-    ProposeAggregateLimitsRequest,
-    ProposeAggregateLimitsResponse,
-    UpdateAggregateLimitRequest,
     UpdatePolicySetRequest,
     UpdateTrustedConfigRequest,
 )
-from policy_platform.contracts.policy import AggregateLimit, CanonicalRule
-from policy_platform.infrastructure.aggregates.aggregate_eligibility import assess_rules
-from policy_platform.infrastructure.aggregates.aggregate_preview import preview_aggregate_limit
-from policy_platform.infrastructure.aggregates.ai_aggregate_proposal import propose_aggregate_limits
+from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.assembly.approved_provision_lookup import (
     approved_provision_groupings,
 )
@@ -60,7 +49,6 @@ from policy_platform.infrastructure.settings import get_settings
 from policy_platform.infrastructure.extraction.policy_formulator import check_trusted_config
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
-    PolicyAggregateLimitRepository,
     PolicySetRepository,
 )
 
@@ -84,19 +72,6 @@ def _to_response(ps) -> PolicySetResponse:
         escalation_contact=ps.escalation_contact,
         consulted_parties=list(ps.consulted_parties_json or []),
         informed_parties=list(ps.informed_parties_json or []),
-    )
-
-
-def _aggregate_limit_to_response(row) -> AggregateLimitResponse:
-    return AggregateLimitResponse(
-        id=str(row.id),
-        policy_set_id=str(row.policy_set_id),
-        aggregate_key=row.aggregate_key,
-        description=row.description,
-        contributing_rules=list(row.contributing_rules_json or []),
-        aggregator=row.aggregator,
-        max_value=row.max_value,
-        period=row.period,
     )
 
 
@@ -501,7 +476,6 @@ async def get_workspace_counts(key: str, session: AsyncSession = Depends(get_ses
                      JOIN approved_policy_versions v ON ar.policy_version_id = v.id
                      WHERE v.policy_set_id = :sid AND v.is_active) AS policies,
                   (SELECT count(*) FROM approved_policy_versions WHERE policy_set_id = :sid) AS versions,
-                  (SELECT count(*) FROM policy_aggregate_limits WHERE policy_set_id = :sid) AS limits,
                   (SELECT count(*) FROM policy_tests WHERE policy_set_id = :sid) AS tests,
                   (SELECT count(*) FROM policy_tests
                      WHERE policy_set_id = :sid AND is_active) AS regression_tests,
@@ -769,216 +743,6 @@ async def get_provision_history(
     ]
 
 
-@router.get("/{key}/versions/{version_id}/aggregate-limits", response_model=list[AggregateLimit])
-async def get_policy_version_aggregate_limits(
-    key: str, version_id: uuid.UUID, session: AsyncSession = Depends(get_session)
-) -> list[AggregateLimit]:
-    """Immutable aggregate limits snapshotted into this published version.
-
-    Distinct from `/aggregate-limits` (this policy set's mutable *draft*
-    definitions) — this is what was actually in effect as of this version,
-    exactly like `/versions/{version_id}/rules` vs. the candidate-rule draft
-    endpoints.
-    """
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-
-    version_repo = ApprovedPolicyVersionRepository(session)
-    version = await version_repo.get_by_id(version_id)
-    if version is None or version.policy_set_id != policy_set.id:
-        raise HTTPException(status_code=404, detail=f"version '{version_id}' not found")
-
-    package = approved_policy_version_to_package(version)
-    return package.aggregate_limits
-
-
-@router.get("/{key}/aggregate-limits", response_model=list[AggregateLimitResponse])
-async def list_aggregate_limits(
-    key: str, session: AsyncSession = Depends(get_session)
-) -> list[AggregateLimitResponse]:
-    """Mutable draft aggregate limits — the policy set's current desired state.
-
-    Edited directly by a Policy Manager (no per-candidate review workflow),
-    and snapshotted verbatim into `ApprovedAggregateLimit` at publish time.
-    """
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-
-    repo = PolicyAggregateLimitRepository(session)
-    rows = await repo.list_by_policy_set(policy_set.id)
-    return [_aggregate_limit_to_response(r) for r in rows]
-
-
-async def _active_package_or_404(key: str, session: AsyncSession):
-    """The active published package for `key`, or a 404 explaining which half
-    is missing. Both the eligibility and preview endpoints need exactly this,
-    and an unpublished policy set is a legitimate state rather than an error —
-    so the message says which of the two things is absent."""
-
-    policy_set = await PolicySetRepository(session).get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-    version = await ApprovedPolicyVersionRepository(session).get_active_version(policy_set.id)
-    if version is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"policy set '{key}' has no active published version; "
-                "combined caps are evaluated against published rules"
-            ),
-        )
-    return approved_policy_version_to_package(version), version
-
-
-@router.get("/{key}/aggregate-limits/eligibility", response_model=AggregateEligibilityResponse)
-async def get_aggregate_limit_eligibility(
-    key: str, session: AsyncSession = Depends(get_session)
-) -> AggregateEligibilityResponse:
-    """Which published rules could actually contribute to a combined cap.
-
-    Deterministic and AI-free by design. The evaluator drops a contribution
-    silently when the rule cannot be SATISFIED or when the amount fact is not
-    numeric, so a cap built over ineligible rules saves, publishes and then
-    does nothing. Answering this up front is what stops that.
-    """
-
-    package, _ = await _active_package_or_404(key, session)
-    return AggregateEligibilityResponse(**assess_rules(list(package.rules)).to_dict())
-
-
-@router.post("/{key}/aggregate-limits/propose", response_model=ProposeAggregateLimitsResponse)
-async def propose_aggregate_limits_for_set(
-    key: str,
-    body: ProposeAggregateLimitsRequest,
-    session: AsyncSession = Depends(get_session),
-) -> ProposeAggregateLimitsResponse:
-    """Ask the model to find rule groups that share one finite pool.
-
-    Proposals are returned, never saved. An aggregate limit changes the outcome
-    of every future evaluation against this policy set, so it takes a human
-    decision — the same stance `propose_policy_tests` takes for tests.
-    """
-
-    try:
-        result = await propose_aggregate_limits(
-            session,
-            policy_set_key=key,
-            reasoning_effort=body.reasoning_effort,
-            guidance=body.guidance,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return ProposeAggregateLimitsResponse(**result)
-
-
-@router.post("/{key}/aggregate-limits/preview", response_model=PreviewAggregateLimitResponse)
-async def preview_aggregate_limit_for_set(
-    key: str,
-    body: PreviewAggregateLimitRequest,
-    session: AsyncSession = Depends(get_session),
-) -> PreviewAggregateLimitResponse:
-    """Run a draft cap through the real evaluator without saving it.
-
-    The draft is spliced into an in-memory copy of the published package and
-    `evaluate_policy` decides the outcome, so the preview cannot disagree with
-    what publishing would actually do.
-    """
-
-    package, _ = await _active_package_or_404(key, session)
-    result = preview_aggregate_limit(
-        package,
-        contributing_rules=[c.model_dump(mode="json") for c in body.contributing_rules],
-        max_value=body.max_value,
-        facts=body.facts,
-        description=body.description,
-    )
-    return PreviewAggregateLimitResponse(**result)
-
-
-@router.post("/{key}/aggregate-limits", response_model=AggregateLimitResponse, status_code=201)
-async def create_aggregate_limit(
-    key: str, body: CreateAggregateLimitRequest, session: AsyncSession = Depends(get_session)
-) -> AggregateLimitResponse:
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-
-    repo = PolicyAggregateLimitRepository(session)
-    if await repo.get_by_key(policy_set.id, body.aggregate_key) is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"aggregate limit '{body.aggregate_key}' already exists for policy set '{key}'",
-        )
-    row = await repo.create(
-        policy_set_id=policy_set.id,
-        aggregate_key=body.aggregate_key,
-        description=body.description,
-        contributing_rules=[c.model_dump(mode="json") for c in body.contributing_rules],
-        aggregator=body.aggregator,
-        max_value=body.max_value,
-        period=body.period,
-    )
-    await session.commit()
-    return _aggregate_limit_to_response(row)
-
-
-@router.put("/{key}/aggregate-limits/{aggregate_key}", response_model=AggregateLimitResponse)
-async def update_aggregate_limit(
-    key: str,
-    aggregate_key: str,
-    body: UpdateAggregateLimitRequest,
-    session: AsyncSession = Depends(get_session),
-) -> AggregateLimitResponse:
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-
-    repo = PolicyAggregateLimitRepository(session)
-    row = await repo.get_by_key(policy_set.id, aggregate_key)
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"aggregate limit '{aggregate_key}' not found for policy set '{key}'"
-        )
-    row = await repo.update(
-        row,
-        description=body.description,
-        contributing_rules=[c.model_dump(mode="json") for c in body.contributing_rules],
-        aggregator=body.aggregator,
-        max_value=body.max_value,
-        period=body.period,
-    )
-    await session.commit()
-    return _aggregate_limit_to_response(row)
-
-
-@router.delete("/{key}/aggregate-limits/{aggregate_key}", status_code=204)
-async def delete_aggregate_limit(
-    key: str, aggregate_key: str, session: AsyncSession = Depends(get_session)
-) -> Response:
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(key)
-    if policy_set is None:
-        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
-
-    repo = PolicyAggregateLimitRepository(session)
-    row = await repo.get_by_key(policy_set.id, aggregate_key)
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"aggregate limit '{aggregate_key}' not found for policy set '{key}'"
-        )
-    await repo.delete(row)
-    await session.commit()
-    return Response(status_code=204)
-
-
 @router.get("/{key}/versions/{version_id}/export")
 async def export_policy_version_rules(
     key: str,
@@ -1032,7 +796,6 @@ async def import_policy_version(
         approved_by=body.approved_by,
         is_active=body.is_active,
         rules=body.rules,
-        aggregate_limits=body.aggregate_limits,
     )
     await session.commit()
     return ApprovedPolicyVersionResponse(

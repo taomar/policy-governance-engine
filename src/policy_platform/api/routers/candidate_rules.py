@@ -29,7 +29,7 @@ from policy_platform.api.schemas import (
     PublishCandidatesRequest,
     RequestChangesRequest,
 )
-from policy_platform.contracts.policy import AggregateLimit, AggregateLimitContribution, CanonicalRule
+from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.extraction.formulation_mapping import (
     _decision_readiness_for,
@@ -71,7 +71,6 @@ from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
     CandidateRuleRepository,
     NoteRepository,
-    PolicyAggregateLimitRepository,
     PolicySetRepository,
 )
 
@@ -774,27 +773,6 @@ async def publish_approved_candidates(
     # candidate takes the candidate's provision rather than the older copy.
     provisions.update(await snapshots_for_candidates(session, approved))
 
-    # Aggregate limits (e.g. "60+15 days capped at 70/year combined") have no
-    # per-candidate review step — they're structural policy-set config a
-    # Policy Manager maintains directly via the aggregate-limits CRUD
-    # endpoints. Publishing snapshots the *current full draft list* into this
-    # version, exactly as `rules` above represents the full carried-forward
-    # rule set rather than only this batch's changes.
-    draft_limits = await PolicyAggregateLimitRepository(session).list_by_policy_set(policy_set.id)
-    aggregate_limits = [
-        AggregateLimit(
-            aggregate_id=row.aggregate_key,
-            description=row.description,
-            contributing_rules=[
-                AggregateLimitContribution(**c) for c in (row.contributing_rules_json or [])
-            ],
-            aggregator=row.aggregator,
-            max_value=row.max_value,
-            period=row.period,
-        )
-        for row in draft_limits
-    ]
-
     version = await import_approved_policy_version(
         session,
         policy_set_id=policy_set.id,
@@ -804,7 +782,6 @@ async def publish_approved_candidates(
         approved_by=body.approved_by,
         is_active=body.is_active,
         rules=rules,
-        aggregate_limits=aggregate_limits,
         provisions=provisions,
     )
 
@@ -825,7 +802,6 @@ async def publish_approved_candidates(
             "is_active": body.is_active,
             "rules_in_version": len(rules),
             "candidates_published": len(approved),
-            "aggregate_limits": len(aggregate_limits),
         },
     )
 

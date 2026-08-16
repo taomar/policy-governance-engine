@@ -12,8 +12,6 @@ from policy_platform.contracts.conditions import ConditionNode
 from policy_platform.contracts.formulation import RuleFormulation
 from policy_platform.infrastructure.extraction.policy_facts import published_facts
 from policy_platform.contracts.policy import (
-    AggregateLimit,
-    AggregateLimitContribution,
     ApprovedPolicyPackage,
     Advice,
     CanonicalRule,
@@ -173,18 +171,5 @@ def approved_policy_version_to_package(version: ApprovedPolicyVersion) -> Approv
         effective_from=version.effective_from,
         effective_to=version.effective_to,
         rules=[_rule_to_contract(r) for r in version.rules],
-        aggregate_limits=[
-            AggregateLimit(
-                aggregate_id=agg.aggregate_key,
-                description=agg.description,
-                contributing_rules=[
-                    AggregateLimitContribution(**c) for c in (agg.contributing_rules_json or [])
-                ],
-                aggregator=agg.aggregator,
-                max_value=agg.max_value,
-                period=agg.period,
-            )
-            for agg in version.aggregate_limits
-        ],
     )
 

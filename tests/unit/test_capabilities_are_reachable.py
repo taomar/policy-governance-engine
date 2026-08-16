@@ -409,10 +409,13 @@ _QUARANTINE: dict[str, str] = {
     # `search/reconciliation.py` uses both to remove index entries whose clause
     # the store no longer holds, and the write path calls it.
     # --- Repository operations with no production call site. ---
-    "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.create": "repository operation, no caller",
-    "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.list_all": "repository operation, no caller",
-    "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.update_metadata": "repository operation, no caller",
-    "infrastructure/persistence/repositories/policy_sets.py::PolicySetRepository.mark_reviewed": "repository operation, no caller",
+    # PolicySetRepository.create / list_all / update_metadata / mark_reviewed left
+    # this list when the Aggregate Limits router was retired. Those four policy-set
+    # endpoints and the aggregate endpoints shared the local name `repo`, and the
+    # module-wide receiver resolution settled on the aggregate binding
+    # (`repo = PolicyAggregateLimitRepository(session)`). With that repository gone,
+    # `repo` resolves to PolicySetRepository and the live list/create/update/
+    # mark-reviewed endpoints are seen to call these methods.
     "infrastructure/persistence/repositories/documents.py::ClauseRepository.has_clauses": "repository operation, no caller",
     "infrastructure/persistence/repositories/documents.py::ClauseRepository.delete_by_document_version": "repository operation, scripts only",
     "infrastructure/persistence/repositories/candidates.py::ExtractionRunRepository.get_by_id": "repository operation, no caller",

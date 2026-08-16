@@ -109,35 +109,6 @@ class PolicySet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="policy_set", order_by="SourceDocument.created_at"
     )
-    aggregate_limits: Mapped[list["PolicyAggregateLimit"]] = relationship(
-        back_populates="policy_set", order_by="PolicyAggregateLimit.aggregate_key"
-    )
-
-
-class PolicyAggregateLimit(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Mutable draft definition of a cross-rule aggregate limit.
-
-    Structural configuration (which rules contribute, how they combine, the
-    cap), not prose subject to per-candidate human review — so a Policy
-    Manager edits these directly via CRUD, the same way `PolicySet.tags_json`
-    is edited directly. Snapshotted into `ApprovedAggregateLimit` at publish
-    time.
-    """
-
-    __tablename__ = "policy_aggregate_limits"
-    __table_args__ = (
-        UniqueConstraint("policy_set_id", "aggregate_key", name="uq_policy_aggregate_limits_set_key"),
-    )
-
-    policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False)
-    aggregate_key: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    contributing_rules_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
-    aggregator: Mapped[str] = mapped_column(String(20), default="SUM", nullable=False)
-    max_value: Mapped[float] = mapped_column(Float, nullable=False)
-    period: Mapped[str | None] = mapped_column(String(50), nullable=True)
-
-    policy_set: Mapped["PolicySet"] = relationship(back_populates="aggregate_limits")
 
 
 class PolicyAuthority(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -708,43 +679,6 @@ class ApprovedPolicyVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     policy_set: Mapped["PolicySet"] = relationship(back_populates="approved_versions")
     rules: Mapped[list["ApprovedRule"]] = relationship(back_populates="policy_version", order_by="ApprovedRule.rule_id")
-    aggregate_limits: Mapped[list["ApprovedAggregateLimit"]] = relationship(
-        back_populates="policy_version", order_by="ApprovedAggregateLimit.aggregate_key"
-    )
-
-
-class ApprovedAggregateLimit(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Immutable snapshot of an aggregate limit as of one published version.
-
-    Aggregate limits (e.g. "combined family-care leave capped at 70
-    days/year across rules R1+R2") are structural policy-set configuration,
-    not per-candidate prose subject to review — so unlike `ApprovedRule` they
-    have no review workflow of their own. At publish time the current full
-    set of `PolicyAggregateLimit` draft rows for the policy set is snapshotted
-    verbatim into this table (Rule 5.3: this table itself is insert-only).
-    """
-
-    __tablename__ = "approved_aggregate_limits"
-    __table_args__ = (
-        UniqueConstraint(
-            "policy_version_id", "aggregate_key", name="uq_approved_aggregate_limits_version_key"
-        ),
-    )
-
-    policy_version_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("approved_policy_versions.id"), nullable=False
-    )
-    aggregate_key: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    # List of {"rule_id": str, "amount_fact": str} — the contributing rules and
-    # which fact on each supplies the amount to sum (mirrors the JSONB-list
-    # convention used for `related_rule_ids_json` elsewhere in this module).
-    contributing_rules_json: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
-    aggregator: Mapped[str] = mapped_column(String(20), default="SUM", nullable=False)
-    max_value: Mapped[float] = mapped_column(Float, nullable=False)
-    period: Mapped[str | None] = mapped_column(String(50), nullable=True)
-
-    policy_version: Mapped["ApprovedPolicyVersion"] = relationship(back_populates="aggregate_limits")
 
 
 class ApprovedRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):

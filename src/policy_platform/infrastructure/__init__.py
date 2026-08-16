@@ -3,7 +3,7 @@
 Grouped into sub-packages by the question each answers rather than by the
 technology each uses, so a module that calls a model sits with the capability
 it serves. `persistence`, `ingestion`, `docling`, `extraction`, `projection`,
-`quality`, `correlation`, `aggregates`, `policy_tests`, `assistants`, and the
+`quality`, `correlation`, `policy_tests`, `assistants`, and the
 `ai` and `search` clients. `docs/architecture.md` carries the table.
 
 Two modules stay here rather than in a sub-package. `settings` is imported

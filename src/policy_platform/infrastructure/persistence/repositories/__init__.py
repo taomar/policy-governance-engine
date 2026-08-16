@@ -33,7 +33,6 @@ from policy_platform.infrastructure.persistence.repositories.candidates import (
 )
 from policy_platform.infrastructure.persistence.repositories.versions import (
     ApprovedPolicyVersionRepository,
-    PolicyAggregateLimitRepository,
 )
 from policy_platform.infrastructure.persistence.repositories.evaluations import (
     EvaluationRepository,
@@ -57,7 +56,6 @@ __all__ = [
     "EvidenceReferenceRepository",
     "ExtractionRunRepository",
     "NoteRepository",
-    "PolicyAggregateLimitRepository",
     "PolicyAttestationRepository",
     "PolicyAuthorityRepository",
     "PolicyExceptionRepository",
