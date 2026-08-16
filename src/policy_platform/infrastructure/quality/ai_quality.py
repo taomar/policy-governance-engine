@@ -1406,6 +1406,7 @@ async def evaluate_policy_set_quality(
         ai_review_used = False
     _mark_deterministic_findings(findings)
 
+    not_applicable = _route_applicability_disclosure(rules)
     run_id = None
     run_at = None
     if record_run:
@@ -1418,6 +1419,7 @@ async def evaluate_policy_set_quality(
             ai_review_used=ai_review_used,
             methodology_version=_quality_methodology_version(),
             triggered_by=triggered_by,
+            not_applicable=not_applicable,
         )
         await session.commit()
         run_id = str(run.id)
@@ -1431,7 +1433,7 @@ async def evaluate_policy_set_quality(
         "rule_count": len(rules),
         "findings": findings,
         "finding_count": len(findings),
-        "not_applicable": _route_applicability_disclosure(rules),
+        "not_applicable": not_applicable,
         "quality_run_id": run_id,
         "run_at": run_at,
         "ai_review_used": ai_review_used,
@@ -1492,6 +1494,7 @@ async def evaluate_candidate_quality(
         ai_review_used = False
     _mark_deterministic_findings(findings)
 
+    not_applicable = _route_applicability_disclosure(rules)
     run_id = None
     run_at = None
     if record_run:
@@ -1504,6 +1507,7 @@ async def evaluate_candidate_quality(
             ai_review_used=ai_review_used,
             methodology_version=_quality_methodology_version(),
             triggered_by=triggered_by,
+            not_applicable=not_applicable,
         )
         await session.commit()
         run_id = str(run.id)
@@ -1518,7 +1522,7 @@ async def evaluate_candidate_quality(
         "candidate_statuses_included": list(review_statuses),
         "findings": findings,
         "finding_count": len(findings),
-        "not_applicable": _route_applicability_disclosure(rules),
+        "not_applicable": not_applicable,
         "quality_run_id": run_id,
         "run_at": run_at,
         "ai_review_used": ai_review_used,
@@ -1554,6 +1558,11 @@ def _report_from_run(run: QualityRun, policy_set_key: str) -> dict:
         "rule_count": run.rule_count,
         "findings": findings,
         "finding_count": len(findings),
+        # Carried through exactly as stored: NULL (the run predates the column),
+        # [] (recorded, every check applied), and a populated list (recorded,
+        # these route-specific checks did not apply) are three answers and stay
+        # three answers, so a read never reports more than the run established.
+        "not_applicable": run.not_applicable_json,
         "quality_run_id": str(run.id),
         "run_at": run.run_at.isoformat(),
         "ai_review_used": run.ai_review_used,
@@ -1580,6 +1589,7 @@ def never_evaluated_report(policy_set_key: str, scope: str) -> dict:
         "rule_count": None,
         "findings": None,
         "finding_count": None,
+        "not_applicable": None,
         "quality_run_id": None,
         "run_at": None,
         "ai_review_used": None,
