@@ -1,5 +1,5 @@
 """What a case *is* is read from the question, by the model, and never from a
-list of words.
+list of words — and the answer is grounded in one lean policy record.
 
 WHY THIS FILE EXISTS
 
@@ -25,6 +25,20 @@ override the model or to break a tie. There is deliberately no scan of this
 module's own source for the banned words: the module's docstring names them in
 order to forbid them, and a source scan would catch the prohibition as if it
 were the crime.
+
+WHY THE ANSWER IS GROUNDED IN A LEAN RECORD
+
+The gather is one pass over one policy's lean ``grounding_projection_v1``
+record — the same projection the JSON tab renders — not one call per rule. The
+record is the closed set the answer may draw on. The document's own words ride
+in that record's ``spans``, uncut and untranslated, so the quantity a reviewer
+asks after reaches the model as the document wrote it. Citations come back as
+bare ``rule_id``s: no name this app authored crosses the wire, and the reader's
+surface resolves each id to its display name and its verbatim source sentence.
+So these backend tests assert two things about grounding — that the record's own
+words are what is *sent* to the model, and that only ids are cited — and leave
+the "the quote shown to the reader is exact" property to the surface that
+resolves it.
 """
 from __future__ import annotations
 
@@ -33,14 +47,11 @@ from typing import Any
 
 import pytest
 
-from policy_platform.contracts.conditions import (
-    AllCondition,
-    ConditionOperator,
-    FactComparisonCondition,
-)
+from policy_platform.contracts.conditions import AllCondition
 from policy_platform.contracts.formulation import CanonicalPolicy, RuleFormulation
-from policy_platform.contracts.policy import RequiredFact
+from policy_platform.contracts.policy import EvidenceReference, RequiredFact
 from policy_platform.infrastructure.assistants import ai_case_intent
+from policy_platform.infrastructure.projection.policy_case_payload import build_case_payload
 from tests.fixtures.factories import make_rule
 
 pytestmark = pytest.mark.anyio
@@ -50,9 +61,15 @@ pytestmark = pytest.mark.anyio
 #: the behaviour under test must hold for any corpus, so the fixture states a
 #: rule no document in this repository contains.
 VERBATIM_EN = "Part-time staff are engaged to work no more than twenty-four hours in any week."
-#: The same kind of clause in Arabic, to prove a quote is returned as characters
-#: rather than as \\uXXXX escapes and is never translated on its way back.
+#: The same kind of clause in Arabic, to prove a quote survives the projection as
+#: characters rather than as \\uXXXX escapes and is never translated on its way
+#: to the model.
 VERBATIM_AR = "لا يعمل الموظفون بدوام جزئي أكثر من أربع وعشرين ساعة في الأسبوع."
+
+#: A stand-in document version id. The projection needs each rule to point at a
+#: source span for its verbatim to be carried; a rule with no evidence would have
+#: no words in the record, which is a different fixture than the one under test.
+_DOC_VERSION_ID = "11111111-1111-1111-1111-111111111111"
 
 
 class _Settings:
@@ -111,6 +128,52 @@ def stubbed(monkeypatch: pytest.MonkeyPatch) -> type[_StubClient]:
     return _StubClient
 
 
+def _evidence(clause_id: str) -> EvidenceReference:
+    """One source reference, so the projection carries the rule's verbatim.
+
+    The lean record stores a rule's words in ``spans`` and points a rule at them
+    through ``evidence_refs``; a rule's own sentence attaches to its first such
+    reference. Without one the document's words never enter the payload, so every
+    fixture here carries evidence — the way extraction writes rules in production.
+    """
+
+    return EvidenceReference(
+        document_version_id=_DOC_VERSION_ID,
+        source_hash="h" * 16,
+        page=7,
+        section="3. Conditions of Work",
+        clause_id=clause_id,
+        start_offset=3,
+        end_offset=99,
+    )
+
+
+def _payload(*rules) -> dict:
+    """Project the given rules into one lean ``grounding_projection_v1`` record.
+
+    This is the payload the endpoint builds from a provision and hands to the
+    gather. The envelope values are the fixture's own — no corpus id, no policy
+    name — so nothing here is tuned to any real document.
+    """
+
+    return build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading the document wrote"],
+        rules=list(rules),
+    )
+
+
+def _gather_call(stubbed: type[_StubClient]) -> dict[str, Any]:
+    """The one call that carried the policy record — the informational gather,
+    told apart from the classify call by its system prompt."""
+
+    gathers = [c for c in stubbed.calls if "sort one question" not in c["messages"][0]["content"]]
+    assert len(gathers) == 1, "expected exactly one gather call"
+    return gathers[0]
+
+
 def _cap_rule(source_text: str = VERBATIM_EN):
     """A rule that names a weekly-hours quantity and states its own answer.
 
@@ -126,6 +189,7 @@ def _cap_rule(source_text: str = VERBATIM_EN):
             "description": "Part-time staff have a weekly ceiling on their hours.",
             "required_facts": [RequiredFact(name="weekly-hours", data_type="number")],
             "formulation": RuleFormulation(canonical=CanonicalPolicy(source_text=source_text)),
+            "evidence": [_evidence("C-CAP")],
         }
     )
 
@@ -143,6 +207,7 @@ def _bystander_rule():
             "formulation": RuleFormulation(
                 canonical=CanonicalPolicy(source_text="An employee gives one month of notice.")
             ),
+            "evidence": [_evidence("C-OTHER")],
         }
     )
 
@@ -214,12 +279,13 @@ async def test_an_unreadable_verdict_falls_back_to_a_determination(stubbed):
 
 
 async def test_an_informational_request_reports_what_a_rule_states_not_a_demand(stubbed):
-    """A rule with an unmet required fact, asked informationally, yields the
-    sentence it states — verbatim — and never a demand for the fact.
+    """A rule with an unmet required fact, asked informationally, is answered
+    from the sentence it states — and never with a demand for the fact.
 
     This is the whole repair. Run as a determination the same rule asks the case
-    to supply "weekly-hours"; run as an information request it hands back the
-    ceiling it already names."""
+    to supply "weekly-hours"; run as an information request the record's own
+    sentence — carrying the ceiling — is what the model is shown, and the answer
+    cites that rule by id rather than asking the reviewer to fill a blank."""
 
     stubbed.classify_reply = {"intent": "informational", "reasoning": "Asks what the policy provides."}
     stubbed.info_reply = {
@@ -231,7 +297,7 @@ async def test_an_informational_request_reports_what_a_rule_states_not_a_demand(
     }
 
     out = await ai_case_intent.answer_policy_case(
-        [_cap_rule().model_dump(mode="json"), _bystander_rule().model_dump(mode="json")],
+        _payload(_cap_rule(), _bystander_rule()),
         scenario="How many hours may a part-timer work?",
     )
 
@@ -239,12 +305,17 @@ async def test_an_informational_request_reports_what_a_rule_states_not_a_demand(
     info = out["informational"]
     assert info["status"] == "answered"
 
-    # The rule's own sentence, returned exactly.
-    assert info["citations"][0]["rule_id"] == "R-CAP"
-    assert info["citations"][0]["quote"] == VERBATIM_EN
+    # The answer rests on the rule that states the ceiling, cited by id. The name
+    # and the verbatim sentence are resolved by the reader's surface from the id.
+    assert [c["rule_id"] for c in info["citations"]] == ["R-CAP"]
 
-    # Nowhere is the fact demanded. The required-fact name does not surface, and
-    # none of the determination path's "you must state X" wording appears.
+    # And the record's own words — the ceiling the reviewer asked after — are what
+    # the model was shown, so it could report the answer rather than demand it.
+    sent = _gather_call(stubbed)["messages"][1]["content"]
+    assert VERBATIM_EN in sent
+
+    # Nowhere is the fact demanded. The required-fact name does not surface in the
+    # answer, and none of the determination path's "you must state X" wording does.
     blob = json.dumps(info, ensure_ascii=False).lower()
     assert "weekly-hours" not in blob
     assert "would have to state" not in blob
@@ -259,7 +330,7 @@ async def test_a_determination_is_left_to_the_deciders_that_already_exist(stubbe
     stubbed.classify_reply = {"intent": "decision", "reasoning": "Describes a situation."}
 
     out = await ai_case_intent.answer_policy_case(
-        [_cap_rule().model_dump(mode="json")],
+        _payload(_cap_rule()),
         scenario="Someone works thirty hours a week; are they within the cap?",
     )
 
@@ -281,7 +352,7 @@ async def test_a_policy_that_holds_nothing_on_the_subject_says_so(stubbed):
     stubbed.info_reply = {"bears": False, "answer": "", "cited_rule_ids": [], "declined": False, "note": ""}
 
     info = await ai_case_intent.answer_informational(
-        [_bystander_rule()], scenario="How many hours may a part-timer work?"
+        _payload(_bystander_rule()), scenario="How many hours may a part-timer work?"
     )
 
     assert info["status"] == "no_rule_bears"
@@ -294,7 +365,7 @@ async def test_a_model_that_stands_back_is_not_a_policy_that_holds_nothing(stubb
     stubbed.info_reply = {"bears": True, "answer": "", "cited_rule_ids": ["R-CAP"], "declined": True, "note": ""}
 
     info = await ai_case_intent.answer_informational(
-        [_cap_rule()], scenario="How many hours may a part-timer work?"
+        _payload(_cap_rule()), scenario="How many hours may a part-timer work?"
     )
 
     assert info["status"] == "declined"
@@ -307,7 +378,7 @@ async def test_rules_bearing_but_no_answer_composed_is_also_a_standing_back(stub
     stubbed.info_reply = {"bears": True, "answer": "", "cited_rule_ids": ["R-CAP"], "declined": False, "note": ""}
 
     info = await ai_case_intent.answer_informational(
-        [_cap_rule()], scenario="How many hours may a part-timer work?"
+        _payload(_cap_rule()), scenario="How many hours may a part-timer work?"
     )
 
     assert info["status"] == "declined"
@@ -322,19 +393,25 @@ async def test_a_failed_request_is_raised_not_reported_as_absent(stubbed):
 
     with pytest.raises(RuntimeError):
         await ai_case_intent.answer_informational(
-            [_cap_rule()], scenario="How many hours may a part-timer work?"
+            _payload(_cap_rule()), scenario="How many hours may a part-timer work?"
         )
 
 
 # --------------------------------------------------------------------------- #
-# The document's words reach the reader unchanged.
+# The document's words reach the model unchanged.
+#
+# The reader is shown a rule's verbatim sentence resolved from its id by the
+# surface, so these tests pin the backend half of that promise: the words the
+# model grounds on are the record's own, carried into the payload uncut, and
+# what comes back is a bare id — never a phrase this app authored.
 # --------------------------------------------------------------------------- #
 
 
-async def test_a_cited_quote_is_the_records_own_words_not_the_models(stubbed):
-    """The answer is the app's; the quote is the document's. The model could
-    return any wording for the answer, but the citation is taken from the record
-    here, so a model that paraphrased could not alter what is quoted."""
+async def test_the_records_own_words_are_what_the_model_is_shown(stubbed):
+    """The answer is the app's; the words it rests on are the document's. The
+    model could return any wording for the answer, but what it is grounded in is
+    the record's verbatim sentence, present in the payload, and the citation that
+    comes back is the rule's id — nothing the app wrote is returned as a quote."""
 
     stubbed.info_reply = {
         "bears": True,
@@ -345,14 +422,20 @@ async def test_a_cited_quote_is_the_records_own_words_not_the_models(stubbed):
     }
 
     info = await ai_case_intent.answer_informational(
-        [_cap_rule(source_text=VERBATIM_EN)], scenario="How many hours may a part-timer work?"
+        _payload(_cap_rule(source_text=VERBATIM_EN)), scenario="How many hours may a part-timer work?"
     )
 
-    assert info["citations"][0]["quote"] == VERBATIM_EN
+    assert [c["rule_id"] for c in info["citations"]] == ["R-CAP"]
+    # No wording crosses back as a quote; only the id does.
+    assert all(set(c) == {"rule_id"} for c in info["citations"])
+    # The document's own sentence is what the model was shown.
+    sent = _gather_call(stubbed)["messages"][1]["content"]
+    assert VERBATIM_EN in sent
 
 
-async def test_an_arabic_quote_is_returned_as_characters_and_untranslated(stubbed):
-    """A quote in Arabic comes back in Arabic, as characters, exactly."""
+async def test_an_arabic_source_reaches_the_model_as_characters_and_untranslated(stubbed):
+    """A clause in Arabic reaches the model in Arabic, as characters, exactly —
+    the projection does not escape it to \\uXXXX and does not translate it."""
 
     stubbed.info_reply = {
         "bears": True,
@@ -362,33 +445,13 @@ async def test_an_arabic_quote_is_returned_as_characters_and_untranslated(stubbe
         "note": "",
     }
 
-    info = await ai_case_intent.answer_informational(
-        [_cap_rule(source_text=VERBATIM_AR)], scenario="كم ساعة يعمل الموظف بدوام جزئي؟"
+    await ai_case_intent.answer_informational(
+        _payload(_cap_rule(source_text=VERBATIM_AR)), scenario="كم ساعة يعمل الموظف بدوام جزئي؟"
     )
 
-    assert info["citations"][0]["quote"] == VERBATIM_AR
-    assert "\\u" not in json.dumps(info["citations"][0]["quote"], ensure_ascii=False)
-
-
-async def test_a_citation_to_a_rule_not_in_the_policy_is_dropped(stubbed):
-    """The model may only cite rules in front of the reader. An id that names no
-    rule here is not a citation, and if nothing valid is left the answer is not
-    'answered' — it cannot be grounded."""
-
-    stubbed.info_reply = {
-        "bears": True,
-        "answer": "An answer citing a rule that is not here.",
-        "cited_rule_ids": ["R-GHOST"],
-        "declined": False,
-        "note": "",
-    }
-
-    info = await ai_case_intent.answer_informational(
-        [_cap_rule()], scenario="How many hours may a part-timer work?"
-    )
-
-    assert info["status"] == "no_rule_bears"
-    assert info["citations"] == []
+    sent = _gather_call(stubbed)["messages"][1]["content"]
+    assert VERBATIM_AR in sent
+    assert "\\u" not in sent
 
 
 # --------------------------------------------------------------------------- #
@@ -399,6 +462,27 @@ async def test_a_citation_to_a_rule_not_in_the_policy_is_dropped(stubbed):
 # watch it refuse a citation to a rule that was never in the payload, and prove
 # the refusal is *reported* on the answer rather than only performed in silence.
 # --------------------------------------------------------------------------- #
+
+
+async def test_a_citation_to_a_rule_not_in_the_policy_is_dropped(stubbed):
+    """The model may only cite rules in the record it was shown. An id that names
+    no rule there is not a citation, and if nothing valid is left the answer is
+    not 'answered' — it cannot be grounded."""
+
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "An answer citing a rule that is not here.",
+        "cited_rule_ids": ["R-GHOST"],
+        "declined": False,
+        "note": "",
+    }
+
+    info = await ai_case_intent.answer_informational(
+        _payload(_cap_rule()), scenario="How many hours may a part-timer work?"
+    )
+
+    assert info["status"] == "no_rule_bears"
+    assert info["citations"] == []
 
 
 async def test_a_fabricated_citation_is_caught_and_reported(stubbed):
@@ -416,7 +500,7 @@ async def test_a_fabricated_citation_is_caught_and_reported(stubbed):
     }
 
     info = await ai_case_intent.answer_informational(
-        [_cap_rule(), _bystander_rule()], scenario="How many hours may a part-timer work?"
+        _payload(_cap_rule(), _bystander_rule()), scenario="How many hours may a part-timer work?"
     )
 
     # The answer stands, resting only on the rule that is actually present.
@@ -446,7 +530,7 @@ async def test_an_answer_resting_only_on_a_fabrication_is_not_presented_as_answe
     }
 
     info = await ai_case_intent.answer_informational(
-        [_cap_rule()], scenario="How many hours may a part-timer work?"
+        _payload(_cap_rule()), scenario="How many hours may a part-timer work?"
     )
 
     assert info["status"] != "answered"
@@ -456,7 +540,7 @@ async def test_an_answer_resting_only_on_a_fabrication_is_not_presented_as_answe
 
 
 async def test_a_policy_too_large_to_ground_is_declined_not_truncated(stubbed):
-    """When the whole policy's records will not fit one grounded pass, the gather
+    """When the whole policy's record will not fit one grounded pass, the gather
     is refused, not trimmed. No model call is made, the refusal is reported as its
     own grounding fact, and the count is the *whole* policy's — an answer over a
     silently dropped subset would be the narrowing a reviewer could not see."""
@@ -473,7 +557,7 @@ async def test_a_policy_too_large_to_ground_is_declined_not_truncated(stubbed):
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(ai_case_intent, "_MAX_RECORD_CHARS", 10)
         info = await ai_case_intent.answer_informational(
-            [_cap_rule(), _bystander_rule()], scenario="How many hours may a part-timer work?"
+            _payload(_cap_rule(), _bystander_rule()), scenario="How many hours may a part-timer work?"
         )
 
     assert info["status"] == "declined"
@@ -485,47 +569,39 @@ async def test_a_policy_too_large_to_ground_is_declined_not_truncated(stubbed):
     assert stubbed.calls == []
 
 
-async def test_the_record_shown_carries_a_threshold_that_lives_in_the_condition(stubbed):
-    """Generalisation beyond the witness. A rule may state its limit only in its
-    compiled condition — the sentence says "within the weekly ceiling" while the
-    number sits in the fact-comparison. The record shown to the model must carry
-    that number, or an informational answer could never report it. Asserted on
-    what is *sent*, so it holds for any rule whose threshold lives in the tree."""
+async def test_the_record_shown_carries_the_number_the_rule_states_in_its_words(stubbed):
+    """Generalisation beyond the witness. The quantity an informational answer
+    reports reaches the model through the rule's verbatim source sentence — the
+    lean record's grounding surface — because that is where the document names
+    its limit. The projection deliberately does not carry a rule's compiled
+    condition tree, so a number that lived *only* in that tree, absent from the
+    rule's own words, would not reach the model; the honest reading is that the
+    number rides in the source the reviewer can check, and this pins that.
 
-    threshold_rule = make_rule(
-        "R-THRESHOLD",
-        condition=FactComparisonCondition(
-            fact="weekly-hours",
-            operator=ConditionOperator.LESS_THAN_OR_EQUAL,
-            value=24,
-        ),
-        machine_executable=True,
-    ).model_copy(
+    Asserted on what is *sent*, so it holds for any rule whose sentence names its
+    own limit rather than for one document's phrasing.
+    """
+
+    stated = "Casual staff are engaged to work no more than 16 hours in any week."
+    rule = make_rule("R-CASUAL", condition=AllCondition(all=[]), machine_executable=True).model_copy(
         update={
-            "title": "Weekly ceiling for part-time staff",
+            "title": "Weekly ceiling for casual staff",
             "required_facts": [RequiredFact(name="weekly-hours", data_type="number", unit="hours")],
-            # The sentence names no number — the limit lives only in the condition.
-            "formulation": RuleFormulation(
-                canonical=CanonicalPolicy(source_text="Part-time staff work within the weekly ceiling.")
-            ),
+            "formulation": RuleFormulation(canonical=CanonicalPolicy(source_text=stated)),
+            "evidence": [_evidence("C-CASUAL")],
         }
     )
 
     await ai_case_intent.answer_informational(
-        [threshold_rule], scenario="How many hours may a part-timer work?"
+        _payload(rule), scenario="How many hours may a casual worker work?"
     )
 
-    # Exactly one call — the gather — and the payload it carried holds the number
-    # and the fact it is compared against, taken from the condition rather than
-    # the sentence.
+    # Exactly one call — the gather — and the record it carried holds the number
+    # the reviewer asked after, taken from the rule's own sentence.
     assert len(stubbed.calls) == 1
     sent = stubbed.calls[0]["messages"][1]["content"]
-    assert "24" in sent
-    assert "weekly-hours" in sent
-    assert "lessThanOrEqual" in sent
-    # And the sentence really did not carry the number, so the payload's "24" can
-    # only have come from the condition.
-    assert "24" not in "Part-time staff work within the weekly ceiling."
+    assert stated in sent
+    assert "16" in sent
 
 
 async def test_a_gather_that_fails_on_a_known_informational_case_is_its_own_state(stubbed):
@@ -539,7 +615,7 @@ async def test_a_gather_that_fails_on_a_known_informational_case_is_its_own_stat
     stubbed.fail_info = True
 
     out = await ai_case_intent.answer_policy_case(
-        [_cap_rule().model_dump(mode="json")],
+        _payload(_cap_rule()),
         scenario="How many hours may a part-timer work?",
     )
 
@@ -560,6 +636,6 @@ async def test_a_classification_that_fails_is_raised_because_the_intent_is_unkno
 
     with pytest.raises(RuntimeError):
         await ai_case_intent.answer_policy_case(
-            [_cap_rule().model_dump(mode="json")],
+            _payload(_cap_rule()),
             scenario="How many hours may a part-timer work?",
         )
