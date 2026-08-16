@@ -443,6 +443,7 @@ async def _load_baseline_candidates(
 async def _supersede_prior_candidates(
     session: AsyncSession,
     document_version_id: uuid.UUID,
+    policy_set_id: uuid.UUID,
     *,
     exclude_run_id: uuid.UUID,
 ) -> int:
@@ -474,6 +475,17 @@ async def _supersede_prior_candidates(
     an unfiltered "all prior runs for this document" would match the caller's
     own output and retire the rules it just wrote.
 
+    `policy_set_id` is mandatory for the same reason and a worse one.
+    `_document_run_ids` deliberately walks up to the owning `SourceDocument` so
+    a re-uploaded variant still compares against the original — but a document
+    can be extracted into more than one policy set, and run history is a
+    property of the *document*, not of the set. Without this filter, extracting
+    a document into a second policy set retires the first set's live candidates:
+    a reviewer's working queue emptied by a run they have no visibility of, in a
+    set they were not working in. The rows are marked rather than deleted, so it
+    is recoverable — but it is silent, and a review queue that empties itself is
+    indistinguishable from one that was never populated.
+
     Returns the number of rows retired.
     """
 
@@ -485,6 +497,7 @@ async def _supersede_prior_candidates(
         update(CandidateRule)
         .where(
             CandidateRule.extraction_run_id.in_(prior_runs),
+            CandidateRule.policy_set_id == policy_set_id,
             CandidateRule.review_status == "candidate",
             CandidateRule.published_version_id.is_(None),
             CandidateRule.superseded_at.is_(None),
@@ -991,7 +1004,7 @@ async def extract_candidate_rules(
                 # batch's inserts, so the queue never contains both runs at once
                 # and never loses the old set without gaining a new one.
                 superseded = await _supersede_prior_candidates(
-                    session, document_version_id, exclude_run_id=run.id
+                    session, document_version_id, policy_set.id, exclude_run_id=run.id
                 )
                 superseded_done = True
                 extraction_progress.update(progress_key, superseded=superseded)
