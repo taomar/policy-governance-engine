@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Card, Select, Space, Table, Tag, Typography } from "antd";
 import { SwapOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { aiApi, api, PolicyPlatformApiError, type ApprovedPolicyVersion, type CompareResult, type PolicySet } from "../api";
-import { RuleCard } from "./RuleCard";
+import { PolicyInspector } from "./PolicyInspector";
 import { RuleDiffRow } from "./RuleDiffRow";
 
 const { Title, Text, Paragraph } = Typography;
@@ -25,7 +25,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Lazy-mount set: only rules the user has explicitly expanded get a full
-  // RuleCard (evidence resolution + Notes fetch). Keeps a large diff (e.g.
+  // reading (evidence resolution + Notes fetch). Keeps a large diff (e.g.
   // hundreds of added rules from a big candidate-batch publish) from firing
   // hundreds of effects/requests on render — see RuleDiffRow for detail.
   const [expandedDiffIds, setExpandedDiffIds] = useState<Set<string>>(new Set());
@@ -38,6 +38,13 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
       return next;
     });
   };
+
+  /** The version a diffed rule is read at: an added rule exists in the later
+   *  version, a removed one only in the earlier. Naming it lets the reading
+   *  below say which published record it is showing, rather than leaving the
+   *  reader to infer it from which list the row sat in. */
+  const versionNumbered = (n: number | "") =>
+    (n === "" ? null : versions.find((v) => v.version_number === n)) ?? null;
 
   useEffect(() => {
     if (scoped) return; // scope is fixed by the embedding project; no picker/list needed
@@ -174,7 +181,19 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
                     />
                     {expandedDiffIds.has(r.rule_id) && (
                       <div className="candidate-item-detail">
-                        <RuleCard rule={r} defaultExpanded />
+                        {/* The same reading of a rule the rest of the app gives.
+                            This expanded a flat `RuleCard` — no tabs — so a rule
+                            opened here read differently from the same rule
+                            opened anywhere else, and the tabs a reader had
+                            learned to expect were simply absent. */}
+                        <PolicyInspector
+                          rule={r}
+                          variant="embedded"
+                          recordLabel="rule"
+                          policySetKey={selectedKey || undefined}
+                          versions={versions}
+                          publishedVersion={versionNumbered(versionB)}
+                        />
                       </div>
                     )}
                   </div>
@@ -196,7 +215,14 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
                     />
                     {expandedDiffIds.has(r.rule_id) && (
                       <div className="candidate-item-detail">
-                        <RuleCard rule={r} defaultExpanded />
+                        <PolicyInspector
+                          rule={r}
+                          variant="embedded"
+                          recordLabel="rule"
+                          policySetKey={selectedKey || undefined}
+                          versions={versions}
+                          publishedVersion={versionNumbered(versionA)}
+                        />
                       </div>
                     )}
                   </div>

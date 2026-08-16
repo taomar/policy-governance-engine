@@ -256,10 +256,10 @@ describe("the published page expands a rule into that same reading", () => {
   });
 
   it("no longer draws the component the second renderer expanded", () => {
-    // `RuleCard` still has honest callers — comparing versions, the rewrite and
-    // edit modals, and the list of rules this page could place under no policy.
-    // What it must not be again is the answer to "open this rule of this
-    // policy", which is the one place the two readings diverged.
+    // `RuleCard` still has honest callers — the rewrite and edit modals, where
+    // it is the live preview of a rule being written, and the list of rules
+    // this page could place under no policy. What it must not be again is the
+    // answer to "open this rule", which is where the readings diverged.
     const detail = source().slice(source().indexOf("ruleDetail={"));
     expect(detail.slice(0, detail.indexOf("ruleActions={"))).not.toContain("<RuleCard");
   });
@@ -296,5 +296,65 @@ describe("the published page expands a rule into that same reading", () => {
     // list is showing that one policy and is right to use it. What must not
     // happen is that value reaching a card, which is a different policy.
     expect(cardElement()).not.toMatch(/documentName=\{documentName\}/);
+  });
+});
+
+/**
+ * Comparing two published versions is a published-rule surface, and expanding a
+ * row there is a reader saying "show me this rule". It expanded a flat
+ * `RuleCard`: a stacked list of Set by / Applies to / the effect / Condition /
+ * Record details, with no tab strip at all.
+ *
+ * That was the last place a rule read differently from everywhere else, and it
+ * was reported as a regression - the tabs were "brought back" everywhere the
+ * reporter had been looking, so the one surface still without them looked like
+ * something taken away. It was never converted, only never noticed.
+ *
+ * The cure is the cure everywhere else: draw the inspector the rest of the app
+ * draws. Growing a second tab strip on `RuleCard` would have been a new copy of
+ * the machinery this file exists to keep to one.
+ */
+describe("comparing versions expands a rule into that same reading", () => {
+  const sources = import.meta.glob("./ComparePage.tsx", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
+  const source = () => Object.values(sources)[0] ?? "";
+
+  it("read the compare page's source", () => {
+    expect(Object.keys(sources)).toHaveLength(1);
+    expect(source().length).toBeGreaterThan(1000);
+  });
+
+  it("expands a diffed rule into the inspector, embedded", () => {
+    const elements = source().match(/<PolicyInspector[\s\S]*?\/>/g) ?? [];
+    // One per side of the diff: a rule the later version added, and a rule the
+    // earlier version had and the later one dropped.
+    expect(elements.length).toBeGreaterThanOrEqual(2);
+    for (const element of elements) {
+      expect(element).toContain('variant="embedded"');
+    }
+  });
+
+  it("draws no flat card in place of that reading", () => {
+    // Comments may still name it - the history of why this changed is worth
+    // keeping - but nothing may render it here.
+    expect(source()).not.toMatch(/<RuleCard\b/);
+    expect(source()).not.toMatch(/from\s+"\.\/RuleCard"/);
+  });
+
+  it("says which published version each side of the diff was read at", () => {
+    // An added rule belongs to the later version and a removed one only to the
+    // earlier. A reading that named neither would leave the reader to infer it
+    // from which list the row sat in.
+    const elements = source().match(/<PolicyInspector[\s\S]*?\/>/g) ?? [];
+    expect(elements.length).toBeGreaterThanOrEqual(2);
+    for (const element of elements) {
+      expect(element).toMatch(/publishedVersion=\{/);
+    }
+    const targets = elements.map((e) => /publishedVersion=\{([^}]*)\}/.exec(e)?.[1]?.trim());
+    expect(new Set(targets).size).toBe(elements.length);
   });
 });

@@ -21,11 +21,11 @@ interface RuleDiffRowProps {
  * just a bare CanonicalRule + a diff-side tag (no candidate status, bulk
  * select, or cluster banding — those don't apply to a version diff).
  *
- * Exists so a version comparison with hundreds of added/removed rules (a
- * real possibility once a large candidate batch — e.g. hr-guide-policy's
- * 340+ pending rules — gets published as a new version) doesn't mount a full
- * RuleCard (and its per-instance evidence-resolution + Notes fetch) for
- * every row up front. The full RuleCard is only mounted when a row expands.
+ * Exists so a version comparison holding many added/removed rules doesn't
+ * mount a full reading — with its per-instance evidence resolution and Notes
+ * fetch — for every row up front. The full reading is only mounted when a
+ * row expands, and it is the same inspector every other surface draws, so a
+ * rule opened here is tabbed exactly as it is opened anywhere else.
  */
 export function RuleDiffRow({ rule, diffKind, expanded, onToggleExpand }: RuleDiffRowProps) {
   const line = ruleConditionLine(rule);
