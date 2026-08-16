@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -385,59 +386,144 @@ async def _document_run_ids(
     )
 
 
-async def _load_baseline_candidates(
+@dataclass(frozen=True)
+class BaselineSelection:
+    """The previous generation to compare against, and what to distrust about it.
+
+    `caveats` is the part that matters. A delta is a comparison, and a
+    comparison is only as good as the two things being compared; when the
+    baseline was produced by different code, or never read part of the document,
+    the counts are still computed but they no longer mean "this is how much the
+    document moved". Those conditions are reported rather than silently
+    corrected, because a caveat a reader can see is worth more than an
+    adjustment they cannot.
+    """
+
+    run: ExtractionRun | None
+    rules: list[CandidateRule]
+    caveats: tuple[str, ...] = ()
+
+
+#: Run states that disqualify a baseline outright, as opposed to qualifying it.
+#: A failed run stopped mid-document and holds whatever it had committed, so the
+#: rules it never reached would be reported as new. A manual-entry run is not a
+#: reading of this document at all.
+_UNUSABLE_BASELINE_STATUSES = frozenset({"failed", "running", "manual_entry"})
+
+
+async def _select_baseline(
     session: AsyncSession,
     document_version_id: uuid.UUID,
     policy_set_id: uuid.UUID,
     *,
     exclude_run_id: uuid.UUID,
-) -> list[CandidateRule]:
+    current_run: ExtractionRun | None = None,
+) -> BaselineSelection:
     """The previous generation of rules for this document, to compare against.
 
-    "Previous generation" is the most recent prior run that actually produced
-    rules — not simply the most recent run, because a run that failed or found
-    nothing must not become a baseline of zero rules and make the whole document
-    look brand new.
+    "Previous generation" is the most recent prior run that produced rules and
+    was not abandoned. Recency is the whole point: the question a delta answers
+    is "what changed since last time", and any run older than last time answers
+    a different question.
 
-    Reviewed rules are included. They are the ones whose decisions are most
-    worth carrying forward: a rule the reviewer already approved and that this
-    run reproduces identically should not be asked about a second time.
+    This once additionally required `status == "completed"`, to keep a partial
+    reading from becoming a baseline of missing rules. The reasoning was sound
+    and the effect was not. `completed_with_gaps` means the run finished and
+    read all but one batch — still by far the closest thing to the current run —
+    and skipping it reached back to whatever came before, which on the run that
+    prompted this investigation was two model generations and five commits
+    earlier. The delta then attributed the intervening code changes to the
+    document: it reported 14% of rules unchanged where comparing against the
+    immediately preceding run gave 20%, and nobody could tell which number was
+    about the handbook and which was about us.
+
+    So the gap is kept and declared instead of being avoided. A gapped baseline
+    is still the right thing to compare against; it just cannot support the
+    claim that a rule is *new*, because "new" and "in a batch the baseline never
+    read" are indistinguishable from here. That distinction rides in `caveats`
+    to the run summary rather than being buried.
     """
 
     prior_runs = await _document_run_ids(session, document_version_id, exclude_run_id=exclude_run_id)
     if not prior_runs:
-        return []
+        return BaselineSelection(run=None, rules=[])
 
-    latest_run_id = (
+    baseline_run = (
         await session.execute(
-            select(CandidateRule.extraction_run_id)
-            .join(ExtractionRun, ExtractionRun.id == CandidateRule.extraction_run_id)
+            select(ExtractionRun)
+            .join(CandidateRule, CandidateRule.extraction_run_id == ExtractionRun.id)
             .where(
                 CandidateRule.extraction_run_id.in_(prior_runs),
                 CandidateRule.policy_set_id == policy_set_id,
-                # Only a run that finished is a trustworthy reference. A run that
-                # failed or was interrupted holds however many rules it managed
-                # to commit before it stopped, and comparing against that partial
-                # set would report every rule it never reached as brand new —
-                # the exact noise this is meant to remove.
-                ExtractionRun.status == "completed",
+                ExtractionRun.status.not_in(_UNUSABLE_BASELINE_STATUSES),
             )
             .order_by(ExtractionRun.created_at.desc())
             .limit(1)
         )
-    ).scalar_one_or_none()
-    if latest_run_id is None:
-        return []
+    ).scalars().first()
+    if baseline_run is None:
+        return BaselineSelection(run=None, rules=[])
 
-    return list(
+    rules = list(
         (
             await session.execute(
-                select(CandidateRule).where(CandidateRule.extraction_run_id == latest_run_id)
+                select(CandidateRule).where(CandidateRule.extraction_run_id == baseline_run.id)
             )
         )
         .scalars()
         .all()
     )
+    return BaselineSelection(
+        run=baseline_run,
+        rules=rules,
+        caveats=_comparison_caveats(current_run, baseline_run),
+    )
+
+
+def _comparison_caveats(
+    current: ExtractionRun | None, baseline: ExtractionRun | None
+) -> tuple[str, ...]:
+    """What would make this comparison measure us rather than the document.
+
+    Every run records the deployment, prompt and parser that produced it, and
+    until now nothing read them back. A run comparing itself against a baseline
+    built by different code reports the difference between two versions of this
+    system as though it were a difference in the policy — which is how a
+    deliberate merge of conjoined verbs, shipped between two runs, came to be
+    read as the model being unstable.
+
+    Reported, never silently dropped. A missing baseline and a mismatched one
+    are different situations: the first means there is nothing to compare
+    against, the second means there is something and it is not comparable. A
+    reader told only "no delta" cannot tell those apart, and the second one is
+    the one that needs acting on.
+    """
+
+    if baseline is None or current is None:
+        return ()
+
+    caveats: list[str] = []
+    for label, field in (
+        ("model deployment", "deployment_name"),
+        ("prompt version", "prompt_version"),
+        ("parser version", "parser_version"),
+    ):
+        mine, theirs = getattr(current, field, None), getattr(baseline, field, None)
+        if mine != theirs:
+            caveats.append(
+                f"This run's {label} ({mine or 'unrecorded'}) differs from the run it is "
+                f"compared against ({theirs or 'unrecorded'}), so some of the difference "
+                "below is a change in this system rather than in the document."
+            )
+
+    unread = [entry for entry in (baseline.skipped_json or []) if skip_breaks_coverage(entry)]
+    if unread:
+        caveats.append(
+            f"The run being compared against did not read {len(unread)} batch(es) of this "
+            "document, so rules from that material are reported as new when they may "
+            "simply never have been seen before."
+        )
+    return tuple(caveats)
 
 
 async def _supersede_prior_candidates(
@@ -588,7 +674,8 @@ async def _classify_run_delta(
     run_id: uuid.UUID,
     document_version_id: uuid.UUID,
     policy_set_id: uuid.UUID,
-) -> dict[str, int]:
+    current_run: ExtractionRun | None = None,
+) -> tuple[dict[str, int], tuple[str, ...]]:
     """Record how this run's rules differ from the previous generation.
 
     Runs once at the end of the run rather than per batch. Matching is
@@ -601,6 +688,12 @@ async def _classify_run_delta(
     this run produced the identical rule from the same passage, re-asking is
     pure friction, and the carried decision is annotated with the run that
     inherited it so the audit trail still shows where it came from.
+
+    Returns the counts and any reasons the comparison should not be read as a
+    statement about the document — see `_comparison_caveats`. The caveats travel
+    with the counts rather than beside them because they are the difference
+    between "the policy changed" and "we changed"; a caller that receives one
+    without the other can report the first when the second is true.
     """
 
     current = list(
@@ -611,11 +704,16 @@ async def _classify_run_delta(
         .all()
     )
     if not current:
-        return {"new": 0, "changed": 0, "unchanged": 0, "baseline": 0, "removed": 0, "reworded": 0}
+        return {"new": 0, "changed": 0, "unchanged": 0, "baseline": 0, "removed": 0, "reworded": 0}, ()
 
-    baseline = await _load_baseline_candidates(
-        session, document_version_id, policy_set_id, exclude_run_id=run_id
+    selection = await _select_baseline(
+        session,
+        document_version_id,
+        policy_set_id,
+        exclude_run_id=run_id,
+        current_run=current_run,
     )
+    baseline = selection.rules
     baseline_by_id = {str(row.id): row for row in baseline}
 
     result = rule_delta.diff_runs(
@@ -661,7 +759,7 @@ async def _classify_run_delta(
             )
 
     await session.flush()
-    return result.counts
+    return result.counts, selection.caveats
 
 
 async def extract_candidate_rules(
@@ -1277,11 +1375,12 @@ async def extract_candidate_rules(
         # classifying before linking would still mean fingerprinting a payload
         # the run had not finished writing.
         extraction_progress.update(progress_key, stage="Comparing against the previous extraction…")
-        delta_counts = await _classify_run_delta(
+        delta_counts, comparison_caveats = await _classify_run_delta(
             session,
             run_id=run.id,
             document_version_id=document_version_id,
             policy_set_id=policy_set.id,
+            current_run=run,
         )
         extraction_progress.update(
             progress_key,
@@ -1332,6 +1431,14 @@ async def extract_candidate_rules(
         if delta_counts.get("removed"):
             parts.append(f"{delta_counts['removed']} no longer found")
         summary = f"Done — {', '.join(parts)} since the previous extraction."
+    if comparison_caveats:
+        # Said immediately after the delta and before anything else, because
+        # every sentence above is a claim about the document and these are the
+        # reasons that claim might really be about us. Appended rather than
+        # substituted: the counts are still the best available answer, and
+        # withholding them would leave a reader with no delta at all when the
+        # honest position is a delta they should discount.
+        summary = " ".join([summary, *comparison_caveats])
     if skipped:
         # Every sentence built above describes the delta, and the delta is
         # computed only over what was actually read. Left alone, a partial
@@ -1406,4 +1513,8 @@ async def extract_candidate_rules(
         },
         "superseded": superseded,
         "delta": delta_counts,
+        # Why the delta above might not mean what it appears to. Empty is the
+        # normal case and says the comparison was like-for-like; a non-empty
+        # list is not a warning about the document but about the comparison.
+        "comparison_caveats": list(comparison_caveats),
     }

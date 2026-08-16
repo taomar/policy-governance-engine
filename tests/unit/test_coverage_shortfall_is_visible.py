@@ -6,15 +6,19 @@ recorded — but a status field that cannot express the difference. "Completed
 with 4 skips" and "completed" were the same value, so a person, a query, or a
 downstream check reading `status` was told the same thing either way.
 
-That mattered concretely. `ExtractionRun.status == "completed"` is the test for
-"trustworthy enough to diff against" when a later run picks its baseline, and
-the comment at that query says a partial run must be excluded because comparing
-against it "would report every rule it never reached as brand new". A skipped
-run is partial in exactly that sense.
+That mattered concretely, though not in the way first supposed. The baseline
+query used `status == "completed"` as its test for "trustworthy enough to diff
+against", excluding a partial run because comparing against it "would report
+every rule it never reached as brand new". That reasoning was right about the
+risk and wrong about the remedy: skipping the most recent run reached back to an
+older one built by different code, and the delta then reported our own changes
+as the document's. A gapped run is now chosen and its gap declared — see
+`test_a_gapped_baseline_is_declared_rather_than_avoided`. The status must still
+express the difference, which is what this file guards.
 
 Nothing here is about the policy or about the reading route. A skip is material
 this system did not read; it is never a shortfall in the document, and never a
-comment on records that are decided by reading.
+comment on records that are AI Ready.
 
 The structural checks below deliberately key off the *skip ledger* — the list
 every skip point appends to — rather than a list of known skip sites. A skip
@@ -31,6 +35,10 @@ from pathlib import Path
 import pytest
 
 from policy_platform.domain.models import ExtractionRun
+from policy_platform.infrastructure.extraction.ai_extraction import (
+    _UNUSABLE_BASELINE_STATUSES,
+    _comparison_caveats,
+)
 from policy_platform.infrastructure.persistence.repositories.candidates import (
     RUN_COMPLETED,
     RUN_COMPLETED_WITH_GAPS,
@@ -348,36 +356,109 @@ def test_the_reader_is_told_when_a_reading_was_partial(extraction_module: ast.Mo
 # --------------------------------------------------------------------------
 
 
-def test_the_baseline_is_chosen_on_whole_coverage(extraction_module: ast.Module) -> None:
-    """A gapped run must not be picked as the trustworthy reference to diff against."""
-    literals: list[str] = []
-    for node in ast.walk(extraction_module):
-        if not isinstance(node, ast.Compare):
-            continue
-        left = node.left
-        if not (
-            isinstance(left, ast.Attribute)
-            and left.attr == "status"
-            and isinstance(left.value, ast.Name)
-            and left.value.id == "ExtractionRun"
-        ):
-            continue
-        for comparator in node.comparators:
-            if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
-                literals.append(comparator.value)
+def test_a_gapped_baseline_is_declared_rather_than_avoided() -> None:
+    """Diffing against a partial reading is allowed; doing it quietly is not.
 
-    assert literals, (
-        "no `ExtractionRun.status == <literal>` comparison found. This guard exists to "
-        "hold the baseline query to whole-coverage runs; if that query moved, the guard "
-        "is watching nothing."
+    This assertion used to be the opposite: the baseline query required
+    `status == "completed"`, so a run with one unread batch was passed over
+    entirely. The reasoning was sound — rules the baseline never reached surface
+    as new — but the cure was worse than the disease. Skipping the immediately
+    preceding run reached back to whatever came before it, which on the run that
+    prompted this change was two model generations and five commits earlier, and
+    the delta then reported the difference between two versions of *this system*
+    as though the handbook had been rewritten. Measured, the wrong baseline
+    reported far fewer rules as unchanged than the gapped-but-recent one.
+
+    So recency wins and the gap is declared instead. The original concern is
+    still honoured — a reader is told the comparison cannot distinguish "new"
+    from "in the part the baseline never read" — but it is honoured by saying
+    so rather than by silently comparing against something older and less
+    comparable.
+    """
+
+    baseline = ExtractionRun(
+        status=RUN_COMPLETED_WITH_GAPS,
+        deployment_name="d",
+        prompt_version="p",
+        parser_version="v",
+        skipped_json=[{"kind": "batch_unread", "identity": "batch:x", "reason": "boom"}],
     )
-    assert RUN_COMPLETED_WITH_GAPS not in literals, (
-        f"the baseline query accepts {RUN_COMPLETED_WITH_GAPS!r} ({literals}). Diffing "
-        "against a run that did not read the whole document reports the rules it never "
-        "reached as new, and the rules a later run misses as 'no longer found' — a claim "
-        "about the document made on the strength of extraction coverage."
+    current = ExtractionRun(
+        status=RUN_COMPLETED, deployment_name="d", prompt_version="p", parser_version="v"
     )
-    assert all(literal == RUN_COMPLETED for literal in literals), (
-        f"the baseline query compares status against {literals}, which is not the "
-        f"whole-coverage status {RUN_COMPLETED!r}."
+
+    caveats = _comparison_caveats(current, baseline)
+
+    assert caveats, (
+        "a baseline that never read part of the document produced no caveat. The delta "
+        "would then report rules from unread material as new, which is a claim about the "
+        "document made on the strength of how much of it the previous run reached."
+    )
+    assert any("did not read" in caveat for caveat in caveats), (
+        f"the caveats {caveats} do not say that material went unread, so a reader cannot "
+        "tell why the comparison is limited."
+    )
+
+
+def test_a_whole_coverage_baseline_on_the_same_code_needs_no_caveat() -> None:
+    """The positive control: the warning must stay rare enough to be worth reading.
+
+    A caveat on every run is a caveat on none. If this ever fails, the check
+    above has started firing on healthy comparisons and will be ignored exactly
+    when it matters.
+    """
+
+    fields = {"deployment_name": "d", "prompt_version": "p", "parser_version": "v"}
+    baseline = ExtractionRun(status=RUN_COMPLETED, skipped_json=[], **fields)
+    current = ExtractionRun(status=RUN_COMPLETED, **fields)
+
+    assert _comparison_caveats(current, baseline) == (), (
+        "a like-for-like comparison against a whole reading was flagged as untrustworthy."
+    )
+
+
+def test_a_baseline_built_by_different_code_is_flagged() -> None:
+    """Comparing across versions measures us, not the document.
+
+    Every run records the deployment, prompt and parser that made it, and until
+    this existed nothing read them back. A deliberate change to how rules are
+    merged, shipped between two extractions, was read as the model being
+    unstable — the delta had no way to say "some of this difference is ours".
+    """
+
+    for field in ("deployment_name", "prompt_version", "parser_version"):
+        same = {"deployment_name": "d", "prompt_version": "p", "parser_version": "v"}
+        baseline = ExtractionRun(status=RUN_COMPLETED, skipped_json=[], **same)
+        current = ExtractionRun(status=RUN_COMPLETED, **{**same, field: "different"})
+
+        caveats = _comparison_caveats(current, baseline)
+
+        assert caveats, (
+            f"a baseline whose {field} differs from this run's produced no caveat, so a "
+            "change in this system is reported as a change in the policy."
+        )
+
+
+def test_an_abandoned_run_is_still_refused_as_a_baseline() -> None:
+    """Relaxing the status filter must not have relaxed it all the way.
+
+    A gapped run finished and knows what it missed. A failed or still-running
+    one stopped somewhere unrecorded and holds whatever it had committed at that
+    moment, so everything it never reached would be reported as new with nothing
+    to warn the reader. That distinction is the whole reason this is a denylist
+    of abandoned states rather than an allowlist of good ones.
+    """
+
+    assert RUN_COMPLETED_WITH_GAPS not in _UNUSABLE_BASELINE_STATUSES, (
+        "a finished-but-partial run is refused as a baseline again, which sends the "
+        "comparison back to an older and less comparable run."
+    )
+    assert RUN_COMPLETED not in _UNUSABLE_BASELINE_STATUSES
+    assert "failed" in _UNUSABLE_BASELINE_STATUSES, (
+        "a failed run can be chosen as a baseline. It stopped at an unrecorded point, so "
+        "every rule it never reached would be reported as new."
+    )
+    assert "running" in _UNUSABLE_BASELINE_STATUSES, (
+        "a run still in flight can be chosen as a baseline; it is comparing against a "
+        "moving target."
     )
