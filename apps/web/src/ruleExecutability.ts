@@ -1,4 +1,5 @@
 import type { CanonicalRule, ConditionNode, ConditionProvenance } from "./api";
+import { candidateEditability } from "./candidateEditability";
 import { isVacuousCondition } from "./conditionRows";
 
 /**
@@ -161,7 +162,7 @@ export const READINESS_LABEL: Record<string, string> = {
   discretionary: "Delegated",
   underspecified: "Underspecified",
   not_a_decision: "States meaning only",
-  malformed: "Decomposition damaged",
+  malformed: "Split in the wrong place",
 };
 
 export const READINESS_COLOR: Record<string, string> = {
@@ -185,6 +186,52 @@ export const READINESS_REASON: Record<string, string> = {
   not_a_decision: "A definition or classification. It grants and refuses nothing.",
   malformed: "The sentence was mis-split, so claims derived from it cannot be trusted.",
 };
+
+/**
+ * The one readiness value that is a defect in this app rather than a fact about
+ * the document.
+ *
+ * The other four say how the source states its test - fully, by delegating it,
+ * incompletely, or not at all. Each is a property of the document and none is
+ * anybody's fault. `malformed` says the app divided the document's sentence in
+ * the wrong place, so the rule on screen is not a claim the document makes.
+ *
+ * It was being shown as a red box holding a two-word label and one sentence,
+ * with no statement of what it meant for the reviewer's decision and nothing to
+ * do about it. A reviewer read it as a crash. It is not a crash; it is a
+ * finding, and a finding that does not say what to do next is only an alarm.
+ */
+export interface SplitDefectFinding {
+  /** What went wrong, in words that name this app as the cause. */
+  heading: string;
+  /** What it means for everything derived from the split. */
+  consequence: string;
+  /** Whether the rule should be approved while it reads this way. */
+  blocksApproval: boolean;
+  /** What the reviewer does about it, given what this record still admits. */
+  nextStep: string;
+}
+
+/**
+ * Derived from the record's own review status, never from the surface drawing
+ * it. A candidate can still be re-split; an approved or published rule cannot,
+ * and `candidateEditability` already holds the route out of each of those - the
+ * same sentences the edit controls give, so a reviewer meets one account of
+ * what this record admits rather than two.
+ */
+export function splitDefectFinding(reviewStatus: string): SplitDefectFinding {
+  const editability = candidateEditability(reviewStatus);
+  return {
+    heading: "This app split the document's sentence in the wrong place.",
+    consequence:
+      "Everything below is read off that split - who the rule governs, what it looks for, and what it decides. None of it can be relied on here, however sound it reads, and the document is not the reason.",
+    blocksApproval: true,
+    nextStep: editability.canEdit
+      ? "Use Suggest rewrite on this rule to have the sentence read again, then check the result against the source before deciding."
+      : (editability.editBlockedReason ??
+        "This rule cannot be changed from here, so the split has to be corrected where the record is still open."),
+  };
+}
 
 /**
  * The condition to save, given what the row editor could represent.

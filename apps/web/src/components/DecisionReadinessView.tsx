@@ -2,6 +2,7 @@ import { Alert, Empty, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { AuditOutlined, TeamOutlined } from "@ant-design/icons";
 import type { CanonicalRule, DecisionReadiness, RuleParty } from "../api";
 import { XACML_NOTE } from "../xacml";
+import { splitDefectFinding } from "../ruleExecutability";
 import { AmbiguityNoteView } from "./AmbiguityNoteView";
 
 const { Text, Paragraph } = Typography;
@@ -50,7 +51,7 @@ const VERDICT: Record<
   },
   malformed: {
     color: "red",
-    label: "Decomposition damaged",
+    label: "Split in the wrong place",
     gloss:
       "The sentence was mis-split, so every claim derived from it inherits the error. This one is ours to fix, not the document's.",
   },
@@ -84,6 +85,15 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
   }
 
   const verdict = VERDICT[readiness.evaluability];
+  // `malformed` is the one value that is not a reading of the document. The
+  // other four describe how the source states its test; this one says the app
+  // divided the source's sentence wrongly, which invalidates the parties and
+  // attributes below rather than describing them. So it is lifted out of the
+  // verdict row and stated as a finding, in its own words, with the consequence
+  // and the next step a reviewer needs. Leaving it as a red tag among four
+  // neutral ones is what made it read as a crash.
+  const splitDefect =
+    readiness.evaluability === "malformed" ? splitDefectFinding(rule.review_status) : null;
   // Keyed on an authority party rather than on the verdict: a rule can state a
   // testable limit *and* need a human to approve it. "not exceeding 5% ... and
   // subject to the judgment and approval of the Board of Trustees" is both, and
@@ -93,25 +103,51 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
 
   return (
     <div className="decision-readiness">
-      <Alert
-        type={readiness.evaluability === "malformed" ? "error" : "info"}
-        showIcon
-        message={
-          <Space size={8} wrap>
-            <Tag color={verdict.color}>{verdict.label}</Tag>
-            {deciders.length > 0 && (
-              <Tag icon={<AuditOutlined />} color="purple">
-                Bounded by human judgement
-              </Tag>
-            )}
-          </Space>
-        }
-        description={
-          <Paragraph type="secondary" className="decision-readiness-gloss">
-            {verdict.gloss}
-          </Paragraph>
-        }
-      />
+      {splitDefect ? (
+        <Alert
+          type="warning"
+          showIcon
+          data-testid="split-defect-finding"
+          message={splitDefect.heading}
+          description={
+            <div className="decision-readiness-defect">
+              <Paragraph type="secondary" className="decision-readiness-gloss">
+                {splitDefect.consequence}
+              </Paragraph>
+              <Paragraph className="decision-readiness-gloss">
+                <Text strong data-testid="split-defect-approval">
+                  {splitDefect.blocksApproval
+                    ? "Do not approve this rule while it reads this way."
+                    : "This does not stand in the way of approving the rule."}
+                </Text>
+              </Paragraph>
+              <Paragraph type="secondary" className="decision-readiness-gloss">
+                <Text data-testid="split-defect-next-step">{splitDefect.nextStep}</Text>
+              </Paragraph>
+            </div>
+          }
+        />
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          message={
+            <Space size={8} wrap>
+              <Tag color={verdict.color}>{verdict.label}</Tag>
+              {deciders.length > 0 && (
+                <Tag icon={<AuditOutlined />} color="purple">
+                  Bounded by human judgement
+                </Tag>
+              )}
+            </Space>
+          }
+          description={
+            <Paragraph type="secondary" className="decision-readiness-gloss">
+              {verdict.gloss}
+            </Paragraph>
+          }
+        />
+      )}
 
       {deciders.length > 0 && (
         <div className="decision-readiness-section">
