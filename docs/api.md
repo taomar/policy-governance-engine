@@ -20,7 +20,7 @@ generated description as authoritative — this page only orients you. The
 description is generated from the same Pydantic contracts the evaluator consumes,
 so it cannot drift from the implementation.
 
-The current surface is **90 paths / 102 operations** across 13 tags.
+The current surface is **84 paths / 94 operations** across 13 tags.
 
 ## Endpoint groups
 
@@ -28,7 +28,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 
 | Tag | Prefix | Operations | What it covers |
 |---|---|---|---|
-| `policy-sets` | `/api/policy-sets` | 25 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version policies, provision history across versions, version export, active version, and aggregate limits (list/create/update/delete/propose/preview/eligibility). |
+| `policy-sets` | `/api/policy-sets` | 17 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version policies, provision history across versions, version export, and active version. |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue: draft, list, facets, edit, review, request-changes, override, bulk-review, export — plus `GET /api/policy-sets/{key}/policies`, the same rules grouped under the passage that stated them, and `POST /api/policy-sets/{key}/publish`. |
 | `ai` | `/api/ai` | 30 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation — split by the route the rule takes, so a rule read by a judge and a rule computed by the engine are each put to the decider its route names — compare, quality (published + candidates, each split into a POST that evaluates and a GET that reads the last result, plus history), policy-set summary, correlation runs/findings/dispositions, change explanation, generated subject names for the policies of a set, generated handles for the rules of a set and the lookup that serves them, and a plain-words reading of one policy's extracted record. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
