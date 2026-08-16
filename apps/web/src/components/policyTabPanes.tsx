@@ -338,6 +338,7 @@ export function PolicyOverviewPane({
       <PolicySourcePane source={record.source} spansPages={spansPages} />
 
       <PolicyPlainWords
+        key={chain.provisionKey}
         provisionId={record.policy.provision_id ?? null}
         policyKey={chain.provisionKey}
       />

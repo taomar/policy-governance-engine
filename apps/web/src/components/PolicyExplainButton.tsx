@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Modal, Tooltip, Typography } from "antd";
 import { BulbOutlined } from "@ant-design/icons";
 import { aiApi, type PolicyExplanation } from "../api";
@@ -63,16 +63,38 @@ export function PolicyExplainButton({
   const [result, setResult] = useState<PolicyExplanation | null>(null);
   const [failure, setFailure] = useState<string>("");
 
+  // This button is not remounted when the policy under it changes. It sits in a
+  // panel that swaps which record it shows while the button keeps its position,
+  // so React reuses this instance and only the `provisionId` prop changes. A
+  // reading generated for the previous policy is not about the one now on
+  // screen, so on that change it is cleared and any open dialog is closed: the
+  // next open asks about the policy now in hand rather than showing the last.
+  const askedFor = useRef(provisionId);
+  useEffect(() => {
+    askedFor.current = provisionId;
+    setOpen(false);
+    setState("idle");
+    setResult(null);
+    setFailure("");
+  }, [provisionId]);
+
   async function ask(regenerate = false) {
+    const forPolicy = provisionId;
     setState("loading");
     setFailure("");
     try {
-      setResult(await aiApi.explainPolicy(provisionId, regenerate));
+      const reading = await aiApi.explainPolicy(forPolicy, regenerate);
+      // The reader may have moved to another policy while this was in flight.
+      // A reading answered for a policy no longer on screen is dropped, never
+      // shown under the one that replaced it.
+      if (askedFor.current !== forPolicy) return;
+      setResult(reading);
       setState("ready");
     } catch (error) {
       // The request never landed or the server refused it. Distinct from the
       // server answering that it has no explanation, which arrives as a
       // successful response carrying a code.
+      if (askedFor.current !== forPolicy) return;
       setFailure(describeApiFailure(error));
       setState("unavailable");
     }
