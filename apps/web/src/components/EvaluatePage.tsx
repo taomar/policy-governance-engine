@@ -51,12 +51,28 @@ const EMPTY_SCOPE_OPTIONS: ScopeOptions = {
   processes: [],
 };
 
+/**
+ * The outcome of building the facts form, kept separate from `factFields` so an
+ * empty form can say *why* it is empty. Four causes reach `factFields.length ===
+ * 0` and were previously one sentence: the rules are still loading, the load
+ * failed, the set has no active version to read, and — the normal case for rules
+ * whose test is words rather than a computation — the version has rules but none
+ * names a fact for the form to collect. Collapsing "the version has no rules"
+ * onto "its rules name no facts" is the defect this type exists to prevent.
+ */
+type FactsLoad =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "no-active-version" }
+  | { status: "ready"; ruleCount: number };
+
 export function EvaluatePage() {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>("active");
   const [factFields, setFactFields] = useState<FactField[]>([]);
+  const [factsLoad, setFactsLoad] = useState<FactsLoad>({ status: "loading" });
   const [factValues, setFactValues] = useState<Record<string, string>>({});
   const [scopeOptions, setScopeOptions] = useState<ScopeOptions>(EMPTY_SCOPE_OPTIONS);
   const [principal, setPrincipal] = useState<PrincipalContext>({});
@@ -95,11 +111,17 @@ export function EvaluatePage() {
   useEffect(() => {
     if (!selectedKey) return;
     const loadFacts = async () => {
+      setFactsLoad({ status: "loading" });
       try {
         let versionId = selectedVersionId;
         if (versionId === "active") {
           const active = versions.find((v) => v.is_active);
-          if (!active) return;
+          if (!active) {
+            setFactFields([]);
+            setScopeOptions(EMPTY_SCOPE_OPTIONS);
+            setFactsLoad({ status: "no-active-version" });
+            return;
+          }
           versionId = active.id;
         }
         const rules: CanonicalRule[] = await api.getVersionRules(selectedKey, versionId);
@@ -124,8 +146,13 @@ export function EvaluatePage() {
           personas: Array.from(personas),
           processes: Array.from(processes),
         });
+        // rules.length is the count the emptiness message must read, and the
+        // line that discarded it is the whole defect: without it, a version of
+        // judged rules and a version of no rules render the same sentence.
+        setFactsLoad({ status: "ready", ruleCount: rules.length });
       } catch (e) {
         setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+        setFactsLoad({ status: "error" });
       }
     };
     if (versions.length > 0) void loadFacts();
@@ -300,9 +327,25 @@ export function EvaluatePage() {
               <Paragraph type="secondary" style={{ marginBottom: 8 }}>
                 Facts (auto-generated from required facts of the selected version's rules)
               </Paragraph>
-              {factFields.length === 0 && (
-                <Text type="secondary">No required facts found — this version may have no rules yet.</Text>
-              )}
+              {factFields.length === 0 &&
+                (factsLoad.status === "loading" ? (
+                  <Text type="secondary">Loading the selected version's rules…</Text>
+                ) : factsLoad.status === "error" ? (
+                  <Text type="secondary">
+                    The selected version's rules could not be loaded — see the error above.
+                  </Text>
+                ) : factsLoad.status === "no-active-version" ? (
+                  <Text type="secondary">
+                    This policy set has no active version — pick a specific version above to evaluate.
+                  </Text>
+                ) : factsLoad.ruleCount === 0 ? (
+                  <Text type="secondary">This version has no rules yet.</Text>
+                ) : (
+                  <Text type="secondary">
+                    The rules on this version state their tests in words, so there is nothing for this form to collect.
+                    Run the evaluation to see how each rule is judged.
+                  </Text>
+                ))}
               <Row gutter={16}>
                 {factFields.map((f) => (
                   <Col span={8} key={f.name}>
