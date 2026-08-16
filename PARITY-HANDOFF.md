@@ -855,3 +855,155 @@ plus select-all. Selecting all gives `2 selected` and
 `Export 2 policies (JSONL)`. The written file: **2 lines**, keys
 `key / heading / heading_path / title / ... / passages`, **no top-level
 `rule_id`**, `1 + 12 = 13` rules nested, trailing newline present.
+
+
+## Item 18 - the Overview reads for a business reader, and a policy says whether it binds you
+
+Commits `5114547` (the rewrite), `0bb4fe9` (effective dates plus the register's
+policy counts), `7cd7f49` (a test that was reporting the wrong fault).
+
+### What the user said, and what is now on screen
+
+The verdict was *"what is that shit? who would use that or understand that for
+any business?"* against a tab that read:
+
+```
+WHERE THIS POLICY SITS
+The document places this policy at its top level, under no heading above it.
+[ Page 1 ]  [ 1 passage ]  [ 1 rule ]
+WHAT IT IS MADE OF        Its one rule decides a case.
+WHERE ITS RULES CAME FROM policy-formulator - ai_drafted - every rule
+```
+
+Three faults, all named by the producer and all now gone: the pills repeated the
+header verbatim; a full sentence described the absence of a heading; internal
+role identifiers and a snake_case enum were printed as prose.
+
+It now reads, verified live on 5490:
+
+```
+WHAT THE DOCUMENT SAYS        the document's own words, quoted, per passage
+IN PLAIN WORDS                [Read it in plain words]  - offered, not fired
+THE RULES IT HOLDS            each rule: name, statement, route, id
+HOW TO TRACE IT
+  Policy key   9567c554023e12f1cdb0100d76c0abcd
+               Quote this to find the same policy in any version of the document.
+  Read from    AIS Employee Handbook - version v1
+  Read on      RUN-1B92862D - 15/08/2026 - completed with gaps - produced its one rule
+  Put here by  Drafted by this app, not yet reviewed by a person - its one rule
+  Made of      Its one rule decides a case.
+  > The identifiers this record is addressed by      (disclosure, collapsed)
+WHERE IT HAS BEEN PUBLISHED
+HOW FAR THROUGH REVIEW IT IS  drafts only
+```
+
+The rule panel's `ORIGINAL SOURCE TEXT` block was the model, as instructed: the
+policy now has the same chain at its own scale.
+
+### Two things cut, and where they went instead
+
+The producer listed six questions and invited cuts rather than cramming.
+
+**"Has it been checked?"** is not on Overview. The Tests tab answers it exactly,
+for both routes, one click away; a second summary of it here would be a number
+with no way to act on it and a second place to keep correct.
+
+**Owner, approver, last reviewed** are not on Overview. They are recorded at
+**policy-set** scope, not per policy - the project Overview shows
+`ACCOUNTABLE OWNER: Not set`. Printing "Not set" on every policy would be noise
+repeated once per card, and inventing a per-policy owner would be a link we
+cannot evidence. Absent is not empty, so it says nothing rather than nothing-
+shaped.
+
+### One thing routed, not fixed - owner: `dev-rulename`
+
+`policyCompositionSentence` in `apps/web/src/policyCards.ts` produces
+**"Its one rule decides a case."** That is engine vocabulary, and it is exactly
+what the producer objected to in the old copy. It renders in two places: the
+card header (`data-testid="policy-composition"`) and Overview's `Made of` row,
+so it must change once, in that file, not be worked around in the pane.
+
+What a business reader needs from that line is what the rules *do*: how many
+decide a case and how many define a term, in words a manager would use. The
+shape of the data is already right; only the noun is wrong.
+
+## Effective dates - is this policy in force?
+
+The one question of the six the rewrite genuinely could not answer. Approval and
+application are different moments; the Overview was showing the first and being
+asked the second.
+
+`effective_from` and `effective_to` now travel from `approved_policy_versions`
+through `_SIGHTINGS_SQL`, `PolicySighting`, the `/provisions/{key}/history`
+payload and `PolicySightingView` to the publication list.
+
+**The witness that shaped the copy.** Live data: version 1 is superseded and
+carries **no end date at all**. It stopped applying because version 2 replaced
+it, which the record states by making version 2 active - not by writing an end
+date on version 1. Therefore:
+
+- whether a version applies is read from `is_active`, never from a missing
+  `effective_to`;
+- an absent end is **never** reported as an open one;
+- a version that no longer applies is spoken about in the past tense
+  (`applied from X`) and its end is simply not mentioned;
+- active and starting later reads `takes effect X`; active and already started
+  reads `in force since X`;
+- no start date at all returns `null`, so the caller renders nothing rather than
+  a sentence with a hole in it.
+
+`whenItApplies(version, now)` takes the day as a parameter so tests pin it;
+comparison is lexicographic on `YYYY-MM-DD`, which sidesteps timezones entirely.
+`formatDay` avoids two traps: `toLocaleString` appends a time to a value that
+has none, and `new Date('2026-08-15')` parses as **UTC** midnight so a reader
+west of Greenwich sees the previous day.
+
+**Live check.** The API on 8050 predates this change and serves neither field -
+it does not hot-reload and was not restarted. The publication list therefore
+reads exactly as it did before, with no empty slot and no half-sentence, which
+is the degradation the design intends. The new line appears at the user's next
+API restart.
+
+### The register now counts in policies too
+
+Half-landed until now: `ProjectsPage`, `ProjectWorkspace`, `Dashboard` and
+`projectRegisterGroups` all already read `review_pending_policies` and
+`live_policy_count` from `/portfolio-summary`, and all were falling back to
+rules because nothing emitted them. The two counts are now emitted, using the
+same arithmetic `/workspace-counts` uses - distinct provisions, plus pending
+rows attached to no provision, which are their own unit because nothing groups
+them - so the register and the badge cannot disagree.
+
+### Tests
+
+`apps/web/src/components/whetherItBindsYou.test.ts`, 13 tests: *a version that
+applies says since when*, *a superseded version is not described as applying*,
+*absent is not empty*, *a day is written as a day*. The reference day is far in
+the future with `dayBefore`/`dayAfter` helpers, so nothing goes stale and no
+observed date is a literal. Three mutations, all caught: dropping the
+`is_active` branch; reporting an absent end as open; flipping the future-start
+comparison.
+
+`tests/unit/test_provision_history.py` gains
+`test_every_column_the_assembler_reads_is_one_the_query_selects`. Two tests
+already checked that the endpoint and the pane share one vocabulary; **both
+would still pass if the assembler read a column the query never selected**,
+failing with an `AttributeError` on the first row of real data, in a request no
+unit test issues. Mutation-checked by dropping each of three columns from the
+`SELECT` - all three caught.
+
+`apps/web/src/components/overviewTracesThePolicy.test.tsx`, 33 tests, covers the
+rewrite itself.
+
+### A finding routed to the card's owners - `dev-rulename`, `dev-onedetail`
+
+`nothingIsBehindAClick.test.tsx` started failing on a **timeout**, not an
+assertion. Every rule was on the page; drawing the largest measured policy now
+costs about **six seconds** on this machine, against vitest's default five - a
+default nobody chose for it. The card gained a name and an inline detail per
+rule while three agents worked on it, and that is where the cost is.
+
+The two tests that draw the whole thing now state their own limit with the
+reason written down, so a completeness test stops reporting a fault that is not
+there. **The cost itself is real and is yours**: a reviewer scrolling a queue of
+large policies will feel what a test just measured.
