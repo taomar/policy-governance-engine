@@ -15,3 +15,23 @@
 .policy-card__passage-lead {
   font-size: 12px;
 }
+
+/*
+ * A card in a list opens collapsed: the head is whole and the rule body waits
+ * behind the card's expander. Only the body is hidden — the head carries the
+ * census (rule count, make-up, route, status) that makes the collapse honest,
+ * and the decision controls are withheld structurally in the component, not
+ * here, because a control hidden by CSS is a control a reviewer can still reach.
+ *
+ * `display: none`, not height or overflow: the point is that the collapsed card
+ * costs only its head in the scroll, and the body it hides is still in the DOM
+ * so nothing is stored behind the click — it is shown again the moment the card
+ * is opened or expanded. The blocks are direct children of the card, and the
+ * selector doubles the card class so it outranks the single-class layout rules
+ * in App.css without reaching for !important.
+ */
+.policy-card.policy-card--collapsed > .policy-card__grouping-note,
+.policy-card.policy-card--collapsed > .policy-card__passage-block,
+.policy-card.policy-card--collapsed > .policy-card__partial {
+  display: none;
+}

@@ -1,34 +1,60 @@
 /**
- * Decision 2: nothing a reviewer must click to discover.
+ * Decision 2, renegotiated: what a reviewer must not have to click, now that the
+ * head says how big the job is.
  *
- * THE FAILURE THIS EXISTS TO PREVENT
+ * WHAT THIS FILE USED TO FORBID, AND WHY THE PREMISE EXPIRED
  *
- * Grouping a section's rules onto one card makes big cards. The largest
- * measured here holds 72 rules across 7 merged repeats of one heading. The
- * obvious response is an expander — show the passages, reveal the rules on
- * demand — and it is the wrong one, for a reason this product has already paid
+ * Grouping a section's rules onto one card makes big cards — the largest measured
+ * here holds 72 rules across 7 merged repeats of one heading. This file used to
+ * forbid an expander over those rules outright, for a reason the product had paid
  * for twice: an empty page that rendered like a full one, and a queue of 2,735
  * that was not a workload. Both were the interface telling a reviewer something
- * about the size of their job that was not true.
+ * untrue about the size of their job, and a collapsed rule looked worse still,
+ * because the reviewer could not know it was there.
  *
- * A collapsed rule is worse than either, because the reviewer cannot know it is
- * there. The three-level outline — heading, then passage, then rule — is
- * structure, and structure is for reading. It is not a place to put things.
+ * That argument had a premise, and the premise expired. The head now carries a
+ * census the card did not have when this was written: `policyRuleCountLabel`
+ * states "72 rules" on the face of the card, and where a policy's rules fall on
+ * more than one side `policyComposition`/`recordStance` states that split beside
+ * it. A card whose head reads "72 rules" cannot be mistaken for the empty page,
+ * and does not understate the workload — it states it as a number instead of as a
+ * height. So collapsing the *body* behind a labelled expander no longer tells the
+ * reviewer anything untrue: the count they would have earned by scrolling is on
+ * the head before they scroll. Thirty-two policies of full-height rules was not a
+ * truer picture of the job than thirty-two heads that each say what they hold; it
+ * was the same job, told in screens instead of in numbers.
+ *
+ * WHAT IS STILL FORBIDDEN
+ *
+ * One harm the census does not answer. In the review queue a card carries
+ * Approve and Reject, and a collapsed card with a live Approve would let a
+ * reviewer decide a policy whose rules they have not read. The head says how many
+ * rules there are; it does not say what they are. So the rule that survives is
+ * narrower than the one it replaces: a decision may never be *offered* on a
+ * collapsed card. The rules are one obvious expander away, and that expander is
+ * the only route to the decision — reveal the rules, then decide them.
  *
  * WHAT IS ASSERTED, AND WHY IT IS A RENDER AND NOT A READ OF THE SOURCE
  *
- * The card is rendered and every rule the policy holds is looked for in the
- * output, with no interaction of any kind first. A source-level check ("no
- * `useState` named collapsed") would pass on a card that hid rules with CSS,
- * with `hidden`, or by slicing the array — three ways of doing the same thing
- * that share no syntax.
+ * A card that is not the open one renders collapsed: the head — heading, census,
+ * route, status, selection — is whole, and the rule body is behind an expander
+ * that is a real button carrying `aria-expanded`. Collapsed, it offers no Approve
+ * or Reject; expanded in place, without opening the detail panel, it offers both.
+ * The head states the rule count whether or not the body is shown, so "collapsed"
+ * can never read as "this policy has no rules". And nothing is *stored* behind the
+ * expander: the body it reveals holds every rule the policy has, drawn in full,
+ * never a slice or a page — checked by rendering the open card, which is the same
+ * card fully shown, and by counting the rules the closed one still holds. A
+ * source-level check ("no `useState` named collapsed") is not enough, because the
+ * thing forbidden is not a mechanism but an outcome: a decision reachable without
+ * reading, or a rule the reviewer cannot learn is there.
  *
  * Every count below is paired with a control that fails when nothing renders,
  * because `expect(missing).toHaveLength(0)` is also what a blank page returns.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AssembledPolicy, CandidateRule, CanonicalRule } from "./api";
 import { buildPolicyCards, passageQuotations } from "./policyCards";
 import { PolicyReviewCard } from "./components/PolicyReviewCard";
@@ -171,30 +197,46 @@ function bigPolicy(
   return { policy, candidates };
 }
 
-function renderCard(policy: AssembledPolicy, candidates: CandidateRule[], open = false) {
+function renderCard(
+  policy: AssembledPolicy,
+  candidates: CandidateRule[],
+  opts: {
+    open?: boolean;
+    onOpen?: () => void;
+    onApprove?: () => void;
+    onReject?: () => void;
+  } = {},
+) {
   const [card] = buildPolicyCards([policy], candidates);
-  render(
+  const { container } = render(
     <PolicyReviewCard
       card={card}
       selected={false}
       indeterminate={false}
-      open={open}
+      open={opts.open ?? false}
       statusColor={() => "default"}
       statusLabel={(status) => status}
       findingsFor={() => 0}
       onToggleSelect={() => {}}
-      onOpen={() => {}}
-      onApprove={() => {}}
-      onReject={() => {}}
+      onOpen={opts.onOpen ?? (() => {})}
+      onApprove={opts.onApprove ?? (() => {})}
+      onReject={opts.onReject ?? (() => {})}
     />,
   );
-  return card;
+  return { card, container };
 }
 
-describe("a policy card hides no rule behind an interaction", () => {
-  // WHY THESE CARRY AN EXPLICIT BUDGET
+/** The article element the card draws, so a test can read the class it carries. */
+function articleOf(container: HTMLElement): HTMLElement {
+  const article = container.querySelector<HTMLElement>('[data-testid="policy-card"]');
+  if (!article) throw new Error("the card drew no article");
+  return article;
+}
+
+describe("a list card opens collapsed, and hides no rule once it is open", () => {
+  // WHY THE COMPLETENESS TESTS CARRY AN EXPLICIT BUDGET
   //
-  // These two draw the largest policy anyone has measured and then look for
+  // Some of these draw the largest policy anyone has measured and then look for
   // every one of its rules. That is deliberately the most expensive render in
   // the suite, and vitest's default five seconds is not a budget anyone chose
   // for it — it is the default, and it began failing when the card grew a name
@@ -207,11 +249,97 @@ describe("a policy card hides no rule behind an interaction", () => {
   // the card and not about these assertions.
   const DRAWS_A_WHOLE_LARGE_POLICY = 90_000;
 
+  // ---- a card in a list opens collapsed ----
+
+  it("renders collapsed when it is not the open card", () => {
+    // The change this file now guards. Nothing in the head is removed — the head
+    // is what makes collapsing honest — but the rule body sits behind one
+    // obvious control.
+    const { container } = (() => {
+      const { policy, candidates } = bigPolicy(12, 3);
+      return renderCard(policy, candidates);
+    })();
+
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(true);
+    const expander = container.querySelector('[data-testid="policy-card-expand"]');
+    expect(expander, "a collapsed card must carry one control that opens it").not.toBeNull();
+    expect(expander?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("states the size of the job in the head even while collapsed", () => {
+    // Constraints 5 and 11: collapsed must never read as "this policy has no
+    // rules", and the head must carry the information the body stops showing.
+    // The count lives on the head, not in the body the expander hides, so it
+    // survives the collapse and a card that says "72 rules" cannot be an empty
+    // one.
+    const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
+    const { container } = renderCard(policy, candidates);
+
+    const head = articleOf(container).querySelector(".policy-card__head");
+    expect(head?.textContent ?? "").toContain(`${LARGEST_MEASURED_POLICY} rules`);
+  });
+
+  it("offers no decision while collapsed, and the decision once it is opened", () => {
+    // The one harm the census does not cure: a decision on a policy no one has
+    // read. The records here are decidable, but collapsed the control is
+    // withheld and the expander is the only route to it. Opened, the decision
+    // the record permits is offered.
+    const { policy, candidates } = bigPolicy(6, 2);
+    const { container } = renderCard(policy, candidates);
+
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+
+    expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /reject/i })).toBeTruthy();
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(false);
+    expect(screen.getByTestId("policy-card-expand").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("opens in place, without opening the detail panel", () => {
+    // Point 3: a reviewer scanning for context expands the card where it sits.
+    // It must not throw them into the detail pane and change which record they
+    // were looking at.
+    const onOpen = vi.fn();
+    const { policy, candidates } = bigPolicy(6, 2);
+    renderCard(policy, candidates, { onOpen });
+
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it(
-    "draws every one of a large policy's rules with nothing clicked",
+    "reveals its rules through a labelled disclosure button, not an opaque hide",
+    () => {
+      // The mechanism matters. Not a <details> (which hides from a sighted reader
+      // while jsdom still finds its children, so a query cannot tell the two
+      // apart), not a bare [hidden]; a real button that says what it does and
+      // carries its state. And the rules behind it are in the DOM in full — the
+      // reveal is a show, not a fetch, and not a slice.
+      const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
+      const { container } = renderCard(policy, candidates);
+
+      expect(container.querySelectorAll("details")).toHaveLength(0);
+      expect(container.querySelectorAll("[hidden]")).toHaveLength(0);
+      const expander = container.querySelector('[data-testid="policy-card-expand"]');
+      expect(expander?.tagName).toBe("BUTTON");
+      expect(expander?.getAttribute("aria-expanded")).toBe("false");
+      // Hidden by CSS, not stored: every rule is still in the DOM.
+      expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(LARGEST_MEASURED_POLICY);
+    },
+    DRAWS_A_WHOLE_LARGE_POLICY,
+  );
+
+  // ---- once shown, nothing is stored behind the click ----
+
+  it(
+    "draws every one of a large policy's rules when it is the open card",
     () => {
       const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-      const card = renderCard(policy, candidates);
+      const { card } = renderCard(policy, candidates, { open: true });
 
       // CONTROL. If the fixture or the builder collapsed, the loop below would
       // iterate over nothing and the test would pass on an empty page.
@@ -223,18 +351,18 @@ describe("a policy card hides no rule behind an interaction", () => {
 
       expect(
         missing,
-        `${missing.length} of ${card.rules.length} rules are not on the page until ` +
-          "something is clicked. Structure groups rules; it does not store them.",
+        `${missing.length} of ${card.rules.length} rules are missing from the open ` +
+          "card. Opening a card reveals its rules; it does not fetch or slice them.",
       ).toEqual([]);
     },
     DRAWS_A_WHOLE_LARGE_POLICY,
   );
 
   it(
-    "draws every passage of a large policy too",
+    "draws every passage of a large policy when it is open",
     () => {
       const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-      const card = renderCard(policy, candidates);
+      const { card } = renderCard(policy, candidates, { open: true });
 
       expect(card.passages.length).toBe(MERGED_REPEATS);
       // Each passage draws its own block, so the count of blocks is the count of
@@ -245,58 +373,47 @@ describe("a policy card hides no rule behind an interaction", () => {
     DRAWS_A_WHOLE_LARGE_POLICY,
   );
 
-  it("renders the same rules whether or not the card is the open one", () => {
-    // `open` marks the card whose detail panel is showing. If it also gated
-    // content, the queue would be a list of titles and the reviewer would have
-    // to open each card to find out what was in it.
+  it("reveals every rule the open card shows when a closed card is expanded", () => {
+    // The renegotiated form of "renders the same rules whether or not open": the
+    // open card and the expanded-in-place card are the same card fully shown, so
+    // they hold the same rules. What changed is only whether the reviewer had to
+    // ask to see them.
     const { policy, candidates } = bigPolicy(12, 3);
 
-    renderCard(policy, candidates, false);
-    const closed = screen.getAllByTestId("policy-card-rule").length;
+    renderCard(policy, candidates, { open: true });
+    const shownOpen = screen.getAllByTestId("policy-card-rule").length;
     cleanup();
 
-    renderCard(policy, candidates, true);
-    const opened = screen.getAllByTestId("policy-card-rule").length;
-
-    expect(closed).toBe(12);
-    expect(opened).toBe(closed);
-  });
-
-  it("uses no element that conceals its children", () => {
-    // Belt and braces with the queries above, which read the accessibility
-    // tree and would not notice `<details>` — jsdom renders its children into
-    // the DOM whether or not it is open, and Testing Library finds them.
-    const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-    const { container } = (() => {
-      const [card] = buildPolicyCards([policy], candidates);
-      return render(
-        <PolicyReviewCard
-          card={card}
-          selected={false}
-          indeterminate={false}
-          open={false}
-          statusColor={() => "default"}
-          statusLabel={(status) => status}
-          findingsFor={() => 0}
-          onToggleSelect={() => {}}
-          onOpen={() => {}}
-        />,
-      );
-    })();
-
-    expect(container.querySelectorAll("details")).toHaveLength(0);
-    expect(container.querySelectorAll("[hidden]")).toHaveLength(0);
-    expect(container.querySelectorAll('[aria-expanded="false"]')).toHaveLength(0);
-  });
-
-  it("shows a one-rule policy the same way as a large one", () => {
-    // CONTROL for all of the above, which a card that special-cased large
-    // policies could satisfy while changing the ordinary case.
-    const { policy, candidates } = bigPolicy(1, 1);
     renderCard(policy, candidates);
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+    const shownExpanded = screen.getAllByTestId("policy-card-rule").length;
 
-    expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(1);
-    expect(screen.getAllByTestId("policy-passage")).toHaveLength(1);
+    expect(shownOpen).toBe(12);
+    expect(shownExpanded).toBe(shownOpen);
+  });
+
+  it("renders the open card expanded, with its decision and no expander", () => {
+    // Point 2: the open card is shown exactly as before — full, decidable, and
+    // with no expander to collapse the record currently under consideration.
+    const { policy, candidates } = bigPolicy(12, 3);
+    const { container } = renderCard(policy, candidates, { open: true });
+
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(false);
+    expect(container.querySelector('[data-testid="policy-card-expand"]')).toBeNull();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
+    expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(12);
+  });
+
+  it("collapses a one-rule policy the same way, its head still stating the one rule", () => {
+    // CONTROL: the card has no branch for small policies. One rule collapses like
+    // seventy-two, and "1 rule" on the head keeps it from reading as empty.
+    const { policy, candidates } = bigPolicy(1, 1);
+    const { container } = renderCard(policy, candidates);
+
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(true);
+    expect(container.querySelector('[data-testid="policy-card-expand"]')).not.toBeNull();
+    const head = articleOf(container).querySelector(".policy-card__head");
+    expect(head?.textContent ?? "").toContain("1 rule");
   });
 });
 
