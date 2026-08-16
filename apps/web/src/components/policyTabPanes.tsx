@@ -24,7 +24,8 @@
  *    that is decided from the record's own status elsewhere.
  */
 
-import { Alert, Button, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { useState } from "react";
+import { Alert, Button, Empty, Modal, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { AssembledPolicy, CanonicalRule, PolicyTestListItem, ReviewFacetRun } from "../api";
 import type { PolicyCard } from "../policyCards";
 import {
@@ -38,6 +39,8 @@ import {
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance } from "./policyProvenance";
+import { RuleScenarioTester } from "./RuleScenarioTester";
+import { engineDecidesRule } from "../ruleExecutability";
 import type { PolicyTesting } from "./policyTesting";
 import "./policyTabPanes.css";
 
@@ -474,8 +477,8 @@ export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordVie
         </Text>
         {facts.length === 0 ? (
           <Paragraph type="secondary">
-            Every rule of this policy is decided by reading what its source says: the words
-            are the test, and a reader applies them to the case in front of them.
+            Every rule of this policy takes the AI Ready route: the words of its source
+            are the test, and a judge applies them to the case in front of them.
           </Paragraph>
         ) : (
           <>
@@ -492,8 +495,8 @@ export function PolicyPartiesAndRoutesPane({ record }: { record: PolicyRecordVie
             </ul>
             <Paragraph type="secondary">
               Counted against the rules that state a comparison, which is where a named fact
-              comes from. A rule its source states in words is decided by reading it: the words
-              are the test, and a reader applies them.
+              comes from. A rule its source states in words takes the AI Ready route: the words
+              are the test, and a judge applies them.
             </Paragraph>
           </>
         )}
@@ -598,8 +601,8 @@ export interface RuleTestRow {
   /** Whether the engine that computes comparisons evaluates this rule.
    *
    *  Scenario generation is a blind validation batch, and a blind validation
-   *  batch is run by that engine. A rule whose test is stated in words is
-   *  decided by reading it against its source, so the engine is not the
+   *  batch is run by that engine. A rule whose test is stated in words takes the
+   *  AI Ready route, so the engine is not the
    *  instrument that checks it and the server says so when asked.
    *
    *  This is read off the rule rather than passed in, and it selects which
@@ -674,7 +677,7 @@ export function policyTestRows(
       tests: covering.length,
       testIds: covering.map((item) => item.test.id),
       awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
-      engineEvaluates: entry.rule.evaluation_mode === "deterministic",
+      engineEvaluates: engineDecidesRule(entry.rule),
     };
   });
 }
@@ -693,11 +696,19 @@ export function PolicyTestsPane({
   tests,
   loading,
   testing,
+  policySetKey,
 }: {
   record: PolicyRecordView;
   tests: readonly PolicyTestListItem[] | null;
   loading?: boolean;
   testing?: PolicyTestingVerbs;
+  /**
+   * The set this policy is read within. Needed only by the engine's own
+   * scenario runner, which addresses a rule through its set; the judge reads
+   * the record it is handed. Absent, the case box still opens for the AI Ready
+   * rules, which is the majority of them.
+   */
+  policySetKey?: string;
 }) {
   const rows = policyTestRows(record, tests ?? []);
   const covered = rows.filter((row) => row.state !== "untested").length;
@@ -708,6 +719,10 @@ export function PolicyTestsPane({
   const everyTestId = rows.flatMap((row) => row.testIds);
   const awaitingReview = rows.reduce((total, row) => total + row.awaitingReview, 0);
   const readDecided = rows.length - writableRows.length;
+  const [caseRuleId, setCaseRuleId] = useState<string | null>(null);
+  const caseRule = caseRuleId
+    ? (record.rules.find((entry) => entry.rule_id === caseRuleId)?.rule ?? null)
+    : null;
 
   return (
     <div className="policy-pane">
@@ -781,9 +796,10 @@ export function PolicyTestsPane({
 
       {testing && readDecided > 0 ? (
         <Paragraph type="secondary" data-testid="policy-tests-instrument">
-          Scenarios written here are run by the engine that computes comparisons, so they are
-          written for the rules it evaluates. Where a rule states its test in words, a reader checks
-          it against the source the same way it is decided — by reading.
+          A rule stating a comparison is checked by writing a scenario the engine computes, and the
+          result is kept. A rule stating its test in words is checked by putting a case to the judge
+          that reads it — one rule at a time, from its row, and what comes back is an answer to look
+          at rather than a record to keep.
         </Paragraph>
       ) : null}
 
@@ -872,15 +888,43 @@ export function PolicyTestsPane({
                         Write one
                       </Button>
                     ) : (
-                      <Text type="secondary" data-testid={`read-decided-${row.ruleId}`}>
-                        Checked by reading
-                      </Text>
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => setCaseRuleId(row.ruleId)}
+                        data-testid={`put-case-${row.ruleId}`}
+                      >
+                        Put a case
+                      </Button>
                     ),
                 } as const,
               ]
             : []),
         ]}
       />
+
+      {caseRule ? (
+        <Modal
+          open
+          width={720}
+          onCancel={() => setCaseRuleId(null)}
+          footer={null}
+          title="Put a case to this rule"
+          destroyOnHidden
+        >
+          <div data-testid="policy-case-box">
+            <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              <DirectionalText>{caseRule.title}</DirectionalText>
+            </Paragraph>
+            <Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12 }}>
+              An answer read here is yours to look at. It is not saved to this policy's tests and
+              does not change what the table reports, which describes the scenarios stored against
+              the rule.
+            </Paragraph>
+            <RuleScenarioTester policySetKey={policySetKey ?? ""} rule={caseRule} />
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }

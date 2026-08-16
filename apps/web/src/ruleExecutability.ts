@@ -1,5 +1,31 @@
-import type { ConditionNode, ConditionProvenance } from "./api";
+import type { CanonicalRule, ConditionNode, ConditionProvenance } from "./api";
 import { isVacuousCondition } from "./conditionRows";
+
+/**
+ * Which decider answers a case put to this rule.
+ *
+ * A rule stating a comparison is computed by the engine. A rule stating its
+ * test in words is read by a judge. Both are decisions; they are reached
+ * differently.
+ *
+ * This lives here, in one function, because the two surfaces that ask the
+ * question were already answering it differently: the scenario tester keyed
+ * its result rendering off `evaluation_mode` while disabling its controls off
+ * `machine_executable`, so a rule whose two fields disagreed was offered a
+ * control that led to a refusal. The pane listing a policy's rules asked only
+ * `evaluation_mode`, and would therefore have sent a non-executable rule to
+ * the engine, which short-circuits before reading the case at all.
+ *
+ * Both fields are consulted, and the engine is chosen only when both say so.
+ * That is not a preference for the judge: it is the only ordering under which
+ * a reader is never handed an answer from a decider that never looked at their
+ * case. The engine refuses a rule it cannot execute; the judge refuses nothing.
+ */
+export function engineDecidesRule(
+  rule: Pick<CanonicalRule, "evaluation_mode" | "machine_executable">,
+): boolean {
+  return Boolean(rule.machine_executable) && rule.evaluation_mode === "deterministic";
+}
 
 /**
  * Whether the deterministic evaluator can decide a rule, derived from its
@@ -52,7 +78,7 @@ export function machineExecutableFor(condition: ConditionNode | undefined | null
  */
 export const DETERMINISTIC_LABEL = {
   yes: "Deterministic",
-  no: "Decided by reading",
+  no: "AI Ready",
 } as const;
 
 /**
@@ -115,17 +141,18 @@ export function deterministicReason(provenance?: ConditionProvenance | null): st
 /**
  * Short label for the same distinction, for places with no room for a sentence.
  *
- * `DETERMINISTIC_LABEL.no` says "Needs a fact mapping", which is the wrong
- * instruction for a rule whose mapping is already complete.
+ * It returns one of exactly two route names. The provenance code changes *why*
+ * the deterministic engine does not run a rule, and that belongs in
+ * `deterministicReason`; it does not change which route the rule takes. An
+ * earlier version returned a third and fourth string here, so the same route
+ * arrived on screen under several names and each extra name read as a further
+ * diagnosis of the rule.
  */
 export function deterministicLabel(
   machineExecutable: boolean,
-  provenance?: ConditionProvenance | null
+  _provenance?: ConditionProvenance | null
 ): string {
-  if (machineExecutable) return DETERMINISTIC_LABEL.yes;
-  if (provenance?.code === "conditions_not_representable") return "Not yet expressible";
-  if (provenance?.code === "no_scope_derived") return "No condition stated";
-  return DETERMINISTIC_LABEL.no;
+  return machineExecutable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no;
 }
 
 /** Short readiness wording, matching the server's `evaluability` values. */

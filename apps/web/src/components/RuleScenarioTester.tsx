@@ -43,7 +43,7 @@ import {
   type RuleScenarioTestResult,
   type ScenarioEvaluation,
 } from "../api";
-import { DETERMINISTIC_LABEL } from "../ruleExecutability";
+import { DETERMINISTIC_LABEL, engineDecidesRule } from "../ruleExecutability";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -84,11 +84,10 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // One derivation of who decides, taken from the record. The engine needs both
-  // halves: a route that states a comparison, and a condition it can actually
-  // read. Where either is absent the judge decides, which is a route and the
-  // ordinary one.
-  const engineDecides = rule.machine_executable && rule.evaluation_mode === "deterministic";
+  // One derivation of who decides, taken from the record and shared with every
+  // other surface that asks (see `engineDecidesRule`). Two copies of this
+  // question is what let a rule be offered a decider that would refuse it.
+  const engineDecides = engineDecidesRule(rule);
 
   // Switching rules while this tab is open should not show a stale answer
   // from a different rule under the new title/condition.

@@ -559,7 +559,15 @@ export function PublishedPolicyCard({
           {
             key: "tests",
             label: "Tests",
-            children: <PolicyTestsPane record={record} tests={tests ?? null} loading={testsLoading} testing={testing} />,
+            children: (
+              <PolicyTestsPane
+                record={record}
+                tests={tests ?? null}
+                loading={testsLoading}
+                testing={testing}
+                policySetKey={policySetKey}
+              />
+            ),
           },
           {
             key: "history",

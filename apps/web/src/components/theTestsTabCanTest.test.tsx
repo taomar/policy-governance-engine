@@ -50,13 +50,25 @@ beforeEach(() => cleanup());
  * it is what decides whether this pane offers to write a scenario at all. A
  * fixture that leaves it out is a fixture whose route this test did not choose,
  * and the pane would then be exercised on a route by accident.
+ *
+ * `machine_executable` travels with it. Which decider answers a case is derived
+ * from the pair (`engineDecidesRule`), because the engine short-circuits a rule
+ * it cannot execute whatever its route says — so a fixture stating one field
+ * and leaving the other to a default describes a rule the server would refuse.
+ * The pair can still be set apart deliberately, which is its own test.
  */
-function rule(id: string, title: string, mode: "deterministic" | "ai_ready" = "deterministic"): CanonicalRule {
+function rule(
+  id: string,
+  title: string,
+  mode: "deterministic" | "ai_ready" = "deterministic",
+  machineExecutable: boolean = mode === "deterministic",
+): CanonicalRule {
   return {
     rule_id: id,
     title,
     effect: "allow",
     evaluation_mode: mode,
+    machine_executable: machineExecutable,
     condition: { type: "all", all: [] },
     obligations: [],
     exceptions: [],
@@ -259,10 +271,10 @@ describe("the offer follows the route the rule takes", () => {
       />,
     );
     expect(screen.getByTestId("generate-rule-test-a")).toBeTruthy();
-    expect(screen.queryByTestId("read-decided-a")).toBeNull();
+    expect(screen.queryByTestId("put-case-a")).toBeNull();
   });
 
-  it("says how a rule decided by reading is checked, instead of offering it an engine scenario", () => {
+  it("offers a rule decided by reading its own way in, not an engine scenario", () => {
     render(
       <PolicyTestsPane
         record={record([rule("a", "One", "ai_ready")])}
@@ -271,7 +283,7 @@ describe("the offer follows the route the rule takes", () => {
       />,
     );
     expect(screen.queryByTestId("generate-rule-test-a")).toBeNull();
-    expect(screen.getByTestId("read-decided-a").textContent).toBe("Checked by reading");
+    expect(screen.getByTestId("put-case-a")).toBeTruthy();
   });
 
   it("writes only for the rules the engine evaluates when the policy holds both routes", async () => {
@@ -310,8 +322,11 @@ describe("the offer follows the route the rule takes", () => {
       />,
     );
     const said = screen.getByTestId("policy-tests-instrument").textContent ?? "";
-    expect(said).toMatch(/run by the engine that computes comparisons/);
-    expect(said).toMatch(/states its test in words/);
+    expect(said).toMatch(/the engine computes/);
+    expect(said).toMatch(/its test in words/);
+    // Both routes are named as something a reviewer does, not one as the thing
+    // available and the other as what is left.
+    expect(said).toMatch(/putting a case to the judge/);
     // A denial still names the thing it denies, so there is nothing to negate.
     expect(said).not.toMatch(/\b(not|no|cannot|can't|without|missing|lacks?|unsupported)\b/i);
   });
