@@ -21,6 +21,7 @@ import {
 import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
 import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
 import { projectRowClauses, routeClauses } from "../projectRegisterRow";
+import { recordScaleLabel } from "../policyRecordFacts";
 import { reviewWorkByDocument, reviewWorkReason } from "../projectRegisterGroups";
 import { distinctLabelsByKey } from "../distinctNames";
 import { projectNavTarget } from "../projectNav";
@@ -31,6 +32,13 @@ interface Summary {
   policySetCount: number;
   activeVersionCount: number | null;
   pendingCandidateCount: number | null;
+  /**
+   * The same queue counted in the unit it is decided in. Null is absent, not
+   * zero: a server that does not serve the policy figure has told us nothing
+   * about how many policies are waiting, and reporting none over a queue
+   * holding hundreds of rules would be a measurement nobody took.
+   */
+  pendingPolicyCount: number | null;
   documentCount: number;
   publishedRuleCount: number | null;
   liveCandidateCount: number | null;
@@ -190,6 +198,7 @@ export function Dashboard({
           policySetCount: policySets.length,
           activeVersionCount: null,
           pendingCandidateCount: null,
+          pendingPolicyCount: null,
           documentCount: documents.length,
           publishedRuleCount: null,
           liveCandidateCount: null,
@@ -219,6 +228,12 @@ export function Dashboard({
             ...base,
             activeVersionCount: insights.filter((item) => item.active_version_number !== null).length,
             pendingCandidateCount: insights.reduce((total, item) => total + item.review_pending, 0),
+            // One insight without the policy figure makes the portfolio total
+            // unknown rather than short. Summing the ones that have it would
+            // quietly report part of the portfolio as all of it.
+            pendingPolicyCount: insights.every((item) => typeof item.review_pending_policies === "number")
+              ? insights.reduce((total, item) => total + (item.review_pending_policies ?? 0), 0)
+              : null,
             publishedRuleCount: insights.reduce((total, item) => total + item.active_rule_count, 0),
             liveCandidateCount: insights.reduce((total, item) => total + item.live_candidate_count, 0),
             directRouteCount: insights.reduce((total, item) => total + item.candidate_direct_count, 0),
@@ -249,6 +264,12 @@ export function Dashboard({
   };
 
   const pending = summary?.pendingCandidateCount;
+  // The same queue in the unit it is decided in. A policy is what a reviewer
+  // approves, publishes and exports; rules are its contents, and one policy
+  // commonly holds several -- so the policy figure leads and the rule figure
+  // stays beside it. Null is absent: the surface then says what it has, in
+  // rules, and names that unit rather than badging a nought nobody measured.
+  const pendingPolicies = summary?.pendingPolicyCount ?? null;
   // The queue scoped to the documents it is actually spread across, so the
   // headline count above has somewhere to send a reviewer.
   const reviewWork = reviewWorkByDocument(readiness.map(({ insight }) => insight));
@@ -270,8 +291,11 @@ export function Dashboard({
   const pressure = [
     {
       label: "Awaiting review",
-      value: pending,
-      detail: "candidate decisions",
+      value: pending === null || pending === undefined ? pending : (pendingPolicies ?? pending),
+      detail:
+        pending === null || pending === undefined
+          ? "candidate decisions"
+          : recordScaleLabel(pendingPolicies, pending),
       icon: <FileTextOutlined />,
       tone: pending && pending > 0 ? "attention" : "neutral",
     },
@@ -354,7 +378,9 @@ export function Dashboard({
                 : pending === null
                   ? "Review workload unavailable"
                   : pending > 0
-                    ? `${pending} candidate rule${pending === 1 ? "" : "s"} need a decision`
+                    ? `${recordScaleLabel(pendingPolicies, pending)} ${
+                        (pendingPolicies ?? pending) === 1 ? "needs" : "need"
+                      } a decision`
                     : "Review queues are clear"}
           </Title>
           {dataState === "unavailable" ? (

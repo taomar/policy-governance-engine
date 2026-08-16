@@ -98,7 +98,7 @@ const TONE_COLOR: Record<BlockerTone, string | undefined> = {
 
 const BLOCKER_COPY: Record<string, { label: string; detail: string; tone: BlockerTone }> = {
   not_machine_executable: {
-    label: "Decided by reading",
+    label: "AI Ready",
     tone: "neutral",
     detail:
       "The evaluator returns NOT_APPLICABLE for this rule before it reads the scope or condition, so the rule can never reach SATISFIED — and only a SATISFIED rule contributes to a cap.",

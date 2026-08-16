@@ -17,7 +17,7 @@ const { Text, Paragraph } = Typography;
  *   banner on every record is a banner nobody reads — 230 of 273 records in a
  *   document under review read one way, and drowning the other 43 in identical
  *   notices would lose exactly the ones this exists for.
- * - `variant="section"` sits on the Parties & readiness tab and renders for
+ * - `variant="section"` sits on the Parties & routes tab and renders for
  *   EVERY status including `none`. The field is never invisible there: a
  *   reviewer who wants to know what the system holds about this record can
  *   always find it, rather than inferring from the absence of a banner.
