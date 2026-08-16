@@ -979,6 +979,17 @@ class QualityRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     ai_review_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     methodology_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1")
     findings_json: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Which route-specific checks did not apply to the records in this run, and
+    # to how many. Kept in its own column rather than folded into findings_json
+    # on purpose: a check that did not apply is not a finding, and the severity
+    # counts above are derived by iterating findings, so a not-applicable entry
+    # placed among them would be counted as one. Three states are meaningful and
+    # distinct: NULL means this run predates the column (route applicability was
+    # not captured), an empty list means it was captured and every check applied
+    # to every record, and a populated list names the checks that did not apply.
+    # Nullable so rows written before this column read back as "not recorded"
+    # rather than as "nothing was set aside".
+    not_applicable_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     triggered_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

@@ -274,11 +274,19 @@ class QualityRunRepository:
         ai_review_used: bool,
         methodology_version: str = "1",
         triggered_by: str = "",
+        not_applicable: list[dict] | None = None,
     ) -> QualityRun:
         counts: dict[str, int] = {}
         for f in findings:
             sev = str(f.get("severity", "")).lower()
             counts[sev] = counts.get(sev, 0) + 1
+        # `not_applicable` is deliberately three-valued and stored as given.
+        # `None` becomes SQL NULL and reads back as "route applicability was not
+        # recorded for this run" -- which a caller that did not compute the
+        # disclosure should leave untouched rather than paper over with `[]`. An
+        # empty list is the distinct, positive fact that the disclosure was
+        # computed and set nothing aside. Collapsing the two would erase exactly
+        # the distinction the disclosure exists to keep.
         run = QualityRun(
             policy_set_id=policy_set_id,
             scope=scope,
@@ -290,6 +298,7 @@ class QualityRunRepository:
             ai_review_used=ai_review_used,
             methodology_version=methodology_version,
             findings_json=findings,
+            not_applicable_json=not_applicable,
             triggered_by=triggered_by,
             run_at=datetime.now(timezone.utc),
         )

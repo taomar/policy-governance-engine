@@ -952,6 +952,13 @@ async def quality_history_detail(
         "version_number": run.version_number,
         "rule_count": run.rule_count,
         "findings": run.findings_json,
+        # A stored run carries which route-specific checks did not apply to its
+        # records (or NULL if the run predates that being recorded). Serve it so
+        # the page reading a stored run can say so, rather than showing only
+        # findings and letting their absence read as a clean result the run
+        # never established. Passed through as stored: NULL, [], and a populated
+        # list are three different answers and stay three different answers.
+        "not_applicable": run.not_applicable_json,
         "ai_review_used": run.ai_review_used,
         "methodology_version": run.methodology_version,
         "triggered_by": run.triggered_by,
