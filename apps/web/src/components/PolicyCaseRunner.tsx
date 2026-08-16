@@ -46,7 +46,7 @@ import type { CanonicalRule } from "../api";
 import { DirectionalText } from "./DirectionalText";
 import { RuleName } from "./RuleName";
 import { putCaseToRule, targetLabel, RESULT_DOES_NOT_CARRY_OVER, type CaseAnswer, type TestTarget } from "./policyTesting";
-import { answerPolicyCase, type CaseIntent, type InformationalAnswer } from "./policyCaseIntent";
+import { answerPolicyCase, type CaseIntent, type InformationalAnswer, type InformationalGrounding } from "./policyCaseIntent";
 import { readPolicyCase, type PolicyCaseReading } from "./policyCaseSummary";
 import "./policyCaseRunner.css";
 
@@ -124,16 +124,62 @@ function AllRulesReference({
 }
 
 /**
- * The answer to a case that asks what the policy provides.
+ * What the answer was grounded on, reported to the reader so the grounding is
+ * something seen rather than merely asserted.
  *
- * The four states are kept apart, because a stated answer, a policy that holds
- * nothing on the subject, a model that would not compose one, and a request that
- * did not complete are four different replies and a reviewer shown one dressed as
- * another is misled. Only the first carries composed words, and those are marked
- * as the app's — the ✦ and "by this app" the generated rule name already uses —
- * over the rules they were drawn from, each named and quoted verbatim so the
- * reader can go from the answer to the exact sentence and check it.
+ * Its load-bearing job is the refusal: when the model cited a rule that is not
+ * in this policy, that citation was dropped by the server and named here, so a
+ * reviewer watches the check reject a fabrication instead of trusting that it
+ * would. It also states how large the set read was — and, when the policy was
+ * too large to read in one pass, that no single answer was composed from it, so
+ * a partial reading can never pass for the whole policy's.
+ *
+ * This is the app's own reporting about the gather, not the document's words.
  */
+function GroundingLine({ grounding }: { grounding: InformationalGrounding | undefined }) {
+  if (!grounding) return null;
+  const { rules_available, rules_cited, fabricated_citations, oversize } = grounding;
+  const refused = fabricated_citations.length > 0;
+  return (
+    <div data-testid="policy-case-grounding" style={{ marginTop: 12 }}>
+      <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: refused || oversize ? 6 : 0 }}>
+        Grounded on the {rules_available} {rules_available === 1 ? "rule" : "rules"} of this policy
+        {rules_cited > 0
+          ? `; the answer rests on ${rules_cited} of ${rules_available === 1 ? "it" : "them"}.`
+          : "."}{" "}
+        Every cited rule is checked against this policy before it is shown.
+      </Paragraph>
+      {refused ? (
+        <Alert
+          type="warning"
+          showIcon
+          data-testid="policy-case-grounding-refused"
+          message={
+            fabricated_citations.length === 1
+              ? "A citation naming no rule in this policy was refused"
+              : `${fabricated_citations.length} citations naming no rule in this policy were refused`
+          }
+          description={`The model cited ${fabricated_citations.join(", ")}, which ${
+            fabricated_citations.length === 1 ? "is not a rule" : "are not rules"
+          } of this policy. ${
+            fabricated_citations.length === 1 ? "It was" : "They were"
+          } dropped and are reported here rather than shown as part of the answer.`}
+        />
+      ) : null}
+      {oversize ? (
+        <Alert
+          type="warning"
+          showIcon
+          data-testid="policy-case-grounding-oversize"
+          message="This policy was too large to read in one grounded pass"
+          description="No single answer was composed from it, so no rule was silently left unread. The rules are listed below to read directly."
+        />
+      ) : null}
+    </div>
+  );
+}
+
+
 function InformationalPanel({
   informational,
   rules,
@@ -166,6 +212,7 @@ function InformationalPanel({
                 : "The request to compose an answer did not complete. The rules are listed below to read directly, or ask again."
           }
         />
+        <GroundingLine grounding={informational.grounding} />
         <AllRulesReference
           rules={rules}
           policySetKey={policySetKey}
@@ -222,6 +269,8 @@ function InformationalPanel({
           </Paragraph>
         </div>
       ))}
+
+      <GroundingLine grounding={informational.grounding} />
 
       <AllRulesReference
         rules={rules}

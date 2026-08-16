@@ -64,16 +64,40 @@ export interface InformationalCitation {
 }
 
 /**
+ * What the gather grounded on, reported rather than merely performed. The rules
+ * shown to the model are the closed set an answer may draw on; this records how
+ * large that set was, how many citations the model asked for, how many named a
+ * rule actually in it, and — the check with teeth — which named none and were
+ * refused as fabrications. `oversize` is true when the policy's records were too
+ * large to read in one pass and no answer was composed.
+ *
+ * It is surfaced to the reader, not kept in code, so a refused citation is
+ * something a reviewer can see the check reject rather than a claim it never had
+ * to make good on.
+ */
+export interface InformationalGrounding {
+  prompt_version: string;
+  rules_available: number;
+  citations_requested: number;
+  rules_cited: number;
+  fabricated_citations: string[];
+  oversize: boolean;
+}
+
+/**
  * The gathered answer to an informational request. `answer` is the app's own
  * wording — the caller marks it as the app's — and is empty in every state but
  * `answered`. `citations` name the rules the answer rests on and carry their
- * verbatim source. `note` is an optional caveat from the gather.
+ * verbatim source. `note` is an optional caveat from the gather. `grounding`
+ * reports the closed set the answer was drawn from and any citation refused as a
+ * fabrication; it is optional only so a reply from an older server still types.
  */
 export interface InformationalAnswer {
   status: InformationalStatus;
   answer: string;
   citations: InformationalCitation[];
   note: string;
+  grounding?: InformationalGrounding;
 }
 
 /**
