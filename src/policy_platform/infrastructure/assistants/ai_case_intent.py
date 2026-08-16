@@ -53,9 +53,21 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "ai-case-intent-v1"
+PROMPT_VERSION = "ai-case-intent-v2"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
+
+#: A conservative ceiling on the characters of policy-record JSON shown to the
+#: model in one gather. Set well under the deployment's context window so a whole
+#: policy's records fit alongside the system prompt and the reply.
+#:
+#: When a policy's records exceed it the gather is refused, never trimmed.
+#: Dropping some rules to fit would let an answer be composed from part of a
+#: policy while presenting as the whole policy's answer — the one narrowing a
+#: reviewer cannot see, because nothing on screen would say a rule went unread.
+#: So the ceiling is reported and the honest outcome is an unanswered one over
+#: the full rule count, not a quiet answer over a subset.
+_MAX_RECORD_CHARS = 200_000
 
 #: The two intents a case can carry. Named, not numbered: the reviewer named
 #: these two, and a determination and a request for what the record holds are a
@@ -103,22 +115,33 @@ Return ONLY a JSON object:
 therefore which kind it is."""
 
 _INFORMATIONAL_SYSTEM_PROMPT = """A reviewer has asked what a governance policy provides on some \
-subject. You are given the reviewer's question and the policy's rules, each with an id, a title, \
-and the exact sentence from the source document it was drawn from. Your job is to gather the \
-material that answers the question and state it plainly.
+subject. You are given the reviewer's question and the policy's rules as the record holds them. Each \
+rule carries an id, a title, a description, the exact sentence from the source document it was drawn \
+from, the kind of rule it is and whether it is machine-executable, the facts it is measured against \
+(each with the unit it is counted in), its compiled condition, its scope, its effect, and any \
+exceptions or advice. This is the whole set you may draw on: answer only from these rules, and cite \
+only ids that appear among them. Your job is to gather the material that answers the question and \
+state it plainly.
 
 Use only what the rules say. Do not invent a limit, a number, or a condition that is not in the \
-material you were given. A rule bears on the question when the sentence it carries speaks to the \
-subject the reviewer asked about — for example, a rule stating a weekly hours cap bears on a \
-question about how many hours someone may work, whether or not the reviewer supplied any hours.
+material you were given. A rule bears on the question when what it holds speaks to the subject the \
+reviewer asked about — for example, a rule stating a weekly hours cap bears on a question about how \
+many hours someone may work, whether or not the reviewer supplied any hours. The quantity a reviewer \
+asks after may be in the rule's sentence, or carried in its facts and its compiled condition; read \
+both, and report the limit the rule already holds rather than asking the reviewer to supply it.
+
+Judge by what each rule holds, not by any particular word in it, and answer in the language the \
+reviewer asked in; the record is bilingual and which subject a question is about is not a property of \
+the language it is written in.
 
 Return ONLY a JSON object:
 - "bears": true if at least one rule speaks to the subject of the question, false if none does.
 - "answer": your plain-English answer to the question, drawn only from the rules that bear on it. \
-Empty string if none bears. Write it in the language the reviewer asked in. This is your own \
-wording; do not present it as a direct quotation of the document.
-- "cited_rule_ids": the ids of the rules your answer draws on. Every rule you relied on, and no \
-rule you did not. Empty array if none bears.
+Empty string if none bears. Write it in the language the reviewer asked in. This is your own wording; \
+do not present it as a direct quotation of the document, and do not quote the compiled condition or \
+the fact fields as if they were the document's own words.
+- "cited_rule_ids": the ids of the rules your answer draws on. Every rule you relied on, no rule you \
+did not, and only ids that appear in the material above. Empty array if none bears.
 - "declined": true only if you cannot compose an answer from the material for a reason other than \
 no rule bearing on it — for example the question is unintelligible. Normally false.
 - "note": optional one-sentence caveat, e.g. that the material is partial or points elsewhere. \
@@ -150,21 +173,107 @@ def _verbatim_source(rule: CanonicalRule) -> str:
     return (rule.title or "").strip()
 
 
-def _rule_digest(rule: CanonicalRule) -> dict:
-    """What the model is shown about one rule when gathering an answer.
+def _enum_value(value: object) -> str:
+    """The string a `str`-Enum carries, or the plain string of anything else."""
 
-    The source sentence carries the subject and any quantity it names, so it is
-    the load-bearing field. The required-fact names are included as the
-    quantities the rule is *about*, which is exactly what an informational
-    question tends to ask after — never as a demand, because nothing here is
-    deciding anything.
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _rule_record(rule: CanonicalRule) -> dict:
+    """The rule as the record holds it, shown to the model to gather an answer.
+
+    This is the policy's own record, trimmed only of plumbing that names no
+    content an answer could ever cite. What is kept and why:
+
+      - ``rule_id`` / ``title`` / ``description`` — how the rule is named and
+        summarised, and the handle a citation resolves against.
+      - ``statement`` — the document's own sentence, verbatim, for quoting back.
+      - ``rule_type`` / ``evaluation_mode`` / ``machine_executable`` — what kind
+        of rule it is and whether a determination on it is the deterministic
+        engine's or the judge's. A gathered answer that names a computed rule can
+        then say the exact determination is the Deterministic route's, not this.
+      - ``required_facts``, each with its name, type and — load-bearing — the
+        unit it is counted in. "not more than 24" is not a limit until something
+        says twenty-four *of what*, and the unit is where the record keeps it.
+      - ``condition`` — the compiled test, kept in full because a threshold a
+        rule turns on frequently lives *only* here: the sentence may say "within
+        the weekly cap" while the number twenty-four sits in the condition that
+        compares the fact against the literal. A name-only digest hid exactly
+        that number — the one an informational question most often asks after.
+      - ``scope`` — whom and what the rule reaches, so an answer can say who a
+        provision is about.
+      - ``effect`` / ``exceptions`` / ``advice`` — what the rule does when it
+        holds, the cases carved out of it, and any guidance carried alongside it;
+        each can be the substance of what a policy "provides" on a subject.
+
+    Dropped, because none of it is a sentence, a quantity, or a limit an answer
+    would cite — only provenance and extraction bookkeeping: the schema and
+    version identifiers, the authority block, the derived ``attributes`` and
+    ``fact_model`` projections, the condition provenance, evidence and lineage,
+    candidate relationships, priority, effective dates, ambiguity and review
+    status, category, tags and grouping, and the formulation's DMN plumbing.
+    Removing these keeps the record small enough to show a whole policy at once
+    without removing anything an answer could rest on; that is the only trim, and
+    it is disclosed here in full.
     """
 
     return {
         "rule_id": rule.rule_id,
         "title": rule.title,
+        "description": rule.description,
+        "rule_type": _enum_value(rule.rule_type),
+        "evaluation_mode": _enum_value(rule.evaluation_mode),
+        "machine_executable": rule.machine_executable,
         "statement": _verbatim_source(rule),
-        "concerns": [fact.name for fact in rule.required_facts],
+        "required_facts": [
+            {"name": fact.name, "data_type": fact.data_type, "unit": fact.unit, "required": fact.required}
+            for fact in rule.required_facts
+        ],
+        "condition": rule.condition.model_dump(mode="json"),
+        "scope": rule.scope.model_dump(mode="json"),
+        "effect": rule.effect.model_dump(mode="json"),
+        "exceptions": [
+            {
+                "exception_id": exc.exception_id,
+                "description": exc.description,
+                "condition": exc.condition.model_dump(mode="json") if exc.condition is not None else None,
+            }
+            for exc in rule.exceptions
+        ],
+        "advice": [{"text": item.text} for item in rule.advice],
+    }
+
+
+def _grounding(
+    *,
+    rules_available: int,
+    citations_requested: int,
+    cited_ids: list[str],
+    fabricated: list[str],
+    oversize: bool,
+) -> dict:
+    """What the gather grounded on, reported rather than merely performed.
+
+    The rules shown are the closed set an answer may draw on. This records how
+    large that set was, how many citations the model asked for, how many named a
+    rule actually in it, and — the check with teeth — which named none and were
+    refused as fabrications. ``oversize`` is true when the policy's records were
+    too large to show in one pass and no answer was composed.
+
+    A grounding check that is only ever performed, never seen to refuse anything,
+    is the "validator that could not fail" this repository documents. Reporting
+    the refused ids here, alongside the coverage the explainer path already
+    reports, means the check is observable: a reader — and a test — can watch it
+    reject a citation to a rule that was never in front of it.
+    """
+
+    return {
+        "prompt_version": PROMPT_VERSION,
+        "rules_available": rules_available,
+        "citations_requested": citations_requested,
+        "rules_cited": len(cited_ids),
+        "fabricated_citations": fabricated,
+        "oversize": oversize,
     }
 
 
@@ -256,29 +365,64 @@ async def answer_informational(
 ) -> dict:
     """Gather and state what the policy provides on the subject of the question.
 
-    Returns one of four shapes, kept distinct so a reviewer is never shown one
-    situation dressed as another:
+    Returns one of three content shapes, each also carrying a ``grounding``
+    report, kept distinct so a reviewer is never shown one situation dressed as
+    another:
 
-      - answered:      ``{"status": "answered", "answer", "citations", "note"}``
-      - no rule bears: ``{"status": "no_rule_bears", "answer": "", "citations": [], "note"}``
-      - declined:      ``{"status": "declined", "answer": "", "citations": [], "note"}``
+      - answered:      ``{"status": "answered", "answer", "citations", "note", "grounding"}``
+      - no rule bears: ``{"status": "no_rule_bears", "answer": "", "citations": [], "note", "grounding"}``
+      - declined:      ``{"status": "declined", "answer": "", "citations": [], "note", "grounding"}``
 
     A failed request is the fourth state and is *not* returned here: it is raised
     as ``RuntimeError`` from the model call, so that "no rule bears on this"
     cannot be produced by a request that never actually ran.
 
+    The rules shown to the model are the *closed set* an answer may draw on: the
+    whole policy's records, in one gather rather than one per rule, so the model
+    can relate the rules to each other and to the question. Two mechanical checks
+    keep the answer grounded in that set rather than merely instructed to be:
+
+      - Every id the model cites must name a rule in the set. One that does not is
+        a fabrication; it is dropped from the citations and reported in
+        ``grounding.fabricated_citations`` so the refusal is visible, and if
+        nothing valid is left the answer cannot be ``answered``.
+      - If the set is too large to show in one pass the gather is refused, not
+        trimmed — an answer over some of a policy, presented as the policy's, is a
+        narrowing a reviewer could not detect.
+
     ``answer`` is this module's own wording — the caller marks it as such. The
-    ``citations`` carry each cited rule's source sentence verbatim, taken from
-    the record here and not from the model, so the document's words reach the
-    reader exactly as the document wrote them.
+    ``citations`` carry each cited rule's source sentence verbatim, taken from the
+    record here and not from the model, so the document's words reach the reader
+    exactly as the document wrote them.
     """
 
     by_id = {rule.rule_id: rule for rule in rules}
-    digests = [_rule_digest(rule) for rule in rules]
-    user_content = (
-        f"Question: {scenario}\n\n"
-        f"Policy rules:\n{json.dumps(digests, ensure_ascii=False, indent=2)}"
-    )
+    records = [_rule_record(rule) for rule in rules]
+    payload = json.dumps(records, ensure_ascii=False, indent=2)
+
+    if len(payload) > _MAX_RECORD_CHARS:
+        # The whole policy's records do not fit one grounded gather. Refuse rather
+        # than trim: an answer composed from part of a policy and presented as the
+        # policy's answer is the hiding a reviewer cannot see. Reported as its own
+        # grounding fact, over the full rule count, and no model call is made.
+        return {
+            "status": DECLINED,
+            "answer": "",
+            "citations": [],
+            "note": (
+                "This policy holds more rules than can be read in one grounded pass, so no single "
+                "answer was composed from them. The rules are listed below to read directly."
+            ),
+            "grounding": _grounding(
+                rules_available=len(rules),
+                citations_requested=0,
+                cited_ids=[],
+                fabricated=[],
+                oversize=True,
+            ),
+        }
+
+    user_content = f"Question: {scenario}\n\nPolicy rules:\n{payload}"
 
     parsed = await _chat_json(
         _INFORMATIONAL_SYSTEM_PROMPT,
@@ -287,36 +431,46 @@ async def answer_informational(
     )
 
     note = str(parsed.get("note") or "")
-    if parsed.get("declined"):
-        return {"status": DECLINED, "answer": "", "citations": [], "note": note}
 
-    bears = bool(parsed.get("bears"))
     raw_ids = parsed.get("cited_rule_ids") or []
     if not isinstance(raw_ids, list):
         raw_ids = []
-    # Keep only ids that name a rule actually in this policy, in the order the
-    # model gave them and without repeats. A citation to a rule not in front of
-    # the reader is not a citation.
-    seen: set[str] = set()
-    cited_ids: list[str] = []
-    for rid in raw_ids:
-        rid = str(rid)
-        if rid in by_id and rid not in seen:
-            seen.add(rid)
-            cited_ids.append(rid)
+    # Split what the model asked to cite into ids that name a rule in front of the
+    # reader and ids that do not, keeping first-seen order and dropping repeats. A
+    # citation to a rule not in the closed set is a fabrication: it is not a
+    # citation, and — rather than vanish in silence — it is reported below so the
+    # check that refused it can be seen to have refused something.
+    requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
+    cited_ids = [rid for rid in requested if rid in by_id]
+    fabricated = [rid for rid in requested if rid not in by_id]
 
+    grounding = _grounding(
+        rules_available=len(rules),
+        citations_requested=len(requested),
+        cited_ids=cited_ids,
+        fabricated=fabricated,
+        oversize=False,
+    )
+
+    if parsed.get("declined"):
+        return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
+
+    bears = bool(parsed.get("bears"))
     answer = str(parsed.get("answer") or "").strip()
 
     if not bears or not cited_ids:
-        # Nothing in this policy speaks to the subject. This is not a refusal and
-        # not a failure — it is an answer, and a true one: the reviewer's
-        # question may be answerable, only not from here.
-        return {"status": NO_RULE_BEARS, "answer": "", "citations": [], "note": note}
+        # Nothing valid in this policy speaks to the subject — either the model
+        # said so, or every id it offered named no rule here and nothing is left
+        # to rest an answer on. Not a refusal and not a failure: it is an answer,
+        # and a true one; the reviewer's question may be answerable, only not from
+        # here. A fabricated-only citation cannot become an answer, and the
+        # grounding records what was refused.
+        return {"status": NO_RULE_BEARS, "answer": "", "citations": [], "note": note, "grounding": grounding}
 
     if not answer:
         # Rules bear on it but the model composed no answer. That is the model
         # standing back, kept separate from the record holding nothing.
-        return {"status": DECLINED, "answer": "", "citations": [], "note": note}
+        return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
 
     citations = [
         {
@@ -326,7 +480,7 @@ async def answer_informational(
         }
         for rid in cited_ids
     ]
-    return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note}
+    return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
 
 
 async def answer_policy_case(
@@ -371,8 +525,22 @@ async def answer_policy_case(
             # The intent is known; only the gather failed. Report it as the
             # fourth state rather than letting it propagate, which would fail
             # the whole request and drop the product onto the determination
-            # path — answering a question the reviewer did not ask.
-            informational = {"status": FAILED, "answer": "", "citations": [], "note": ""}
+            # path — answering a question the reviewer did not ask. The
+            # grounding still names how many rules were in scope, so a failed
+            # gather is not mistaken for one over an empty policy.
+            informational = {
+                "status": FAILED,
+                "answer": "",
+                "citations": [],
+                "note": "",
+                "grounding": _grounding(
+                    rules_available=len(rules),
+                    citations_requested=0,
+                    cited_ids=[],
+                    fabricated=[],
+                    oversize=False,
+                ),
+            }
 
     return {
         "intent": intent,
