@@ -383,6 +383,7 @@ describe("the choice reaches this window and nothing else", () => {
             rule: { rule_id: "AI-1", group_label: "" },
           } as never
         }
+        policySetKey={POLICY_SET_KEY}
         onClose={() => {}}
       />,
     );

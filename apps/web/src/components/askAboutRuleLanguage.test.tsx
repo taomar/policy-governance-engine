@@ -79,6 +79,13 @@ const ENGLISH_REFLECTION = "This rule fires once, and the exception in clause 4.
 
 const RULE_ID = "AI-eb7e2e437d";
 
+/** The key of the policy set the draft belongs to — what the review queue holds
+ *  and threads into the dialog. Deliberately different from the candidate's
+ *  `policy_set_id` ("set") below, so a test can tell the two apart: the server
+ *  resolves an approved-rules context by key, and the draft arm used to send the
+ *  uuid, which matches no key and loaded nothing. */
+const POLICY_SET_KEY = "staff-handbook-2024";
+
 function canonical(): CanonicalRule {
   return {
     schema_version: "1.0",
@@ -183,7 +190,7 @@ function clickSuggestion(label: string) {
 describe("the dialog speaks the reader's language and quotes the document's", () => {
   it("opens in the first language of the table, with that language's openers", () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
 
     for (const opener of ENGLISH.copy.scopes.rule.suggestions) {
       expect(screen.getByText(opener)).toBeTruthy();
@@ -197,7 +204,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("moves every opener, the heading, the note and the placeholder to the chosen language", () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
 
     choose(ARABIC.endonym);
 
@@ -226,7 +233,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("asks the server for the answer in the chosen language, and changes nothing else about the request", async () => {
     const fetchMock = serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
 
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
@@ -237,6 +244,12 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
     // The opener that was sent is the one the reader saw, not its English twin.
     expect(body.question).toBe(ARABIC.copy.scopes.rule.suggestions[0]);
     expect(body.focus_candidate_rule_id).toBe("candidate-1");
+    // The set the answer grounds on is named by its key — the identity the
+    // server resolves an approved-rules context by. The draft arm used to send
+    // the candidate's `policy_set_id` uuid ("set") here, which matches no key,
+    // so a reviewer's ask silently loaded none of the set's approved rules. It
+    // now sends the key the review queue threaded in.
+    expect(body.policy_set_key).toBe(POLICY_SET_KEY);
     // A rule ask grounds on the rule and on nothing wider. If this ever carried
     // a list, the dialog would be answering about a policy under a rule's
     // heading, and the reader would have no way of telling.
@@ -257,12 +270,33 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
     );
   });
 
+  it("grounds a draft ask on the policy set's key, never on the candidate's uuid", async () => {
+    // The defect this guards: the draft arm sent `candidate.policy_set_id` — a
+    // uuid — as the policy set identifier, but the server resolves an
+    // approved-rules context by key alone (`get_by_key`). A uuid matches no key,
+    // so the approved rules silently never loaded and the reviewer got a
+    // confident answer grounded on less than it should have been, with nothing
+    // on screen saying so. The key rides in from the review queue, which is
+    // scoped to a set and holds it; the candidate record never carried it.
+    const fetchMock = serve(answer());
+    const drafted = candidate();
+    expect(drafted.policy_set_id).not.toBe(POLICY_SET_KEY);
+    render(<AskAboutRuleModal candidate={drafted} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
+
+    clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [body] = requestBodies(fetchMock);
+    expect(body.policy_set_key).toBe(POLICY_SET_KEY);
+    expect(body.policy_set_key).not.toBe(drafted.policy_set_id);
+  });
+
   it("renders quoted source text identically in every language the table offers", async () => {
     const rendered: string[] = [];
 
     for (const language of ASK_ANSWER_LANGUAGES) {
       serve(answer());
-      render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+      render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
       choose(language.endonym);
       clickSuggestion(language.copy.scopes.rule.suggestions[0]);
 
@@ -288,7 +322,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
         reflection: ARABIC_REFLECTION,
       }),
     );
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -302,7 +336,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
         reflection: ENGLISH_REFLECTION,
       }),
     );
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
 
     expect((await screen.findByTestId("ask-rule-fact")).textContent).toBe(ARABIC_CLAUSE);
@@ -311,7 +345,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("says which words are the document's and which are its own", async () => {
     serve(answer({ reflection: ARABIC_REFLECTION }));
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -329,7 +363,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("claims a language for its own words and claims none for the document's", async () => {
     serve(answer({ reflection: ARABIC_REFLECTION }));
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -345,7 +379,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("sets no direction on the dialog, and lays each run of a mixed answer out in its own", async () => {
     serve(answer({ reflection: ARABIC_REFLECTION }));
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -370,7 +404,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
     serve(answer());
     render(
       <>
-        <AskAboutRuleModal candidate={candidate()} onClose={() => {}} />
+        <AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />
         <AskAiDrawer open onClose={() => {}} policySets={[]} />
       </>,
     );
@@ -386,20 +420,20 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 
   it("opens in the default language again next time, having stored nothing", () => {
     serve(answer());
-    const first = render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    const first = render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     expect(screen.getByText(ARABIC.copy.scopes.rule.groundingNote)).toBeTruthy();
     first.unmount();
     cleanup();
 
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     expect(screen.getByText(ENGLISH.copy.scopes.rule.groundingNote)).toBeTruthy();
     expect(screen.queryByText(ARABIC.copy.scopes.rule.groundingNote)).toBeNull();
   });
 
   it("leaves an answer already on screen in the language it was asked in", async () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
 
     const reflection = await screen.findByTestId("ask-rule-reflection");
@@ -417,7 +451,7 @@ describe("the dialog speaks the reader's language and quotes the document's", ()
 describe("nothing asked, waiting, refused and failed stay four different things", () => {
   it("offers openers and says nothing else before anything is asked", () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
 
     expect(screen.getByTestId("ask-rule-suggestions")).toBeTruthy();
     expect(screen.queryByTestId("ask-rule-thinking")).toBeNull();
@@ -432,7 +466,7 @@ describe("nothing asked, waiting, refused and failed stay four different things"
       "fetch",
       vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
     );
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -452,7 +486,7 @@ describe("nothing asked, waiting, refused and failed stay four different things"
         throw new TypeError("Failed to fetch");
       }),
     );
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -465,7 +499,7 @@ describe("nothing asked, waiting, refused and failed stay four different things"
     cleanup();
 
     serve({ groups: [], reflection: "", sources: [] });
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -479,7 +513,7 @@ describe("nothing asked, waiting, refused and failed stay four different things"
       throw new TypeError("Failed to fetch");
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     choose(ARABIC.endonym);
     clickSuggestion(ARABIC.copy.scopes.rule.suggestions[0]);
 
@@ -503,7 +537,7 @@ describe("an answer that quoted nothing says so", () => {
   it("marks an ungrounded answer in whichever language it was asked in", async () => {
     for (const language of ASK_ANSWER_LANGUAGES) {
       serve(answer({ groups: [], reflection: ENGLISH_REFLECTION }));
-      render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+      render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
       choose(language.endonym);
       clickSuggestion(language.copy.scopes.rule.suggestions[0]);
 
@@ -523,7 +557,7 @@ describe("an answer that quoted nothing says so", () => {
 
   it("says nothing of the kind when the document was quoted", async () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
     clickSuggestion(ENGLISH.copy.scopes.rule.suggestions[0]);
 
     await screen.findByTestId("ask-rule-quoted");
@@ -534,7 +568,7 @@ describe("an answer that quoted nothing says so", () => {
 describe("the control is a control", () => {
   it("is a named group of radios carrying each language's own name", () => {
     serve(answer());
-    render(<AskAboutRuleModal candidate={candidate()} onClose={() => {}} />);
+    render(<AskAboutRuleModal candidate={candidate()} policySetKey={POLICY_SET_KEY} onClose={() => {}} />);
 
     const group = screen.getByRole("radiogroup");
     const name = group.getAttribute("aria-label") ?? "";

@@ -36,8 +36,18 @@ export type AskAboutRuleTarget =
   | {
       /** The draft row under review. Grounds on that row, by its own id. */
       candidate: CandidateRule;
+      /** The key of the policy set the draft belongs to — the identity the
+       *  server resolves an approved-rules context by. It matches on the key
+       *  alone, and a candidate carries only its set's uuid (`policy_set_id`),
+       *  which matches no key, so the key is threaded in from the review queue:
+       *  the queue is scoped to a set and already holds it, while the record on
+       *  its own does not. Required, not optional, because a draft ask without
+       *  it silently grounds on none of the set's currently-approved rules —
+       *  exactly the context a reviewer asking "does this draft conflict with
+       *  what is already approved?" most needs — and nothing on screen would say
+       *  so. The published arm below carries the same field for the same reason. */
+      policySetKey: string;
       rule?: never;
-      policySetKey?: never;
       policyVersionId?: never;
     }
   | {
@@ -66,12 +76,18 @@ export function AskAboutRuleModal(props: AskAboutRuleTarget & { onClose: () => v
     ({ question, history, answerLanguage }) =>
       askAboutRuleInLanguage({
         question,
-        // The published arm grounds through the same rule-ids path the policy
-        // ask uses, with one id: a published version holds no candidate row to
-        // pin, and its records are read from the version itself. The reply
-        // carries a coverage report for that one rule, which is what makes
-        // "this rule could not be read" a sentence rather than a silence.
-        policySetId: candidate ? candidate.policy_set_id : policySetKey,
+        // Both arms ground on the policy set by its key, because the server
+        // resolves an approved-rules context by key alone (`get_by_key`). The
+        // draft arm used to send `candidate.policy_set_id` here — a uuid, which
+        // matches no key — so a reviewer's ask silently loaded none of the set's
+        // approved rules, with nothing on screen saying so. The key rides in as
+        // a prop on both arms instead: the review queue and the published
+        // surfaces each already hold it, and the candidate record never carried
+        // it. The published arm additionally grounds through the rule-ids path
+        // (one id), so its reply carries a coverage report for that rule, which
+        // is what makes "this rule could not be read" a sentence rather than a
+        // silence.
+        policySetId: policySetKey,
         history,
         focusCandidateRuleId: candidate?.id,
         focusRuleIds: candidate ? undefined : [ruleId],

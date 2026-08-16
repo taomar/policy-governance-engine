@@ -2479,7 +2479,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           onApplied={() => void loadCandidates()}
         />
       )}
-      {askTarget && <AskAboutRuleModal candidate={askTarget} onClose={() => setAskTarget(null)} />}
+      {askTarget && (
+        <AskAboutRuleModal
+          candidate={askTarget}
+          policySetKey={selectedKey}
+          onClose={() => setAskTarget(null)}
+        />
+      )}
       {previousUnderReview && (
         <Modal
           open
