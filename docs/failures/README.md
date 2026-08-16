@@ -12,6 +12,7 @@ the end of each document.
 | [`display-overclaims.md`](display-overclaims.md) | Where the UI stated something the data did not, including `WHEN Always` on conditioned rules |
 | [`designed-pipeline-and-running-pipeline.md`](designed-pipeline-and-running-pipeline.md) | Nine designed extraction stages, two reached; why ten dead subsystems are one fact, and the order they depend on |
 | [`rotated-cell-content-loss.md`](rotated-cell-content-loss.md) | A provision lost in a rotated merged cell; three mechanisms behaved correctly and the content still vanished |
+| [`route-vocabulary-and-framing.md`](route-vocabulary-and-framing.md) | The retired route names and the framings that keep escaping the guards; why this is the only directory that may spell them |
 
 ---
 

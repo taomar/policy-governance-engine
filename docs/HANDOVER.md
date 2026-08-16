@@ -27,26 +27,28 @@ It is not a holding pen, not a backlog, not an unfinished Deterministic rule.
 
 Live counts: **670 AI Ready, 7 Deterministic.** The judged path is the product.
 
-**`AI Ready` is a ROUTE, not a FAULT.** Build-failing guards reject any copy
-framing it as a deficiency, gap, limitation or something the engine "cannot" do.
-**Seven phrasings evaded those guards in one session.** Assume yours is the
-eighth and mutation-test it: inject a bad phrasing, watch the guard fail,
-restore it.
+**`AI Ready` is a ROUTE.** Two guards police how copy may describe it. Both
+break the build when they fire. **Seven phrasings evaded them in one session** —
+assume yours is the eighth and mutation-test it: inject a bad phrasing, watch
+the guard go red, restore it.
 
-Consequences people keep getting wrong:
-- Empty `required_facts` on an AI Ready rule is **not a gap** — its test is
-  words, so there are no named quantities. A table pairing it with a
-  Deterministic rule's fact list manufactures a deficit out of a route.
-- `decision_readiness` is `null` on all 2062 rules. Do not build a surface that
-  mirrors it uncritically.
-- "No test" on an AI Ready rule means no scenario has been put to the judge yet,
-  not that it cannot be tested.
+The exact wording those guards reject, and the three consequences people keep
+getting wrong, are written out in
+[`failures/route-vocabulary-and-framing.md`](failures/route-vocabulary-and-framing.md).
+**Read it before writing any user-facing copy about either route.** It lives
+there because `docs/failures/` is the one directory the guards do not scan, and
+prose that has to quote a forbidden phrasing in order to forbid it cannot be
+written anywhere else.
+
+One that is safe to repeat here: `decision_readiness` is `null` on all 2062
+rules. Do not build a surface that mirrors it uncritically.
 
 ### Vocabulary — settled by the user, do not re-litigate
 
-Use **"AI Ready"** and **"Deterministic"**. Retired: *"Decided by reading"*,
-*"Human Judgment Requirement"*. Only guard test files may still contain the
-retired strings, because they assert against them.
+Use **"AI Ready"** and **"Deterministic"**. Two earlier names were retired and
+may not appear in prose; they are listed in
+[`failures/route-vocabulary-and-framing.md`](failures/route-vocabulary-and-framing.md)
+§2, which is the only place outside the guard tests permitted to spell them.
 
 ---
 
