@@ -14,7 +14,6 @@ import {
   InputNumber,
   Modal,
   Pagination,
-  Progress,
   Row,
   Segmented,
   Select,
@@ -70,7 +69,6 @@ import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from ".
 import {
   policyUnitCount,
   recordProgressLabel,
-  recordScaleLabel,
 } from "../policyRecordFacts";
 import { type LoadState, describeApiFailure } from "../loadState";
 import { qualityScanSummary } from "../qualityScanSummary";
@@ -109,6 +107,7 @@ import type { PolicySightingView } from "./policyTabPanes";
 import type { RecordActionHandlers } from "./RecordActionsMenu";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs, REVIEW_STATUS_TABS } from "./ReviewStatusTabs";
+import { ReviewQueueSummary } from "./ReviewQueueSummary";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
 
@@ -1301,7 +1300,6 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     return { status: "info" as const, title: "No candidate rules found for this filter.", detail: null };
   }, [searchText, runFilter, deltaFilter, statusFilter, facets]);
 
-  const publishedPct = totalCandidates ? Math.round(((statusCounts.published ?? 0) / totalCandidates) * 100) : 0;
   const isManager = actor.role === "policy_manager";
 
   const publishDiff = useMemo(() => {
@@ -1689,6 +1687,19 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           <Text type="secondary">Decide candidate records from their source, condition, outcome, and exceptions.</Text>
         </div>
         <Space wrap className="review-page-actions">
+          {/* Drafting a rule is a queue-level action, and the empty queue points
+              here ("write one by hand … above"), so it lives in the page actions
+              where it shows whether or not any records exist — not in the panel
+              header (removed) or the controls bar (which the empty queue hides). */}
+          {selectedKey && (
+            <Button
+              type={showDraftForm ? "default" : "primary"}
+              icon={!showDraftForm && <PlusOutlined />}
+              onClick={() => setShowDraftForm((v) => !v)}
+            >
+              {showDraftForm ? "Cancel" : "Draft Candidate Rule"}
+            </Button>
+          )}
           {isDesktop && selectedKey && (
             <Segmented
               className="policies-view-switcher"
@@ -1773,56 +1784,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         />
       )}
 
-      {/* The six status counts that used to sit here as read-only tags are
-          already rendered directly below by ReviewStatusTabs — where they are
-          also clickable filters. Duplicating them cost 170px above the fold and
-          gave the reviewer a second, dumber copy of the same numbers. Only the
-          publish progress was unique to this band, so that is all that remains,
-          as a single slim line. */}
-      {selectedKey && totalCandidates > 0 && (
-        <div className="review-progress-line">
-          <Text className="review-progress-line__total">
-            {/* Policies lead, because a policy is what gets decided. The rule
-                count follows rather than disappearing: it is what a policy is
-                made of. Null while the assembly is not ready, so the line says
-                the one number it actually has instead of reporting no policies
-                over a queue that plainly holds some. */}
-            <strong>
-              {recordScaleLabel(
-                policiesState === "ready" ? allPolicyCards.length : null,
-                totalCandidates,
-              )}
-            </strong>
-          </Text>
-          <Progress
-            percent={publishedPct}
-            size="small"
-            showInfo={false}
-            strokeColor="#16a34a"
-            className="review-progress-line__bar"
-          />
-          <Text type="secondary" className="review-progress-line__label">
-            {statusCounts.published ?? 0} published · {publishedPct}%
-          </Text>
-        </div>
-      )}
-
       {selectedKey && (
         <>
           <section className="review-queue-panel">
-            <div className="review-queue-panel__header">
-              <div>
-                <Title level={4}>Candidate rules</Title>
-                <Text type="secondary">Select a decision record to verify its logic, source, formulation, and review history.</Text>
-              </div>
-              <Button
-                type={showDraftForm ? "default" : "primary"}
-                icon={!showDraftForm && <PlusOutlined />}
-                onClick={() => setShowDraftForm((v) => !v)}
-              >
-                {showDraftForm ? "Cancel" : "Draft Candidate Rule"}
-              </Button>
-            </div>
             <div className="review-queue-panel__body">
             {showDraftForm && (
               <Row gutter={20} style={{ marginBottom: 8 }}>
@@ -2019,44 +1983,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               totalPolicies={statusPopulationsAgree ? totalPolicyUnits : null}
             />
 
-            <dl className="review-operations-strip" aria-label="Review operations summary">
-              <div>
-                <dt>Decision progress</dt>
-                <dd>{decisionProgress}%</dd>
-                {/* Said in both units: a policy is what gets decided, and the
-                    rules are what a policy is made of. The policy half is
-                    withheld rather than zeroed while the rows are not the ones
-                    the tabs are counting. */}
-                <small>
-                  {recordProgressLabel(
-                    statusPopulationsAgree ? decidedPolicyCount : null,
-                    statusPopulationsAgree ? totalPolicyUnits : null,
-                    reviewedCount,
-                    totalCandidates,
-                  )}{" "}
-                  decided
-                </small>
-              </div>
-              <div className={approvedUnpublished.length > 0 ? "review-operation-attention" : undefined}>
-                <dt>Ready to publish</dt>
-                <dd>{approvedUnpublished.length}</dd>
-                <small>Approved rules, not live</small>
-              </div>
-              <div>
-                <dt>Related families</dt>
-                <dd>{bandedFamilyCount}</dd>
-                <small>
-                  {unfamiliedCount > 0
-                    ? `${unfamiliedCount} of ${totalCandidates} rules stand alone`
-                    : "In the current view"}
-                </small>
-              </div>
-              <div>
-                <dt>Quality findings</dt>
-                <dd>{qualityScan.display}</dd>
-                <small>{qualityScan.caption}</small>
-              </div>
-            </dl>
+            <ReviewQueueSummary
+              decisionPercent={decisionProgress}
+              progressDetail={recordProgressLabel(
+                statusPopulationsAgree ? decidedPolicyCount : null,
+                statusPopulationsAgree ? totalPolicyUnits : null,
+                reviewedCount,
+                totalCandidates,
+              )}
+              readyToPublish={approvedUnpublished.length}
+              quality={qualityScan}
+            />
 
             <ReviewFilterBar
               facets={facets}
