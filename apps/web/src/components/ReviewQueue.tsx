@@ -68,6 +68,7 @@ import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDi
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
 import { approvedReadyPolicies } from "../approvedReadyDrawer";
+import { reviewTabCounts } from "../reviewTabCounts";
 import {
   policyUnitCount,
   recordProgressLabel,
@@ -1342,22 +1343,37 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   /**
    * The tab counts and the policy counts have to be counts of the same set.
    *
-   * `facets.status_totals` is the server's tally over the whole set; the policy
-   * figures are assembled here from the rows this component holds. They agree
-   * in practice and they are not guaranteed to. Showing a policy count beside a
-   * rule count drawn from a different population would put two measurements of
-   * one thing on one strip, and a reader has no way to tell which is which — so
-   * when they disagree the policy figures are withheld and every tab falls back
-   * to its rule count, saying so.
+   * A document or run selection scopes the rows the queue loads (loadCandidates
+   * sends it to the server), so the counts assembled here describe that scope.
+   * `facets.status_totals` is the server's tally over the *whole* set and is not
+   * re-fetched on that selection, so under a scope it counts a different
+   * population — pairing its rule totals with the scoped policy figures is the
+   * mismatch `reviewTabCounts` refuses. Scoped, the counts come from the loaded
+   * rows, rules and policies together, so the tabs lead with policies under the
+   * filter too; unscoped, the whole-set tally leads and the policy figures ride
+   * along only while they still describe the same population as it.
    */
-  const shownStatusCounts = facets?.status_totals ?? statusCounts;
-  const statusPopulationsAgree = useMemo(() => {
-    const keys = new Set([...Object.keys(shownStatusCounts), ...Object.keys(statusCounts)]);
-    for (const key of keys) {
-      if ((shownStatusCounts[key] ?? 0) !== (statusCounts[key] ?? 0)) return false;
-    }
-    return true;
-  }, [shownStatusCounts, statusCounts]);
+  const scopeActive = Boolean(documentFilter || runFilter);
+  const tabCounts = useMemo(
+    () =>
+      reviewTabCounts({
+        scopeActive,
+        facetTotals: facets?.status_totals ?? null,
+        localRuleCounts: statusCounts,
+        localPolicyCounts: statusPolicyCounts,
+        totalRules: totalCandidates,
+        totalPolicyUnits,
+      }),
+    [
+      scopeActive,
+      facets,
+      statusCounts,
+      statusPolicyCounts,
+      totalCandidates,
+      totalPolicyUnits,
+    ],
+  );
+  const policyCountsShown = tabCounts.policyCounts !== null;
   /** Policies with nothing left to decide: no rule of theirs is still open. */
   const decidedPolicyCount = useMemo(() => {
     const open = new Set<string>();
@@ -1990,21 +2006,17 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             <ReviewStatusTabs
               value={statusFilter}
               onChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              counts={shownStatusCounts}
-              total={
-                facets
-                  ? Object.values(facets.status_totals).reduce((a, b) => a + b, 0)
-                  : totalCandidates
-              }
-              policyCounts={statusPopulationsAgree ? statusPolicyCounts : null}
-              totalPolicies={statusPopulationsAgree ? totalPolicyUnits : null}
+              counts={tabCounts.counts}
+              total={tabCounts.total}
+              policyCounts={tabCounts.policyCounts}
+              totalPolicies={tabCounts.totalPolicies}
             />
 
             <ReviewQueueSummary
               decisionPercent={decisionProgress}
               progressDetail={recordProgressLabel(
-                statusPopulationsAgree ? decidedPolicyCount : null,
-                statusPopulationsAgree ? totalPolicyUnits : null,
+                policyCountsShown ? decidedPolicyCount : null,
+                policyCountsShown ? totalPolicyUnits : null,
                 reviewedCount,
                 totalCandidates,
               )}
