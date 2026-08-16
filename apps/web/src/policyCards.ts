@@ -154,6 +154,26 @@ export interface PolicyCard {
   /** Distinct review states present, in the order first seen. More than one
    *  means part of the policy has already been decided. */
   reviewStatuses: string[];
+  /**
+   * The policy set this card was built from, or `null` where the build was not
+   * told.
+   *
+   * Carried on the record rather than threaded to each consumer as a prop.
+   * A rule with no draft row is named by its set and its rule id — that pair is
+   * the only handle a generated name can be looked up by once a version is
+   * sealed — so a consumer holding a card holds everything it needs, and no
+   * call site can pass the wrong set beside the right card.
+   *
+   * Deliberately not on `policyLogicShape()`: the shape is what the two
+   * surfaces compare, and adding an identifier to it would make one surface's
+   * shape differ from the other's for a reason that has nothing to do with the
+   * logic. The key rides the record; the shape stays byte-identical.
+   *
+   * `null` is absent, not empty: a build that was not told which set this is
+   * cannot ask, so nothing is asked and nothing is claimed. It is never a
+   * fault to report.
+   */
+  policy_set_key: string | null;
 }
 
 /**
@@ -184,8 +204,9 @@ export interface PolicyCard {
 export function buildPolicyCards(
   policies: readonly AssembledPolicy[],
   candidates: readonly PolicyRecordInput[],
+  policySetKey?: string | null,
 ): PolicyCard[] {
-  return placement(policies, candidates).cards;
+  return placement(policies, candidates, policySetKey ?? null).cards;
 }
 
 /**
@@ -213,6 +234,10 @@ export function unplacedRules<T extends PolicyRecordInput>(
   policies: readonly AssembledPolicy[],
   candidates: readonly T[],
 ): T[] {
+  // No key passed, because this view answers a question about rows rather than
+  // about cards and the answer cannot depend on which set they came from. The
+  // `undefined` says "did not ask", so it never invalidates a placement built
+  // for a caller that did.
   return placement(policies, candidates).unplaced as T[];
 }
 
@@ -253,24 +278,37 @@ interface Placement {
 let lastPlacement: {
   policies: readonly AssembledPolicy[];
   candidates: readonly PolicyRecordInput[];
+  policySetKey: string | null;
   result: Placement;
 } | null = null;
 
 function placement(
   policies: readonly AssembledPolicy[],
   candidates: readonly PolicyRecordInput[],
+  policySetKey?: string | null,
 ): Placement {
-  if (lastPlacement && lastPlacement.policies === policies && lastPlacement.candidates === candidates) {
+  // `undefined` means the caller did not ask about the set, so any cached
+  // answer serves. A caller that did ask gets the cached one only when it was
+  // built for the same set — otherwise its cards would carry another set's key
+  // and name their rules out of the wrong version.
+  if (
+    lastPlacement &&
+    lastPlacement.policies === policies &&
+    lastPlacement.candidates === candidates &&
+    (policySetKey === undefined || lastPlacement.policySetKey === policySetKey)
+  ) {
     return lastPlacement.result;
   }
-  const result = place(policies, candidates);
-  lastPlacement = { policies, candidates, result };
+  const key = policySetKey ?? null;
+  const result = place(policies, candidates, key);
+  lastPlacement = { policies, candidates, policySetKey: key, result };
   return result;
 }
 
 function place(
   policies: readonly AssembledPolicy[],
   candidates: readonly PolicyRecordInput[],
+  policySetKey: string | null,
 ): Placement {
   const byRuleId = new Map<string, PolicyRecordInput>();
   for (const candidate of candidates) {
@@ -339,6 +377,7 @@ function place(
         .map((rule) => rule.recordId),
       allIds: rules.map((rule) => rule.recordId),
       reviewStatuses,
+      policy_set_key: policySetKey,
     });
   }
 

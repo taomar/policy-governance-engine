@@ -75,6 +75,18 @@ export interface PolicyRecordView {
   policy: AssembledPolicy;
   /** How many passages of its source document the policy quotes. */
   passageCount: number;
+  /**
+   * The set this policy belongs to, or `null` where the record does not say.
+   *
+   * The second half of the address a sealed rule's generated name is looked up
+   * by — the first is its rule id. Carried here rather than passed to each pane
+   * so that a pane holding a record holds the whole address, and cannot be
+   * handed one policy's rules beside another set's key.
+   *
+   * Not a status and nothing branches on it. `null` is absent: no lookup is
+   * attempted, no name is claimed, and nothing is reported as wrong.
+   */
+  policySetKey?: string | null;
   /** Every rule the policy holds, in document order, with the id it is known by. */
   rules: {
     rule_id: string;
@@ -150,6 +162,7 @@ export function policyRecord(card: PolicyCard): PolicyRecordView {
   return {
     policy: card.policy,
     passageCount: card.passages.length,
+    policySetKey: card.policy_set_key,
     rules: card.rules.map((entry) => ({
       rule_id: entry.rule_id,
       rule: entry.rule,
@@ -675,9 +688,27 @@ function PolicyRuleRoster({ record }: { record: PolicyRecordView }) {
             <div className="policy-pane__rule-body">
               {/* Renders nothing until a name has been generated, so a policy
                   nobody has named reads as its rules' own words and no line is
-                  held open for something that may never arrive. The door is
-                  the draft row; a sealed record has none, and asks nothing. */}
-              {entry.candidateId && <RuleName candidateId={entry.candidateId} variant="block" />}
+                  held open for something that may never arrive.
+
+                  Which handle names it is a property of the record. A draft row
+                  is named by its own id; a sealed rule has no such row and is
+                  named by the set it was published in together with its rule
+                  id. This used to ask only the first way, so every generated
+                  name on the published surface resolved to nothing and the
+                  rules there silently lost theirs. Where the record does not
+                  say which set it belongs to, nothing is asked — an address
+                  this app does not hold is absent, not empty. */}
+              {entry.candidateId ? (
+                <RuleName candidateId={entry.candidateId} variant="block" />
+              ) : (
+                record.policySetKey && (
+                  <RuleName
+                    policySetKey={record.policySetKey}
+                    ruleId={entry.rule_id}
+                    variant="block"
+                  />
+                )
+              )}
               <p className="policy-pane__rule-title" data-verbatim="true">
                 <DirectionalText align>{entry.rule.title}</DirectionalText>
               </p>

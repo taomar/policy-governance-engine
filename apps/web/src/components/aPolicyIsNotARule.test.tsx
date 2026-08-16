@@ -149,6 +149,9 @@ function publishedCard(ruleIds = ["r1", "r2"]) {
   return buildPolicyCards(
     [policy(ruleIds)],
     ruleIds.map((id) => ({ rule: rule(id) })),
+    // The set rides the card. A sealed rule has no draft row, so this is the
+    // only address by which its generated name can be looked up.
+    "a-set",
   )[0];
 }
 
@@ -229,7 +232,6 @@ describe("a rule's own words are the way into it", () => {
         onToggleSelect={() => {}}
         onOpen={() => {}}
         onSelectRule={() => {}}
-        policySetKey="a-set"
         {...props}
       />,
     );

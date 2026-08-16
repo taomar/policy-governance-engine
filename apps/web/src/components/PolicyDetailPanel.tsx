@@ -10,7 +10,6 @@ import {
 import type { PolicyCard } from "../policyCards";
 import {
   passagePageLabel,
-  passageQuotations,
   passageTitle,
   policyJsonDocument,
   policyTitle,
@@ -476,7 +475,6 @@ export function PolicyDetailPanel({
                   const passageRules = block.rules.map(
                     (rule) => rule.rule,
                   );
-                  const quotations = passageQuotations(passageRules);
                   const name = passageTitle(passageRules);
                   // Ordinals are spent on every rule of the passage, shown or
                   // not, so the numbering is the document's and not the view's.
@@ -500,31 +498,19 @@ export function PolicyDetailPanel({
                       data-testid="policy-detail-passage"
                       data-passage={block.passage.key}
                     >
-                      <Text
-                        type="secondary"
-                        className="policy-detail-panel__section-label"
-                      >
-                        What the source says
-                        {block.passage.page === null
-                          ? ""
-                          : ` · page ${block.passage.page}`}
-                      </Text>
-                      {quotations.length > 0 ? (
-                        quotations.map((quotation, index) => (
-                          <p
-                            key={`${index}-${quotation.slice(0, 32)}`}
-                            className="policy-card__passage"
-                            data-testid="policy-detail-quotation"
-                          >
-                            <DirectionalText>{quotation}</DirectionalText>
-                          </p>
-                        ))
-                      ) : (
-                        <Text type="secondary">
-                          The source text for this passage was not stored with
-                          its rules.
-                        </Text>
-                      )}
+                      {/* The document's words are not quoted here.
+                          `PolicyOverviewPane` now leads with them, directly
+                          under the title, so a reader meets the source before
+                          anything this app derived from it. Quoting the same
+                          passage again beside its rules would put one text on
+                          screen twice, and a reader who found the two would
+                          have no way to tell which was the record — the same
+                          fault as two renderers, at the scale of a paragraph.
+
+                          The reading that survived is the stronger one: it
+                          marks the text `data-verbatim`, aligns each run to
+                          its own direction, and says so when a passage's text
+                          was never stored. This copy did none of the three. */}
                       {name.source === "cell" && (
                         <Text
                           type="secondary"

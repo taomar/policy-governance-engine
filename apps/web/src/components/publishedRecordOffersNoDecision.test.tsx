@@ -168,6 +168,9 @@ function renderCard({
   const cards = buildPolicyCards(
     [policy(ruleIds, statedRuleCount)],
     ruleIds.map((id) => ({ rule: rule(id) })),
+    // The set rides the card, so both the card and the panel address these
+    // sealed rules the one way.
+    "a-set",
   );
   const card = cards[0];
   const statusColor = () => "purple";
@@ -179,7 +182,6 @@ function renderCard({
         selected={false}
         indeterminate={false}
         open
-        policySetKey="a-set"
         statusColor={statusColor}
         statusLabel={statusLabel}
         findingsFor={() => 0}

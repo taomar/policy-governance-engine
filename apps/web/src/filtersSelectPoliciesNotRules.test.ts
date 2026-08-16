@@ -375,7 +375,12 @@ describe("no filter asks what a record is about", () => {
     // The single line that made a card a fragment. If buildPolicyCards is ever
     // handed the filtered candidates again, every downstream guarantee here is
     // void and no test below would notice.
-    expect(queueSource).toContain("buildPolicyCards(policies, placeable)");
+    //
+    // Matched on the first two arguments rather than the whole call, because a
+    // third — which policy set the cards belong to — was added later and says
+    // nothing about which candidates went in. What must not change is that the
+    // second argument is `placeable`, the unnarrowed list.
+    expect(queueSource).toMatch(/buildPolicyCards\(policies, placeable[,)]/);
     expect(queueSource).not.toContain("buildPolicyCards(policies, filteredCandidates)");
   });
 

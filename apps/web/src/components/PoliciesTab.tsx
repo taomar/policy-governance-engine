@@ -466,8 +466,8 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  of its nine rules with the other six silently absent, and nothing on
    *  screen distinguishes that from a policy that only has three. */
   const allCards = useMemo(
-    () => buildPolicyCards(policies, rules.map((rule) => ({ rule }))),
-    [policies, rules],
+    () => buildPolicyCards(policies, rules.map((rule) => ({ rule })), policySetKey || null),
+    [policies, rules, policySetKey],
   );
 
   const matchedRuleIds = useMemo(
@@ -1066,7 +1066,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                              taken; there is no half of one to report. */
                           indeterminate={false}
                           open={openPolicyKey === card.policy.key}
-                          policySetKey={policySetKey}
                           statusColor={publishedStatusColor}
                           statusLabel={publishedStatusLabel}
                           /* Nothing on a sealed record is a quality finding

@@ -77,6 +77,9 @@ function card(blocks: { key: string; rules: PolicyCardRule[] }[]): PolicyCard {
     reviewableIds: rules.map((rule) => rule.recordId),
     allIds: rules.map((rule) => rule.recordId),
     reviewStatuses: ["candidate"],
+    // No set: this fixture exercises the logic shape, which is deliberately
+    // identical on both surfaces and so cannot mention where a card came from.
+    policy_set_key: null,
   };
 }
 

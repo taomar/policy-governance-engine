@@ -676,8 +676,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   // Cards are built before the search is applied, so a card always holds the
   // whole policy. The search then chooses which of those whole cards to show.
   const allPolicyCards = useMemo(
-    () => buildPolicyCards(policies, placeable),
-    [policies, placeable]
+    // An unchosen set is absent, not a set named by the empty string: nothing
+    // downstream should ask a lookup for the rules of "".
+    () => buildPolicyCards(policies, placeable, selectedKey || null),
+    [policies, placeable, selectedKey]
   );
 
   const matchedIds = useMemo(

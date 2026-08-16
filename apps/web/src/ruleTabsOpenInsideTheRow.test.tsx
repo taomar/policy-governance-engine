@@ -504,6 +504,9 @@ describe("the full record opens inside the row it belongs to", () => {
       reviewableIds: [row.id],
       allIds: [row.id],
       reviewStatuses: ["candidate"],
+      // No set: this fixture exercises where a rule's tabs open, not where the
+      // policy was published from. Absent, so nothing is looked up by it.
+      policy_set_key: null,
     };
 
     render(

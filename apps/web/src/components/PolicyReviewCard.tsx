@@ -130,7 +130,6 @@ export function PolicyReviewCard({
   onSelectRule,
   selectedRuleId,
   documentName,
-  policySetKey,
 }: {
   card: PolicyCard;
   /** Every reviewable rule of this policy is in the bulk selection. */
@@ -179,12 +178,6 @@ export function PolicyReviewCard({
    *  because a surface that cannot attribute a policy to a document should ask
    *  the narrower question rather than guess at the answer. */
   documentName?: string | null;
-  /** The policy set these records belong to. Needed only to look up the name
-   *  this app generated for a rule that has no draft row: a draft row is named
-   *  by its own id, and a published rule by its set and its rule id. Absent on
-   *  a surface with no set in hand, and a rule then shows no generated name —
-   *  which is what a card with none showed before names existed. */
-  policySetKey?: string;
 }) {
   const title = policyTitle(card.policy, card.passages);
   const topicLabel = policyTopicLabel(card.policy, documentName);
@@ -573,15 +566,25 @@ export function PolicyReviewCard({
                           row by the set it was published in. Asked the wrong
                           way round — a published rule id sent as a draft row id
                           — the lookup resolves to nothing and the rule silently
-                          loses its name. */}
-                      {rule.candidate || !policySetKey ? (
+                          loses its name.
+
+                          The set is read off the card, not off a prop. A prop
+                          would let a call site pass one policy's rules beside
+                          another set's key, and the pair is an address: half
+                          right addresses nothing — so a sealed rule on a card
+                          that was never told its set asks nothing, rather than
+                          sending its rule id down the draft-row address and
+                          getting a silent empty answer back. */}
+                      {rule.candidate ? (
                         <RuleName candidateId={rule.recordId} variant="block" />
                       ) : (
-                        <RuleName
-                          policySetKey={policySetKey}
-                          ruleId={rule.rule_id}
-                          variant="block"
-                        />
+                        card.policy_set_key && (
+                          <RuleName
+                            policySetKey={card.policy_set_key}
+                            ruleId={rule.rule_id}
+                            variant="block"
+                          />
+                        )
                       )}
                       <div className="policy-card__rule-line">
                         {/* Only the rule's own words are the target. The badges,

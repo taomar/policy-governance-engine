@@ -160,6 +160,9 @@ function card(blocks: { key: string; rules: PolicyCardRule[] }[]): PolicyCard {
     reviewableIds: rules.map((rule) => rule.recordId),
     allIds: rules.map((rule) => rule.recordId),
     reviewStatuses: ["candidate"],
+    // No set: this fixture exercises what a card says, not where it was
+    // published from. Absent, so nothing is looked up by it.
+    policy_set_key: null,
   };
 }
 
