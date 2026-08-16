@@ -212,6 +212,30 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                     WHERE c.policy_set_id = ps.id
                       AND c.review_status = 'candidate'
                       AND c.superseded_at IS NULL) AS review_pending,
+                  -- The same queue measured in the unit the work is approved in.
+                  --
+                  -- A policy is what gets reviewed, approved, published and
+                  -- exported; rules are its contents. A register reporting only
+                  -- rules tells a reader how much text is waiting and not how
+                  -- many decisions, which are different numbers by roughly an
+                  -- order of magnitude here. Both are served so the surface can
+                  -- show them joined rather than choosing one.
+                  --
+                  -- The two counts partition the pending rows on whether
+                  -- `provision_id` is null and so cannot double-count: a pending
+                  -- candidate attached to no provision is its own unit, because
+                  -- nothing groups it. Identical idiom to `/workspace-counts`,
+                  -- deliberately, so the register and the badge cannot disagree.
+                  ((SELECT count(DISTINCT c.provision_id) FROM candidate_rules c
+                     WHERE c.policy_set_id = ps.id
+                       AND c.review_status = 'candidate'
+                       AND c.superseded_at IS NULL
+                       AND c.provision_id IS NOT NULL)
+                   + (SELECT count(*) FROM candidate_rules c
+                       WHERE c.policy_set_id = ps.id
+                         AND c.review_status = 'candidate'
+                         AND c.superseded_at IS NULL
+                         AND c.provision_id IS NULL)) AS review_pending_policies,
                   -- The current generation's size and how its records are routed.
                   --
                   -- active_rule_count below counts PUBLISHED rules, which is 0 for
@@ -228,6 +252,16 @@ async def portfolio_summary(session: AsyncSession = Depends(get_session)) -> lis
                   (SELECT count(*) FROM candidate_rules c
                     WHERE c.policy_set_id = ps.id
                       AND c.superseded_at IS NULL) AS live_candidate_count,
+                  -- The same generation counted in policies, for the same
+                  -- reason as `review_pending_policies` above.
+                  ((SELECT count(DISTINCT c.provision_id) FROM candidate_rules c
+                     WHERE c.policy_set_id = ps.id
+                       AND c.superseded_at IS NULL
+                       AND c.provision_id IS NOT NULL)
+                   + (SELECT count(*) FROM candidate_rules c
+                       WHERE c.policy_set_id = ps.id
+                         AND c.superseded_at IS NULL
+                         AND c.provision_id IS NULL)) AS live_policy_count,
                   -- Counted per route rather than as a ratio of one to the other, and
                   -- neither is subtracted from the other. A record whose mode is
                   -- absent or is some mode added later belongs to neither count, so
@@ -715,6 +749,8 @@ async def get_provision_history(
             "is_active": sighting.is_active,
             "approved_by": sighting.approved_by,
             "approved_at": sighting.approved_at,
+            "effective_from": sighting.effective_from,
+            "effective_to": sighting.effective_to,
             "heading_path": sighting.heading_path,
             "change": sighting.change,
             "rules": [

@@ -79,6 +79,18 @@ class PolicySighting:
     approved_by: str | None
     approved_at: Any
     heading_path: list[str]
+    #: When the version this policy was sealed into starts and stops applying.
+    #: Approval and application are different moments: a version approved in
+    #: March can be written to apply from April, and a reader asking whether a
+    #: policy binds them today is asking about these, not about the approval.
+    #:
+    #: An absent end is not an open end. A superseded version can carry no end
+    #: date at all — it stopped applying because a later version replaced it,
+    #: which is recorded as the later version being the active one and not as a
+    #: date here. Whether a version applies is therefore read from `is_active`;
+    #: these two say from and until when, where the record says so.
+    effective_from: Any = None
+    effective_to: Any = None
     rules: list[PolicyRuleSighting] = field(default_factory=list)
     #: "first_seen" | "unchanged" | "changed" — against the previous sighting
     #: of this same key, which may be several versions back.
@@ -96,6 +108,8 @@ _SIGHTINGS_SQL = text(
         apv.is_active         AS is_active,
         apv.approved_by       AS approved_by,
         apv.approved_at       AS approved_at,
+        apv.effective_from    AS effective_from,
+        apv.effective_to      AS effective_to,
         ar.rule_id            AS rule_id,
         ar.title              AS title,
         ar.description        AS description,
@@ -148,6 +162,8 @@ async def policy_history(
                 is_active=bool(row.is_active),
                 approved_by=row.approved_by,
                 approved_at=row.approved_at,
+                effective_from=row.effective_from,
+                effective_to=row.effective_to,
                 heading_path=_heading_path(row.provision_heading_json),
             )
             by_version[row.version_id] = sighting

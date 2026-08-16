@@ -48,7 +48,7 @@ import {
 } from "../policyRecordFacts";
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
-import { policyProvenance } from "./policyProvenance";
+import { policyProvenance, whenItApplies } from "./policyProvenance";
 import { RuleName } from "./RuleName";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { engineDecidesRule } from "../ruleExecutability";
@@ -491,17 +491,26 @@ export function PolicyOverviewPane({
           </Paragraph>
         ) : (
           <ul className="policy-pane__list">
-            {chain.publication.versions.map((version) => (
-              <li key={version.versionId}>
-                <Text strong>
-                  {version.versionNumber == null ? "A version" : `Version ${version.versionNumber}`}
-                </Text>
-                {version.isActive && <Tag color="green" style={{ marginInlineStart: 8 }}>Active</Tag>}
-                {version.approvedAt && (
-                  <Text type="secondary"> · approved {formatMoment(version.approvedAt)}</Text>
-                )}
-              </li>
-            ))}
+            {chain.publication.versions.map((version) => {
+              const applies = whenItApplies(version);
+              return (
+                <li key={version.versionId}>
+                  <Text strong>
+                    {version.versionNumber == null ? "A version" : `Version ${version.versionNumber}`}
+                  </Text>
+                  {version.isActive && <Tag color="green" style={{ marginInlineStart: 8 }}>Active</Tag>}
+                  {applies && (
+                    <Text type="secondary" data-testid={`published-in-${version.versionId}`}>
+                      {" "}
+                      · {applies}
+                    </Text>
+                  )}
+                  {version.approvedAt && (
+                    <Text type="secondary"> · approved {formatMoment(version.approvedAt)}</Text>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -624,7 +633,7 @@ function SourcePassage({
             data-verbatim="true"
             data-testid="overview-quotation"
           >
-            <DirectionalText>{quotation}</DirectionalText>
+            <DirectionalText align>{quotation}</DirectionalText>
           </p>
         ))
       )}
@@ -669,7 +678,7 @@ function PolicyRuleRoster({ record }: { record: PolicyRecordView }) {
                   the draft row; a sealed record has none, and asks nothing. */}
               {entry.candidateId && <RuleName candidateId={entry.candidateId} variant="block" />}
               <p className="policy-pane__rule-title" data-verbatim="true">
-                <DirectionalText>{entry.rule.title}</DirectionalText>
+                <DirectionalText align>{entry.rule.title}</DirectionalText>
               </p>
               <div className="policy-pane__rule-facts">
                 {entry.route && (
@@ -1411,6 +1420,11 @@ export interface PolicySightingView {
   is_active: boolean;
   approved_by: string | null;
   approved_at: string | null;
+  /** From and until when the version this policy was sealed into applies.
+   *  Absent where the record holds no date. An absent end is not an open end —
+   *  see `is_active`, which is what says whether a version applies at all. */
+  effective_from?: string | null;
+  effective_to?: string | null;
   heading_path: string[];
   change: string;
   rules: PolicyRuleSightingView[];

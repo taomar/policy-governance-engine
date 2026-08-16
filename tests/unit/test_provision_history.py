@@ -155,3 +155,35 @@ def test_the_endpoint_sends_nothing_the_reader_has_no_name_for() -> None:
     """
     unread = _endpoint_keys() - _web_view_fields()
     assert not unread, f"the endpoint sends fields nothing reads: {sorted(unread)}"
+
+
+_ASSEMBLY = (
+    _REPO_ROOT
+    / "src"
+    / "policy_platform"
+    / "infrastructure"
+    / "assembly"
+    / "provision_history.py"
+)
+
+
+def test_every_column_the_assembler_reads_is_one_the_query_selects() -> None:
+    """The link before the wire, and the one no other test here can see.
+
+    The two tests above agree the server and the pane use one vocabulary. Both
+    would still pass if the assembler read a column the query never selected:
+    the failure is an `AttributeError` on the first row of real data, in a
+    request no unit test issues, on a page that has already rendered its header.
+
+    The pane's own history is the evidence. `effective_from` was declared on the
+    reader long before anything served it. Adding it to the payload is not
+    enough; the value has to be selected before it can be read.
+    """
+    source = _ASSEMBLY.read_text(encoding="utf-8")
+    start = source.index("_SIGHTINGS_SQL")
+    selected = set(re.findall(r"AS\s+([a-z_]+)", source[start : source.index('"""', start + 40)]))
+    read = set(re.findall(r"\brow\.([a-z_]+)", source))
+    assert selected, "no columns parsed out of the query; the parse is wrong, not the code"
+    assert not (read - selected), (
+        f"the assembler reads columns the query does not select: {sorted(read - selected)}"
+    )

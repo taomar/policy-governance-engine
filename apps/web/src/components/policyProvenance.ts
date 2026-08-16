@@ -70,7 +70,24 @@ export interface PolicyPlacement {
 /** Where the policy has been published, when this app has looked. */
 export type PolicyPublication =
   | { known: false }
-  | { known: true; versions: { versionId: string; versionNumber: number | null; isActive: boolean; approvedAt: string | null }[] };
+  | { known: true; versions: PolicyPublishedIn[] };
+
+/** One published version this policy's key appears in. */
+export interface PolicyPublishedIn {
+  versionId: string;
+  versionNumber: number | null;
+  /** Whether this is the version that applies now. This — not the presence of
+   *  an end date — is what says a version is the one in force: a superseded
+   *  version can carry no end date at all, having stopped applying because a
+   *  later one replaced it. */
+  isActive: boolean;
+  approvedAt: string | null;
+  /** When the version starts and stops applying, where the record says so.
+   *  Approval and application are different moments and are not interchangeable
+   *  answers to "does this bind me". */
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+}
 
 export interface PolicyProvenance {
   /** The policy's identity across versions, and the handle a reviewer follows. */
@@ -164,6 +181,8 @@ export function policyProvenance(
             versionNumber: sighting.version_number,
             isActive: sighting.is_active,
             approvedAt: sighting.approved_at,
+            effectiveFrom: sighting.effective_from ?? null,
+            effectiveTo: sighting.effective_to ?? null,
           })),
         };
 
@@ -180,4 +199,69 @@ export function policyProvenance(
     },
     publication,
   };
+}
+
+/**
+ * A calendar day, written the way the reader's own system writes days.
+ *
+ * Not `toLocaleString`, which appends a time to a value that has none: these
+ * are dates, and a policy that applies "from 15/08/2026, 00:00:00" invites a
+ * reader to wonder what happens at 23:59. Not `new Date(value)` either — that
+ * reads a bare `YYYY-MM-DD` as UTC midnight, so a reader west of Greenwich is
+ * shown the day before the one the record holds. The parts are read straight
+ * off the string and rebuilt as a local day, which cannot shift.
+ *
+ * Anything that is not a plain day is returned untouched rather than rendered
+ * as an invalid date.
+ */
+export function formatDay(value: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!parts) return value;
+  const day = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  return Number.isNaN(day.getTime()) ? value : day.toLocaleDateString();
+}
+
+/** Today as a plain day, for comparing against the days a record holds. */
+export function today(): string {
+  const now = new Date();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Whether a published version applies, and from and until when.
+ *
+ * The question a business reader arrives with is not when a version was
+ * approved but whether it binds them, and those are different moments: a
+ * version approved in one month can be written to apply from the next.
+ *
+ * THE CLAIM THIS REFUSES TO MAKE
+ *
+ * A superseded version can carry no end date at all — it stopped applying
+ * because a later version replaced it, and that is recorded as the later
+ * version being the active one, not as a date on this one. So an absent end
+ * date is never reported as an open one. A version that no longer applies is
+ * spoken about in the past tense and its end is simply not mentioned, which is
+ * the difference between "we do not know when this stopped" and the false
+ * "this never stopped".
+ *
+ * Returns null where the record holds no start date, so that a caller renders
+ * nothing rather than a sentence with a hole in it. `now` is a parameter so a
+ * test can pin the day rather than pass on a date that goes stale.
+ */
+export function whenItApplies(
+  version: Pick<PolicyPublishedIn, "isActive" | "effectiveFrom" | "effectiveTo">,
+  now: string = today(),
+): string | null {
+  const from = version.effectiveFrom;
+  if (!from) return null;
+  const until = version.effectiveTo ? ` until ${formatDay(version.effectiveTo)}` : "";
+
+  if (!version.isActive) {
+    return `applied from ${formatDay(from)}${until}`;
+  }
+  return from > now
+    ? `takes effect ${formatDay(from)}${until}`
+    : `in force since ${formatDay(from)}${until}`;
 }
