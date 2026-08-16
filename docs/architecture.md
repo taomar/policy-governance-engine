@@ -54,7 +54,7 @@ at the centre and depend on nothing else in the codebase.
 | Contracts | `policy_platform.contracts` | Pydantic models for the canonical rule, the condition AST, evaluation request/response, policy tests, correlation findings, and the canonical hash. No I/O. |
 | Evaluator | `policy_platform.evaluator` | The deterministic decision core: condition interpretation, precedence resolution, the evaluation engine, and the policy-test runner. No database, no network, no AI. |
 | Domain | `policy_platform.domain` | SQLAlchemy ORM entities and table definitions. |
-| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into fourteen sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
+| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into thirteen sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
 | API | `policy_platform.api` | FastAPI app, request/response schemas, and twelve routers. |
 
 ### Inside infrastructure
@@ -76,7 +76,6 @@ together. `ai/` holds the client itself.
 | `projection/` | Restating an approved rule: XACML, DMN parity, version diff, export |
 | `quality/` | Faithfulness to source, and the duplicate/contradiction/instability passes |
 | `correlation/` | Deterministic relationship discovery, and model-assisted contradiction finding |
-| `aggregates/` | Limits that apply across a run of requests rather than within one |
 | `policy_tests/` | Proposing, committing to and running saved tests |
 | `assistants/` | Chat, draft, rewrite, summary, compare, scenario — advisory only |
 | `ai/`, `search/` | Azure OpenAI and Azure AI Search clients |
@@ -228,7 +227,7 @@ sequenceDiagram
 
     UI->>R: POST /api/evaluations (facts, policy set, version pin)
     R->>Repo: resolve active or pinned version
-    Repo->>DB: read approved rules + aggregate limits
+    Repo->>DB: read approved rules
     R->>M: approved_policy_version_to_package(...)
     M-->>R: ApprovedPolicyPackage
     R->>E: evaluate_policy(package, request)
