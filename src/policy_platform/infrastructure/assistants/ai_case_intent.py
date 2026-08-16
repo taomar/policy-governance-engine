@@ -38,17 +38,18 @@ It does not decide anything. A determination is still the deterministic engine's
 or the judge's to make, one rule at a time, through the paths that already exist
 and are already audited. This module classifies, and — for an informational
 request only — gathers and states what the policy holds. The words it composes
-are its own and are marked as its own by the caller; the words it quotes are the
-record's, attached here verbatim from the rule's stored source and never
-rewritten, translated, or trimmed.
+are its own and are marked as its own by the caller; it cites the rules its
+answer rests on by id, and the reader's surface resolves each id to that rule's
+name and its verbatim source sentence, so the document's own words reach the
+reader unrewritten, untranslated, and untrimmed.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from policy_platform.contracts.policy import CanonicalRule
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.projection.policy_case_payload import to_compact
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,12 @@ PROMPT_VERSION = "ai-case-intent-v2"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
-#: A conservative ceiling on the characters of policy-record JSON shown to the
-#: model in one gather. Set well under the deployment's context window so a whole
-#: policy's records fit alongside the system prompt and the reply.
+#: A conservative ceiling on the characters of the lean policy payload shown to
+#: the model in one gather — the compact ``grounding_projection_v1`` transport,
+#: the same bytes the JSON tab renders. Set well under the deployment's context
+#: window so a whole policy fits alongside the system prompt and the reply.
 #:
-#: When a policy's records exceed it the gather is refused, never trimmed.
+#: When a policy's payload exceeds it the gather is refused, never trimmed.
 #: Dropping some rules to fit would let an answer be composed from part of a
 #: policy while presenting as the whole policy's answer — the one narrowing a
 #: reviewer cannot see, because nothing on screen would say a rule went unread.
@@ -115,20 +117,29 @@ Return ONLY a JSON object:
 therefore which kind it is."""
 
 _INFORMATIONAL_SYSTEM_PROMPT = """A reviewer has asked what a governance policy provides on some \
-subject. You are given the reviewer's question and the policy's rules as the record holds them. Each \
-rule carries an id, a title, a description, the exact sentence from the source document it was drawn \
-from, the kind of rule it is and how it is decided — a `rule_type`, and an `evaluation_mode` of \
-either deterministic or ai_ready — the facts it is measured against (each with the unit it is counted \
-in), its compiled condition, its scope, its effect, and any exceptions or advice. This is the whole \
-set you may draw on: answer only from these rules, and cite only ids that appear among them. Your job \
-is to gather the material that answers the question and state it plainly.
+subject. You are given the reviewer's question and one policy as a lean JSON record, \
+`grounding_projection_v1`. Read the answer from that record and nothing else.
 
-Use only what the rules say. Do not invent a limit, a number, or a condition that is not in the \
-material you were given. A rule bears on the question when what it holds speaks to the subject the \
-reviewer asked about — for example, a rule stating a weekly hours cap bears on a question about how \
-many hours someone may work, whether or not the reviewer supplied any hours. The quantity a reviewer \
-asks after may be in the rule's sentence, or carried in its facts and its compiled condition; read \
-both, and report the limit the rule already holds rather than asking the reviewer to supply it.
+The record has four parts:
+- `envelope`: the policy's identity and the values every rule shares — its ids, the authority behind \
+it, its effective dates, and the document's heading path.
+- `spans`: the exact sentences from the source document, each stored once under an id, in the \
+document's own words and uncut. A rule points at the sentences it was drawn from by id.
+- `facts`: the terms and quantities the rules are measured against, each stored once under an id, \
+with the unit it is counted in.
+- `rules`: the policy's rules. Each carries a `rule_id`, a `rule_type` and an `evaluation_mode` of \
+either deterministic or ai_ready, an `effect`, the attributes and facts it turns on (referenced by \
+id), its `required_facts`, and `evidence_refs` — the ids of the `spans` it was drawn from.
+
+This is the whole set you may draw on: answer only from this record, and cite only `rule_id`s that \
+appear in `rules`.
+
+A rule bears on the question when what it holds speaks to the subject the reviewer asked about — for \
+example, a rule whose source sentence states a weekly hours cap bears on a question about how many \
+hours someone may work, whether or not the reviewer supplied any hours. The quantity a reviewer asks \
+after is usually in the rule's source sentence — follow its `evidence_refs` into `spans` — and may \
+also be carried in its `facts` or `required_facts`; read them and report the limit the rule already \
+holds rather than asking the reviewer to supply it.
 
 Judge by what each rule holds, not by any particular word in it, and answer in the language the \
 reviewer asked in; the record is bilingual and which subject a question is about is not a property of \
@@ -136,112 +147,19 @@ the language it is written in.
 
 Return ONLY a JSON object:
 - "bears": true if at least one rule speaks to the subject of the question, false if none does.
-- "answer": your plain-English answer to the question, drawn only from the rules that bear on it. \
+- "answer": your plain-language answer to the question, drawn only from the rules that bear on it. \
 Empty string if none bears. Write it in the language the reviewer asked in. This is your own wording; \
-do not present it as a direct quotation of the document, and do not quote the compiled condition or \
-the fact fields as if they were the document's own words.
-- "cited_rule_ids": the ids of the rules your answer draws on. Every rule you relied on, no rule you \
-did not, and only ids that appear in the material above. Empty array if none bears.
-- "declined": true only if you cannot compose an answer from the material for a reason other than \
-no rule bearing on it — for example the question is unintelligible. Normally false.
-- "note": optional one-sentence caveat, e.g. that the material is partial or points elsewhere. \
-Empty string if you have nothing to add."""
+do not present it as a direct quotation of the document.
+- "cited_rule_ids": the `rule_id`s of the rules your answer draws on. Every rule you relied on, no \
+rule you did not, and only ids that appear in `rules`. Empty array if none bears.
+- "declined": true only if you cannot compose an answer from the record for a reason other than no \
+rule bearing on it — for example the question is unintelligible. Normally false.
+- "note": optional one-sentence caveat, e.g. that the record is partial or points elsewhere. Empty \
+string if you have nothing to add."""
 
 
 def _normalise_effort(reasoning_effort: str) -> str:
     return reasoning_effort if reasoning_effort in VALID_REASONING_EFFORTS else "medium"
-
-
-def _verbatim_source(rule: CanonicalRule) -> str:
-    """The record's own words for this rule, for quoting back unchanged.
-
-    Preference order is by fidelity to the document. The formulation's
-    `source_text` is the sentence the extraction was anchored to and is
-    preserved verbatim; `description` is the rule's own statement of itself; the
-    title is the last resort. Whichever is returned is the document's language,
-    never this app's, so a caller must not translate or trim it.
-    """
-
-    formulation = rule.formulation
-    if formulation is not None and formulation.canonical is not None:
-        text = (formulation.canonical.source_text or "").strip()
-        if text:
-            return text
-    description = (rule.description or "").strip()
-    if description:
-        return description
-    return (rule.title or "").strip()
-
-
-def _enum_value(value: object) -> str:
-    """The string a `str`-Enum carries, or the plain string of anything else."""
-
-    return value.value if hasattr(value, "value") else str(value)
-
-
-def _rule_record(rule: CanonicalRule) -> dict:
-    """The rule as the record holds it, shown to the model to gather an answer.
-
-    This is the policy's own record, trimmed only of plumbing that names no
-    content an answer could ever cite. What is kept and why:
-
-      - ``rule_id`` / ``title`` / ``description`` — how the rule is named and
-        summarised, and the handle a citation resolves against.
-      - ``statement`` — the document's own sentence, verbatim, for quoting back.
-      - ``rule_type`` / ``evaluation_mode`` / ``machine_executable`` — what kind
-        of rule it is and whether a determination on it is the deterministic
-        engine's or the judge's. A gathered answer that names a computed rule can
-        then say the exact determination is the Deterministic route's, not this.
-      - ``required_facts``, each with its name, type and — load-bearing — the
-        unit it is counted in. "not more than 24" is not a limit until something
-        says twenty-four *of what*, and the unit is where the record keeps it.
-      - ``condition`` — the compiled test, kept in full because a threshold a
-        rule turns on frequently lives *only* here: the sentence may say "within
-        the weekly cap" while the number twenty-four sits in the condition that
-        compares the fact against the literal. A name-only digest hid exactly
-        that number — the one an informational question most often asks after.
-      - ``scope`` — whom and what the rule reaches, so an answer can say who a
-        provision is about.
-      - ``effect`` / ``exceptions`` / ``advice`` — what the rule does when it
-        holds, the cases carved out of it, and any guidance carried alongside it;
-        each can be the substance of what a policy "provides" on a subject.
-
-    Dropped, because none of it is a sentence, a quantity, or a limit an answer
-    would cite — only provenance and extraction bookkeeping: the schema and
-    version identifiers, the authority block, the derived ``attributes`` and
-    ``fact_model`` projections, the condition provenance, evidence and lineage,
-    candidate relationships, priority, effective dates, ambiguity and review
-    status, category, tags and grouping, and the formulation's DMN plumbing.
-    Removing these keeps the record small enough to show a whole policy at once
-    without removing anything an answer could rest on; that is the only trim, and
-    it is disclosed here in full.
-    """
-
-    return {
-        "rule_id": rule.rule_id,
-        "title": rule.title,
-        "description": rule.description,
-        "rule_type": _enum_value(rule.rule_type),
-        "evaluation_mode": _enum_value(rule.evaluation_mode),
-        "machine_executable": rule.machine_executable,
-        "statement": _verbatim_source(rule),
-        "required_facts": [
-            {"name": fact.name, "data_type": fact.data_type, "unit": fact.unit, "required": fact.required}
-            for fact in rule.required_facts
-        ],
-        "condition": rule.condition.model_dump(mode="json"),
-        "scope": rule.scope.model_dump(mode="json"),
-        "effect": rule.effect.model_dump(mode="json"),
-        "exceptions": [
-            {
-                "exception_id": exc.exception_id,
-                "description": exc.description,
-                "condition": exc.condition.model_dump(mode="json") if exc.condition is not None else None,
-            }
-            for exc in rule.exceptions
-        ],
-        "advice": [{"text": item.text} for item in rule.advice],
-    }
 
 
 def _grounding(
@@ -361,9 +279,16 @@ async def classify_case_intent(scenario: str, *, reasoning_effort: str = "medium
 
 
 async def answer_informational(
-    rules: list[CanonicalRule], *, scenario: str, reasoning_effort: str = "medium"
+    payload: dict, *, scenario: str, reasoning_effort: str = "medium"
 ) -> dict:
     """Gather and state what the policy provides on the subject of the question.
+
+    ``payload`` is the lean ``grounding_projection_v1`` record for one policy —
+    the same projection the JSON tab renders — built by
+    :func:`case_payload_for_provision` and handed in whole. It is the *closed
+    set* an answer may draw on: one gather over the record rather than one call
+    per rule, so the model can relate the rules to each other and to the
+    question.
 
     Returns one of three content shapes, each also carrying a ``grounding``
     report, kept distinct so a reviewer is never shown one situation dressed as
@@ -377,31 +302,30 @@ async def answer_informational(
     as ``RuntimeError`` from the model call, so that "no rule bears on this"
     cannot be produced by a request that never actually ran.
 
-    The rules shown to the model are the *closed set* an answer may draw on: the
-    whole policy's records, in one gather rather than one per rule, so the model
-    can relate the rules to each other and to the question. Two mechanical checks
-    keep the answer grounded in that set rather than merely instructed to be:
+    Two mechanical checks keep the answer grounded in the payload rather than
+    merely instructed to be:
 
-      - Every id the model cites must name a rule in the set. One that does not is
-        a fabrication; it is dropped from the citations and reported in
-        ``grounding.fabricated_citations`` so the refusal is visible, and if
-        nothing valid is left the answer cannot be ``answered``.
-      - If the set is too large to show in one pass the gather is refused, not
+      - Every id the model cites must name a rule in ``payload["rules"]``. One
+        that does not is a fabrication; it is dropped from the citations and
+        reported in ``grounding.fabricated_citations`` so the refusal is visible,
+        and if nothing valid is left the answer cannot be ``answered``.
+      - If the payload is too large to show in one pass the gather is refused, not
         trimmed — an answer over some of a policy, presented as the policy's, is a
         narrowing a reviewer could not detect.
 
-    ``answer`` is this module's own wording — the caller marks it as such. The
-    ``citations`` carry each cited rule's source sentence verbatim, taken from the
-    record here and not from the model, so the document's words reach the reader
-    exactly as the document wrote them.
+    Citations are ``rule_id``s only. A generated rule name is never sent to the
+    model and never returned from here; the reader's surface resolves each id to
+    that rule's display name and its verbatim source sentence at render time, so
+    no name this app authored is mistaken for the document's, and the document's
+    words reach the reader exactly.
     """
 
-    by_id = {rule.rule_id: rule for rule in rules}
-    records = [_rule_record(rule) for rule in rules]
-    payload = json.dumps(records, ensure_ascii=False, indent=2)
+    rules = payload.get("rules") or []
+    available_ids = {str(rule.get("rule_id")) for rule in rules if rule.get("rule_id")}
 
-    if len(payload) > _MAX_RECORD_CHARS:
-        # The whole policy's records do not fit one grounded gather. Refuse rather
+    transport = to_compact(payload)
+    if len(transport) > _MAX_RECORD_CHARS:
+        # The whole policy payload does not fit one grounded gather. Refuse rather
         # than trim: an answer composed from part of a policy and presented as the
         # policy's answer is the hiding a reviewer cannot see. Reported as its own
         # grounding fact, over the full rule count, and no model call is made.
@@ -410,8 +334,8 @@ async def answer_informational(
             "answer": "",
             "citations": [],
             "note": (
-                "This policy holds more rules than can be read in one grounded pass, so no single "
-                "answer was composed from them. The rules are listed below to read directly."
+                "This policy's record is larger than can be read in one grounded pass, so no single "
+                "answer was composed from it. The rules are listed below to read directly."
             ),
             "grounding": _grounding(
                 rules_available=len(rules),
@@ -422,7 +346,7 @@ async def answer_informational(
             ),
         }
 
-    user_content = f"Question: {scenario}\n\nPolicy rules:\n{payload}"
+    user_content = f"Question: {scenario}\n\nPolicy record (grounding_projection_v1 JSON):\n{transport}"
 
     parsed = await _chat_json(
         _INFORMATIONAL_SYSTEM_PROMPT,
@@ -435,14 +359,14 @@ async def answer_informational(
     raw_ids = parsed.get("cited_rule_ids") or []
     if not isinstance(raw_ids, list):
         raw_ids = []
-    # Split what the model asked to cite into ids that name a rule in front of the
-    # reader and ids that do not, keeping first-seen order and dropping repeats. A
+    # Split what the model asked to cite into ids that name a rule in the payload
+    # and ids that do not, keeping first-seen order and dropping repeats. A
     # citation to a rule not in the closed set is a fabrication: it is not a
     # citation, and — rather than vanish in silence — it is reported below so the
     # check that refused it can be seen to have refused something.
     requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
-    cited_ids = [rid for rid in requested if rid in by_id]
-    fabricated = [rid for rid in requested if rid not in by_id]
+    cited_ids = [rid for rid in requested if rid in available_ids]
+    fabricated = [rid for rid in requested if rid not in available_ids]
 
     grounding = _grounding(
         rules_available=len(rules),
@@ -472,24 +396,23 @@ async def answer_informational(
         # standing back, kept separate from the record holding nothing.
         return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
 
-    citations = [
-        {
-            "rule_id": rid,
-            "title": by_id[rid].title,
-            "quote": _verbatim_source(by_id[rid]),
-        }
-        for rid in cited_ids
-    ]
+    # Cite by id only. The reader's surface resolves each id to its display name
+    # and its verbatim source sentence, so nothing this app authored crosses the
+    # wire as if it were the document's, and every cited id was checked against
+    # the payload above.
+    citations = [{"rule_id": rid} for rid in cited_ids]
     return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
 
 
 async def answer_policy_case(
-    rule_payloads: list[dict], *, scenario: str, reasoning_effort: str = "medium"
+    payload: dict, *, scenario: str, reasoning_effort: str = "medium"
 ) -> dict:
     """Classify the case, and — for an informational request only — gather the
     answer the policy holds.
 
-    Returns ``{"intent", "classification_reasoning", "informational", "reasoning_effort"}``.
+    ``payload`` is the lean ``grounding_projection_v1`` record for one policy,
+    built by :func:`case_payload_for_provision`. Returns
+    ``{"intent", "classification_reasoning", "informational", "reasoning_effort"}``.
     ``informational`` is populated only when the intent is informational; for a
     determination it is ``None`` and the caller runs the per-rule deciders it
     already has, unchanged. This module never runs those deciders itself, so
@@ -508,10 +431,6 @@ async def answer_policy_case(
 
     effort = _normalise_effort(reasoning_effort)
 
-    # Validate the rule shapes up front, before any model call, so a malformed
-    # payload fails as the caller's error (422) rather than mid-feature.
-    rules = [CanonicalRule.model_validate(payload) for payload in rule_payloads]
-
     classification = await classify_case_intent(scenario, reasoning_effort=effort)
     intent = classification["intent"]
 
@@ -519,7 +438,7 @@ async def answer_policy_case(
     if intent == INFORMATIONAL:
         try:
             informational = await answer_informational(
-                rules, scenario=scenario, reasoning_effort=effort
+                payload, scenario=scenario, reasoning_effort=effort
             )
         except RuntimeError:
             # The intent is known; only the gather failed. Report it as the
@@ -528,6 +447,7 @@ async def answer_policy_case(
             # path — answering a question the reviewer did not ask. The
             # grounding still names how many rules were in scope, so a failed
             # gather is not mistaken for one over an empty policy.
+            rules = payload.get("rules") or []
             informational = {
                 "status": FAILED,
                 "answer": "",

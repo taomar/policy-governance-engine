@@ -43,6 +43,7 @@ from policy_platform.infrastructure.assistants import rule_change_explainer
 from policy_platform.infrastructure.assistants import provision_topic_label
 from policy_platform.infrastructure.assistants import rule_namer
 from policy_platform.infrastructure.assembly import rule_name_lookup
+from policy_platform.infrastructure.projection.policy_case_payload import case_payload_for_provision
 from policy_platform.domain.models import (
     CandidateRule,
     CorrelationFindingRow,
@@ -725,16 +726,25 @@ async def compute_scenario(body: ComputeScenarioRequest) -> dict:
 
 
 class PolicyCaseAnswerRequest(BaseModel):
-    rules: list[dict]
+    provision_id: str
     scenario: str
     reasoning_effort: str = "medium"
 
 
 @router.post("/policy-case/answer")
-async def answer_policy_case(body: PolicyCaseAnswerRequest) -> dict:
+async def answer_policy_case(
+    body: PolicyCaseAnswerRequest, session: AsyncSession = Depends(get_session)
+) -> dict:
     """Classify what a case put to a whole policy *is*, and — when it asks what
     the policy provides rather than for a determination — gather the answer the
     policy already holds and state it, citing the rules it read.
+
+    The input is a `provision_id`, not a bag of client-supplied rules. The
+    provision is projected server-side into the lean `grounding_projection_v1`
+    payload (`case_payload_for_provision`) — the same record the JSON tab renders
+    — and that closed payload is the only thing the gather may draw on, so the
+    model is tested against a record a reviewer can see and cannot be handed rules
+    no projection ever vouched for. An unknown provision is a 404.
 
     Like /rules/compute-scenario and /rules/evaluate-scenario, this belongs to no
     published version: a reviewer asking a policy a question is asking the record
@@ -764,8 +774,17 @@ async def answer_policy_case(body: PolicyCaseAnswerRequest) -> dict:
     """
     _require_ai_configured()
     try:
+        payload = await case_payload_for_provision(session, body.provision_id)
+    except ValueError as exc:
+        # A `provision_id` that is not a well-formed identifier, or a stored rule
+        # that no longer validates, is the caller's malformed input (422) — the
+        # same clause the client-rules shape used, now surfaced from the projection.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if payload is None:
+        raise HTTPException(status_code=404, detail="No provision with that id")
+    try:
         return await ai_case_intent.answer_policy_case(
-            body.rules, scenario=body.scenario, reasoning_effort=body.reasoning_effort
+            payload, scenario=body.scenario, reasoning_effort=body.reasoning_effort
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
