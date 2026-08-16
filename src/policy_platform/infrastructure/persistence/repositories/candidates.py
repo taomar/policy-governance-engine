@@ -94,7 +94,16 @@ class CandidateRuleRepository:
                 stmt = stmt.join(
                     DocumentVersion, DocumentVersion.id == ExtractionRun.document_version_id
                 ).where(DocumentVersion.document_id == document_id)
-        stmt = stmt.order_by(CandidateRule.created_at)
+        # created_at is a wall-clock stamp, not a total order: candidates a run
+        # inserts in the same coarse tick share it. Since assemble (and every
+        # keep-first consumer) takes the first record it sees for a rule_id as
+        # that rule's representative, an unbroken tie would let the wording a
+        # reviewer is shown flip between reads. candidate_rules has no sequence
+        # column to recover true order from, so break the tie on the primary key
+        # -- ascending, to keep "incumbent first", mirroring the QualityRun fix
+        # above. That cannot restore true recency once created_at ties, but it
+        # makes the choice deterministic instead of leaving it to the database.
+        stmt = stmt.order_by(CandidateRule.created_at, CandidateRule.id)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
