@@ -36,7 +36,6 @@ import { PolicyReviewCard } from "./PolicyReviewCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { usePolicyTesting } from "./policyTesting";
 import { useActor } from "../ActorContext";
-import { RuleCard } from "./RuleCard";
 import { RecordActionsMenu } from "./RecordActionsMenu";
 import {
   buildPolicyCards,
@@ -96,9 +95,16 @@ type PoliciesWorkspaceMode = "list" | "split" | "detail";
  *
  * So: a policy is drawn by `PolicyReviewCard`, its detail by
  * `PolicyDetailPanel`, and one of its rules by `PolicyInspector` — inline under
- * `Details` and in the panel alike. If this surface needs something the review
- * surface does not, the difference belongs in the record or in a handler this
- * page withholds, not in a second component.
+ * `Details`, in the panel, and on its own where no policy claims it. If this
+ * surface needs something the review surface does not, the difference belongs in
+ * the record or in a handler this page withholds, not in a second component.
+ *
+ * No flat renderer is reachable from this page any more. `RuleCard` still exists
+ * and is still right for previewing a rule *being written* — Revise's live
+ * preview, Rewrite's before/after — but nothing that opens an existing rule may
+ * draw it. Symptom 4 was reported twice, months apart, from two different files;
+ * the second time it was in the version diff, which nobody had thought of as a
+ * place a rule gets opened. It is one. So is any surface added after this.
  */
 
 /** How many policies are drawn at once. A whole policy is a much taller thing
@@ -1131,25 +1137,38 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                               : `${unplaced.length} rules of this version are not recorded against a section of their source document, so they are shown on their own.`}
                           </Text>
                           {unplaced.map((rule) => (
-                            <RuleCard
-                              key={rule.rule_id}
-                              rule={rule}
-                              hideNotes
-                              aggregateLimits={aggregateLimits}
-                              onRevise={canRevise ? setReviseTarget : undefined}
-                              headerActions={
-                                <RecordActionsMenu
-                                  scope="rule"
-                                  recordId={rule.rule_id}
-                                  recordName={rule.rule_id}
-                                  reviewStatuses={["published"]}
-                                  on={{
-                                    revise: canRevise ? () => setReviseTarget(rule) : undefined,
-                                    "view-history": () => handleViewHistory(rule),
-                                  }}
-                                />
-                              }
-                            />
+                            <div key={rule.rule_id} className="published-policy-unplaced__record">
+                              {/* Not claimed by a policy is not a reason to be read
+                                  differently. This drew a flat card — no tabs, no
+                                  labelled identity table, no verbatim source — so the
+                                  rules least likely to be understood got the least
+                                  legible reading of all. Same inspector as everywhere
+                                  else; only the reason it is on its own is different. */}
+                              <PolicyInspector
+                                rule={rule}
+                                allRules={rules}
+                                aggregateLimits={aggregateLimits}
+                                publishedVersion={selectedVersion ?? null}
+                                versions={versions}
+                                policySetKey={policySetKey}
+                                variant="embedded"
+                                recordLabel="rule"
+                                onRevise={canRevise ? setReviseTarget : undefined}
+                                onSelectRule={handleSelectRule}
+                                additionalActions={
+                                  <RecordActionsMenu
+                                    scope="rule"
+                                    recordId={rule.rule_id}
+                                    recordName={rule.rule_id}
+                                    reviewStatuses={["published"]}
+                                    on={{
+                                      revise: canRevise ? () => setReviseTarget(rule) : undefined,
+                                      "view-history": () => handleViewHistory(rule),
+                                    }}
+                                  />
+                                }
+                              />
+                            </div>
                           ))}
                         </section>
                       )}

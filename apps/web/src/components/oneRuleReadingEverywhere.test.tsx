@@ -257,11 +257,22 @@ describe("the published page expands a rule into that same reading", () => {
 
   it("no longer draws the component the second renderer expanded", () => {
     // `RuleCard` still has honest callers — the rewrite and edit modals, where
-    // it is the live preview of a rule being written, and the list of rules
-    // this page could place under no policy. What it must not be again is the
-    // answer to "open this rule", which is where the readings diverged.
-    const detail = source().slice(source().indexOf("ruleDetail={"));
-    expect(detail.slice(0, detail.indexOf("ruleActions={"))).not.toContain("<RuleCard");
+    // it is the live preview of a rule being written. What it must not be again
+    // is the answer to "open this rule", which is where the readings diverged.
+    // Nothing on this page opens a rule any other way now, including the rules
+    // no policy claims, so the whole file is checked rather than one expansion:
+    // the last time this was scoped to one site, a second site was missed.
+    expect(source()).not.toMatch(/<RuleCard\b/);
+    expect(source()).not.toMatch(/from\s+"\.\/RuleCard"/);
+  });
+
+  it("gives a rule no policy claims that same reading", () => {
+    const text = source();
+    const unplaced = text.slice(text.indexOf("unplaced.map("));
+    expect(unplaced.length).toBeGreaterThan(0);
+    const element = unplaced.slice(0, unplaced.indexOf("/>"));
+    expect(element).toContain("<PolicyInspector");
+    expect(element).toContain('variant="embedded"');
   });
 
   it("holds no import of either forked file", () => {
