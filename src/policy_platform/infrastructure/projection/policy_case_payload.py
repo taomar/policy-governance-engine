@@ -62,7 +62,7 @@ findable by string search anyway.
 
 Names are never carried (constraint 8)
 --------------------------------------
-A rule's generated display name lives in the `candidate_rule_names` table and is
+A rule's generated display name lives in a separate display-name table and is
 resolved by the UI at render time. It is never in `payload_json`, and this
 module reads only `payload_json`, so no generated name can enter the lean
 payload. Every rule is carried by `rule_id`; the interface resolves the name.
@@ -194,7 +194,7 @@ def lean_rule(rule: CanonicalRule) -> dict:
 
     payload: dict = {
         # Identity only — never a name (constraint 8). The UI resolves the
-        # display name from `candidate_rule_names` at render time.
+        # display name from a separate table at render time.
         "rule_id": rule.rule_id,
         "rule_type": _plain(rule.rule_type),
         # Derived from the condition, so it can never disagree with the tree.
