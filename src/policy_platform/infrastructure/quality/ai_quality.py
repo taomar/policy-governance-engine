@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.policy import (
     CanonicalRule,
+    EvaluationMode,
     unanswered_for_judge,
     unrunnable_reasons,
 )
@@ -38,7 +39,12 @@ from policy_platform.infrastructure.quality.logic_faithfulness import (
     judge_logic,
 )
 from policy_platform.infrastructure.quality.methodology import derive_methodology_version
-from policy_platform.infrastructure.quality.route_applicability import applies_to
+from policy_platform.infrastructure.quality.route_applicability import (
+    applies_to,
+    classify,
+    not_applicable_here,
+    routes_for,
+)
 from policy_platform.infrastructure.quality.policy_faithfulness import (
     FaithfulnessFinding,
     validate_rules,
@@ -1316,6 +1322,42 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
         return False
 
 
+def _route_applicability_disclosure(rules: list[CanonicalRule]) -> list[dict]:
+    """Which route-specific checks did not apply to the records in scope.
+
+    A check scoped to one route is never run against a record on the other, so
+    the run has nothing to say about that pairing. This states that plainly
+    instead of leaving it as an absence a reader has to notice, because reading
+    a check's silence as a clean result is exactly how a page comes to claim
+    more assurance than the run established. Only routes actually present are
+    disclosed, and every count is taken from the records in hand.
+
+    This is the disclosure half of the same rule the runner-fitness pass
+    applies: `applies_to` decides where a check runs, and this reports where it
+    deliberately did not, so the two are never confused.
+    """
+
+    records_on_route: dict[EvaluationMode, int] = {}
+    for rule in rules:
+        route = rule.evaluation_mode
+        records_on_route[route] = records_on_route.get(route, 0) + 1
+
+    disclosure: list[dict] = []
+    for route, count in records_on_route.items():
+        for code in not_applicable_here(route):
+            speaks_to = routes_for(code) or frozenset()
+            disclosure.append(
+                {
+                    "check": code,
+                    "route": route.value,
+                    "applicability": classify(code, route).value,
+                    "records_in_scope": count,
+                    "applies_to_routes": sorted(mode.value for mode in speaks_to),
+                }
+            )
+    return disclosure
+
+
 async def evaluate_policy_set_quality(
     session: AsyncSession,
     *,
@@ -1389,6 +1431,7 @@ async def evaluate_policy_set_quality(
         "rule_count": len(rules),
         "findings": findings,
         "finding_count": len(findings),
+        "not_applicable": _route_applicability_disclosure(rules),
         "quality_run_id": run_id,
         "run_at": run_at,
         "ai_review_used": ai_review_used,
@@ -1475,6 +1518,7 @@ async def evaluate_candidate_quality(
         "candidate_statuses_included": list(review_statuses),
         "findings": findings,
         "finding_count": len(findings),
+        "not_applicable": _route_applicability_disclosure(rules),
         "quality_run_id": run_id,
         "run_at": run_at,
         "ai_review_used": ai_review_used,
