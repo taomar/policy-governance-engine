@@ -143,6 +143,46 @@
   overflow-wrap: anywhere;
 }
 
+/* The rule's own words, its effect, and the way to its page — on demand. The
+   summary is set back like the other disclosures on this pane so the row still
+   reads as a name and an id at a glance; opening it is the reader's move. */
+.policy-pane__rule-more > summary {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.policy-pane__rule-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 2px 2px;
+}
+
+/* The document's own sentence. Wraps and is never clipped, for the same reason
+   the title above it is not: a source shortened to make a row align is a source
+   the reviewer cannot check against the passage it was drawn from. */
+.policy-pane__rule-source {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* The effect and the way onward, set on one line under the sentence. */
+.policy-pane__rule-more-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.policy-pane__rule-details {
+  padding: 0;
+  height: auto;
+  font-size: 12px;
+}
+
 /* ---------------------------------------------------------- How to trace it */
 
 /* The one handle a business reader needs, given room. The other identifiers

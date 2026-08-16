@@ -56,6 +56,7 @@ import {
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance, whenItApplies } from "./policyProvenance";
 import { RuleName } from "./RuleName";
+import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { PolicyCaseRunner } from "./PolicyCaseRunner";
 import { engineDecidesRule } from "../ruleExecutability";
@@ -316,6 +317,7 @@ export function PolicyOverviewPane({
   sightings,
   sightingsLoading,
   onRequestSightings,
+  onSelectRule,
 }: {
   record: PolicyRecordView;
   /** The policy set's extraction runs, which carry their document and version.
@@ -330,6 +332,12 @@ export function PolicyOverviewPane({
    *  the absence and stops there, which is honest but is a dead end, so every
    *  surface that can offer the way out should. */
   onRequestSightings?: () => void;
+  /** Opens a rule's own page — the one route this app already has to it
+   *  (`PolicyInspector`), threaded from the surface that owns navigation. The
+   *  roster offers a way onward per rule only where this is supplied; without it
+   *  a rule still opens to its own words and its effect, and simply offers no
+   *  onward step rather than a control that goes nowhere. */
+  onSelectRule?: (rule: CanonicalRule) => void;
 }) {
   const rules = recordRules(record);
   const composition = policyCompositionSentence(rules);
@@ -349,7 +357,7 @@ export function PolicyOverviewPane({
         policyKey={chain.provisionKey}
       />
 
-      <PolicyRuleRoster record={record} />
+      <PolicyRuleRoster record={record} onSelectRule={onSelectRule} />
 
       <section className="policy-pane__section">
         <Text type="secondary" className="policy-pane__label">
@@ -686,7 +694,16 @@ function SourcePassage({
  * coloured, ranked, ordered ahead of the other, or given a caveat the other
  * does not get.
  */
-function PolicyRuleRoster({ record }: { record: PolicyRecordView }) {
+function PolicyRuleRoster({
+  record,
+  onSelectRule,
+}: {
+  record: PolicyRecordView;
+  /** Opens a rule's own page by the one route this app already has to it. The
+   *  per-rule way onward is drawn only where this is supplied — see
+   *  `PolicyOverviewPane`. */
+  onSelectRule?: (rule: CanonicalRule) => void;
+}) {
   if (record.rules.length === 0) return null;
   return (
     <section className="policy-pane__section" data-testid="overview-roster">
@@ -741,11 +758,89 @@ function PolicyRuleRoster({ record }: { record: PolicyRecordView }) {
                   <Text code>{entry.rule_id}</Text>
                 </Typography.Text>
               </div>
+              <RuleRosterDisclosure rule={entry.rule} onSelectRule={onSelectRule} />
             </div>
           </li>
         ))}
       </ol>
     </section>
+  );
+}
+
+/**
+ * A rule's own words, its effect, and the way to its page — opened on demand.
+ *
+ * The roster named a rule and stopped; the document's own sentence for it was
+ * not on this surface at all. This adds it, behind a native `<details>` so only
+ * the rows a reader opens build their detail and no state or library is added —
+ * the same disclosure idiom the source pane and the logic table already use.
+ *
+ * WHY BEHIND A DISCLOSURE, AND WHY THAT IS NOT HIDING EVIDENCE
+ *
+ * The rule against putting what a reader needs to judge a record behind a click
+ * is about a record's *own* surface, where the evidence must be open. This is a
+ * roster — a summary of what a policy holds — not a rule's record surface, and
+ * the sentence was not here to begin with. So a disclosure here is strictly more
+ * than the row said a moment ago, not less. Nothing that was open is moved.
+ *
+ * ABSENT IS NOT EMPTY
+ *
+ * The sentence shown is the document's, verbatim and uncut — never `description`,
+ * which is this app's words, and never trimmed to keep a row even. A rule whose
+ * formulation this app never held is said to have none; a rule whose formulation
+ * records an empty source is said to hold none — two different facts, said two
+ * different ways, and neither drawn as an empty quote.
+ */
+function RuleRosterDisclosure({
+  rule,
+  onSelectRule,
+}: {
+  rule: CanonicalRule;
+  onSelectRule?: (rule: CanonicalRule) => void;
+}) {
+  const canonical = rule.formulation?.canonical;
+  const sentence = canonical?.source_text?.trim() ?? "";
+  return (
+    <details className="policy-pane__rule-more" data-testid="overview-rule-disclosure">
+      <summary className="policy-pane__rule-more-summary">The rule&rsquo;s own words</summary>
+      <div className="policy-pane__rule-more-body">
+        {sentence ? (
+          <p
+            className="policy-pane__rule-source"
+            data-verbatim="true"
+            data-testid="overview-rule-source"
+          >
+            <DirectionalText align>{sentence}</DirectionalText>
+          </p>
+        ) : canonical === undefined ? (
+          <Text type="secondary" data-testid="overview-rule-source-absent">
+            The source text for this rule was not stored with it.
+          </Text>
+        ) : (
+          <Text type="secondary" data-testid="overview-rule-source-empty">
+            This rule&rsquo;s record holds no source text of its own.
+          </Text>
+        )}
+        <div className="policy-pane__rule-more-facts">
+          {/* The rule's own nature — what the document permits, forbids, requires
+              or defines — said the one way it reads everywhere else. */}
+          <PolicyEffectBadge effect={rule.effect} size="small" />
+          {/* The way onward, drawn only where the surface can route (see the
+              pane). It carries the rule itself to the one route this app has. */}
+          {onSelectRule && (
+            <Button
+              type="link"
+              size="small"
+              className="policy-pane__rule-details"
+              data-testid="overview-rule-details"
+              onClick={() => onSelectRule(rule)}
+            >
+              Details
+            </Button>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
 
