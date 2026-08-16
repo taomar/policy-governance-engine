@@ -1370,6 +1370,14 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     <PolicyInspector
       rule={selectedCandidate?.rule ?? null}
       allRules={candidateRules}
+      // Without this the "Test scenario" tab does not render at all, and the
+      // reviewer who has to decide the record cannot try it. The key names the
+      // policy set the engine loads; the record under test is still the
+      // candidate, because a candidate has no version to test against. The
+      // tester is mounted with no `target` so its draft default applies —
+      // passing a published version here would test a different record from
+      // the one being decided.
+      policySetKey={selectedKey}
       activeTabKey={inspectorTab}
       onTabChange={setInspectorTab}
       onSelectRule={selectCandidateRule}
