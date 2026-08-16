@@ -19,6 +19,7 @@ import random
 
 import httpx
 
+from policy_platform.infrastructure.ai.usage_metering import record_call_usage
 from policy_platform.infrastructure.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,14 @@ class AzureOpenAIClient:
         if resp.status_code >= 400:
             raise AzureOpenAIError(f"Azure OpenAI chat call failed ({resp.status_code}): {resp.text[:500]}")
         data = resp.json()
+        # One logical call, recorded once. A retried call reaches here only once
+        # a response finally arrived, and a request the service refused raises
+        # above before any body is read, so this counts the call that answered —
+        # not each HTTP attempt, and not a call that never reached the model. The
+        # usage block is passed through as the service gave it (absent when the
+        # response carried none); the meter, not this client, decides who reads
+        # it, and does nothing when nobody is collecting.
+        record_call_usage(data.get("usage") if isinstance(data, dict) else None)
         top_choice = data["choices"][0]
         content = top_choice["message"].get("content") or ""
         truncated = top_choice.get("finish_reason") == "length"

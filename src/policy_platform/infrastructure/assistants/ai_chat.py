@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.domain.models import SourceDocument
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.ai.usage_metering import collect_token_usage
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.repositories import (
     ApprovedPolicyVersionRepository,
@@ -596,26 +597,42 @@ async def ask(
             messages.append({"role": turn["role"], "content": turn["content"]})
     messages.append({"role": "user", "content": f"CONTEXT:\n{context_text}\n\nQUESTION: {question}"})
 
-    raw = await ai_client.chat(
-        messages,
-        deployment=settings.azure_openai_fast_deployment,
-        json_mode=True,
-        # Deterministic per the "AI should never change any words" requirement:
-        # temperature=0 minimizes run-to-run drift in both wording choice and
-        # which verbatim excerpts get selected.
-        temperature=0,
-        # Fast (non-reasoning) deployment; budget covers several fact groups
-        # plus a reflection paragraph without the reasoning-model emptiness
-        # quirk documented on AzureOpenAIClient.chat(). A policy-wide question
-        # has more to quote from and gets more room: a reply cut off mid-JSON
-        # parses as reflection-only, which looks like a thin answer rather than
-        # a truncated one.
-        max_tokens=2400 if grounding is not None else 1600,
-    )
+    with collect_token_usage() as usage_scope:
+        raw = await ai_client.chat(
+            messages,
+            deployment=settings.azure_openai_fast_deployment,
+            json_mode=True,
+            # Deterministic per the "AI should never change any words" requirement:
+            # temperature=0 minimizes run-to-run drift in both wording choice and
+            # which verbatim excerpts get selected.
+            temperature=0,
+            # Fast (non-reasoning) deployment; budget covers several fact groups
+            # plus a reflection paragraph without the reasoning-model emptiness
+            # quirk documented on AzureOpenAIClient.chat(). A policy-wide question
+            # has more to quote from and gets more room: a reply cut off mid-JSON
+            # parses as reflection-only, which looks like a thin answer rather than
+            # a truncated one.
+            max_tokens=2400 if grounding is not None else 1600,
+        )
     groups, reflection = _parse_structured_answer(raw)
     reply: dict = {"groups": groups, "reflection": reflection, "sources": sources}
     if grounding is not None:
         reply["grounding"] = grounding
+    # What the answer cost, carried to the caller rather than dropped. A field the
+    # service did not report stays absent (JSON null), never defaulted to 0: a
+    # call that reported no usage and a call that spent nothing are different
+    # facts, and `calls_without_usage` says which. This is the reader the token
+    # figure reaches; a human-facing render of it in the Ask UI is a separate,
+    # deliberately un-taken step (the web surface is owned elsewhere).
+    usage = usage_scope.report()
+    reply["usage"] = {
+        "calls": usage.calls,
+        "calls_without_usage": usage.calls_without_usage,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+    }
     return reply
 
 
