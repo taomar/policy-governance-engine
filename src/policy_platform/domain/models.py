@@ -264,6 +264,29 @@ class ExtractionRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     document_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("document_versions.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    owner_kind: Mapped[str] = mapped_column(String(50), default="api", server_default="api", nullable=False)
+    """Which runtime owns this run's in-process lifecycle.
+
+    ``"api"`` — an in-process run driven by the FastAPI server. Only these have
+    their liveness bound to the API process, so only these may be failed by the
+    server's startup reconciler when a previous incarnation left them ``running``
+    or ``pending`` (see ``api/app.py``). The value is a *role*, stable across API
+    restarts, not a per-process token — a fresh API process still owns the runs
+    the previous one started on its behalf.
+
+    Any other value marks a run whose liveness is NOT bound to the API process —
+    a headless or CLI extraction executing in a different process. The reconciler
+    must leave those alone: it cannot know such a run is dead, and stamping a live
+    run ``failed`` both misreports its state (a still-working run and an
+    interrupted run are different states that must not be collapsed) and silently
+    removes it from baseline selection, since ``failed`` is an unusable baseline
+    status. That silent removal is the wrong-baseline mechanism recorded in the
+    handover, so the label is not merely cosmetic.
+
+    Defaulted client- and server-side to ``"api"`` so existing rows and callers
+    that predate this column read as API-owned, which preserves the reconciler's
+    prior behaviour for every run that actually was API-owned.
+    """
     deployment_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -149,6 +149,18 @@ RUN_COMPLETED = "completed"
 RUN_COMPLETED_WITH_GAPS = "completed_with_gaps"
 
 
+#: Owner of a run's in-process lifecycle: a run the FastAPI server drives.
+#: The server stamps the runs it starts with this value so its startup
+#: reconciler (``api/app.py``) can fail its OWN orphaned runs — ones a previous
+#: API incarnation left ``running``/``pending`` — without touching a run a
+#: different process (a headless or CLI extraction) is still working. Collapsing
+#: a live foreign run into ``failed`` is the state-collapse the domain forbids,
+#: and a falsely-failed run is also silently dropped from baseline selection
+#: (``failed`` is an unusable baseline status), which is the wrong-baseline
+#: mechanism recorded in the handover.
+OWNER_API = "api"
+
+
 class ExtractionRunRepository:
     """Access to real (non-manual) AI extraction attempts."""
 
@@ -162,10 +174,12 @@ class ExtractionRunRepository:
         deployment_name: str,
         prompt_version: str,
         parser_version: str,
+        owner_kind: str = OWNER_API,
     ) -> ExtractionRun:
         run = ExtractionRun(
             document_version_id=document_version_id,
             status="running",
+            owner_kind=owner_kind,
             deployment_name=deployment_name,
             prompt_version=prompt_version,
             parser_version=parser_version,
