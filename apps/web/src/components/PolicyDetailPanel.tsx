@@ -253,6 +253,11 @@ export function PolicyDetailPanel({
     "idle",
   );
   const [leanError, setLeanError] = useState<string | null>(null);
+  // Bumped to (re)fetch the lean projection. A separate trigger from the state
+  // above so a retry re-runs the read, and — crucially — so the `loading`
+  // transition does not itself re-run the fetch effect and cancel the request
+  // it just started.
+  const [leanNonce, setLeanNonce] = useState(0);
   useEffect(() => {
     setJsonFlavor("full");
     setLeanPayload(null);
@@ -261,15 +266,17 @@ export function PolicyDetailPanel({
   }, [card.policy.key]);
 
   /**
-   * Fetch the lean projection the first time it is asked for, once per policy.
+   * Fetch the lean projection when the reader asks to see it.
    *
-   * The server owns the projection; the tab only shows it. Gated on `idle` so a
-   * failed read stays failed until the reader retries rather than looping, and
-   * skipped for a grouping with no persisted provision — it has no id to
-   * project, and the toggle for it is disabled.
+   * The server owns the projection; the tab only shows it. Skipped for a
+   * grouping with no persisted provision — it has no id to project, and the
+   * toggle for it is disabled. Keyed on the flavour, the provision and an
+   * explicit retry nonce, never on the request's own progress: a dependency on
+   * `leanState` would tear down this effect the moment it set `loading`, and the
+   * in-flight read would resolve into a cancelled closure and be dropped.
    */
   useEffect(() => {
-    if (jsonFlavor !== "lean" || !provisionId || leanState !== "idle") return;
+    if (jsonFlavor !== "lean" || !provisionId) return;
     let cancelled = false;
     setLeanState("loading");
     setLeanError(null);
@@ -294,7 +301,7 @@ export function PolicyDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [jsonFlavor, provisionId, leanState]);
+  }, [jsonFlavor, provisionId, leanNonce]);
 
   /**
    * Ask for this policy's published sightings as soon as it is opened.
@@ -865,7 +872,7 @@ export function PolicyDetailPanel({
                     <Text type="danger">
                       {leanError ?? "Could not load the lean projection."}
                     </Text>
-                    <Button size="small" onClick={() => setLeanState("idle")}>
+                    <Button size="small" onClick={() => setLeanNonce((n) => n + 1)}>
                       Try again
                     </Button>
                   </Space>
