@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.policy import (
     CanonicalRule,
-    EvaluationMode,
     unanswered_for_judge,
     unrunnable_reasons,
 )
@@ -39,6 +38,7 @@ from policy_platform.infrastructure.quality.logic_faithfulness import (
     judge_logic,
 )
 from policy_platform.infrastructure.quality.methodology import derive_methodology_version
+from policy_platform.infrastructure.quality.route_applicability import applies_to
 from policy_platform.infrastructure.quality.policy_faithfulness import (
     FaithfulnessFinding,
     validate_rules,
@@ -748,7 +748,13 @@ def _runner_fitness_findings(rules: list[CanonicalRule]) -> list[dict]:
 
     findings: list[dict] = []
     for rule in rules:
-        if rule.evaluation_mode is EvaluationMode.DETERMINISTIC:
+        route = rule.evaluation_mode
+        # The route each question speaks to is declared once, in
+        # `route_applicability`, not re-derived here. The two are mutually
+        # exclusive by construction -- a record is on one route -- so a record
+        # is asked exactly its own question and accounted for, never skipped
+        # into silence, on the other.
+        if applies_to("not_runnable_as_stored", route):
             reasons = unrunnable_reasons(rule)
             if reasons:
                 findings.append(
@@ -767,25 +773,25 @@ def _runner_fitness_findings(rules: list[CanonicalRule]) -> list[dict]:
                         "source": "deterministic",
                     }
                 )
-            continue
-        missing = unanswered_for_judge(rule)
-        if missing:
-            findings.append(
-                {
-                    "severity": "high",
-                    "category": "not_decidable_as_written",
-                    "finding": (
-                        f"'{rule.title}' ({rule.rule_id}) is AI Ready, but the record "
-                        f"does not say {', or '.join(missing)}."
-                    ),
-                    "affected_rule_ids": [rule.rule_id],
-                    "recommendation": (
-                        "A judge sees this record and nothing else. What it omits cannot be "
-                        "recovered downstream."
-                    ),
-                    "source": "deterministic",
-                }
-            )
+        if applies_to("not_decidable_as_written", route):
+            missing = unanswered_for_judge(rule)
+            if missing:
+                findings.append(
+                    {
+                        "severity": "high",
+                        "category": "not_decidable_as_written",
+                        "finding": (
+                            f"'{rule.title}' ({rule.rule_id}) is AI Ready, but the record "
+                            f"does not say {', or '.join(missing)}."
+                        ),
+                        "affected_rule_ids": [rule.rule_id],
+                        "recommendation": (
+                            "A judge sees this record and nothing else. What it omits cannot be "
+                            "recovered downstream."
+                        ),
+                        "source": "deterministic",
+                    }
+                )
     return findings
 
 
