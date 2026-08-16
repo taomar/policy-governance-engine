@@ -26,8 +26,18 @@
 
 import { useState } from "react";
 import { Alert, Button, Empty, Modal, Popconfirm, Space, Table, Tag, Tooltip, Typography } from "antd";
-import type { AssembledPolicy, CanonicalRule, PolicyTestListItem, ReviewFacetRun } from "../api";
+import { aiApi } from "../api";
+import type {
+  AssembledPolicy,
+  CanonicalRule,
+  PolicyExplanation,
+  PolicyTestListItem,
+  ReviewFacetRun,
+} from "../api";
+import { describeApiFailure } from "../loadState";
 import type { PolicyCard } from "../policyCards";
+import { passageQuotations } from "../policyCards";
+import { policyRouteLabel } from "../policyGrouping";
 import {
   policyAuthorities,
   policyCompositionSentence,
@@ -39,6 +49,7 @@ import {
 import { DirectionalText } from "./DirectionalText";
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance } from "./policyProvenance";
+import { RuleName } from "./RuleName";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { engineDecidesRule } from "../ruleExecutability";
 import type { PolicyTesting } from "./policyTesting";
@@ -64,7 +75,27 @@ export interface PolicyRecordView {
   /** How many passages of its source document the policy quotes. */
   passageCount: number;
   /** Every rule the policy holds, in document order, with the id it is known by. */
-  rules: { rule_id: string; rule: CanonicalRule }[];
+  rules: {
+    rule_id: string;
+    rule: CanonicalRule;
+    /** The draft row this rule was read from, where the surface has one. Not a
+     *  status and nothing branches on it: it is the address a generated name is
+     *  looked up by. Absent on a sealed record, which has no such row. */
+    candidateId?: string | null;
+    /** This rule's own route, from the assembly. Never summarised away and
+     *  never ranked: both routes are ways a document states a test. */
+    route?: string | null;
+  }[];
+  /**
+   * The document's own words, one entry per passage, in document order.
+   *
+   * The lead of the Overview, because it is what a reader arriving at a policy
+   * came to read. Optional because a surface may build this view without them;
+   * an entry whose `quotations` is empty is a passage whose source text was not
+   * stored, which is a different fact from a policy with no passages and is
+   * said differently.
+   */
+  source?: readonly PolicyRecordSource[];
   /**
    * How far through review the policy is — totals only, never per-rule status.
    *
@@ -79,6 +110,15 @@ export interface PolicyRecordView {
    * happened to a decision that was never pending.
    */
   progress?: { decided: number; open: number } | null;
+}
+
+/** One passage of the source document, quoted. */
+export interface PolicyRecordSource {
+  key: string;
+  page: number | null;
+  /** One entry per distinct statement, never joined: two texts the document
+   *  states apart are two texts. Empty where none was stored. */
+  quotations: string[];
 }
 
 /**
@@ -109,7 +149,17 @@ export function policyRecord(card: PolicyCard): PolicyRecordView {
   return {
     policy: card.policy,
     passageCount: card.passages.length,
-    rules: card.rules.map((entry) => ({ rule_id: entry.rule_id, rule: entry.rule })),
+    rules: card.rules.map((entry) => ({
+      rule_id: entry.rule_id,
+      rule: entry.rule,
+      candidateId: entry.candidate?.id ?? null,
+      route: entry.evaluation_mode,
+    })),
+    source: card.passages.map((block) => ({
+      key: block.passage.key,
+      page: block.passage.page ?? null,
+      quotations: passageQuotations(block.rules.map((entry) => entry.rule)),
+    })),
     progress: underReview
       ? {
           decided: card.allIds.length - card.reviewableIds.length,
@@ -127,6 +177,19 @@ export function recordRules(record: PolicyRecordView): CanonicalRule[] {
 /** How many rules named this, of how many — the shape every pane counts in. */
 function share(named: number, total: number): string {
   return named === total ? "every rule" : `${named} of ${total} rules`;
+}
+
+/**
+ * The same count, said as a count.
+ *
+ * `share` reads well mid-sentence — "named by every rule that compares" — and
+ * badly as a standalone fact, where a reviewer met the bare words "every rule"
+ * with no verb attached and read a field value rather than an answer. This
+ * spells the number out both ways round.
+ */
+function sharedRuleCount(named: number, total: number): string {
+  if (total === 1) return named === 1 ? "its one rule" : `${named} of its 1 rule`;
+  return named === total ? `all ${total} of its rules` : `${named} of its ${total} rules`;
 }
 
 /**
@@ -166,24 +229,54 @@ function formatMoment(value: string): string {
 /* ------------------------------------------------------------------ Overview */
 
 /**
- * The chain from a document to this record.
+ * What this policy says, what it holds, and where it came from.
  *
  * WHAT CHANGED AND WHY
  *
- * This tab used to render three grey pills — page, passages, rules — directly
- * beneath a card header that had just stated the same three facts. A reviewer
- * read the same line twice and learned nothing the second time, and said so:
- * they could not trace the policy.
+ * This tab used to render three grey pills — page, passages, rules — beneath a
+ * card header that had just stated the same three facts. It was rewritten into
+ * a provenance chain, which put the facts a reviewer needs on screen and read
+ * as a wall of identifiers: five handles stacked as chips, explanatory prose
+ * wedged between them, and a sentence describing where the policy sat in the
+ * document's outline. A reviewer's verdict was that no business reader could
+ * use it, and they were right — it was a debugging panel wearing a business
+ * label.
  *
- * So the rule for this pane is that **nothing the header states may be
- * restated here**. What the header cannot say is where the record came from,
- * and every link of that was already loaded and none of it was on screen. It
- * now reads top to bottom as a chain a reviewer can follow: this file, at this
- * version → these extraction runs → this policy, at this key → here in the
- * document → published in these versions → this far through review.
+ * THE ORDER IT READS IN NOW, AND WHO EACH PART IS FOR
  *
- * Each link renders its identifier as an identifier, because the point of a
- * traceable chain is that a reader can copy a handle and go and find the thing.
+ * 1. *The document's own words.* The compliance officer opening a policy came
+ *    to read the policy. This is the only thing on the tab that is the source
+ *    rather than a fact about the record, and it leads because everything below
+ *    it is checked against it.
+ * 2. *In plain words* — the reading this app can write of its own extraction,
+ *    fetched when asked for. It says out loud that it describes the extraction
+ *    and not the document, because a fluent paragraph about a decomposition
+ *    reads exactly like a fluent paragraph about a source.
+ * 3. *The rules it holds.* One line per rule: the name generated for it, what
+ *    it states, the route it takes and the id it is known by. This is the thing
+ *    a reviewer most wants to scan and the tab named not one rule before.
+ * 4. *How to trace it.* One handle promoted — the policy key, which is what
+ *    follows the policy across every version of the document — and the rest of
+ *    the identifiers kept, behind a disclosure, as the reference material they
+ *    are. Deleting them was never an option: "cannot trace the policy" was the
+ *    original complaint.
+ *
+ * WHAT IS DELIBERATELY NOT HERE
+ *
+ * *Nothing the header states.* The header carries the counts, the page and the
+ * status. A reader who reads the same line twice learns nothing the second
+ * time, and that is what made this tab uninformative the first time.
+ *
+ * *Where the policy sits in the document's outline.* "The document places this
+ * policy at its top level, under no heading above it" is a fact about the
+ * document's layout and no reader of this screen has ever needed it. The
+ * governing headings are still shown where the document records any, because a
+ * heading is what a reader cites; the sentence that fired when there were none
+ * is gone.
+ *
+ * *Raw internal values as prose.* `ai_drafted` and `policy-formulator` are
+ * field values, not words. They are said in words here and kept verbatim on the
+ * JSON tab, which is what that tab is for.
  *
  * Absent is never blank. A link this app has not loaded says so, and says it
  * differently from a link that is genuinely empty — a policy that has never
@@ -215,106 +308,164 @@ export function PolicyOverviewPane({
   const composition = policyCompositionSentence(rules);
   const authorities = policyAuthorities(rules);
   const chain = policyProvenance(record, { runs, sightings });
+  const spansPages =
+    chain.placement.pages !== null &&
+    chain.placement.pages.first !== chain.placement.pages.last;
 
   return (
     <div className="policy-pane">
+      <PolicySourcePane source={record.source} spansPages={spansPages} />
+
+      <PolicyPlainWords
+        provisionId={record.policy.provision_id ?? null}
+        policyKey={chain.provisionKey}
+      />
+
+      <PolicyRuleRoster record={record} />
+
       <section className="policy-pane__section">
         <Text type="secondary" className="policy-pane__label">
-          The document it was read from
+          How to trace it
         </Text>
-        {chain.document.title ? (
-          <Paragraph className="policy-pane__chain">
-            <DirectionalText>{chain.document.title}</DirectionalText>
-            {chain.document.versionLabel && (
-              <Text type="secondary"> · version {chain.document.versionLabel}</Text>
+        <div className="policy-pane__handle">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Policy key
+          </Text>
+          <Typography.Paragraph
+            copyable={{ text: chain.provisionKey }}
+            className="policy-pane__handle-value"
+          >
+            <Text code>{chain.provisionKey}</Text>
+          </Typography.Paragraph>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Quote this to find the same policy in any version of the document.
+          </Text>
+        </div>
+
+        <dl className="policy-pane__facts">
+          <div className="policy-pane__fact">
+            <dt>Read from</dt>
+            <dd>
+              {chain.document.title ? (
+                <>
+                  <DirectionalText>{chain.document.title}</DirectionalText>
+                  {chain.document.versionLabel && (
+                    <Text type="secondary"> · version {chain.document.versionLabel}</Text>
+                  )}
+                </>
+              ) : (
+                <Text type="secondary">
+                  This app has not loaded the documents of this policy set, so it cannot name the
+                  file this policy was read from.
+                </Text>
+              )}
+            </dd>
+          </div>
+
+          {chain.placement.trail.length > 0 && (
+            <div className="policy-pane__fact">
+              <dt>Filed under</dt>
+              <dd className="policy-pane__trail">
+                <DirectionalText>{chain.placement.trail.join(" › ")}</DirectionalText>
+              </dd>
+            </div>
+          )}
+
+          {spansPages && chain.placement.pages && (
+            <div className="policy-pane__fact">
+              <dt>Runs</dt>
+              <dd>
+                from page {chain.placement.pages.first} to page {chain.placement.pages.last}
+              </dd>
+            </div>
+          )}
+
+          <div className="policy-pane__fact">
+            <dt>{chain.runs.length > 1 ? "Read on" : "Read on"}</dt>
+            <dd>
+              {chain.runs.length === 0 ? (
+                <Text type="secondary">
+                  No rule of this policy records which extraction produced it.
+                </Text>
+              ) : (
+                <>
+                  <ul className="policy-pane__list">
+                    {chain.runs.map((run) => (
+                      <li key={run.id}>
+                        <span data-testid={`run-reference-${run.id}`}>
+                          {run.reference ?? run.id}
+                        </span>
+                        {run.startedAt && (
+                          <Text type="secondary"> · {formatMoment(run.startedAt)}</Text>
+                        )}
+                        {run.status && (
+                          <Text type="secondary"> · {run.status.replace(/_/g, " ")}</Text>
+                        )}
+                        <Text type="secondary">
+                          {" "}
+                          · produced {sharedRuleCount(run.rules, rules.length)}
+                        </Text>
+                      </li>
+                    ))}
+                  </ul>
+                  {chain.runs.length > 1 && (
+                    <Text type="secondary">
+                      Its rules come from more than one extraction, which happens when a document
+                      is read again and only part of a policy changes.
+                    </Text>
+                  )}
+                </>
+              )}
+            </dd>
+          </div>
+
+          <div className="policy-pane__fact">
+            <dt>Put here by</dt>
+            <dd>
+              {authorities.length === 0 ? (
+                <Text type="secondary">No rule of this policy records who put it here.</Text>
+              ) : (
+                <ul className="policy-pane__list">
+                  {authorities.map((entry) => (
+                    <li key={`${entry.owner}\u0000${entry.level}`}>
+                      {authorityWords(entry.owner, entry.level)}
+                      <Text type="secondary">
+                        {" "}
+                        · {sharedRuleCount(entry.ruleIds.length, rules.length)}
+                      </Text>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </div>
+
+          <div className="policy-pane__fact">
+            <dt>Made of</dt>
+            <dd>{composition}</dd>
+          </div>
+        </dl>
+
+        {/* Reference material, not headlines. Every one of these was a chip in
+            the reader's way; every one of them is what somebody tracing a
+            record actually pastes into a query, so none is deleted. */}
+        <details className="policy-pane__references" data-testid="overview-references">
+          <summary>The identifiers this record is addressed by</summary>
+          <div className="policy-pane__references-body">
+            {chain.provisionId && (
+              <Identifier label="This cut of the policy" value={chain.provisionId} />
             )}
-          </Paragraph>
-        ) : (
-          <Paragraph type="secondary">
-            This app has not loaded the documents of this policy set, so it cannot name the file
-            this policy was read from.
-          </Paragraph>
-        )}
-        {chain.document.versionId && (
-          <Identifier label="Document version" value={chain.document.versionId} />
-        )}
-        {chain.document.contentHash && (
-          <Identifier label="Content hash" value={chain.document.contentHash} />
-        )}
-      </section>
-
-      <section className="policy-pane__section">
-        <Text type="secondary" className="policy-pane__label">
-          {chain.runs.length > 1 ? "The extractions that produced its rules" : "The extraction that produced its rules"}
-        </Text>
-        {chain.runs.length === 0 ? (
-          <Paragraph type="secondary">
-            No rule of this policy records which extraction produced it.
-          </Paragraph>
-        ) : (
-          <>
-            {chain.runs.length > 1 && (
-              <Paragraph type="secondary">
-                Its rules come from more than one extraction, which happens when a document is read
-                again and only part of a policy changes.
-              </Paragraph>
+            {chain.document.versionId && (
+              <Identifier label="Document version" value={chain.document.versionId} />
             )}
-            <ul className="policy-pane__list">
-              {chain.runs.map((run) => (
-                <li key={run.id}>
-                  <Text strong>
-                    <span data-testid={`run-reference-${run.id}`}>{run.reference ?? run.id}</span>
-                  </Text>
-                  {run.startedAt && <Text type="secondary"> · started {formatMoment(run.startedAt)}</Text>}
-                  {run.status && <Text type="secondary"> · {run.status.replace(/_/g, " ")}</Text>}
-                  <Text type="secondary"> · {share(run.rules, rules.length)}</Text>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
-
-      <section className="policy-pane__section">
-        <Text type="secondary" className="policy-pane__label">
-          What identifies this policy
-        </Text>
-        <Paragraph type="secondary">
-          This key is what the policy is known by across every version of the document. It is the
-          handle to follow when tracing the policy through its history.
-        </Paragraph>
-        <Identifier label="Policy key" value={chain.provisionKey} />
-        {chain.provisionId && <Identifier label="This cut of it" value={chain.provisionId} />}
-        <Paragraph type="secondary" style={{ marginTop: 8 }}>
-          {chain.placement.boundaryRecorded
-            ? "The document itself marked out where this policy begins and ends."
-            : "Where this policy begins and ends was worked out when it was read, from the headings its rules cite."}
-        </Paragraph>
-      </section>
-
-      <section className="policy-pane__section">
-        <Text type="secondary" className="policy-pane__label">
-          Where it sits in the document
-        </Text>
-        {chain.placement.trail.length > 0 ? (
-          <Paragraph className="policy-pane__trail">
-            <DirectionalText>{chain.placement.trail.join(" › ")}</DirectionalText>
-          </Paragraph>
-        ) : (
-          <Paragraph type="secondary">
-            The document places this policy at its top level, under no heading above it.
-          </Paragraph>
-        )}
-        <Paragraph type="secondary">
-          {chain.placement.pages == null
-            ? "No passage of this policy recorded which page it was on."
-            : chain.placement.pages.first === chain.placement.pages.last
-              ? `All of it is on page ${chain.placement.pages.first}.`
-              : `It runs from page ${chain.placement.pages.first} to page ${chain.placement.pages.last}.`}
-        </Paragraph>
-        {chain.placement.sourceElements && (
-          <Identifier label="Source elements" value={chain.placement.sourceElements} />
-        )}
+            {chain.document.contentHash && (
+              <Identifier label="Content hash" value={chain.document.contentHash} />
+            )}
+            {chain.placement.sourceElements && (
+              <Identifier label="Source elements" value={chain.placement.sourceElements} />
+            )}
+          </div>
+        </details>
       </section>
 
       <section className="policy-pane__section">
@@ -369,35 +520,341 @@ export function PolicyOverviewPane({
           </Paragraph>
         </section>
       )}
-
-      <section className="policy-pane__section">
-        <Text type="secondary" className="policy-pane__label">
-          What it is made of
-        </Text>
-        <Paragraph>{composition}</Paragraph>
-      </section>
-
-      <section className="policy-pane__section">
-        <Text type="secondary" className="policy-pane__label">
-          Where its rules came from
-        </Text>
-        {authorities.length === 0 ? (
-          <Paragraph type="secondary">
-            No rule of this policy records who put it here.
-          </Paragraph>
-        ) : (
-          <ul className="policy-pane__list">
-            {authorities.map((entry) => (
-              <li key={`${entry.owner}\u0000${entry.level}`}>
-                <Text strong>{entry.owner}</Text>
-                {entry.level && <Text type="secondary"> · {entry.level}</Text>}
-                <Text type="secondary"> · {share(entry.ruleIds.length, rules.length)}</Text>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </div>
+  );
+}
+
+/**
+ * What the document says, at the top of the policy.
+ *
+ * A reviewer asked for the source text to sit under the title of the policy,
+ * where a reader lands. It sat inside the Reading tab, above the rules, which
+ * is one click and one scroll away from where somebody opening a policy starts.
+ *
+ * It is a lead here and evidence there, and both are worth having: this is the
+ * passage read whole, before any rule has been drawn over it; the Reading tab
+ * puts each passage immediately above the rules formulated from it, which is
+ * how a reviewer checks one against the other. Neither is a copy of the other's
+ * job.
+ *
+ * The page is named per passage only where the policy runs across more than one
+ * — on a policy that sits on one page the header has already said which, and
+ * saying it again per passage is the repetition this tab was rewritten to stop.
+ *
+ * WHY THE REST IS BEHIND A DISCLOSURE, AND WHY THAT IS NOT A TRUNCATION
+ *
+ * A policy of eleven passages printed whole is a wall, and a wall at the top of
+ * the tab pushes the rules and the trace facts below the fold — which is the
+ * complaint this rewrite exists to answer, reintroduced by the fix for it. So
+ * the passage the policy opens with is printed, and the remainder is offered
+ * with its count said exactly.
+ *
+ * No quotation is shortened to achieve that: a reader who opens the disclosure
+ * gets every later passage in full, in document order, and the Reading tab
+ * carries all of them unconditionally either way. What is deferred is a whole
+ * passage, named and counted, never a part of one.
+ */
+function PolicySourcePane({
+  source,
+  spansPages,
+}: {
+  source: readonly PolicyRecordSource[] | undefined;
+  spansPages: boolean;
+}) {
+  // A surface that did not supply the passages has not said they are empty, so
+  // nothing is claimed about them.
+  if (!source) return null;
+  const [opening, ...rest] = source;
+  return (
+    <section className="policy-pane__section" data-testid="overview-source">
+      <Text type="secondary" className="policy-pane__label">
+        What the document says
+      </Text>
+      {source.length === 0 ? (
+        <Paragraph type="secondary">
+          No passage of the source document is attached to this policy.
+        </Paragraph>
+      ) : (
+        <>
+          <SourcePassage passage={opening} spansPages={spansPages} />
+          {rest.length > 0 && (
+            <details className="policy-pane__more" data-testid="overview-source-rest">
+              <summary>
+                {rest.length === 1
+                  ? "The other passage this policy is stated in"
+                  : `The other ${rest.length} passages this policy is stated in`}
+              </summary>
+              <div className="policy-pane__more-body">
+                {rest.map((passage) => (
+                  <SourcePassage key={passage.key} passage={passage} spansPages={spansPages} />
+                ))}
+              </div>
+            </details>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** One passage of the document, quoted whole. */
+function SourcePassage({
+  passage,
+  spansPages,
+}: {
+  passage: PolicyRecordSource;
+  spansPages: boolean;
+}) {
+  return (
+    <div className="policy-pane__passage">
+      {spansPages && passage.page !== null && (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Page {passage.page}
+        </Text>
+      )}
+      {passage.quotations.length === 0 ? (
+        <Text type="secondary">
+          The source text for this passage was not stored with its rules.
+        </Text>
+      ) : (
+        passage.quotations.map((quotation, index) => (
+          <p
+            key={`${index}-${quotation.slice(0, 32)}`}
+            className="policy-card__passage"
+            data-verbatim="true"
+            data-testid="overview-quotation"
+          >
+            <DirectionalText>{quotation}</DirectionalText>
+          </p>
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every rule the policy holds, named, on one screen.
+ *
+ * The thing a reviewer most wants to scan, and the thing this tab named not one
+ * of. Four parts per rule and none of them merged: the name this app generated
+ * for it, the rule's own words, the route it takes, and the id it is known by.
+ *
+ * ON THE ROUTE CHIP
+ *
+ * Both routes are first-class ways of settling a case and the chip says so in
+ * the same voice for each. Deterministic is computed; AI Ready is read by a
+ * judge that returns a verdict with its confidence. A document states some of
+ * its tests as comparisons and some in words, and which it did is a property of
+ * the document rather than a grade on the extraction — so neither chip is
+ * coloured, ranked, ordered ahead of the other, or given a caveat the other
+ * does not get.
+ */
+function PolicyRuleRoster({ record }: { record: PolicyRecordView }) {
+  if (record.rules.length === 0) return null;
+  return (
+    <section className="policy-pane__section" data-testid="overview-roster">
+      <Text type="secondary" className="policy-pane__label">
+        The rules it holds
+      </Text>
+      <ol className="policy-pane__roster">
+        {record.rules.map((entry, index) => (
+          <li key={entry.rule_id} className="policy-pane__rule" data-testid="overview-rule">
+            <span className="policy-card__rule-ordinal" aria-hidden>
+              {index + 1}
+            </span>
+            <div className="policy-pane__rule-body">
+              {/* Renders nothing until a name has been generated, so a policy
+                  nobody has named reads as its rules' own words and no line is
+                  held open for something that may never arrive. The door is
+                  the draft row; a sealed record has none, and asks nothing. */}
+              {entry.candidateId && <RuleName candidateId={entry.candidateId} variant="block" />}
+              <p className="policy-pane__rule-title" data-verbatim="true">
+                <DirectionalText>{entry.rule.title}</DirectionalText>
+              </p>
+              <div className="policy-pane__rule-facts">
+                {entry.route && (
+                  <Tooltip title={routeExplanation(entry.route)}>
+                    <Tag variant="filled" data-testid="overview-rule-route">
+                      {policyRouteLabel(entry.route)}
+                    </Tag>
+                  </Tooltip>
+                )}
+                <Typography.Text
+                  copyable={{ text: entry.rule_id }}
+                  className="policy-pane__rule-id"
+                >
+                  <Text code>{entry.rule_id}</Text>
+                </Typography.Text>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/**
+ * How a rule of each route is settled, said the same way for both.
+ *
+ * Mutation-tested: neither sentence may describe its route as pending,
+ * unfinished, weaker or a fallback. They are two things a document does, and
+ * this app follows the document.
+ */
+function routeExplanation(route: string): string {
+  if (route === "deterministic") {
+    return "The source states this test as a comparison between named quantities, so the engine settles a case by computing it.";
+  }
+  if (route === "ai_ready") {
+    return "The source states this test in words, so a language model reads the case against it and returns a verdict with its confidence.";
+  }
+  return "This is the route recorded on the rule. This view has no words of its own for it and prints the record's.";
+}
+
+/**
+ * Who put a rule here, in words rather than in field values.
+ *
+ * `policy-formulator` and `ai_drafted` are what the record stores and what the
+ * JSON tab shows. They are not sentences, and a reviewer reading them on this
+ * tab was reading our schema rather than our answer.
+ */
+function authorityWords(owner: string, level: string): string {
+  if (level === "ai_drafted") return "Drafted by this app, not yet reviewed by a person";
+  if (level === "human_reviewed") return "Reviewed by a person";
+  if (!level) return owner;
+  return `${owner} · ${level.replace(/_/g, " ")}`;
+}
+
+/**
+ * A plain-words reading of the policy's record, when a reader asks for one.
+ *
+ * The reading itself is written by the server, from the same endpoint the
+ * Explain dialog uses, so there is one generator and not two accounts of one
+ * record that drift apart. What is different here is only where it lands: in
+ * the tab a reader opens first, rather than behind a button that opens a modal
+ * over it.
+ *
+ * Asked for rather than fetched on sight, for the reason the publication
+ * section gives: a page holding many cards mounts many of these, and a reading
+ * nobody asked for costs a model call per policy on the page.
+ */
+function PolicyPlainWords({
+  provisionId,
+  policyKey,
+}: {
+  provisionId: string | null;
+  policyKey: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "failed" | "ready">("idle");
+  const [result, setResult] = useState<PolicyExplanation | null>(null);
+  const [failure, setFailure] = useState("");
+
+  // A policy that was never persisted as a provision has no address to ask
+  // about. Saying nothing is right: there is no reading to offer and no action
+  // a reader could take to get one.
+  if (!provisionId) return null;
+
+  async function ask(regenerate = false) {
+    if (!provisionId) return;
+    setState("loading");
+    setFailure("");
+    try {
+      setResult(await aiApi.explainPolicy(provisionId, regenerate));
+      setState("ready");
+    } catch (error) {
+      setFailure(describeApiFailure(error));
+      setState("failed");
+    }
+  }
+
+  return (
+    <section
+      className="policy-pane__section"
+      data-testid="overview-plain-words"
+      aria-label={`A plain-words reading of policy ${policyKey}`}
+    >
+      <Text type="secondary" className="policy-pane__label">
+        In plain words
+      </Text>
+
+      {state === "idle" && (
+        <>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            This app can read its own extraction of this policy back in plain words. It describes
+            what was extracted, not what the document says — the document's words are above, to
+            read it against.
+          </Paragraph>
+          <Button
+            size="small"
+            onClick={() => void ask()}
+            data-testid="overview-request-plain-words"
+          >
+            Read it in plain words
+          </Button>
+        </>
+      )}
+
+      {state === "loading" && <Paragraph type="secondary">Reading the record…</Paragraph>}
+
+      {state === "failed" && (
+        <Alert
+          type="warning"
+          showIcon
+          data-testid="overview-plain-words-failed"
+          message="The request did not complete"
+          description={
+            <>
+              <p>{failure}</p>
+              <Button size="small" onClick={() => void ask()}>
+                Try again
+              </Button>
+            </>
+          }
+        />
+      )}
+
+      {state === "ready" && result && (
+        <>
+          {result.explanation ? (
+            <div
+              className="policy-pane__reading"
+              data-generated="true"
+              data-testid="overview-plain-words-text"
+            >
+              {/* Said before the reading rather than after it. A caveat under a
+                  paragraph is read by someone who has already believed the
+                  paragraph. */}
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <span aria-hidden>✦</span> In plain words, by this app. It describes what was
+                extracted, not what the document says — the document's own words are above, to
+                read it against.
+              </Text>
+              {/* Unquoted: quotation marks would present these as somebody's
+                  exact words, and they are nobody's. */}
+              <div className="policy-pane__reading-text">
+                <DirectionalText>{result.explanation}</DirectionalText>
+              </div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Written by {result.model_deployment ?? "a language model"}
+                {result.generated_at ? ` on ${formatMoment(result.generated_at)}` : ""}
+                {result.generated_earlier ? ", from this record as it stands now." : "."}
+                {!result.covers_every_rule &&
+                  ` It covers the first ${result.rules.length} of this policy's ${result.rule_count} rules; the rest are listed below and are unaffected.`}
+              </Text>
+              <Button size="small" onClick={() => void ask(true)}>
+                Write it again
+              </Button>
+            </div>
+          ) : (
+            <Paragraph type="secondary" data-testid="overview-plain-words-none">
+              {result.unavailable_code
+                ? "A reading was asked for and none was written. The Explain dialog on this policy says which of the reasons applied; the document's words are above and the rules are below, which is where the answer is either way."
+                : "No language model is configured on this server, so no reading was asked for. Nothing else on this tab is affected by that — it is all from the record itself."}
+            </Paragraph>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

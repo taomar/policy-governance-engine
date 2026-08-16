@@ -2,7 +2,7 @@
  *
  * Deliberately plain: every pane here is a statement about the record, and the
  * reviewer is reading it to decide something. Nothing is coloured to rank one
- * answer above another — a policy decided by reading its source is not styled
+ * answer above another — a policy on the AI Ready route is not styled
  * as weaker than one decided by comparison, because it is not weaker.
  */
 
@@ -72,6 +72,181 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* ------------------------------------------------- The document's own words */
+
+/* The lead of the Overview. It is the only thing on the tab that is the source
+   rather than a fact about the record, so it is the only thing given the
+   weight of body text -- everything below it is smaller because everything
+   below it is checked against this. */
+.policy-pane__passage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ------------------------------------------------------- The rules it holds */
+
+.policy-pane__roster {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One rule, on one line a reviewer can scan down. The ordinal is a column of
+   its own so the names start at the same place and the eye runs down them. */
+.policy-pane__rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--ant-color-split);
+}
+
+.policy-pane__rule:first-child {
+  border-top: 0;
+}
+
+.policy-pane__rule-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* The rule's own words. Wraps and is never clipped: a title shortened to make
+   a row align is a title the reviewer cannot check against the passage above. */
+.policy-pane__rule-title {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* The route and the id. Both are reference material about the row above and
+   both are set back from it -- neither is the headline, and the route tag is
+   given no colour of its own, because colouring one route would rank it. */
+.policy-pane__rule-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.policy-pane__rule-id .ant-typography code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------- How to trace it */
+
+/* The one handle a business reader needs, given room. The other identifiers
+   are kept behind the disclosure below, which is what makes promoting this one
+   possible at all -- five equal chips have no first among them. */
+.policy-pane__handle {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ant-color-split);
+  border-radius: 6px;
+}
+
+.policy-pane__handle-value {
+  margin-bottom: 2px !important;
+}
+
+.policy-pane__handle-value code {
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+}
+
+/* The chain, as a list of answers rather than a stack of chips. The term
+   column is fixed so the answers line up and a reader can scan the questions
+   without reading the answers. */
+.policy-pane__facts {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.policy-pane__fact {
+  display: contents;
+}
+
+.policy-pane__fact > dt {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+}
+
+.policy-pane__fact > dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.policy-pane__fact .policy-pane__list {
+  padding-left: 0;
+  list-style: none;
+}
+
+/* Reference material, on demand. None of it is deleted -- somebody tracing a
+   record pastes these into a query -- and none of it is in the reader's way. */
+.policy-pane__references > summary {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  cursor: pointer;
+}
+
+.policy-pane__references-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0 0 2px;
+}
+
+/* The passages after the one a policy opens with. Deferred, never shortened:
+   the summary counts them exactly so a reader knows what is behind it. */
+.policy-pane__more > summary {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.policy-pane__more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+/* ------------------------------------------------------------ In plain words */
+
+/* Set apart from the record's own statements, because it is neither the
+   document's words nor a field of the record: it is this app's account of its
+   own extraction, and a reader must be able to see at a glance which it is. */
+.policy-pane__reading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--ant-color-border);
+  border-radius: 6px;
+}
+
+.policy-pane__reading-text {
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 /* The version a reader would be served now, marked beside its number rather

@@ -260,3 +260,260 @@ describe("the chain refuses to guess", () => {
     });
   });
 });
+
+/* ------------------------------------------------------------------------ */
+/* The rewrite: a roster, the document's own words, and no debugging panel.   */
+/* ------------------------------------------------------------------------ */
+
+describe("the Overview names the rules the policy holds", () => {
+  it("lists every rule, with what it states and the id it is known by", () => {
+    const view = record({ rules: [rule("a", "run-1"), rule("b", "run-1")] });
+    view.rules[0].route = "deterministic";
+    view.rules[1].route = "ai_ready";
+    render(<PolicyOverviewPane record={view} />);
+
+    // The thing a reviewer most wants to scan, and the tab named not one of
+    // them before this.
+    const rows = screen.getAllByTestId("overview-rule");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Rule a");
+    expect(rows[1].textContent).toContain("Rule b");
+
+    const ids = [...document.querySelectorAll("code")].map((c) => c.textContent);
+    expect(ids).toContain("a");
+    expect(ids).toContain("b");
+  });
+
+  it("names each rule's route in the approved words, and neither as a shortfall", () => {
+    const view = record({ rules: [rule("a", "run-1"), rule("b", "run-1")] });
+    view.rules[0].route = "deterministic";
+    view.rules[1].route = "ai_ready";
+    render(<PolicyOverviewPane record={view} />);
+
+    const routes = screen.getAllByTestId("overview-rule-route").map((n) => n.textContent);
+    expect(routes).toEqual(["Deterministic", "AI Ready"]);
+
+    // A route is how the document states a test, never a grade on it. Copy
+    // that framed either one as unfinished, weaker or a fallback has evaded
+    // review six times, so it is scanned for here rather than trusted.
+    const written = (screen.getByTestId("overview-roster").textContent ?? "").toLowerCase();
+    for (const apology of [
+      "not yet",
+      "incomplete",
+      "unfinished",
+      "missing",
+      "cannot",
+      "could not",
+      "fallback",
+      "needs human",
+      "manual",
+      "pending",
+      "unsupported",
+    ]) {
+      expect(written).not.toContain(apology);
+    }
+  });
+
+  it("says nothing about a route the record did not record one for", () => {
+    const view = record({ rules: [rule("a", "run-1")] });
+    view.rules[0].route = null;
+    render(<PolicyOverviewPane record={view} />);
+    expect(screen.queryAllByTestId("overview-rule-route")).toHaveLength(0);
+    // The rule is still listed. An unrecorded route removes a chip, not a rule.
+    expect(screen.getAllByTestId("overview-rule")).toHaveLength(1);
+  });
+});
+
+describe("the document's own words lead the Overview", () => {
+  it("quotes each passage, above everything the record says about itself", () => {
+    const view = record();
+    view.source = [
+      { key: "p1", page: 4, quotations: ["Staff shall follow the policies of the University."] },
+    ];
+    const { container } = render(<PolicyOverviewPane record={view} />);
+
+    const quoted = screen.getAllByTestId("overview-quotation");
+    expect(quoted).toHaveLength(1);
+    expect(quoted[0].textContent).toContain("Staff shall follow the policies of the University.");
+    // Marked as the document's, so every scan of this app's own copy skips it.
+    expect(quoted[0].getAttribute("data-verbatim")).toBe("true");
+
+    // It is the lead. A reader who came to read the policy reads it first.
+    const sections = [...container.querySelectorAll(".policy-pane__section")];
+    expect(sections[0].getAttribute("data-testid")).toBe("overview-source");
+  });
+
+  it("keeps two quotations of one passage apart rather than joining them", () => {
+    const view = record();
+    view.source = [{ key: "p1", page: 4, quotations: ["First sentence.", "Second sentence."] }];
+    render(<PolicyOverviewPane record={view} />);
+    expect(screen.getAllByTestId("overview-quotation")).toHaveLength(2);
+  });
+
+  it("says a passage stored no source text rather than rendering it blank", () => {
+    const view = record();
+    view.source = [{ key: "p1", page: 4, quotations: [] }];
+    render(<PolicyOverviewPane record={view} />);
+    expect(screen.getByText(/source text for this passage was not stored/)).toBeTruthy();
+  });
+
+  it("names the page per passage only where the policy runs across more than one", () => {
+    const single = record({ passages: [passage(4)] });
+    single.source = [{ key: "p4", page: 4, quotations: ["One page."] }];
+    const { unmount } = render(<PolicyOverviewPane record={single} />);
+    // The header already said page 4. Saying it again is the repetition this
+    // tab was rewritten to stop.
+    expect(screen.queryByText("Page 4")).toBeNull();
+    unmount();
+
+    const spread = record({ passages: [passage(7), passage(9)] });
+    spread.source = [
+      { key: "p7", page: 7, quotations: ["Starts here."] },
+      { key: "p9", page: 9, quotations: ["Ends here."] },
+    ];
+    render(<PolicyOverviewPane record={spread} />);
+    expect(screen.getByText("Page 7")).toBeTruthy();
+    expect(screen.getByText("Page 9")).toBeTruthy();
+  });
+
+  it("claims nothing about passages a surface did not supply", () => {
+    render(<PolicyOverviewPane record={record()} />);
+    expect(screen.queryByTestId("overview-source")).toBeNull();
+  });
+
+  /**
+   * The lead has to open the policy, not bury it.
+   *
+   * A policy of eleven passages printed whole put the rule roster and the trace
+   * facts below the fold, which is the wall this tab was rewritten to stop —
+   * reintroduced by the fix for it. So the passage the policy opens with is
+   * printed and the rest is offered, counted exactly.
+   *
+   * The count is asserted as a number because "a few more" and "others" are the
+   * wordings that make a reader guess, and a reviewer deciding whether to open
+   * it is deciding against a quantity.
+   */
+  it("prints the passage the policy opens with, and offers the rest by their count", () => {
+    const view = record({ passages: [passage(7), passage(9)] });
+    view.source = [
+      { key: "p1", page: 7, quotations: ["The passage it opens with."] },
+      { key: "p2", page: 8, quotations: ["A later passage."] },
+      { key: "p3", page: 9, quotations: ["A later passage still."] },
+    ];
+    render(<PolicyOverviewPane record={view} />);
+
+    const rest = screen.getByTestId("overview-source-rest");
+    // The opening passage is not behind the control.
+    expect(rest.textContent).not.toContain("The passage it opens with.");
+    expect(screen.getByText("The passage it opens with.")).toBeTruthy();
+    // The remainder is, and is counted rather than described.
+    expect(rest.querySelector("summary")?.textContent).toContain("other 2 passages");
+  });
+
+  /**
+   * Deferring is not shortening.
+   *
+   * The rule that must not be bought back for tidiness: a quotation behind the
+   * disclosure is the whole quotation. This asserts the last words of the last
+   * passage survive, which an ellipsis or a slice would take first.
+   */
+  it("defers whole passages and shortens none of them", () => {
+    const long =
+      "Where a member of staff is absent for a period exceeding three consecutive " +
+      "working days, a medical certificate issued by a registered practitioner " +
+      "shall be submitted to the Human Resources Department without delay.";
+    const view = record({ passages: [passage(7), passage(9)] });
+    view.source = [
+      { key: "p1", page: 7, quotations: ["Opens here."] },
+      { key: "p2", page: 9, quotations: [long] },
+    ];
+    render(<PolicyOverviewPane record={view} />);
+
+    const quoted = screen.getAllByTestId("overview-quotation").map((n) => n.textContent);
+    expect(quoted).toContain(long);
+    for (const text of quoted) expect(text).not.toMatch(/[…]|\.\.\./);
+  });
+
+  it("offers no control at all when the policy is stated in one passage", () => {
+    const view = record();
+    view.source = [{ key: "p1", page: 4, quotations: ["The only passage."] }];
+    render(<PolicyOverviewPane record={view} />);
+    // A disclosure holding nothing is a control a reader opens for no reason.
+    expect(screen.queryByTestId("overview-source-rest")).toBeNull();
+    expect(screen.getByText("The only passage.")).toBeTruthy();
+  });
+
+  it("names one deferred passage as one, not as a plural", () => {
+    const view = record({ passages: [passage(7), passage(9)] });
+    view.source = [
+      { key: "p1", page: 7, quotations: ["Opens here."] },
+      { key: "p2", page: 9, quotations: ["Ends here."] },
+    ];
+    render(<PolicyOverviewPane record={view} />);
+    const summary = screen.getByTestId("overview-source-rest").querySelector("summary");
+    expect(summary?.textContent).toBe("The other passage this policy is stated in");
+  });
+});
+
+describe("the Overview is not a debugging panel", () => {
+  it("has deleted the sentence about where the policy sits in the outline", () => {
+    const flat = record();
+    (flat.policy as unknown as { heading_path: string[] }).heading_path = [];
+    const { container } = render(<PolicyOverviewPane record={flat} />);
+    const written = container.textContent ?? "";
+    // Removed twice at a reviewer's request and restored once. It describes the
+    // document's layout, and no reader of this screen has ever needed it.
+    expect(written).not.toContain("at its top level");
+    expect(written).not.toContain("under no heading above it");
+    expect(written).not.toMatch(/begins and ends/);
+  });
+
+  it("does not restate the single page the header already carries", () => {
+    const { container } = render(<PolicyOverviewPane record={record({ passages: [passage(4)] })} />);
+    expect(container.textContent).not.toContain("All of it is on page 4");
+  });
+
+  it("promotes one handle and keeps the rest as reference material", () => {
+    const view = record({ policy: { provision_id: "prov-9" } });
+    const { container } = render(<PolicyOverviewPane record={view} runs={[facetRun("run-1")]} />);
+
+    // The key is what follows a policy across versions of a document, so it is
+    // the one a business reader is given without asking.
+    expect(container.querySelector(".policy-pane__handle")?.textContent).toContain(
+      "SECTION-KEY-42",
+    );
+
+    // The rest are kept -- "cannot trace the policy" was the original
+    // complaint -- and are out of the reader's way rather than deleted.
+    const references = screen.getByTestId("overview-references");
+    expect(references.tagName).toBe("DETAILS");
+    expect(references.textContent).toContain("prov-9");
+    expect(references.textContent).toContain("dv-1");
+    expect(references.textContent).toContain("abc123");
+  });
+
+  it("says who put a rule here in words rather than in field values", () => {
+    const authored = rule("a", "run-1");
+    (authored as unknown as { authority: unknown }).authority = {
+      owner: "policy-formulator",
+      level: "ai_drafted",
+    };
+    const { container } = render(<PolicyOverviewPane record={record({ rules: [authored] })} />);
+    const written = container.textContent ?? "";
+
+    expect(written).toContain("Drafted by this app, not yet reviewed by a person");
+    // The raw values belong on the JSON tab, which is what that tab is for.
+    expect(written).not.toContain("ai_drafted");
+    expect(written).not.toContain("policy-formulator");
+  });
+
+  it("counts rules in a sentence rather than in a bare field value", () => {
+    const { container } = render(
+      <PolicyOverviewPane record={record()} runs={[facetRun("run-1")]} />,
+    );
+    const written = container.textContent ?? "";
+    // "every rule", standing alone with no verb, read as a field value to a
+    // reviewer rather than as an answer.
+    expect(written).not.toMatch(/·\s*every rule/);
+  });
+});
