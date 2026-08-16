@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -32,21 +32,27 @@ import { EditRuleModal } from "./EditRuleModal";
 import { buildVariationClusters, clusterColor, clusterIdentity, clusterLabel, type RuleVariationGroup } from "../ruleDisplay";
 import { PolicyInspector } from "./PolicyInspector";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
-import { PublishedPolicyCard } from "./PublishedPolicyCard";
+import { PolicyReviewCard } from "./PolicyReviewCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { usePolicyTesting } from "./policyTesting";
 import { useActor } from "../ActorContext";
 import { RuleCard } from "./RuleCard";
 import { RecordActionsMenu } from "./RecordActionsMenu";
 import {
-  buildPublishedPolicyCards,
-  listProvisionHistory,
-  listVersionPolicies,
-  publishedCardsAnsweringNarrowing,
-  publishedPolicyTitle,
-  type PublishedPolicyCard as PublishedPolicyCardModel,
-  unplacedPublishedRules,
-} from "../publishedPolicyCards";
+  buildPolicyCards,
+  cardsAnsweringNarrowing,
+  policyTitle,
+  unplacedRules,
+  type PolicyCard,
+} from "../policyCards";
+import {
+  exportAllContentsLabel,
+  exportContentsLabel,
+  exportedSummary,
+  policiesAsJsonl,
+  policyUnit,
+  ruleUnit,
+} from "../policyExport";
 import {
   PoliciesToolbar,
   EMPTY_POLICY_FILTERS,
@@ -70,18 +76,30 @@ const publishedStatusLabel = (status: string) => status.replace(/_/g, " ");
 type PoliciesWorkspaceMode = "list" | "split" | "detail";
 
 /**
- * Whether an element sits entirely outside the window, vertically.
+ * ONE RENDERER FOR A POLICY, ON BOTH PAGES. PLEASE DO NOT ADD A SECOND.
  *
- * The one decision behind moving the page for a reader, so it is separated from
- * the moving: a selection scrolls the panel back only when the panel is
- * genuinely out of sight. The partially-visible case is the one that matters —
- * a panel with its top edge above the window is still being read, and pulling
- * the page under someone mid-sentence to gain a few pixels is worse than
- * leaving them where they are.
+ * This page used to draw its own card (`PublishedPolicyCard`) over its own card
+ * model (`publishedPolicyCards`), forked from the review queue's before several
+ * corrections landed there. Because it was a copy, it could not inherit any of
+ * them, and four separate faults were reported as four separate bugs:
+ *
+ *  1. this page did not look or lay out like the page a policy is reviewed on;
+ *  2. clicking a policy's heading answered about one of its rules, offering a
+ *     rule id to a reader who had not chosen a rule;
+ *  3. the counts and the export read in rules on a page that lists policies;
+ *  4. a published rule's detail had no tabs, because the copy expanded a flat
+ *     `RuleCard` where the rest of the app opens the tabbed inspector.
+ *
+ * Every one of them was already fixed on the review side. Deleting the copy
+ * resolved all four at once and removed nothing, because the two files had by
+ * then decayed into adapters over `policyCards` with no algorithm of their own.
+ *
+ * So: a policy is drawn by `PolicyReviewCard`, its detail by
+ * `PolicyDetailPanel`, and one of its rules by `PolicyInspector` — inline under
+ * `Details` and in the panel alike. If this surface needs something the review
+ * surface does not, the difference belongs in the record or in a handler this
+ * page withholds, not in a second component.
  */
-export function isOutsideWindow(box: { top: number; bottom: number }, windowHeight: number): boolean {
-  return box.bottom <= 0 || box.top >= windowHeight;
-}
 
 /** How many policies are drawn at once. A whole policy is a much taller thing
  *  than a row, so the list is paged rather than virtualized — the same choice
@@ -144,19 +162,20 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  Held as the key rather than the card because the cards are rebuilt on every
    *  narrowing; a held card would go stale, a held key resolves or does not. */
   const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
-  /** The rule whose detail is open inside its policy. Distinct from the
-   *  selection, which drives the inspector: a reader can be looking at one
-   *  rule in place while the panel still shows the one they arrived on. */
-  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState("overview");
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [reviseTarget, setReviseTarget] = useState<CanonicalRule | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<PoliciesWorkspaceMode>("split");
   const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
-  /** The panel column, so a selection made while it is scrolled out of the
-   *  window can bring it back. See `revealPanel`. */
-  const inspectorRef = useRef<HTMLDivElement | null>(null);
-  const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
+  /** Which policies the reader has picked out to take a copy of.
+   *
+   *  Held by policy, because a policy is what this page lists and what a reader
+   *  points at. It used to be held as a set of rule ids and every count on the
+   *  bar was therefore a rule count — "select all 412 shown" over a list of 38
+   *  policies, which answers a question nobody on this page asked. What a
+   *  selected policy *exports* is still every rule it states; that is a fact
+   *  about the policy rather than a second unit of selection. */
+  const [selectedPolicyKeys, setSelectedPolicyKeys] = useState<Set<string>>(new Set());
   /** The set's tests, loaded once for the page so every policy's Tests tab
    *  reads the same answer. `null` while unknown — a failed load must not read
    *  as "this set has no tests", which is a claim about coverage. */
@@ -187,7 +206,8 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         next.add(provisionKey);
         return next;
       });
-      listProvisionHistory(policySetKey, provisionKey)
+      api
+        .listProvisionHistory(policySetKey, provisionKey)
         .then((sightings) => {
           setHistoryByKey((current) => ({ ...current, [provisionKey]: sightings }));
         })
@@ -298,7 +318,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
       // read of what the version already knows rather than anything inferred
       // here. It is fetched separately so a failure to group still leaves the
       // rules readable rather than blanking the page.
-      listVersionPolicies(policySetKey, versionId).catch(() => [] as AssembledPolicy[]),
+      api.listVersionPolicies(policySetKey, versionId).catch(() => [] as AssembledPolicy[]),
     ])
       .then(([rs, aggs, ps]) => {
         setRules(rs);
@@ -310,7 +330,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   }, [policySetKey, versionId]);
 
   useEffect(() => {
-    setSelectedExportIds(new Set());
+    setSelectedPolicyKeys(new Set());
   }, [versionId]);
 
   // How far the review pipeline has actually got. Used only to make the empty
@@ -446,7 +466,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  of its nine rules with the other six silently absent, and nothing on
    *  screen distinguishes that from a policy that only has three. */
   const allCards = useMemo(
-    () => buildPublishedPolicyCards(policies, rules),
+    () => buildPolicyCards(policies, rules.map((rule) => ({ rule }))),
     [policies, rules],
   );
 
@@ -462,14 +482,17 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  surfaces are meant to read alike and a fragment on one of them is a
    *  different claim about the document than a whole policy on the other. */
   const cards = useMemo(
-    () => publishedCardsAnsweringNarrowing(allCards, matchedRuleIds),
+    () => cardsAnsweringNarrowing(allCards, matchedRuleIds),
     [allCards, matchedRuleIds],
   );
 
   /** Rules the version serves that no policy claims — always rendered, below
    *  the policies, so a grouping gap loses a rule from its policy but never
    *  from the page. */
-  const unplaced = useMemo(() => unplacedPublishedRules(policies, shownRules), [policies, shownRules]);
+  const unplaced = useMemo(
+    () => unplacedRules(policies, shownRules.map((rule) => ({ rule }))).map((entry) => entry.rule),
+    [policies, shownRules],
+  );
 
   // A policy the narrowing no longer shows is not a policy the panel may keep
   // open. Separated from the rule effect above because the cards, not the
@@ -565,28 +588,19 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  here" — at the two breakpoints, which is why they share one function
    *  rather than each selection handler knowing about layout.
    *
-   *  The desktop arm exists because the card list is taller than the panel
-   *  beside it: a reader who has scrolled far enough down to reach a rule has
-   *  scrolled the panel off the top of the window, so the panel answers them
-   *  where they cannot see it and the click reads as having done nothing. It
-   *  moves only when the panel is genuinely out of view, and only far enough
-   *  to bring it back — a scroll on every selection would yank the page under
-   *  a reader who could already see the answer.
+   *  The desktop arm used to measure the panel and scroll the *window* back to
+   *  it, because the card list grew taller than the viewport and pushed the
+   *  panel off the top. That was a script compensating for a layout: the list
+   *  should have been a scroller inside a fixed-height workspace, as the review
+   *  queue's already was. It is one now (`.published-policy-list`), so the panel
+   *  cannot leave the window and there is nothing left to measure. Restoring
+   *  the split is all this still does.
    */
   const revealPanel = () => {
     if (isDesktop) {
       // Selecting a record while scanning in list-only mode is an explicit
       // request to inspect it; restore the split without forcing full focus.
       if (workspaceMode === "list") setWorkspaceMode("split");
-      // After the panel has re-rendered with what was just selected, so the
-      // measurement is of the panel the reader is about to read.
-      requestAnimationFrame(() => {
-        const panelNode = inspectorRef.current;
-        if (!panelNode) return;
-        if (isOutsideWindow(panelNode.getBoundingClientRect(), window.innerHeight)) {
-          panelNode.scrollIntoView({ block: "nearest" });
-        }
-      });
     } else {
       setMobileInspectorOpen(true);
     }
@@ -597,7 +611,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  Clears the rule selection, because the two are one panel at two depths and
    *  a rule left selected would put the reader back where they just came from.
    */
-  const handleOpenPolicy = (card: PublishedPolicyCardModel) => {
+  const handleOpenPolicy = (card: PolicyCard) => {
     setOpenPolicyKey(card.policy.key);
     setSelectedRuleId(null);
     setInspectorTab("overview");
@@ -630,33 +644,65 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     setWorkspaceMode("list");
   };
 
-  const toggleExportSelection = (ruleIds: readonly string[]) => {
-    setSelectedExportIds((current) => {
+  /** Add or remove a policy from the export selection.
+   *
+   *  Named for the unit the page lists. A policy is either taken whole or not
+   *  taken; there is no half-selected policy, because half a policy is not a
+   *  statement of anything. */
+  const togglePolicySelection = (policyKey: string) => {
+    setSelectedPolicyKeys((current) => {
       const next = new Set(current);
-      const allSelected = ruleIds.length > 0 && ruleIds.every((id) => next.has(id));
-      for (const id of ruleIds) {
-        if (allSelected) next.delete(id);
-        else next.add(id);
-      }
+      if (next.has(policyKey)) next.delete(policyKey);
+      else next.add(policyKey);
       return next;
     });
   };
 
   const selectAllShownForExport = () => {
-    toggleExportSelection(shownRules.map((rule) => rule.rule_id));
+    setSelectedPolicyKeys((current) => {
+      const shownKeys = cards.map((card) => card.policy.key);
+      const allSelected = shownKeys.length > 0 && shownKeys.every((key) => current.has(key));
+      const next = new Set(current);
+      for (const key of shownKeys) {
+        if (allSelected) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
   };
 
+  /** The policies a download writes, whole.
+   *
+   *  Resolved from `allCards` rather than from the shown cards, so a policy
+   *  picked before a search was typed still exports every rule it states
+   *  rather than the ones matching the words in the box. Recomputed each time,
+   *  so a selection made before a version reloaded cannot write a policy the
+   *  version no longer publishes. */
+  const selectedPolicies = useMemo(
+    () => allCards.filter((card) => selectedPolicyKeys.has(card.policy.key)),
+    [allCards, selectedPolicyKeys],
+  );
+
+  /**
+   * Write the chosen policies out, one policy per line.
+   *
+   * The shape and the wording both come from `policyExport`, so the file, the
+   * button that offers it and the message that reports it cannot disagree about
+   * what a line is. It used to write one line per rule, which is the shape from
+   * before a policy was the record: a reviewer who selected two policies
+   * received thirteen lines and had to regroup them by hand to get back the
+   * thing they had selected.
+   */
   const downloadJsonl = (scope: "selected" | "all") => {
-    const exportRules =
-      scope === "all" ? rules : rules.filter((rule) => selectedExportIds.has(rule.rule_id));
-    if (exportRules.length === 0) {
+    const exportCards = scope === "all" ? allCards : selectedPolicies;
+    if (exportCards.length === 0) {
       message.warning("Select at least one policy to export.");
       return;
     }
-    const jsonl = exportRules.map((rule) => JSON.stringify(rule)).join("\n") + "\n";
+    const written = policiesAsJsonl(exportCards, documentName);
     const filename = `${policySetKey}-v${selectedVersion?.version_number ?? "unknown"}-${scope}-policies.jsonl`;
-    downloadBlob(new Blob([jsonl], { type: "application/x-ndjson;charset=utf-8" }), filename);
-    message.success(`${exportRules.length} complete polic${exportRules.length === 1 ? "y" : "ies"} exported to ${filename}.`);
+    downloadBlob(new Blob([written.text], { type: "application/x-ndjson;charset=utf-8" }), filename);
+    message.success(exportedSummary(written, filename));
   };
 
   const emptyMessage =
@@ -699,6 +745,10 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         statusColor={publishedStatusColor}
         statusLabel={publishedStatusLabel}
         policySetKey={policySetKey}
+        /* Which version this reading is of. A published policy is read *at* a
+         * version; a question asked without it can be answered from the draft
+         * row that shares the rule ids. */
+        policyVersionId={versionId}
         tests={tests}
         testsLoading={testsLoading}
         testing={testing}
@@ -716,12 +766,25 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           if (!entry) return null;
           return (
             <div className="policy-card__rule-detail" data-testid="policy-card-rule-detail">
-              <RuleCard
+              {/* The same reading of a rule that the panel and the review queue
+                  give, placed here instead of somewhere else. This used to
+                  expand a flat `RuleCard` — no tabs, no labelled identity
+                  table — so a rule read differently depending on where it was
+                  opened from, and the tabs a reader had learned to expect were
+                  simply missing. `variant="embedded"` is a placement, not a
+                  permission: it sizes to its content rather than filling a
+                  column, and changes nothing about what may be read or done. */}
+              <PolicyInspector
                 rule={entry.rule}
-                defaultExpanded
-                hideNotes
+                allRules={rules}
                 aggregateLimits={aggregateLimits}
+                publishedVersion={selectedVersion ?? null}
+                versions={versions}
+                policySetKey={policySetKey}
+                variant="embedded"
+                recordLabel="rule"
                 onRevise={canRevise ? setReviseTarget : undefined}
+                onSelectRule={handleSelectRule}
               />
             </div>
           );
@@ -775,7 +838,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
               Rule{" "}
               {openPolicyCard.rules.findIndex((r) => r.rule_id === selectedRule.rule_id) + 1} of{" "}
               {openPolicyCard.rules.length} in{" "}
-              {publishedPolicyTitle(openPolicyCard.policy, openPolicyCard.passages).text ||
+              {policyTitle(openPolicyCard.policy, openPolicyCard.passages).text ||
                 openPolicyCard.policy.key}
             </Text>
           </div>
@@ -912,7 +975,15 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
             <Space size={10} wrap className="policy-version-strip">
               <Tag color="purple">v{selectedVersion.version_number}</Tag>
               {selectedVersion.is_active && <Tag color="green">ACTIVE</Tag>}
-              <Text strong>{rules.length} rules</Text>
+              {/* Policies first, then the rules they hold. This strip used to
+                  state a rule count alone, on a page whose every card, every
+                  selection and every exported line is a policy — so the one
+                  number a reader saw first was the one the page does not deal
+                  in. Both are said, because a reader who knows a version by
+                  how many rules it carries should not have to lose that to
+                  gain the count that matches what is on screen. */}
+              <Text strong>{policyUnit(allCards.length)}</Text>
+              <Text type="secondary">{ruleUnit(rules.length)}</Text>
               <Text type="secondary">
                 effective {selectedVersion.effective_from}
                 {selectedVersion.effective_to ? ` → ${selectedVersion.effective_to}` : ""}
@@ -943,28 +1014,42 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                   onFocusFamily={setFocusedFamily}
                 />
                 <div className="policy-export-bar">
+                  {/* Counted, selected and written in policies, on a page that
+                      lists policies. The bar used to say "select all 412 shown"
+                      over 38 cards, because it was counting the rules inside
+                      them — an answer to a question this page does not ask.
+                      Worded as the review queue words the same control, so the
+                      two surfaces do not teach a reader two vocabularies for
+                      one act. */}
                   <Checkbox
-                    checked={shownRules.length > 0 && shownRules.every((rule) => selectedExportIds.has(rule.rule_id))}
+                    checked={cards.length > 0 && cards.every((card) => selectedPolicyKeys.has(card.policy.key))}
                     indeterminate={
-                      shownRules.some((rule) => selectedExportIds.has(rule.rule_id)) &&
-                      !shownRules.every((rule) => selectedExportIds.has(rule.rule_id))
+                      cards.some((card) => selectedPolicyKeys.has(card.policy.key)) &&
+                      !cards.every((card) => selectedPolicyKeys.has(card.policy.key))
                     }
                     onChange={selectAllShownForExport}
                   >
-                    Select all {shownRules.length} shown
+                    Select all {policyUnit(cards.length)} in this filter
                   </Checkbox>
-                  <span className="policy-export-count">{selectedExportIds.size} selected</span>
+                  <span className="policy-export-count">
+                    {selectedPolicyKeys.size} selected
+                  </span>
                   <span className="policy-export-spacer" />
+                  {/* The unit is named on the button, before it is pressed. A
+                      reviewer who has exported this page before received one
+                      line per rule; the file they get now is one line per
+                      policy, and a button that only said "JSONL" would let them
+                      discover that in a text editor. */}
                   <Button
                     size="small"
                     icon={<DownloadOutlined />}
-                    disabled={selectedExportIds.size === 0}
+                    disabled={selectedPolicyKeys.size === 0}
                     onClick={() => downloadJsonl("selected")}
                   >
-                    Export selected JSONL
+                    {exportContentsLabel(selectedPolicyKeys.size)}
                   </Button>
                   <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadJsonl("all")}>
-                    Export all {rules.length} JSONL
+                    {exportAllContentsLabel(allCards.length)}
                   </Button>
                 </div>
                 <div className="published-policy-list" data-testid="published-policy-list">
@@ -972,39 +1057,32 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyMessage} />
                   ) : (
                     <>
-                      {pagedCards.map((card) => {
-                        const ids = card.rules.map((entry) => entry.rule_id);
-                        const selectedCount = ids.filter((id) => selectedExportIds.has(id)).length;
-                        return (
-                          <PublishedPolicyCard
-                            key={card.policy.key}
-                            card={card}
-                            open={ids.some((id) => id === selectedRuleId)}
-                            selectedForExport={ids.length > 0 && selectedCount === ids.length}
-                            indeterminateForExport={selectedCount > 0 && selectedCount < ids.length}
-                            aggregateLimits={aggregateLimits}
-                            expandedRuleId={expandedRuleId}
-                            onToggleExportSelection={() => toggleExportSelection(ids)}
-                            onOpen={() => handleOpenPolicy(card)}
-                            onSelectRule={handleSelectRule}
-                            selectedRuleId={selectedRuleId}
-                            onToggleRule={(rule) =>
-                              setExpandedRuleId((prev) => (prev === rule.rule_id ? null : rule.rule_id))
-                            }
-                            onRevise={canRevise ? setReviseTarget : undefined}
-                            onViewHistory={handleViewHistory}
-                            tests={tests}
-                            testsLoading={testsLoading}
-                            testing={testing}
-                            extractionRuns={extractionRuns}
-                            history={historyByKey[card.policy.key] ?? null}
-                            historyLoading={historyLoadingKeys.has(card.policy.key)}
-                            onRequestHistory={requestHistory}
-                            policySetKey={policySetKey}
-                            policyVersionId={versionId}
-                          />
-                        );
-                      })}
+                      {pagedCards.map((card) => (
+                        <PolicyReviewCard
+                          key={card.policy.key}
+                          card={card}
+                          selected={selectedPolicyKeys.has(card.policy.key)}
+                          /* Never indeterminate. A policy is taken whole or not
+                             taken; there is no half of one to report. */
+                          indeterminate={false}
+                          open={openPolicyKey === card.policy.key}
+                          policySetKey={policySetKey}
+                          statusColor={publishedStatusColor}
+                          statusLabel={publishedStatusLabel}
+                          /* Nothing on a sealed record is a quality finding
+                             awaiting a reviewer, so there are none to count.
+                             Zero, not absent: the question was asked. */
+                          findingsFor={() => 0}
+                          onToggleSelect={() => togglePolicySelection(card.policy.key)}
+                          onOpen={() => handleOpenPolicy(card)}
+                          /* No `onApprove`/`onReject`: a published record has
+                             nothing for either to write to. Withheld rather
+                             than drawn and inert. */
+                          onSelectRule={(entry) => handleSelectRule(entry.rule)}
+                          selectedRuleId={selectedRuleId}
+                          documentName={documentName}
+                        />
+                      ))}
 
                       {cards.length > PAGE_SIZE && (
                         <div className="candidate-pagination">
@@ -1069,7 +1147,6 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                     />
                   )}
                   <div
-                    ref={inspectorRef}
                     className={`policies-workspace-inspector${
                       inspectorFullscreen ? " policies-workspace-inspector--fullscreen" : ""
                     }`}
