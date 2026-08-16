@@ -49,15 +49,19 @@
  */
 import { useEffect, useState } from "react";
 import { Alert, Button, Descriptions, Input, Select, Space, Tag, Tooltip, Typography } from "antd";
-import { ExperimentOutlined, InfoCircleOutlined, ReadOutlined } from "@ant-design/icons";
+import { ExperimentOutlined, FileTextOutlined, InfoCircleOutlined, ReadOutlined } from "@ant-design/icons";
 import {
   aiApi,
   PolicyPlatformApiError,
   type CanonicalRule,
+  type Clause,
+  type EvidenceReference,
   type RuleScenarioTestResult,
   type ScenarioEvaluation,
 } from "../api";
+import { resolveClausesById } from "../clauseCache";
 import { DETERMINISTIC_LABEL, engineDecidesRule } from "../ruleExecutability";
+import { MarkedQuotation } from "./MarkedQuotation";
 import {
   COMPUTED_ANSWER,
   JUDGED_ANSWER,
@@ -95,6 +99,12 @@ export function RuleScenarioTester({
   const [judged, setJudged] = useState<ScenarioEvaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The rule's source clauses, resolved from evidence offsets to real verbatim
+  // text through the shared cache (see `resolveClausesById`) so the sentence the
+  // judge reads is on the card, not behind "View source". `resolving` keeps the
+  // in-flight state distinct from text that was never stored (constraint 5).
+  const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
+  const [sourceResolving, setSourceResolving] = useState(false);
 
   // One derivation of who decides, taken from the record and shared with every
   // other surface that asks (see `engineDecidesRule`). Two copies of this
@@ -109,6 +119,36 @@ export function RuleScenarioTester({
     setError(null);
     setScenario("");
   }, [rule.rule_id]);
+
+  // Resolve this rule's cited clauses to their stored text. Keyed on the
+  // revision, not `evidence.length`, because evidence only changes together
+  // with a revision bump — the same trigger RuleCard's identical effect uses.
+  useEffect(() => {
+    const docVersionIds = (rule.evidence ?? [])
+      .map((ev) => ev.document_version_id)
+      .filter(Boolean);
+    if (docVersionIds.length === 0) {
+      setClausesById(new Map());
+      setSourceResolving(false);
+      return;
+    }
+    let cancelled = false;
+    setSourceResolving(true);
+    resolveClausesById(docVersionIds)
+      .then((byId) => {
+        if (!cancelled) setClausesById(byId);
+      })
+      .catch(() => {
+        if (!cancelled) setClausesById(new Map());
+      })
+      .finally(() => {
+        if (!cancelled) setSourceResolving(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rule.rule_id, rule.rule_revision]);
 
   const run = async () => {
     setLoading(true);
@@ -173,6 +213,11 @@ export function RuleScenarioTester({
         The case is put to <Text strong>{targetLabel(target)}</Text>.
         {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
       </Paragraph>
+      <RuleSourceText
+        evidence={rule.evidence ?? []}
+        clausesById={clausesById}
+        resolving={sourceResolving}
+      />
       <Paragraph>
         <Text strong>Describe a case in plain English</Text>
       </Paragraph>
@@ -359,6 +404,94 @@ export function RuleScenarioTester({
             · not saved to the audit trail (exploratory check only)
           </Text>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The rule as the document states it, shown on the test card itself.
+ *
+ * A reviewer here is deciding whether the judge's verdict is right, and cannot
+ * do that without the sentence the verdict was read from — so the source is
+ * evidence, and evidence does not sit behind "View source" (constraint 6). It
+ * is quoted whole and unaltered through the same `MarkedQuotation` every other
+ * card uses (constraint 4), its direction carried per run for the corpus's
+ * Arabic clauses (constraint 7).
+ *
+ * Four states are kept apart (constraint 5), and none is an empty box: a rule
+ * with no citation was authored by hand and has no words to quote; a citation
+ * whose text is still resolving is loading; a citation whose text was never
+ * stored says exactly that; and a resolved citation is shown verbatim.
+ */
+function RuleSourceText({
+  evidence,
+  clausesById,
+  resolving,
+}: {
+  evidence: readonly EvidenceReference[];
+  clausesById: Map<string, Clause>;
+  resolving: boolean;
+}) {
+  return (
+    <div className="scenario-source" data-testid="scenario-source" style={{ marginBottom: 16 }}>
+      <Text type="secondary" className="section-eyebrow">
+        <ReadOutlined /> The rule in the document&apos;s own words — quoted exactly
+      </Text>
+      {evidence.length === 0 ? (
+        <Paragraph
+          type="secondary"
+          data-testid="scenario-source-none"
+          style={{ marginTop: 8, marginBottom: 0 }}
+        >
+          No source citation on this rule — it was authored by hand or drafted without a linked
+          source document, so there is no original wording to quote.
+        </Paragraph>
+      ) : (
+        <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 8 }}>
+          {evidence.map((ev, idx) => {
+            const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
+            if (clause) {
+              const locator = [
+                clause.section,
+                clause.page !== null ? `p.${clause.page}` : null,
+                clause.clause_ref ? `clause ${clause.clause_ref}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <div key={idx} className="scenario-source-block">
+                  <MarkedQuotation
+                    text={clause.text}
+                    marks={[]}
+                    className="policy-card__passage"
+                    testId="scenario-source-quotation"
+                  />
+                  {locator ? (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      <FileTextOutlined /> {locator}
+                    </Text>
+                  ) : null}
+                </div>
+              );
+            }
+            if (ev.clause_id && resolving) {
+              return (
+                <Text key={idx} type="secondary" data-testid="scenario-source-loading">
+                  Loading the source text…
+                </Text>
+              );
+            }
+            // A citation whose text was never stored is a different answer from a
+            // rule that says nothing (constraint 5): the reference exists here,
+            // its wording does not.
+            return (
+              <Text key={idx} type="secondary" data-testid="scenario-source-absent">
+                The source text for this passage was not stored with its rules.
+              </Text>
+            );
+          })}
+        </Space>
       )}
     </div>
   );
