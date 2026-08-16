@@ -20,6 +20,7 @@ import {
 import { colorForCategory, POLICY_CATEGORIES } from "../policyCategories";
 import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
 import { routeCell } from "../projectRegisterRow";
+import { recordScaleLabel, reviewBacklogBadge } from "../policyRecordFacts";
 import { groupProjectsByDocument, groupSubtitle } from "../projectRegisterGroups";
 import { qualityScopeLabel } from "../qualityTrend";
 import { ProjectWorkspace } from "./ProjectWorkspace";
@@ -189,6 +190,20 @@ export function ProjectsPage({
       acc.published += current?.active_rule_count ?? 0;
       acc.regression += current?.regression_test_count ?? 0;
       acc.pending += current?.review_pending ?? 0;
+      // The same queue in the unit it is decided in. A policy is what gets
+      // reviewed, approved and published; rules are its contents, and one
+      // policy commonly holds several -- so the two answer different questions
+      // and are joined rather than summed.
+      //
+      // Absent is not zero. A server that does not serve the policy figure yet
+      // leaves the key undefined, and adding 0 for it would silently report a
+      // portfolio holding hundreds of rules as holding no policies. One missing
+      // figure makes the whole total unknown, and the surface then says what it
+      // does have, in rules, and names that unit.
+      if (current && typeof current.review_pending_policies !== "number") {
+        acc.pendingPoliciesKnown = false;
+      }
+      acc.pendingPolicies += current?.review_pending_policies ?? 0;
       acc.highFindings += current?.latest_quality_high ?? 0;
       // Route counts, each summed from what the records carry. Neither is
       // derived from the other or from the total -- see `projectRegisterRow`.
@@ -197,8 +212,19 @@ export function ProjectsPage({
       acc.reading += current?.candidate_reading_count ?? 0;
       return acc;
     },
-    { published: 0, regression: 0, pending: 0, highFindings: 0, live: 0, direct: 0, reading: 0 },
+    {
+      published: 0,
+      regression: 0,
+      pending: 0,
+      pendingPolicies: 0,
+      pendingPoliciesKnown: true,
+      highFindings: 0,
+      live: 0,
+      direct: 0,
+      reading: 0,
+    },
   );
+  const pendingPolicies = totals.pendingPoliciesKnown ? totals.pendingPolicies : null;
   const totalRoutes = routeCell(totals.live, totals.direct, totals.reading);
 
   return (
@@ -249,7 +275,13 @@ export function ProjectsPage({
           </div>
           <div className={totals.pending > 0 ? "project-register-summary-attention" : undefined}>
             <dt>Awaiting review</dt>
-            <dd>{totals.pending}</dd>
+            {/* Policies lead because a policy is what a reviewer decides. The
+                rule count stays beside it: it is what a policy is made of, and
+                a reviewer sizing the job wants both. When the policy figure has
+                not been served the number shown is the rule count and the line
+                below says so, rather than badging a nought nobody measured. */}
+            <dd>{pendingPolicies ?? totals.pending}</dd>
+            <small>{recordScaleLabel(pendingPolicies, totals.pending)}</small>
           </div>
           <div className={totals.highFindings > 0 ? "project-register-summary-risk" : undefined}>
             <dt>High findings</dt>
@@ -360,7 +392,7 @@ export function ProjectsPage({
                 </span>
                 <span
                   className="project-register-insight"
-                  title="Policies whose test the source states as a comparison, so it can be evaluated directly. The rest are decided by reading."
+                  title="Policies whose test the source states as a comparison take the Deterministic route, where the engine computes the answer. The rest take the AI Ready route, where a judge reads the rule against the case."
                 >
                   <CheckCircleOutlined />
                   <span>
@@ -396,10 +428,17 @@ export function ProjectsPage({
                     <small>{s ? `${s.test_count} validation scenario${s.test_count === 1 ? "" : "s"}` : "Loading validation"}</small>
                   </span>
                 </span>
-                <span className="project-register-review" title="Current human review workload">
+                <span
+                  className="project-register-review"
+                  title={reviewBacklogBadge(s?.review_pending, s?.review_pending_policies).hint}
+                >
                   <span className={s && s.review_pending > 0 ? "is-attention" : undefined}>
                     <ClockCircleOutlined />
-                    <strong>{s?.review_pending ?? "—"} awaiting</strong>
+                    <strong>
+                      {s
+                        ? `${recordScaleLabel(s.review_pending_policies ?? null, s.review_pending)} awaiting`
+                        : "— awaiting"}
+                    </strong>
                   </span>
                   {health && (
                     <Tag color={health.color} icon={ps.is_review_overdue ? <WarningOutlined /> : undefined}>

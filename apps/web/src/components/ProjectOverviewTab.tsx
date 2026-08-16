@@ -15,6 +15,7 @@ import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
 import { routeCell } from "../projectRegisterRow";
+import { policyUnitCount, recordScaleLabel } from "../policyRecordFacts";
 
 const { Text } = Typography;
 
@@ -24,9 +25,15 @@ interface Stats {
   versionCount: number;
   pendingCandidateCount: number;
   approvedCandidateCount: number;
+  /* The same two queues counted in the unit they are decided in. A policy is
+   * what a reviewer approves and publishes; the candidates are its contents,
+   * and one policy commonly holds several. Both are counted here, from the
+   * records themselves, so neither number has to be inferred from the other. */
+  pendingPolicyCount: number;
+  approvedPolicyCount: number;
   /* Both routes are counted from what each rule actually carries. Neither is
    * derived by subtracting the other from the total: a rule recording no mode
-   * belongs to neither, and folding it into "decided by reading" would assert a
+   * belongs to neither, and folding it into a route would assert a
    * routing decision the data does not contain. See `projectRegisterRow`. */
   directRouteCount: number;
   readingRouteCount: number;
@@ -69,14 +76,18 @@ export function ProjectOverviewTab({
           ? await api.getVersionRules(policySet.key, activeVersion.id)
           : [];
         if (cancelled) return;
+        const pendingCandidates = candidates.filter((candidate) =>
+          ["candidate", "changes_requested"].includes(candidate.review_status),
+        );
+        const approvedCandidates = candidates.filter((candidate) => candidate.review_status === "approved");
         setStats({
           documentCount: documents.length,
           activeVersion,
           versionCount: versions.length,
-          pendingCandidateCount: candidates.filter((candidate) =>
-            ["candidate", "changes_requested"].includes(candidate.review_status),
-          ).length,
-          approvedCandidateCount: candidates.filter((candidate) => candidate.review_status === "approved").length,
+          pendingCandidateCount: pendingCandidates.length,
+          approvedCandidateCount: approvedCandidates.length,
+          pendingPolicyCount: policyUnitCount(pendingCandidates),
+          approvedPolicyCount: policyUnitCount(approvedCandidates),
           directRouteCount: activeRules.filter((rule) => rule.evaluation_mode === "deterministic").length,
           readingRouteCount: activeRules.filter((rule) => rule.evaluation_mode === "ai_ready").length,
           liveRuleCount: activeRules.length,
@@ -129,13 +140,19 @@ export function ProjectOverviewTab({
       key: "documents",
       label: "Documents uploaded",
       value: stats?.documentCount,
+      detail: undefined as string | undefined,
       icon: <FileTextOutlined />,
       tone: "info",
     },
     {
       key: "review",
       label: pending > 0 ? "Awaiting review" : "Nothing pending review",
-      value: pending,
+      // Policies lead, because a policy is what a reviewer decides. The rule
+      // count stays underneath it: it is what a policy is made of, and a
+      // reviewer sizing the job wants both. Joined, never summed -- they count
+      // different things.
+      value: stats?.pendingPolicyCount,
+      detail: stats ? recordScaleLabel(stats.pendingPolicyCount, pending) : undefined,
       icon: <ClockCircleOutlined />,
       tone: pending > 0 ? "attention" : "neutral",
       attention: pending > 0,
@@ -143,7 +160,10 @@ export function ProjectOverviewTab({
     {
       key: "review",
       label: "Approved, not yet live",
-      value: stats?.approvedCandidateCount ?? 0,
+      value: stats?.approvedPolicyCount,
+      detail: stats
+        ? recordScaleLabel(stats.approvedPolicyCount, stats.approvedCandidateCount)
+        : undefined,
       icon: <SafetyCertificateOutlined />,
       tone: stats?.approvedCandidateCount ? "brand" : "neutral",
       attention: (stats?.approvedCandidateCount ?? 0) > 0,
@@ -152,6 +172,7 @@ export function ProjectOverviewTab({
       key: "policies",
       label: "Rules published (active)",
       value: stats?.activeVersion?.rule_count ?? 0,
+      detail: undefined as string | undefined,
       icon: <CheckCircleOutlined />,
       tone: "success",
     },
@@ -179,6 +200,7 @@ export function ProjectOverviewTab({
               <div>
                 <div className="project-flow-value">{step.value ?? "…"}</div>
                 <div className="project-flow-label">{step.label}</div>
+                {step.detail && <div className="project-flow-detail">{step.detail}</div>}
               </div>
             </div>
             {idx < steps.length - 1 && (
@@ -253,10 +275,10 @@ export function ProjectOverviewTab({
                         {/* Counted from what the rules record, not derived by
                             subtracting the other route from the total. The
                             subtraction filed every rule with no recorded mode
-                            under "decided by reading" and stated a routing
+                            under one route name and stated a routing
                             decision the data does not carry. */}
-                        {stats.readingRouteCount} polic
-                        {stats.readingRouteCount === 1 ? "y is" : "ies are"} decided by reading
+                        {stats.readingRouteCount} rule
+                        {stats.readingRouteCount === 1 ? " is" : "s are"} AI Ready
                       </strong>
                       <small>
                         The source states their test in words rather than as a comparison, so a
@@ -269,8 +291,8 @@ export function ProjectOverviewTab({
                     <span>
                       <strong>
                         {sourceCoverage === 100
-                          ? "Every live policy is linked to source evidence"
-                          : `${liveRuleCount - stats.sourceGroundedRuleCount} policies lack source evidence`}
+                          ? "Every live rule is linked to source evidence"
+                          : `${liveRuleCount - stats.sourceGroundedRuleCount} rules lack source evidence`}
                       </strong>
                       <small>Source links support audit, review, and challenge of the published decision.</small>
                     </span>

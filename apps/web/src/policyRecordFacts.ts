@@ -161,6 +161,63 @@ export function recordScaleLabel(policies: number | null, rules: number): string
 }
 
 /**
+ * How many policies a set of candidate records amounts to.
+ *
+ * A policy is the unit of review, approval, publication and export; the records
+ * are its contents, and one policy commonly holds several. Counting the records
+ * answers a different question from the one a reviewer sizing a queue is asking.
+ *
+ * Deliberately the same arithmetic the server does for `review_pending_policies`
+ * — distinct provisions, plus one apiece for the records attached to no
+ * provision. The second term is not double-counting: nothing groups a record
+ * with no provision, so it is its own unit, and the two terms partition the
+ * input on whether `provision_id` is set. Dropping it would let a queue that
+ * plainly holds work report no policies at all.
+ *
+ * Matching the server's arithmetic exactly is the point. A client that counted
+ * differently would put two numbers for one quantity on the same screen, and a
+ * reader has no way to tell which is the measurement.
+ */
+export function policyUnitCount(
+  records: readonly { readonly provision_id?: string | null }[],
+): number {
+  const provisions = new Set<string>();
+  let ungrouped = 0;
+  for (const record of records) {
+    const provision = record.provision_id;
+    if (provision) provisions.add(provision);
+    else ungrouped += 1;
+  }
+  return provisions.size + ungrouped;
+}
+
+/**
+ * How far through something is, said in both units.
+ *
+ * The same rule as `recordScaleLabel` — policies lead, rules stay, neither is
+ * dropped and the two are joined rather than summed — in the shape a progress
+ * figure needs. "13 of 279" cannot be built out of a scale label, because a
+ * scale states one quantity and this states a part of a whole; they share the
+ * unit-naming and nothing else, which is why this is a sibling rather than a
+ * caller.
+ *
+ * A null policy figure is absent, not zero. It falls back to stating the rule
+ * progress *and naming it as rules*, so the number a reader is given always
+ * carries the unit it was measured in.
+ */
+export function recordProgressLabel(
+  donePolicies: number | null,
+  allPolicies: number | null,
+  doneRules: number,
+  allRules: number,
+): string {
+  const rulePart = `${doneRules} of ${allRules} ${allRules === 1 ? "rule" : "rules"}`;
+  if (donePolicies === null || allPolicies === null) return rulePart;
+  const policyNoun = allPolicies === 1 ? "policy" : "policies";
+  return `${donePolicies} of ${allPolicies} ${policyNoun} · ${rulePart}`;
+}
+
+/**
  * What a badge should show for outstanding review, and what to say it is.
  *
  * A badge is a bare number in a pill: it has no room for a unit, so the number
@@ -208,7 +265,8 @@ export function reviewBacklogBadge(
 }
 
 /** One route through the policy's rules, with how many take it. */
-export interface PolicyRouteTally {  route: string;
+export interface PolicyRouteTally {
+  route: string;
   label: string;
   count: number;
 }
@@ -217,7 +275,7 @@ export interface PolicyRouteTally {  route: string;
  * Which routes this policy's rules take to a decision.
  *
  * Routes with no rules are absent rather than listed as zero, for the reason
- * `projectRegisterRow` already established: "0 evaluated directly" reads as a
+ * `projectRegisterRow` already established: a route name over a nought reads as a
  * shortfall against a target, and there is no target. A policy every rule of
  * which is read yields exactly one entry, which is the truth about it.
  *
@@ -307,8 +365,8 @@ export interface PolicyRequiredFactEntry {
  * The facts the policy's rules need supplied to reach a decision.
  *
  * Gathered only from the rules that state a test as a comparison, because those
- * are the rules for which a named fact is what a decision waits on. A rule the
- * source states in words is decided by reading those words, so it names no
+ * are the rules for which a named fact is what a decision waits on. An AI Ready
+ * rule is decided from the words of its source, so it names no
  * facts — and listing it here with an empty entry would put it in a column
  * headed by something it does not need, which reads as an omission on the
  * rule's part rather than a property of its route.

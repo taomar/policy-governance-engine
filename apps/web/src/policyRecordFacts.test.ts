@@ -31,6 +31,8 @@ import {
   policyScope,
   policyScopeDisagreements,
   policyTakesOneRoute,
+  policyUnitCount,
+  recordProgressLabel,
   recordScaleLabel,
   reviewBacklogBadge,
 } from "./policyRecordFacts";
@@ -121,7 +123,7 @@ describe("how a policy's rules reach a decision", () => {
   it("lists only the routes its rules take", () => {
     const allRead = [rule("a"), rule("b")];
     expect(policyRoutes(allRead)).toEqual([
-      { route: "ai_ready", label: "Decided by reading", count: 2 },
+      { route: "ai_ready", label: "AI Ready", count: 2 },
     ]);
     expect(policyTakesOneRoute(allRead)).toBe(true);
   });
@@ -148,7 +150,7 @@ describe("how a policy's rules reach a decision", () => {
 
 describe("what deciding a policy needs to be told", () => {
   it("gathers facts only from the rules that name them, and represents the others not at all", () => {
-    // The rule decided by reading is absent from this list rather than present
+    // The AI Ready rule is absent from this list rather than present
     // with nothing in it: an empty row under "required facts" reads as a rule
     // that failed to supply them, and this one was never asked to.
     const rules = [
@@ -433,5 +435,111 @@ describe("reviewBacklogBadge", () => {
       const badge = reviewBacklogBadge(rules, policies);
       expect(badge.hint.startsWith(String(badge.value))).toBe(true);
     }
+  });
+});
+
+/**
+ * THE FAILURE THIS EXISTS TO PREVENT
+ *
+ * A queue that plainly holds work reporting no policies at all. The count of
+ * policies is not the count of records, and the two ways of getting it wrong
+ * pull in opposite directions:
+ *
+ *   1. Counting distinct provisions only. Every record attached to no provision
+ *      then vanishes, and a queue of four hundred ungrouped records reports
+ *      zero policies -- a nought over a queue that plainly holds work.
+ *
+ *   2. Counting the records. That is the rule count wearing the policy count's
+ *      name, and it overstates the job: four hundred rules can be seventy
+ *      decisions, and the number alone does not say which.
+ *
+ * Asserted below against inputs built to separate the two, because a fixture
+ * where every record carries its own provision cannot tell them apart.
+ */
+describe("counting a queue in policies", () => {
+  const record = (provision: string | null | undefined) => ({ provision_id: provision });
+
+  it("counts one policy per provision however many records share it", () => {
+    expect(
+      policyUnitCount([record("p1"), record("p1"), record("p1"), record("p2")]),
+    ).toBe(2);
+  });
+
+  it("does not lose a record that belongs to no provision", () => {
+    // The nought this prevents: three records, no provisions, and a distinct
+    // count of provisions is zero. Nothing groups an ungrouped record, so it
+    // is its own unit of review.
+    expect(policyUnitCount([record(null), record(undefined), record("")])).toBe(3);
+  });
+
+  it("partitions rather than double-counting", () => {
+    const mixed = [record("p1"), record("p1"), record(null), record("p2"), record(null)];
+    expect(policyUnitCount(mixed)).toBe(4);
+    expect(policyUnitCount(mixed)).toBeLessThan(mixed.length);
+  });
+
+  it("is zero only when there is genuinely nothing", () => {
+    expect(policyUnitCount([])).toBe(0);
+  });
+
+  it("never reports fewer policies than an empty queue over a queue holding records", () => {
+    for (const records of [
+      [record("p1")],
+      [record(null)],
+      [record("p1"), record(null)],
+      [record("p1"), record("p1")],
+    ]) {
+      expect(policyUnitCount(records)).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * THE FAILURE THIS EXISTS TO PREVENT
+ *
+ * "13 of 279" over a queue whose unit of review is the policy. The reader is
+ * given a fraction and no unit, and 13/279 rules is a different statement from
+ * 13/70 policies -- one of them says the job is nearly untouched and the other
+ * that a fifth of it is done.
+ *
+ * The absent case matters as much as the present one: a surface that has not
+ * been served the policy figure must still name what its number counts, rather
+ * than falling back to a bare fraction or inventing a nought.
+ */
+describe("stating progress in the unit the work is done in", () => {
+  it("leads with policies and keeps the rules", () => {
+    expect(recordProgressLabel(4, 32, 13, 279)).toBe("4 of 32 policies · 13 of 279 rules");
+  });
+
+  it("joins the two rather than summing them", () => {
+    const label = recordProgressLabel(4, 32, 13, 279);
+    expect(label).toContain("32");
+    expect(label).toContain("279");
+    expect(label).not.toContain("311");
+  });
+
+  it("names the unit even when the policy figure is absent", () => {
+    for (const label of [
+      recordProgressLabel(null, 32, 13, 279),
+      recordProgressLabel(4, null, 13, 279),
+      recordProgressLabel(null, null, 13, 279),
+    ]) {
+      expect(label).toBe("13 of 279 rules");
+      expect(label).toMatch(/rules?$/);
+    }
+  });
+
+  it("does not report a policy figure it was not given", () => {
+    // Absent is not zero. "0 of 0 policies" beside 13 of 279 rules is a
+    // measurement nobody took.
+    expect(recordProgressLabel(null, null, 13, 279)).not.toContain("polic");
+  });
+
+  it("reads in the singular when there is one of a thing", () => {
+    expect(recordProgressLabel(1, 1, 1, 1)).toBe("1 of 1 policy · 1 of 1 rule");
+  });
+
+  it("survives a genuinely empty queue without claiming anything", () => {
+    expect(recordProgressLabel(0, 0, 0, 0)).toBe("0 of 0 policies · 0 of 0 rules");
   });
 });

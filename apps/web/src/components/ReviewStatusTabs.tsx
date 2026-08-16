@@ -8,6 +8,8 @@ import {
 } from "@ant-design/icons";
 import type { ReactNode } from "react";
 
+import { recordScaleLabel } from "../policyRecordFacts";
+
 /**
  * Sub-tabs for the review queue, keyed on review_status.
  *
@@ -79,13 +81,57 @@ interface ReviewStatusTabsProps {
   /** Per-status totals for the whole policy set (server-side, not the current page). */
   counts: Record<string, number>;
   total: number;
+  /**
+   * The same tabs measured in policies, when that can be said honestly.
+   *
+   * Null is absent, not zero. The caller passes null whenever it cannot vouch
+   * that the policy figures describe the same population as `counts` — a
+   * server-side facet total and a client-side grouping can be counts of
+   * different sets, and showing them as one quantity would put two numbers for
+   * one thing on the same strip. When it is null every tab falls back to its
+   * rule count *and says so*, which is the whole difference between "we have
+   * not measured this" and "this is nought".
+   */
+  policyCounts?: Record<string, number> | null;
+  /** Policies across every status, on the same terms as `policyCounts`. */
+  totalPolicies?: number | null;
 }
 
-export function ReviewStatusTabs({ value, onChange, counts, total }: ReviewStatusTabsProps) {
+export function ReviewStatusTabs({
+  value,
+  onChange,
+  counts,
+  total,
+  policyCounts = null,
+  totalPolicies = null,
+}: ReviewStatusTabsProps) {
   return (
     <div className="review-status-tabs" role="tablist" aria-label="Review status">
       {REVIEW_STATUS_TABS.map((tab) => {
-        const count = tab.value === "all" ? total : (counts[tab.value] ?? 0);
+        const rules = tab.value === "all" ? total : (counts[tab.value] ?? 0);
+        const policies =
+          tab.value === "all"
+            ? (totalPolicies ?? null)
+            : policyCounts
+              ? (policyCounts[tab.value] ?? 0)
+              : null;
+
+        // A pill has no room for a sentence, so the number it leads with always
+        // carries its unit beside it, and the count it is not leading with
+        // follows in smaller type rather than being dropped. Policies lead
+        // because a policy is what gets decided; rules stay because a reviewer
+        // sizing the job still wants to know how much text that is.
+        const lead = policies ?? rules;
+        const leadUnit =
+          policies === null
+            ? rules === 1
+              ? "rule"
+              : "rules"
+            : policies === 1
+              ? "policy"
+              : "policies";
+        const trailing =
+          policies === null ? null : `${rules} ${rules === 1 ? "rule" : "rules"}`;
         const active = value === tab.value;
         return (
           <button
@@ -93,11 +139,11 @@ export function ReviewStatusTabs({ value, onChange, counts, total }: ReviewStatu
             type="button"
             role="tab"
             aria-selected={active}
-            title={tab.help}
+            title={`${tab.help} — ${recordScaleLabel(policies, rules)}.`}
             className={
               "review-status-tab" +
               (active ? " review-status-tab-active" : "") +
-              (count === 0 ? " review-status-tab-empty" : "")
+              (lead === 0 ? " review-status-tab-empty" : "")
             }
             style={
               {
@@ -108,8 +154,10 @@ export function ReviewStatusTabs({ value, onChange, counts, total }: ReviewStatu
           >
             <span className="review-status-tab-icon">{tab.icon}</span>
             <span className="review-status-tab-body">
-              <span className="review-status-tab-count">{count}</span>
+              <span className="review-status-tab-count">{lead}</span>
+              <span className="review-status-tab-unit">{leadUnit}</span>
               <span className="review-status-tab-label">{tab.label}</span>
+              {trailing && <span className="review-status-tab-sub">{trailing}</span>}
             </span>
           </button>
         );

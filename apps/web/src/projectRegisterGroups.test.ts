@@ -261,22 +261,103 @@ describe("reviewWorkByDocument", () => {
 describe("reviewWorkReason", () => {
   it("states what is waiting and why it is first", () => {
     expect(
-      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, highFindings: 3 }),
-    ).toBe("12 awaiting a decision · 3 high-severity findings recorded");
+      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, pendingPolicies: 4, highFindings: 3 }),
+    ).toBe("4 policies · 12 rules awaiting a decision · 3 high-severity findings recorded");
   });
 
   it("says only what it knows when nothing was flagged", () => {
     expect(
-      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, highFindings: 0 }),
-    ).toBe("12 awaiting a decision");
+      reviewWorkReason({ documentHash: "x", label: "D", pending: 12, pendingPolicies: 4, highFindings: 0 }),
+    ).toBe("4 policies · 12 rules awaiting a decision");
+  });
+
+  it("leads with the unit the work is decided in", () => {
+    // A reviewer decides policies; the rules are what a policy is made of. The
+    // policy count therefore comes first, and the rule count stays beside it
+    // rather than being summed into it -- they count different things.
+    const said = reviewWorkReason({
+      documentHash: "x",
+      label: "D",
+      pending: 398,
+      pendingPolicies: 32,
+      highFindings: 0,
+    });
+    expect(said.indexOf("32 policies")).toBeLessThan(said.indexOf("398 rules"));
+    expect(said).not.toMatch(/\b430\b/);
+  });
+
+  it("names the unit it does have when the policy figure is absent", () => {
+    // Absent is not zero. A server that does not serve the policy figure yet
+    // must not be reported as a portfolio holding no policies, and the number
+    // that is shown must still say what it counts.
+    const said = reviewWorkReason({
+      documentHash: "x",
+      label: "D",
+      pending: 12,
+      pendingPolicies: null,
+      highFindings: 0,
+    });
+    expect(said).toBe("12 rules awaiting a decision");
+    expect(said).not.toMatch(/\b0 policies\b/);
+  });
+
+  it("never hands over a bare numeral for the reader to guess the unit of", () => {
+    for (const policies of [4, null]) {
+      for (const high of [0, 3]) {
+        const said = reviewWorkReason({
+          documentHash: "x",
+          label: "D",
+          pending: 12,
+          pendingPolicies: policies,
+          highFindings: high,
+        });
+        expect(said).toMatch(/\d+ rules? awaiting/);
+      }
+    }
   });
 
   it("never grades the routing of the work waiting", () => {
-    // A queue describes outstanding decisions. Records decided by reading are
-    // taking a route, not failing one, and the queue must not imply otherwise.
+    // A queue describes outstanding decisions. Records taking the AI Ready
+    // route are taking a route, not failing one, and the queue must not imply
+    // otherwise.
     const forbidden = /not executable|unusable|deficien|shortfall|failed to|incomplete|only \d+%/i;
     for (const high of [0, 5]) {
-      expect(reviewWorkReason({ documentHash: "x", label: "D", pending: 9, highFindings: high })).not.toMatch(forbidden);
+      expect(
+        reviewWorkReason({ documentHash: "x", label: "D", pending: 9, pendingPolicies: 3, highFindings: high }),
+      ).not.toMatch(forbidden);
     }
+  });
+});
+
+describe("reviewWorkByDocument policy figures", () => {
+  function project(over: Partial<ReviewWorkInput> & { key: string }): ReviewWorkInput {
+    return {
+      document_content_hash: null,
+      document_title: null,
+      run_count: 1,
+      review_pending: 0,
+      latest_quality_high: null,
+      ...over,
+    };
+  }
+
+  it("adds the policy figures of the projects it groups", () => {
+    const work = reviewWorkByDocument([
+      project({ key: "a", document_content_hash: "h", document_title: "Doc", review_pending: 100, review_pending_policies: 9 }),
+      project({ key: "b", document_content_hash: "h", document_title: "Doc long", review_pending: 20, review_pending_policies: 3 }),
+    ]);
+    expect(work[0].pending).toBe(120);
+    expect(work[0].pendingPolicies).toBe(12);
+  });
+
+  it("withholds a group total when one member cannot supply its figure", () => {
+    // A sum missing a term is not a smaller sum, it is not a sum. Reporting it
+    // as one would put a confident undercount on screen.
+    const work = reviewWorkByDocument([
+      project({ key: "a", document_content_hash: "h", document_title: "Doc", review_pending: 100, review_pending_policies: 9 }),
+      project({ key: "b", document_content_hash: "h", document_title: "Doc long", review_pending: 20 }),
+    ]);
+    expect(work[0].pending).toBe(120);
+    expect(work[0].pendingPolicies).toBeNull();
   });
 });

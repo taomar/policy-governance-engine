@@ -30,6 +30,8 @@
  * own name beneath the group, so nothing is hidden by the choice.
  */
 
+import { recordScaleLabel } from "./policyRecordFacts";
+
 export interface GroupableProject {
   key: string;
   document_content_hash: string | null;
@@ -150,11 +152,19 @@ export interface ReviewWorkItem {
   documentHash: string | null;
   label: string;
   pending: number;
+  /**
+   * How many policies that pending work amounts to, or null when the figure is
+   * absent. A group's total is only knowable when every project in it carries
+   * the figure -- one missing member makes the sum a guess, and a guess stated
+   * as a count is worse than no count at all.
+   */
+  pendingPolicies: number | null;
   highFindings: number;
 }
 
 export interface ReviewWorkInput extends GroupableProject {
   review_pending: number;
+  review_pending_policies?: number | null;
   latest_quality_high: number | null;
 }
 
@@ -166,6 +176,11 @@ export function reviewWorkByDocument(
       documentHash: group.documentHash,
       label: group.label,
       pending: group.projects.reduce((total, p) => total + (p.review_pending ?? 0), 0),
+      pendingPolicies: group.projects.every(
+        (p) => typeof p.review_pending_policies === "number",
+      )
+        ? group.projects.reduce((total, p) => total + (p.review_pending_policies as number), 0)
+        : null,
       highFindings: group.projects.reduce((total, p) => total + (p.latest_quality_high ?? 0), 0),
     }))
     // A document with nothing waiting is not part of the queue. It is not
@@ -175,9 +190,17 @@ export function reviewWorkByDocument(
     .sort((a, b) => b.highFindings - a.highFindings || b.pending - a.pending || a.label.localeCompare(b.label));
 }
 
-/** Why this document is where it is in the queue, in the reader's words. */
+/**
+ * Why this document is where it is in the queue, in the reader's words.
+ *
+ * The size of the work is stated in the unit the work is done in: a reviewer
+ * decides policies, so the policy count leads, and the rule count stays because
+ * a policy holds several and a reader sizing the job wants to know that. When
+ * the policy figure is absent the rule count still names itself as rules, so no
+ * bare numeral is ever handed over for the reader to guess the unit of.
+ */
 export function reviewWorkReason(item: ReviewWorkItem): string {
-  const waiting = `${item.pending} awaiting a decision`;
+  const waiting = `${recordScaleLabel(item.pendingPolicies, item.pending)} awaiting a decision`;
   if (item.highFindings > 0) {
     return `${waiting} · ${item.highFindings} high-severity finding${item.highFindings === 1 ? "" : "s"} recorded`;
   }

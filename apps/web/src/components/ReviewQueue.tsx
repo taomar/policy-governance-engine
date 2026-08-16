@@ -67,7 +67,11 @@ import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
-import { recordScaleLabel } from "../policyRecordFacts";
+import {
+  policyUnitCount,
+  recordProgressLabel,
+  recordScaleLabel,
+} from "../policyRecordFacts";
 import { type LoadState, describeApiFailure } from "../loadState";
 import { qualityScanSummary } from "../qualityScanSummary";
 import { familyGaps, familyMembers, idsCoveringFamilies, type FamilyGap } from "../ruleFamilyReview";
@@ -101,7 +105,6 @@ import { CandidateRow } from "./CandidateRow";
 import { FamilyCompositeHeader } from "./FamilyCompositeHeader";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import { PolicyDetailPanel } from "./PolicyDetailPanel";
-import { listProvisionHistory } from "../publishedPolicyCards";
 import type { PolicySightingView } from "./policyTabPanes";
 import type { RecordActionHandlers } from "./RecordActionsMenu";
 import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
@@ -396,7 +399,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         next.add(provisionKey);
         return next;
       });
-      listProvisionHistory(selectedKey, provisionKey)
+      api
+        .listProvisionHistory(selectedKey, provisionKey)
         .then((sightings) => {
           setPolicyHistory((current) => ({ ...current, [provisionKey]: sightings }));
         })
@@ -826,6 +830,33 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     for (const c of candidates) counts[c.review_status] = (counts[c.review_status] ?? 0) + 1;
     return counts;
   }, [candidates]);
+
+  /**
+   * The same tabs measured in policies.
+   *
+   * A policy is the unit of review, approval, publication and export; the rules
+   * are its contents, and one policy commonly holds several. A strip reading
+   * "266 Needs review" answers how much text is waiting when the reviewer asked
+   * how many decisions. Both numbers are kept and joined; neither is summed
+   * into the other.
+   *
+   * Counted here with the same arithmetic the server uses for
+   * `review_pending_policies`, so the queue and the workspace badge cannot show
+   * two different figures for one quantity.
+   */
+  const statusPolicyCounts = useMemo(() => {
+    const byStatus = new Map<string, CandidateRule[]>();
+    for (const c of candidates) {
+      const bucket = byStatus.get(c.review_status);
+      if (bucket) bucket.push(c);
+      else byStatus.set(c.review_status, [c]);
+    }
+    const counts: Record<string, number> = {};
+    for (const [status, rows] of byStatus) counts[status] = policyUnitCount(rows);
+    return counts;
+  }, [candidates]);
+
+  const totalPolicyUnits = useMemo(() => policyUnitCount(candidates), [candidates]);
 
   const selectedCandidate = useMemo(
     () => placeable.find((candidate) => candidate.id === selectedCandidateId) ?? null,
@@ -1293,6 +1324,38 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const reviewedCount =
     (statusCounts.approved ?? 0) + (statusCounts.rejected ?? 0) + (statusCounts.published ?? 0);
   const decisionProgress = totalCandidates ? Math.round((reviewedCount / totalCandidates) * 100) : 0;
+  /**
+   * The tab counts and the policy counts have to be counts of the same set.
+   *
+   * `facets.status_totals` is the server's tally over the whole set; the policy
+   * figures are assembled here from the rows this component holds. They agree
+   * in practice and they are not guaranteed to. Showing a policy count beside a
+   * rule count drawn from a different population would put two measurements of
+   * one thing on one strip, and a reader has no way to tell which is which — so
+   * when they disagree the policy figures are withheld and every tab falls back
+   * to its rule count, saying so.
+   */
+  const shownStatusCounts = facets?.status_totals ?? statusCounts;
+  const statusPopulationsAgree = useMemo(() => {
+    const keys = new Set([...Object.keys(shownStatusCounts), ...Object.keys(statusCounts)]);
+    for (const key of keys) {
+      if ((shownStatusCounts[key] ?? 0) !== (statusCounts[key] ?? 0)) return false;
+    }
+    return true;
+  }, [shownStatusCounts, statusCounts]);
+  /** Policies with nothing left to decide: no rule of theirs is still open. */
+  const decidedPolicyCount = useMemo(() => {
+    const open = new Set<string>();
+    const rows: CandidateRule[] = [];
+    for (const c of candidates) {
+      if (c.review_status === "candidate" || c.review_status === "changes_requested") {
+        if (c.provision_id) open.add(c.provision_id);
+        continue;
+      }
+      rows.push(c);
+    }
+    return policyUnitCount(rows.filter((c) => !c.provision_id || !open.has(c.provision_id)));
+  }, [candidates]);
   const selectedFindings = selectedCandidate
     ? (qualityFindings?.get(selectedCandidate.rule.rule_id) ?? [])
     : [];
@@ -1910,31 +1973,45 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             <ReviewStatusTabs
               value={statusFilter}
               onChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              counts={facets?.status_totals ?? statusCounts}
+              counts={shownStatusCounts}
               total={
                 facets
                   ? Object.values(facets.status_totals).reduce((a, b) => a + b, 0)
                   : totalCandidates
               }
+              policyCounts={statusPopulationsAgree ? statusPolicyCounts : null}
+              totalPolicies={statusPopulationsAgree ? totalPolicyUnits : null}
             />
 
             <dl className="review-operations-strip" aria-label="Review operations summary">
               <div>
                 <dt>Decision progress</dt>
                 <dd>{decisionProgress}%</dd>
-                <small>{reviewedCount} of {totalCandidates} decided</small>
+                {/* Said in both units: a policy is what gets decided, and the
+                    rules are what a policy is made of. The policy half is
+                    withheld rather than zeroed while the rows are not the ones
+                    the tabs are counting. */}
+                <small>
+                  {recordProgressLabel(
+                    statusPopulationsAgree ? decidedPolicyCount : null,
+                    statusPopulationsAgree ? totalPolicyUnits : null,
+                    reviewedCount,
+                    totalCandidates,
+                  )}{" "}
+                  decided
+                </small>
               </div>
               <div className={approvedUnpublished.length > 0 ? "review-operation-attention" : undefined}>
                 <dt>Ready to publish</dt>
                 <dd>{approvedUnpublished.length}</dd>
-                <small>Approved, not live</small>
+                <small>Approved rules, not live</small>
               </div>
               <div>
                 <dt>Related families</dt>
                 <dd>{bandedFamilyCount}</dd>
                 <small>
                   {unfamiliedCount > 0
-                    ? `${unfamiliedCount} of ${totalCandidates} stand alone`
+                    ? `${unfamiliedCount} of ${totalCandidates} rules stand alone`
                     : "In the current view"}
                 </small>
               </div>
@@ -2110,7 +2187,16 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               statusColor={(status) => STATUS_COLOR[status] ?? "default"}
                               statusLabel={(status) => STATUS_LABEL[status] ?? status}
                               findingsFor={(ruleId) => (qualityFindings?.get(ruleId) ?? []).length}
-                              onToggleSelect={() => togglePolicySelected(card)}
+                              onToggleSelect={
+                                // Withheld, rather than drawn and inert, where
+                                // there is nothing on this card a decision
+                                // could be taken about. Read from the card's
+                                // own records, which is the same source the
+                                // Approve and Reject handlers below read.
+                                card.reviewableIds.length > 0
+                                  ? () => togglePolicySelected(card)
+                                  : undefined
+                              }
                               onOpen={() => openPolicy(card)}
                               onApprove={
                                 card.reviewableIds.length > 0
@@ -2122,7 +2208,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                                   ? () => requestReview(card.reviewableIds, "reject")
                                   : undefined
                               }
-                              onSelectRule={selectCandidateRuleById}
+                              onSelectRule={(entry) => selectCandidateRuleById(entry.recordId)}
                               selectedRuleId={selectedCandidateId}
                               documentName={documentNameOf(card.policy.document_version_id)}
                             />
