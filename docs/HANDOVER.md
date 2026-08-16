@@ -664,3 +664,118 @@ the same commit and say the assertion was untouched. Never make a guard quiet by
 hiding its subject from it.
 
 
+### 9.8 A guard can promise more than it enforces
+
+Distinct from 9.7, and worse. In 9.7 the prose went stale — it was once true. Here
+a guard's docstring described a **broader invariant than its assertions had ever
+checked**. Nothing drifted; it was never true. The docstring read as protection,
+the test passed, and the invariant was unguarded from the day it was written.
+
+This is harder to catch than staleness because there is no change to notice. It is
+found only by reading the assertions against the docstring and asking whether the
+first would fail if the second were violated.
+
+**Defence:** mutation-test a guard when you first trust it. Break the thing the
+docstring claims is protected. If nothing goes red, the docstring is a wish. Closed
+in `e2a26ba`.
+
+
+### 9.9 An identifier can lie, and reading the code then confirms the lie
+
+The `/workspace-counts` endpoint returned `AS policies` for a query counting
+`approved_rules`. The web tab rendered it under the label **Policies**. It read
+**28** where the truth was **2 policies holding 28 rules** — a direct breach of
+constraint 2, on a badge the user looks at constantly.
+
+It survived a full counting audit and several sweeps. The reason is the interesting
+part: **the alias was the word the reader was checking for.** Anyone verifying
+"does this count policies?" read `AS policies` and moved on. The endpoint's own
+docstring was honest — *"`policies` counts rules in the active version"* — so the
+docstring and the alias contradicted each other and the UI trusted the alias.
+
+Two independent agents reached this defect separately, which is the only reason I
+treated it as confirmed rather than as one agent's opinion.
+
+**Defence:** when a count crosses a boundary, put the **unit** in the identifier
+(`policy_rules` / `active_policy_count`, never a bare `policies`) and assert the
+unit in a test. A name that merely restates the label it will be rendered under is
+not evidence about what it holds. The correct idiom already existed two hundred
+lines above in the same file — `review_pending_policies` — and was not copied.
+
+
+### 9.10 An invariant's premise can expire while the invariant still reads as true
+
+`nothingIsBehindAClick.test.tsx` forbids collapsing rules on a policy card, and
+argues it well: *"a collapsed rule is worse ... because the reviewer cannot know it
+is there."* That was correct when written.
+
+The card head **later** gained a census — "9 rules · 5 decide what happens · 4
+supply meanings · 4 passages". A collapsed card now states exactly what it holds,
+so the stated harm no longer follows. The test's assertions were still passing and
+still enforcing the original rule; only the reason had gone.
+
+The part that did **not** expire: in the review queue the card carries approve and
+reject, so a collapsed card would let a reviewer decide a record they had not read.
+Constraint 6 is about **judging**, not about browsing — that distinction is what
+separates the live half of the invariant from the expired half.
+
+**Defence:** a test that argues from a premise must **name the premise**, so a later
+reader can check whether it still holds instead of re-deriving it. When you retire
+such an invariant, rewrite its rationale in place — never delete the test, and never
+silently edit the assertion out from under prose that still argues for it.
+
+
+### 9.11 Two backlog items that looked like one gap — and the measurement that refuted it
+
+`stage-record` ("no writer") and `run-restart` ("progress does not survive a
+restart") sat as separate entries for two sessions. I formed the hypothesis that
+they were **one gap seen from two ends**: the durable mechanism that would close
+`run-restart` already existed and was simply unwired. It reads well, and it is
+wrong. Recorded here in full because the refutation is more useful than the guess.
+
+**Measured:**
+
+* `/api/extraction/{id}/stages` — durable, persisted, **no writer**, table holds 0
+  rows against 8 real `extraction_runs`.
+* `/api/ai/documents/{id}/extraction-progress` — wired at 20 call sites, truthful,
+  **in-memory**, dies on restart.
+
+**Why the hypothesis fails.** The two carry different information, on different
+pipelines, for different purposes. Progress serves ~25 live counters and a rewritten
+human sentence; stage rows hold phase bookkeeping — `sequence`, `attempt`,
+`input_hash`, `output_hash`. The counters are not in the rows, so stage rows cannot
+reconstruct the progress payload. Decisively: `/extraction-progress` reads an
+in-process dict and **never consults the stage table at all**, so writing to that
+table would not make progress survive anything.
+
+**A precision that matters.** "The mechanism exists and is unwired" was wrong.
+Migration, model, repository and reader endpoint all exist — but the **writer was
+never written**. Nothing anywhere calls `record`, not even the pipeline it was built
+for. It is not a wire waiting to be connected; it is a socket with no plug.
+
+**The weaker form is true and is the useful part.** Both symptoms trace to one root
+fact: the durable, multi-phase, resumable pipeline that stages were designed for
+never became the production path. The drafting loop won, and it only ever needed a
+cheap in-memory view. This is the **aggregate-limits pattern again** — a reader
+built for a product shape this product does not currently have.
+
+**`run-restart`'s design premise has *not* expired** — the contrast with 9.10 is the
+point. Its docstring rejects "a write on the hot path of every batch, to make a
+cosmetic readout durable", and conditions its one accepted limitation on multi-worker
+deployment becoming real. The deployment is still single-process. Nothing has
+changed, so the deliberate design still stands. Do not "fix" it.
+
+**A confirmed constraint 5 collapse, honestly scoped.** For a document with three
+runs, `/stages` returns `200 {"stages":[]}` — indistinguishable from a system that
+never records stages. Real, but the blast radius today is **zero human-facing
+surfaces**: the tab that read it was already removed, and
+`test_no_surface_reads_the_unwritten_stage_table.py` forbids re-adding a reader while
+no writer exists — a guard that stands down automatically once one appears. A latent
+trap, not an active mislead.
+
+**Defence:** when two backlog entries name a capability and its absence, check
+whether they are one item before costing either — but check by reading both
+implementations, not by noticing that the words fit together. A tidy architectural
+story is the most persuasive kind of unverified claim.
+
+
