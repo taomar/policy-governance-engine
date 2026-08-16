@@ -484,8 +484,10 @@ def check_malformed_is_reported(
             claim=assessment.reason,
             source_excerpt=source_text[:400],
             detail=(
-                "the canonical decomposition is damaged, so the logic derived from it "
-                "cannot be trusted and the sentence needs re-extracting"
+                "the canonical decomposition is damaged -- an empty subject, a "
+                "dangling reference, or a sentence mis-split so its wording "
+                "repeats -- so the record no longer carries what its source "
+                "says and needs re-extracting"
             ),
         )
     ]
