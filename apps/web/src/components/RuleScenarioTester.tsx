@@ -1,5 +1,6 @@
 /**
- * "Test scenario" tab for a single, already-published rule.
+ * "Put a case to this rule" — one rule, one case, whichever decider its route
+ * calls for, against whichever record the surface is reading.
  *
  * TWO ROUTES, TWO DECIDERS, ONE WAY IN
  *
@@ -16,6 +17,20 @@
  * a decider that refuses it — `ai_scenario_engine.py` short-circuits before it
  * reads any case, and the reader would see a refusal where they asked a
  * question.
+ *
+ * AND SEPARATELY, WHAT IT IS ASKED ABOUT
+ *
+ * Who decides is one axis; what they decide about is another. A reviewer is
+ * asking about the candidate in front of them, which is not versioned and may
+ * belong to a set that has never published anything. A policy admin is asking
+ * about what is in force, at a version they chose. `target` says which, it
+ * defaults to the draft, and the answer states it — because a verdict whose
+ * target the reader has to infer is not evidence.
+ *
+ * These were previously one axis, and the engine route was made to depend on a
+ * publication it never needed. A reviewer testing a draft was silently answered
+ * about the active published version instead, or — on a set with no published
+ * version — told the set had none, which read as the rule being untestable.
  *
  * WHY THE JUDGED ANSWER CARRIES NO NUMBER
  *
@@ -43,7 +58,14 @@ import {
   type ScenarioEvaluation,
 } from "../api";
 import { DETERMINISTIC_LABEL, engineDecidesRule } from "../ruleExecutability";
-import { COMPUTED_ANSWER, JUDGED_ANSWER } from "./policyTesting";
+import {
+  COMPUTED_ANSWER,
+  JUDGED_ANSWER,
+  DRAFT_TARGET,
+  RESULT_DOES_NOT_CARRY_OVER,
+  targetLabel,
+  type TestTarget,
+} from "./policyTesting";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -53,9 +75,20 @@ type ReasoningEffort = "low" | "medium" | "high";
 interface RuleScenarioTesterProps {
   policySetKey: string;
   rule: CanonicalRule;
+  /**
+   * What the case is put to. Defaults to the draft, because a surface that has
+   * not named a published version is reading the record as it stands — which is
+   * the honest answer for a reviewer and the only possible one for a set that
+   * has never published.
+   */
+  target?: TestTarget;
 }
 
-export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterProps) {
+export function RuleScenarioTester({
+  policySetKey,
+  rule,
+  target = DRAFT_TARGET,
+}: RuleScenarioTesterProps) {
   const [scenario, setScenario] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [result, setResult] = useState<RuleScenarioTestResult | null>(null);
@@ -83,7 +116,17 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
     try {
       if (engineDecides) {
         setJudged(null);
-        setResult(await aiApi.testRuleScenario(policySetKey, rule.rule_id, scenario.trim(), reasoningEffort));
+        setResult(
+          target.kind === "published_version" && policySetKey
+            ? await aiApi.testRuleScenario(
+                policySetKey,
+                rule.rule_id,
+                scenario.trim(),
+                reasoningEffort,
+                target.policyVersionId,
+              )
+            : await aiApi.computeScenario(rule, scenario.trim(), reasoningEffort),
+        );
       } else {
         setResult(null);
         setJudged(await aiApi.evaluateScenario(rule, scenario.trim(), reasoningEffort));
@@ -126,6 +169,10 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         }
         style={{ marginBottom: 16 }}
       />
+      <Paragraph type="secondary" data-testid="scenario-target">
+        The case is put to <Text strong>{targetLabel(target)}</Text>.
+        {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
+      </Paragraph>
       <Paragraph>
         <Text strong>Describe a case in plain English</Text>
       </Paragraph>

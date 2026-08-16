@@ -673,6 +673,46 @@ async def evaluate_scenario(body: EvaluateScenarioRequest) -> dict:
 class RuleScenarioTestRequest(BaseModel):
     scenario: str
     reasoning_effort: str = "medium"
+    # Which published version to compute against. Omitted means the active one,
+    # which is the only behaviour this endpoint used to have. An administrator
+    # asking whether a superseded version still behaves the way the current one
+    # does is asking about a specific version, and a test that silently retargets
+    # the active one answers a different question while looking like a success.
+    policy_version_id: str | None = None
+
+
+class ComputeScenarioRequest(BaseModel):
+    rule: dict
+    scenario: str
+    reasoning_effort: str = "medium"
+
+
+@router.post("/rules/compute-scenario")
+async def compute_scenario(body: ComputeScenarioRequest) -> dict:
+    """The deterministic engine, run against a rule the caller hands over.
+
+    The computed counterpart to /rules/evaluate-scenario above, and deliberately
+    the same shape. A reviewer deciding whether to approve a draft is asking
+    about that draft: it belongs to no published version, and on a set that has
+    never been published there is no version to ask about at all. Routing them to
+    the version-scoped endpoint below answers a question about a different rule,
+    or raises.
+
+    The verdict comes from `evaluator.engine.evaluate_policy`, unmodified, so this
+    is not an advisory reading — it is the same engine with the same guarantees,
+    applied to one rule rather than to an assembled version. Nothing is persisted.
+    """
+    try:
+        return await ai_scenario_engine.compute_rule_scenario(
+            body.rule, scenario=body.scenario, reasoning_effort=body.reasoning_effort
+        )
+    except ValueError as exc:
+        # A rule payload this app cannot read is the caller's to fix. pydantic's
+        # ValidationError is a ValueError, so one clause covers both a malformed
+        # rule and a rejected reasoning effort.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/policy-sets/{key}/rules/{rule_id}/test-scenario")
@@ -682,9 +722,10 @@ async def test_rule_scenario(
     """The REAL, deterministic-engine-backed counterpart to
     /rules/evaluate-scenario: AI only translates the scenario into facts and
     explains the result — the actual verdict always comes from
-    evaluator.engine.evaluate_policy against this rule's active approved
-    version. See ai_scenario_engine's module docstring for why this is a
-    distinct tool from the advisory-only one above."""
+    evaluator.engine.evaluate_policy against a published version of this rule.
+    Which version is `body.policy_version_id`, or the active one when that is
+    omitted. See ai_scenario_engine's module docstring for why the target is the
+    caller's to name, and /rules/compute-scenario for the unversioned draft."""
     try:
         return await ai_scenario_engine.run_rule_scenario(
             session,
@@ -692,6 +733,7 @@ async def test_rule_scenario(
             rule_id=rule_id,
             scenario=body.scenario,
             reasoning_effort=body.reasoning_effort,
+            policy_version_id=body.policy_version_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

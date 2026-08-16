@@ -31,6 +31,11 @@
  *    would look like the judged answer apologising for itself.
  *  - Neither route's copy ranks the other. The interface presents two ways of
  *    deciding, not a real one and a hedge.
+ *  - Which decider is asked and what is being asked about are separate
+ *    questions. The route picks the decider; the record picks the target. The
+ *    first fix here collapsed them, so a computed rule could only be tested
+ *    where a published version existed — which made the engine unreachable on
+ *    exactly the record a reviewer is holding.
  *
  * Nothing here is a phrase from any document, and no number in it measures one.
  */
@@ -39,6 +44,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { CanonicalRule } from "../api";
 
 const testRuleScenario = vi.fn();
+const computeScenario = vi.fn();
 const evaluateScenario = vi.fn();
 
 vi.mock("../api", async () => {
@@ -48,12 +54,14 @@ vi.mock("../api", async () => {
     aiApi: {
       ...actual.aiApi,
       testRuleScenario: (...args: unknown[]) => testRuleScenario(...args),
+      computeScenario: (...args: unknown[]) => computeScenario(...args),
       evaluateScenario: (...args: unknown[]) => evaluateScenario(...args),
     },
   };
 });
 
 const { RuleScenarioTester } = await import("./RuleScenarioTester");
+const { testTarget } = await import("./policyTesting");
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -97,6 +105,7 @@ const RANKING = [
 
 beforeEach(() => {
   testRuleScenario.mockReset();
+  computeScenario.mockReset();
   evaluateScenario.mockReset();
 });
 
@@ -149,6 +158,34 @@ function judgeAnswers(applies: "yes" | "no" | "uncertain") {
   };
 }
 
+/**
+ * What the engine returns, whichever of its two doors was used. The engine is
+ * reached without a version when the rule is being read as it stands, and at a
+ * named version when one has been chosen; the answer has the same shape either
+ * way, so one fixture serves both.
+ */
+function engineAnswers() {
+  return {
+    rule_id: "R-2",
+    rule_title: "A title",
+    scenario: "",
+    inferred_facts: {},
+    assumptions: [],
+    rule_result: null,
+    not_in_effect: false,
+    overall_evaluation_status: "SATISFIED",
+    missing_facts: [],
+    explanation: "An explanation.",
+    reasoning_effort: "low",
+    evaluation_timestamp: "2024-01-01T00:00:00Z",
+    result_hash: "abcdef012345",
+    machine_executable: true,
+    testability_reason: null,
+    dmn_mapping_statuses: [],
+    formulation_requirements: [],
+  };
+}
+
 function describeACase(text = "Someone did a thing on a day.") {
   const box = screen.getByRole("textbox");
   fireEvent.change(box, { target: { value: text } });
@@ -180,31 +217,46 @@ describe("a rule on either route can be put to a case", () => {
   });
 
   it("puts a rule stating a comparison to the engine, and never to the judge", async () => {
-    testRuleScenario.mockResolvedValue({
-      rule_id: "R-2",
-      rule_title: "A title",
-      scenario: "",
-      inferred_facts: {},
-      assumptions: [],
-      rule_result: null,
-      not_in_effect: false,
-      overall_evaluation_status: "SATISFIED",
-      missing_facts: [],
-      explanation: "An explanation.",
-      reasoning_effort: "low",
-      evaluation_timestamp: "2024-01-01T00:00:00Z",
-      result_hash: "abcdef012345",
-      machine_executable: true,
-      testability_reason: null,
-      dmn_mapping_statuses: [],
-      formulation_requirements: [],
-    });
+    computeScenario.mockResolvedValue(engineAnswers());
     render(<RuleScenarioTester policySetKey="a-key" rule={computedRule()} />);
 
     describeACase();
     submit();
 
+    await waitFor(() => expect(computeScenario).toHaveBeenCalledTimes(1));
+    expect(evaluateScenario).not.toHaveBeenCalled();
+    expect(testRuleScenario).not.toHaveBeenCalled();
+  });
+
+  it("reaches the engine without a version when no version has been named", async () => {
+    // The record being read is the rule as it stands. There is no version to
+    // ask about, and a door that demands one would refuse the whole record.
+    computeScenario.mockResolvedValue(engineAnswers());
+    render(<RuleScenarioTester policySetKey="a-key" rule={computedRule()} />);
+
+    describeACase();
+    submit();
+
+    await waitFor(() => expect(computeScenario).toHaveBeenCalledTimes(1));
+    expect(testRuleScenario).not.toHaveBeenCalled();
+  });
+
+  it("reaches the engine at the named version when one has been chosen", async () => {
+    testRuleScenario.mockResolvedValue(engineAnswers());
+    render(
+      <RuleScenarioTester
+        policySetKey="a-key"
+        rule={computedRule()}
+        target={testTarget("a-named-version", 4)}
+      />,
+    );
+
+    describeACase();
+    submit();
+
     await waitFor(() => expect(testRuleScenario).toHaveBeenCalledTimes(1));
+    expect(testRuleScenario.mock.calls[0]).toContain("a-named-version");
+    expect(computeScenario).not.toHaveBeenCalled();
     expect(evaluateScenario).not.toHaveBeenCalled();
   });
 
@@ -287,24 +339,9 @@ describe("a read verdict is an answer, with three of them", () => {
     const judged = (await screen.findByTestId("scenario-decided-by")).textContent ?? "";
     view.unmount();
 
-    testRuleScenario.mockResolvedValue({
-      rule_id: "R-2",
-      rule_title: "A title",
-      scenario: "",
-      inferred_facts: {},
-      assumptions: [],
+    computeScenario.mockResolvedValue({
+      ...engineAnswers(),
       rule_result: { status: "SATISFIED", effect_action: null, effect_type: null },
-      not_in_effect: false,
-      overall_evaluation_status: "SATISFIED",
-      missing_facts: [],
-      explanation: "An explanation.",
-      reasoning_effort: "low",
-      evaluation_timestamp: "2024-01-01T00:00:00Z",
-      result_hash: "abcdef012345",
-      machine_executable: true,
-      testability_reason: null,
-      dmn_mapping_statuses: [],
-      formulation_requirements: [],
     });
     render(<RuleScenarioTester policySetKey="a-key" rule={computedRule()} />);
     describeACase();

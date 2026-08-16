@@ -11,23 +11,38 @@
  * before anything is published there is no request to make — not a request that
  * gets turned down.
  *
- * The way out was already in the schemas. The judge is handed the rule itself
- * and needs no version, which is the whole reason the route exists: a rule
- * stated in words can be decided from the moment it is drafted. So a record
- * with nothing published is not an untestable record. It is a record where one
- * of two instruments has nothing to compute against yet.
+ * The first fix drew that control only where it opens, and left computed rules
+ * "waiting on publication". That was still wrong, and wrong in a way worth
+ * recording, because it looked correct: it collapsed two independent facts into
+ * one. WHO DECIDES a rule comes from the rule's own route. WHAT IS DECIDED
+ * ABOUT comes from the version the record is read at. The engine does not need
+ * a published version to compute a comparison — it needs a rule — and
+ * `compute-scenario` takes exactly that. Only the batch endpoint genuinely
+ * needs a version, because only it builds its rule list out of one.
+ *
+ * So a record with nothing published is not a record with untestable rules. All
+ * four combinations answer, and the two axes are pinned separately below.
  *
  * WHAT THESE PIN, AND WHY EACH WOULD OTHERWISE COME BACK
  *
  *  - A version-scoped call is never reachable without a version. Not guarded by
  *    a disabled button or an error handler: the verb is absent, so no later
  *    edit can wire a control to it by accident.
- *  - A rule stated in words can be put to a case whether or not anything has
- *    been published. This is the route most policy text arrives on, so a
- *    surface that waits for publication before offering any test offers almost
- *    nothing.
- *  - A rule waiting on publication is described as waiting, never as failing,
- *    untestable, or lesser. The instrument is not ready; the rule is fine.
+ *  - Every rule can be put to a case, published or not, on either route. This
+ *    is the route most policy text arrives on, so a surface that waits for
+ *    publication before offering any test offers almost nothing.
+ *  - A result says what it ran against. A reviewer's answer is about the draft
+ *    and a policy admin's is about a named version; the same rule and the same
+ *    case can honestly return two different answers, and a verdict whose target
+ *    the reader has to infer from the page they are on is not evidence. The
+ *    same failure has already happened once here, where a published question
+ *    silently resolved against draft rows and the answer looked grounded.
+ *  - A draft answer never reads as a published one. A candidate that passed is
+ *    `untested` after publication, not `passing`; carrying it over would be a
+ *    false assurance that is green.
+ *  - The default target is the draft. A surface that names no version is
+ *    reading the record as it stands, which is the honest answer for a reviewer
+ *    and the only possible one for a set that has never published.
  *  - A policy can be put to a case as a whole, and its rules' answers are not
  *    totalled. The engine computes whether a case satisfies a rule; the judge
  *    reads whether a rule applies to a case. Those are different questions, and
@@ -46,6 +61,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { AssembledPolicy, CanonicalRule } from "../api";
 
 const testRuleScenario = vi.fn();
+const computeScenario = vi.fn();
 const evaluateScenario = vi.fn();
 const generateBatch = vi.fn();
 
@@ -56,6 +72,7 @@ vi.mock("../api", async () => {
     aiApi: {
       ...actual.aiApi,
       testRuleScenario: (...args: unknown[]) => testRuleScenario(...args),
+      computeScenario: (...args: unknown[]) => computeScenario(...args),
       evaluateScenario: (...args: unknown[]) => evaluateScenario(...args),
     },
     policyTestApi: {
@@ -67,7 +84,9 @@ vi.mock("../api", async () => {
 
 const { PolicyTestsPane } = await import("./policyTabPanes");
 const { PolicyCaseRunner } = await import("./PolicyCaseRunner");
-const { putCaseToRule, testingDoor, usePolicyTesting } = await import("./policyTesting");
+const { RuleScenarioTester } = await import("./RuleScenarioTester");
+const { putCaseToRule, ruleDecider, testTarget, targetLabel, DRAFT_TARGET, usePolicyTesting } =
+  await import("./policyTesting");
 type PolicyRecordView = import("./policyTabPanes").PolicyRecordView;
 type PolicyTestingVerbs = import("./policyTabPanes").PolicyTestingVerbs;
 
@@ -95,9 +114,17 @@ beforeAll(() => {
 beforeEach(() => {
   cleanup();
   testRuleScenario.mockReset();
+  computeScenario.mockReset();
   evaluateScenario.mockReset();
   generateBatch.mockReset();
 });
+
+/**
+ * A version id and number that no document supplies and no count measures. The
+ * number exists only so the target can be named in a sentence rather than
+ * printed as a uuid.
+ */
+const A_VERSION = testTarget("a-published-version", 3);
 
 /**
  * `evaluation_mode` and `machine_executable` are both explicit, because which
@@ -142,7 +169,7 @@ function verbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs 
   return {
     generate: vi.fn().mockResolvedValue(undefined),
     run: vi.fn().mockResolvedValue(undefined),
-    publishedVersionId: "a-published-version",
+    target: A_VERSION,
     busy: new Set<string>(),
     working: false,
     error: null,
@@ -153,7 +180,7 @@ function verbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs 
 
 /** What an unpublished record's verbs look like, produced by the hook's own rule. */
 function unpublishedVerbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs {
-  return verbs({ generate: null, publishedVersionId: null, ...overrides });
+  return verbs({ generate: null, target: DRAFT_TARGET, ...overrides });
 }
 
 /**
@@ -175,10 +202,26 @@ const RANKING = [
   /weaker/i,
   /best guess/i,
   /only a/i,
+  // The route this fix deleted. A rule is never waiting on a publication to be
+  // checked; a batch of pre-written scenarios is, and that is a different thing.
+  /await\w*\s+publication/i,
+  /once (it is |this is )?published/i,
+  /not yet published.{0,40}(test|check)/i,
 ];
 
 /** A number presented as how sure a decider is. */
 const CONFIDENCE_NUMBER = [/\bconfidence\b[^.]*\d/i, /\d+\s*%/, /\b0\.\d+\b/];
+
+/**
+ * Wordings that would let a draft answer be read as a fact about what is in
+ * force. The dangerous direction: a reviewer's green result surviving into
+ * publication as an assurance nobody gave.
+ */
+const DRAFT_READ_AS_PUBLISHED = [
+  /this (is|shows) (what is )?in force/i,
+  /(applies|holds) (to|for) the published/i,
+  /remains? (true|valid) (once|after) publish/i,
+];
 
 describe("a control is drawn only where it can act", () => {
   it("offers no scenario-writing at all when nothing has been published", () => {
@@ -220,7 +263,7 @@ describe("a control is drawn only where it can act", () => {
     expect(screen.getByTestId("policy-put-case")).toBeTruthy();
   });
 
-  it("says a computed rule is waiting on publication, not that it has failed", () => {
+  it("offers a computed rule a case too, with nothing published", () => {
     render(
       <PolicyTestsPane
         record={record([rule("a", "A computed rule", "deterministic")])}
@@ -229,23 +272,58 @@ describe("a control is drawn only where it can act", () => {
       />,
     );
 
-    expect(screen.getByTestId("awaits-publication-a")).toBeTruthy();
+    // The engine computes a comparison from the rule it is handed. Nothing
+    // about that waits on a publication, and a row with no verb at all was the
+    // defect this replaced.
+    expect(screen.getByTestId("put-case-a")).toBeTruthy();
     const text = document.body.textContent ?? "";
     for (const banned of RANKING) expect(text).not.toMatch(banned);
   });
 
-  it("never lets a version-scoped call be made without a version", async () => {
+  it("leaves no rule of any route without a live verb", () => {
+    render(
+      <PolicyTestsPane
+        record={record([
+          rule("a", "A rule stated in words", "ai_ready"),
+          rule("b", "A computed rule", "deterministic"),
+        ])}
+        tests={[]}
+        testing={unpublishedVerbs()}
+      />,
+    );
+
+    for (const id of ["a", "b"]) {
+      const acted =
+        screen.queryByTestId(`put-case-${id}`) ??
+        screen.queryByTestId(`generate-rule-test-${id}`) ??
+        screen.queryByTestId(`run-rule-tests-${id}`);
+      expect(acted).toBeTruthy();
+    }
+  });
+
+  it("routes a computed rule to the engine without a version, never through the set", async () => {
+    computeScenario.mockResolvedValue({
+      rule_id: "a",
+      rule_result: { status: "SATISFIED" },
+      inferred_facts: {},
+      assumptions: [],
+      missing_facts: [],
+      explanation: "An account of why",
+      reasoning_effort: "low",
+    });
+
     const answer = await putCaseToRule(rule("a", "A computed rule", "deterministic"), {
       scenario: "A described situation",
       reasoningEffort: "low",
       policySetKey: "a-key",
-      publishedVersionId: null,
+      target: DRAFT_TARGET,
     });
 
     expect(testRuleScenario).not.toHaveBeenCalled();
-    expect(answer.decidedBy).toBe("nobody");
-    expect(answer.unanswered).toBeTruthy();
-    for (const banned of RANKING) expect(answer.unanswered ?? "").not.toMatch(banned);
+    expect(computeScenario).toHaveBeenCalledTimes(1);
+    expect(answer.decidedBy).toBe("engine");
+    expect(answer.unanswered).toBeNull();
+    expect(answer.testedAgainst.kind).toBe("draft");
   });
 
   it("gives the hook no scenario-writing verb at all without a version", () => {
@@ -264,11 +342,107 @@ describe("a control is drawn only where it can act", () => {
 
     render(<Probe versionId={null} />);
     expect(seen[0].generate).toBeNull();
-    expect(seen[0].publishedVersionId).toBeNull();
+    expect(seen[0].target.kind).toBe("draft");
 
     cleanup();
     render(<Probe versionId="a-published-version" />);
     expect(seen[seen.length - 1].generate).not.toBeNull();
+    expect(seen[seen.length - 1].target.kind).toBe("published_version");
+  });
+});
+
+describe("a result says what it ran against", () => {
+  it("names the draft, and says the answer does not carry into publication", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "A rule stated in words", "ai_ready")])}
+        tests={[]}
+        testing={unpublishedVerbs()}
+      />,
+    );
+
+    const stated = screen.getByTestId("policy-tests-target").textContent ?? "";
+    expect(stated).toMatch(/draft/i);
+    expect(stated).toMatch(/does not carry it over/i);
+    for (const banned of DRAFT_READ_AS_PUBLISHED) expect(stated).not.toMatch(banned);
+  });
+
+  it("names the version by its number rather than printing its id", () => {
+    render(
+      <PolicyTestsPane
+        record={record([rule("a", "A rule stated in words", "ai_ready")])}
+        tests={[]}
+        testing={verbs()}
+      />,
+    );
+
+    const stated = screen.getByTestId("policy-tests-target").textContent ?? "";
+    expect(stated).toMatch(targetLabel(A_VERSION));
+    expect(stated).not.toMatch(/a-published-version/);
+    // A published answer is about what is in force, so the draft caveat is not
+    // merely unnecessary here — it would be false.
+    expect(stated).not.toMatch(/does not carry it over/i);
+  });
+
+  it("carries the target on every answer, not only in the copy above it", async () => {
+    evaluateScenario.mockResolvedValue({
+      applies: "yes",
+      reasoning: "An account of why",
+      predicted_outcome: "",
+      missing_facts: [],
+      reasoning_effort: "low",
+    });
+
+    const answer = await putCaseToRule(rule("a", "A rule stated in words", "ai_ready"), {
+      scenario: "A described situation",
+      reasoningEffort: "low",
+      policySetKey: "a-key",
+      target: A_VERSION,
+    });
+
+    expect(answer.testedAgainst).toEqual(A_VERSION);
+  });
+
+  it("defaults a rule tester with no named version to the draft", async () => {
+    evaluateScenario.mockResolvedValue({
+      applies: "yes",
+      reasoning: "An account of why",
+      predicted_outcome: "",
+      missing_facts: [],
+      reasoning_effort: "low",
+    });
+
+    // No `target`: this is how the review surface mounts it, and the review
+    // surface is asking about the candidate in front of the reviewer.
+    render(<RuleScenarioTester policySetKey="a-key" rule={rule("a", "A rule stated in words", "ai_ready")} />);
+
+    expect(screen.getByTestId("scenario-target").textContent ?? "").toMatch(/draft/i);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "A described situation" } });
+    fireEvent.click(screen.getByTestId("scenario-run"));
+
+    await waitFor(() => expect(evaluateScenario).toHaveBeenCalledTimes(1));
+    expect(testRuleScenario).not.toHaveBeenCalled();
+  });
+
+  it("keeps a computed rule off the version-scoped call when no version is named", async () => {
+    computeScenario.mockResolvedValue({
+      rule_id: "a",
+      rule_result: { status: "SATISFIED" },
+      inferred_facts: {},
+      assumptions: [],
+      missing_facts: [],
+      explanation: "An account of why",
+      reasoning_effort: "low",
+    });
+
+    render(<RuleScenarioTester policySetKey="a-key" rule={rule("a", "A computed rule", "deterministic")} />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "A described situation" } });
+    fireEvent.click(screen.getByTestId("scenario-run"));
+
+    await waitFor(() => expect(computeScenario).toHaveBeenCalledTimes(1));
+    expect(testRuleScenario).not.toHaveBeenCalled();
   });
 });
 
@@ -286,16 +460,17 @@ describe("each route is asked of its own decider", () => {
       scenario: "A described situation",
       reasoningEffort: "low",
       policySetKey: null,
-      publishedVersionId: null,
+      target: DRAFT_TARGET,
     });
 
     expect(evaluateScenario).toHaveBeenCalledTimes(1);
     expect(testRuleScenario).not.toHaveBeenCalled();
+    expect(computeScenario).not.toHaveBeenCalled();
     expect(answer.decidedBy).toBe("judge");
     expect(answer.label).toBeTruthy();
   });
 
-  it("sends a computed rule to the engine when a version exists", async () => {
+  it("sends a computed rule to the named version when one is chosen", async () => {
     testRuleScenario.mockResolvedValue({
       rule_id: "a",
       rule_result: { status: "SATISFIED" },
@@ -310,19 +485,25 @@ describe("each route is asked of its own decider", () => {
       scenario: "A described situation",
       reasoningEffort: "low",
       policySetKey: "a-key",
-      publishedVersionId: "a-published-version",
+      target: A_VERSION,
     });
 
     expect(testRuleScenario).toHaveBeenCalledTimes(1);
+    // The chosen version reaches the call. Omitting it would let the server
+    // fall back to whatever is active now, which makes the answer depend on
+    // when it was asked rather than on what was asked about.
+    expect(testRuleScenario.mock.calls[0]).toContain("a-published-version");
     expect(evaluateScenario).not.toHaveBeenCalled();
+    expect(computeScenario).not.toHaveBeenCalled();
     expect(answer.decidedBy).toBe("engine");
   });
 
-  it("derives the door from the record, both halves of it", () => {
-    expect(testingDoor(rule("a", "t", "ai_ready"), null)).toBe("judge-case");
-    expect(testingDoor(rule("a", "t", "ai_ready"), "a-version")).toBe("judge-case");
-    expect(testingDoor(rule("a", "t", "deterministic"), "a-version")).toBe("engine-scenario");
-    expect(testingDoor(rule("a", "t", "deterministic"), null)).toBe("engine-awaits-publication");
+  it("derives who decides from the rule, and never from the target", () => {
+    for (const target of [null, "a-version"]) {
+      expect(ruleDecider(rule("a", "t", "ai_ready"))).toBe("judge");
+      expect(ruleDecider(rule("a", "t", "deterministic"))).toBe("engine");
+      expect(testTarget(target).kind).toBe(target ? "published_version" : "draft");
+    }
   });
 });
 
@@ -348,7 +529,7 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
     render(
       <PolicyCaseRunner
         policySetKey="a-key"
-        publishedVersionId="a-published-version"
+        target={A_VERSION}
         rules={[rule("a", "A rule stated in words", "ai_ready"), rule("b", "A computed rule", "deterministic")]}
       />,
     );
@@ -370,7 +551,7 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
     for (const banned of CONFIDENCE_NUMBER) expect(text).not.toMatch(banned);
   });
 
-  it("lists a rule waiting on publication without sending it to the wrong decider", async () => {
+  it("asks every rule of an unpublished policy, each of its own decider", async () => {
     evaluateScenario.mockResolvedValue({
       applies: "uncertain",
       reasoning: "An account of why",
@@ -378,11 +559,20 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
       missing_facts: ["something the case did not state"],
       reasoning_effort: "low",
     });
+    computeScenario.mockResolvedValue({
+      rule_id: "b",
+      rule_result: { status: "NOT_APPLICABLE" },
+      inferred_facts: {},
+      assumptions: [],
+      missing_facts: [],
+      explanation: "An account of why",
+      reasoning_effort: "low",
+    });
 
     render(
       <PolicyCaseRunner
         policySetKey="a-key"
-        publishedVersionId={null}
+        target={DRAFT_TARGET}
         rules={[rule("a", "A rule stated in words", "ai_ready"), rule("b", "A computed rule", "deterministic")]}
       />,
     );
@@ -393,12 +583,16 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
     fireEvent.click(screen.getByTestId("policy-case-run"));
 
     await waitFor(() => expect(screen.getByTestId("policy-case-rollup")).toBeTruthy());
+    // Both answered. Neither reached the version-scoped call, because no
+    // version was named — and neither was skipped for want of one.
     expect(evaluateScenario).toHaveBeenCalledTimes(1);
+    expect(computeScenario).toHaveBeenCalledTimes(1);
     expect(testRuleScenario).not.toHaveBeenCalled();
-    expect(screen.getByTestId("policy-case-awaits-publication")).toBeTruthy();
+    expect(screen.getByTestId("policy-case-target").textContent ?? "").toMatch(/draft/i);
 
     const text = document.body.textContent ?? "";
     for (const banned of RANKING) expect(text).not.toMatch(banned);
+    for (const banned of DRAFT_READ_AS_PUBLISHED) expect(text).not.toMatch(banned);
   });
 
   it("keeps the third answer as its own answer, not an error", async () => {
@@ -413,7 +607,7 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
     render(
       <PolicyCaseRunner
         policySetKey="a-key"
-        publishedVersionId={null}
+        target={DRAFT_TARGET}
         rules={[rule("a", "A rule stated in words", "ai_ready")]}
       />,
     );
@@ -442,7 +636,7 @@ describe("a policy can be put to a case, and the answers are not totalled", () =
     render(
       <PolicyCaseRunner
         policySetKey="a-key"
-        publishedVersionId={null}
+        target={DRAFT_TARGET}
         rules={[rule("a", "A rule stated in words", "ai_ready")]}
       />,
     );

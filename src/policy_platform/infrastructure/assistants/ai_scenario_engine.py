@@ -28,10 +28,31 @@ decide a policy outcome:
    verdict is already final and must not be contradicted or re-decided.
 
 `run_rule_scenario` orchestrates both steps around a real, unmodified call to
-`evaluate_policy` against the policy set's active approved version — full
-precedence/scope/aggregate-limit logic runs exactly as it would for any real
-caller, mirroring how `evaluator.test_runner.run_policy_test` evaluates for
-real and only describes/compares the result afterwards.
+`evaluate_policy` — full precedence/scope/aggregate-limit logic runs exactly as
+it would for any real caller, mirroring how `evaluator.test_runner.run_policy_test`
+evaluates for real and only describes/compares the result afterwards.
+
+WHAT A TEST RUNS AGAINST, AND WHY THE CALLER SAYS SO
+
+Two different people test, and they are not asking the same question.
+
+A reviewer deciding whether to approve a draft is asking about **the draft in
+front of them**. There may be no published version at all, and if there is one
+it is a different rule — the one this draft would replace. Answering a reviewer
+with a verdict computed against the published version answers a question nobody
+asked, and on a set that has never been published it does not answer at all: it
+raises.
+
+An administrator looking at what is in force is asking about **a named version**,
+and *which* version is the substance of the question — "does v1 still behave the
+way v2 does" is unanswerable if the target is always whichever version happens to
+be active.
+
+So the target is not assumed here. `compute_rule_scenario` takes the rule itself
+and computes against that rule alone, unversioned; `run_rule_scenario` takes a
+version id and computes against that version, falling back to the active one only
+when no id is given. Both report what they ran against in `tested_against`, so a
+result can never be read as evidence about something it never touched.
 
 Nothing here is persisted as an `Evaluation` audit row. This is a reviewer's
 exploratory "what if" check during policy review, not a production system
@@ -44,11 +65,12 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.evaluation import EvaluationRequest, RuleEvaluationResult
-from policy_platform.contracts.policy import CanonicalRule
+from policy_platform.contracts.policy import ApprovedPolicyPackage, CanonicalRule
 from policy_platform.evaluator.engine import evaluate_policy
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
@@ -218,6 +240,7 @@ def explain_decided_by_reading(
     reasoning_effort: str,
     mapping_statuses: list[str],
     formulation_requirements: list[str],
+    tested_against: dict | None = None,
 ) -> dict:
     """The answer for a policy the deterministic engine will not evaluate.
 
@@ -281,46 +304,85 @@ def explain_decided_by_reading(
         "testability_reason": "decided_by_reading",
         "dmn_mapping_statuses": mapping_statuses,
         "formulation_requirements": formulation_requirements,
+        "tested_against": tested_against or _draft_target(),
     }
 
 
-async def run_rule_scenario(
-    session: AsyncSession,
+# The rule as it stands has no version, and inventing one would put a uuid-shaped
+# lie in the echo fields of a result a reviewer may quote. This string is not a
+# version id and cannot be mistaken for one; the response carries `tested_against`
+# so the reader learns what was run without having to decode it.
+UNVERSIONED = "unversioned-draft"
+
+
+def _draft_target() -> dict:
+    """What a draft test ran against, said so a result cannot be misread.
+
+    A verdict with no stated target is not evidence. This is the same failure
+    that let a published question resolve silently against draft rows: the answer
+    looked grounded because nothing on it said what ground it stood on.
+    """
+
+    return {
+        "kind": "draft",
+        "policy_version_id": None,
+        "version_number": None,
+        "label": "the rule as it is drafted now",
+    }
+
+
+def _version_target(version) -> dict:
+    return {
+        "kind": "published_version",
+        "policy_version_id": str(version.id),
+        "version_number": version.version_number,
+        "label": f"published version {version.version_number}",
+    }
+
+
+def _one_rule_package(rule: CanonicalRule) -> ApprovedPolicyPackage:
+    """The rule alone, in the shape the evaluator consumes.
+
+    The engine is a pure function of a package and some facts, so a draft can be
+    computed exactly as a published version is — the only thing publication adds
+    is the other rules and the aggregate limits. Both are genuinely absent here
+    rather than suppressed: a draft rule has no siblings yet, and an aggregate
+    limit spans rules that have not been assembled. `effective_from` is copied
+    from the rule so nothing about the dates is invented; the engine reads each
+    rule's own dates in any case.
+    """
+
+    return ApprovedPolicyPackage(
+        policy_set_id=UNVERSIONED,
+        policy_version_id=UNVERSIONED,
+        effective_from=rule.effective_from,
+        effective_to=rule.effective_to,
+        rules=[rule],
+        aggregate_limits=[],
+    )
+
+
+async def _decide(
+    rule: CanonicalRule,
+    package: ApprovedPolicyPackage,
     *,
-    policy_set_key: str,
-    rule_id: str,
     scenario: str,
-    reasoning_effort: str = "medium",
+    reasoning_effort: str,
+    tested_against: dict,
 ) -> dict:
-    """Full "test this rule with a natural-language scenario" flow: AI infers
-    facts -> the REAL `evaluate_policy()` decides -> AI explains the real
-    result. Raises ValueError for a 404-worthy lookup problem, RuntimeError
-    if AI isn't configured."""
+    """Compute one rule against one case, whatever the target is.
 
-    if reasoning_effort not in VALID_REASONING_EFFORTS:
-        reasoning_effort = "medium"
-
-    policy_set_repo = PolicySetRepository(session)
-    policy_set = await policy_set_repo.get_by_key(policy_set_key)
-    if policy_set is None:
-        raise ValueError(f"policy set '{policy_set_key}' not found")
-
-    version_repo = ApprovedPolicyVersionRepository(session)
-    active = await version_repo.get_active_version(policy_set.id)
-    if active is None:
-        raise ValueError(f"policy set '{policy_set_key}' has no active approved version to test against")
-
-    package = approved_policy_version_to_package(active)
-    rule = next((r for r in package.rules if r.rule_id == rule_id), None)
-    if rule is None:
-        raise ValueError(f"rule '{rule_id}' not found in the active approved version of '{policy_set_key}'")
+    The single body both entry points run, so a rule computed as a draft and the
+    same rule computed in a published version cannot take different paths through
+    the engine. Two copies of this is how a test comes to mean something different
+    depending on which page asked for it.
+    """
 
     mapping_statuses, formulation_requirements = _formulation_status(rule)
 
-    # An AI Ready policy is deliberately skipped by the evaluator
-    # before it reads facts. Do not spend two AI calls translating a scenario
-    # the deterministic engine is contractually unable to evaluate, and do not
-    # let an explainer guess that the scenario merely omitted facts.
+    # An AI Ready policy is deliberately skipped by the evaluator before it reads
+    # facts. Do not spend two AI calls translating a scenario the deterministic
+    # engine is contractually unable to evaluate.
     if not rule.machine_executable:
         return explain_decided_by_reading(
             rule=rule,
@@ -329,6 +391,7 @@ async def run_rule_scenario(
             reasoning_effort=reasoning_effort,
             mapping_statuses=mapping_statuses,
             formulation_requirements=formulation_requirements,
+            tested_against=tested_against,
         )
 
     settings = get_settings()
@@ -338,9 +401,9 @@ async def run_rule_scenario(
     inferred = await infer_scenario_facts(rule, scenario=scenario, reasoning_effort=reasoning_effort)
 
     # Mirrors evaluator.test_runner.run_policy_test's own request shape: this
-    # calls evaluate_policy() directly, in-process, so policy_set_id only
-    # needs to match package.policy_set_id (used solely for the response's
-    # own hash/echo fields) — no HTTP round trip through the /api/evaluations
+    # calls evaluate_policy() directly, in-process, so policy_set_id only needs
+    # to match package.policy_set_id (used solely for the response's own
+    # hash/echo fields) — no HTTP round trip through the /api/evaluations
     # router, and nothing about this request is persisted as an audit row.
     request = EvaluationRequest(
         policy_set_id=package.policy_set_id,
@@ -348,11 +411,11 @@ async def run_rule_scenario(
         use_active_version=False,
         facts=inferred["facts"],
         correlation_id=None,
-        calling_system_identity=f"ai-scenario-test:{rule_id}",
+        calling_system_identity=f"ai-scenario-test:{rule.rule_id}",
     )
     response = evaluate_policy(package, request)
-    rule_result = find_rule_result(rule_id, response.rule_results)
-    not_in_effect = rule_result is None and rule_id not in response.applicable_rules
+    rule_result = find_rule_result(rule.rule_id, response.rule_results)
+    not_in_effect = rule_result is None and rule.rule_id not in response.applicable_rules
 
     explanation = await explain_rule_outcome(
         rule,
@@ -363,7 +426,7 @@ async def run_rule_scenario(
     )
 
     return {
-        "rule_id": rule_id,
+        "rule_id": rule.rule_id,
         "rule_title": rule.title,
         "scenario": scenario,
         "inferred_facts": inferred["facts"],
@@ -380,4 +443,106 @@ async def run_rule_scenario(
         "testability_reason": None,
         "dmn_mapping_statuses": mapping_statuses,
         "formulation_requirements": formulation_requirements,
+        "tested_against": tested_against,
     }
+
+
+async def compute_rule_scenario(
+    rule_payload: dict,
+    *,
+    scenario: str,
+    reasoning_effort: str = "medium",
+) -> dict:
+    """Compute a rule against a case without looking anything up.
+
+    The deterministic counterpart to `ai_scenario_eval.evaluate_scenario`, and
+    deliberately the same shape: hand it the rule and it answers about that rule.
+    No policy set, no version, no database — so a reviewer can compute a draft
+    they are still deciding whether to approve, which is the only rule they were
+    ever asking about.
+
+    This is not a lesser form of `run_rule_scenario`. The same engine decides,
+    with the same guarantees; what differs is which rules are in the room. A
+    published version brings its siblings and its aggregate limits, and a test
+    that needs those needs a version. A test of one rule's own comparison does
+    not.
+    """
+
+    if reasoning_effort not in VALID_REASONING_EFFORTS:
+        reasoning_effort = "medium"
+
+    rule = CanonicalRule.model_validate(rule_payload)
+    return await _decide(
+        rule,
+        _one_rule_package(rule),
+        scenario=scenario,
+        reasoning_effort=reasoning_effort,
+        tested_against=_draft_target(),
+    )
+
+
+async def run_rule_scenario(
+    session: AsyncSession,
+    *,
+    policy_set_key: str,
+    rule_id: str,
+    scenario: str,
+    reasoning_effort: str = "medium",
+    policy_version_id: str | None = None,
+) -> dict:
+    """Test a published rule against a case, in a version the caller names.
+
+    `policy_version_id` is the whole point of this entry point. An administrator
+    asking whether a superseded version still behaves the way the current one
+    does cannot be answered by a function that always resolves the active
+    version; the question is about the other one. Omitting it keeps the previous
+    behaviour and targets whichever version is active.
+
+    A reviewer holding an unpublished draft is not served by this function at
+    all, and must not be routed to it: use `compute_rule_scenario`, which needs
+    no version because the draft is not in one.
+
+    Raises ValueError for a 404-worthy lookup problem, RuntimeError if AI isn't
+    configured.
+    """
+
+    if reasoning_effort not in VALID_REASONING_EFFORTS:
+        reasoning_effort = "medium"
+
+    policy_set_repo = PolicySetRepository(session)
+    policy_set = await policy_set_repo.get_by_key(policy_set_key)
+    if policy_set is None:
+        raise ValueError(f"policy set '{policy_set_key}' not found")
+
+    version_repo = ApprovedPolicyVersionRepository(session)
+    if policy_version_id is not None:
+        try:
+            wanted = uuid.UUID(str(policy_version_id))
+        except ValueError as exc:
+            raise ValueError(f"'{policy_version_id}' is not a policy version id") from exc
+        version = await version_repo.get_by_id(wanted)
+        if version is None:
+            raise ValueError(f"no published version '{policy_version_id}' exists")
+        # A version of some *other* set would answer a question about the wrong
+        # document while looking like a successful test.
+        if version.policy_set_id != policy_set.id:
+            raise ValueError(f"version '{policy_version_id}' does not belong to policy set '{policy_set_key}'")
+    else:
+        version = await version_repo.get_active_version(policy_set.id)
+        if version is None:
+            raise ValueError(f"policy set '{policy_set_key}' has no active approved version to test against")
+
+    package = approved_policy_version_to_package(version)
+    rule = next((r for r in package.rules if r.rule_id == rule_id), None)
+    if rule is None:
+        raise ValueError(
+            f"rule '{rule_id}' is not in version {version.version_number} of '{policy_set_key}'"
+        )
+
+    return await _decide(
+        rule,
+        package,
+        scenario=scenario,
+        reasoning_effort=reasoning_effort,
+        tested_against=_version_target(version),
+    )

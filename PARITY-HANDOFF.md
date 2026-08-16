@@ -1215,3 +1215,186 @@ only catches the string you just deleted is a changelog, not a test.
 *"decides a case"* in `policyCards.ts`. It is not there. It is composed in
 `policyRecordFacts.ts` from `recordStance.ts`, both of which are mine and both of
 which are now fixed. **`dev-rulename` should stand down on that item.**
+---
+
+## 21. Testing has two axes, not one - and I found the review page silently testing against a published version
+
+**Status: landed. No prop requests. `PolicyInspector.tsx` needed no edit and is now correct by default - read the last section before you touch it.**
+
+### The defect, first, because it is worse than the brief that sent me looking
+
+`PolicyInspector.tsx:612` mounts `RuleScenarioTester`. That component's `run()`
+called `aiApi.testRuleScenario(policySetKey, ...)`, which reaches
+`POST /api/ai/policy-sets/{key}/rules/{rule_id}/test-scenario`, whose server
+handler `run_rule_scenario` called **`get_active_version`**.
+
+So a reviewer putting a case to a **draft** rule was computing it against the
+**active published version** of that set. Not the rule in front of them. On a set
+with nothing published there is no active version, and the call failed with the
+message the user hit:
+
+```
+policy set 'gmu-staff-handbook-2024' has no active approved version to propose tests against.
+```
+
+Two failures, and the loud one was the lesser. The set with no published version
+got an error. **The set with a published version got a confident answer about the
+wrong record.** That is the same shape as the Ask AI defect another agent fixed,
+where a published question resolved against draft rows and the answer still
+looked grounded. A verdict that does not name its target is not evidence.
+
+### The design, corrected
+
+Which decider is asked and what is being asked about are **two independent
+questions**. My first implementation collapsed them into one enum and that was
+the whole bug.
+
+| axis | derived from | values |
+|---|---|---|
+| **decider** | the rule's `evaluation_mode` / `machine_executable` | `engine` computes an exact verdict, `judge` reads it |
+| **target** | the version the record was read at | `draft` (no version named) or `published_version` (one was) |
+
+All four combinations are live. None is a refusal:
+
+| decider | target | endpoint |
+|---|---|---|
+| engine | draft | `POST /api/ai/rules/compute-scenario` **(new)** |
+| engine | published version | `POST /api/ai/policy-sets/{key}/rules/{id}/test-scenario` with `policy_version_id` |
+| judge | draft | `POST /api/ai/rules/evaluate-scenario` |
+| judge | published version | `POST /api/ai/rules/evaluate-scenario` |
+
+The judge takes the rule itself, so it never needed a version. **Only the batch
+endpoint** (`policy-tests/.../validation-batches`) genuinely requires one,
+because it builds its rule list out of a version's assembled package. It stays,
+as the fast path where a version exists, not as the only door.
+
+### Why the target cannot be derived from `review_status` - checked, do not retry
+
+```
+candidate_rules:  candidate 2049 | published 13
+approved_rules:   candidate 14        <- every published rule carries 'candidate'
+```
+
+Publication copies the candidate's status verbatim. The honest derivation is
+**the version the record was read at**: `ReviewQueue` names no version,
+`PoliciesTab` names the selected one. That is a fact about the record's
+provenance, not a capability flag handed in by a caller, so it satisfies the
+standing rule.
+
+### Verified end to end against the live database
+
+The API on 8050 predates this change and I did not restart it, so I ran the
+engine in process against real rows:
+
+```
+compute_rule_scenario  (no session, no set, no version)
+  tested_against {kind: draft, policy_version_id: null, label: "the rule as it is drafted now"}
+  rule_result    INDETERMINATE, missing_facts ["employees-months"]
+
+run_rule_scenario  policy_version_id = <v1>   -> tested_against {published_version, version_number 1}
+run_rule_scenario  policy_version_id = <v2>   -> tested_against {published_version, version_number 2}
+run_rule_scenario  policy_version_id = null   -> tested_against {published_version, version_number 2}   (active)
+```
+
+The same rule id exists in both versions, which is what makes *"does the older
+version still behave the way the current one does"* a question the page can now
+actually ask.
+
+### Server changes
+
+`src/policy_platform/infrastructure/assistants/ai_scenario_engine.py`
+
+- `_draft_target()` / `_version_target(version)` return
+  `{kind, policy_version_id, version_number, label}`. Every result carries one.
+- `_one_rule_package(rule)` wraps a single rule in an `ApprovedPolicyPackage`.
+  This is honest: `evaluate_policy` is a pure function over that package,
+  `_rule_is_in_effect` reads each rule's own dates so the package dates are
+  inert, and a candidate's `payload_json` **is** a `CanonicalRule`. What
+  publication genuinely adds is siblings and aggregate limits, which are truly
+  absent for a draft rather than suppressed.
+  *Known artifact:* with one rule, `overall_evaluation_status` reads
+  `NOT_SATISFIED` for a judged rule. Harmless - clients read `rule_result.status`
+  and nothing renders the package-level field. Do not "fix" it by faking siblings.
+- `compute_rule_scenario(rule_payload, *, scenario, reasoning_effort)` - new.
+  No session, no set, no version, no database.
+- `run_rule_scenario(...)` gained `policy_version_id: str | None = None`. When
+  given, it loads that version **and checks it belongs to this set**; when
+  absent it falls back to the active version as before.
+
+`src/policy_platform/api/routers/ai.py`
+
+- `RuleScenarioTestRequest` gained `policy_version_id: str | None = None`.
+- New `ComputeScenarioRequest` (`rule`, `scenario`, `reasoning_effort`) and new
+  route `POST /api/ai/rules/compute-scenario`.
+
+### `apps/web/src/api.ts` - I edited `dev-rulename`'s file. Here is exactly what, so you do not duplicate it
+
+I checked the live diff before doing it: your edits are at lines 141-164, mine
+are at ~1606 and ~2427, roughly 2200 lines away, and all three are pure
+additions. The alternative was a parallel fetch helper in a file I own, which
+would have duplicated `request`'s base-URL and error handling - the exact drift
+this whole effort exists to remove.
+
+1. New exported interface:
+   ```ts
+   export interface ScenarioTestTarget {
+     kind: "draft" | "published_version";
+     policy_version_id: string | null;
+     version_number: number | null;
+     label: string;
+   }
+   ```
+2. `RuleScenarioTestResult` gained `tested_against: ScenarioTestTarget`.
+3. New `aiApi.computeScenario(rule, scenario, reasoningEffort)` posting to
+   `/api/ai/rules/compute-scenario`.
+4. `aiApi.testRuleScenario` gained a fifth parameter
+   `policyVersionId?: string | null`, sent as `policy_version_id: policyVersionId ?? null`.
+
+Nothing existing changed shape. Every current caller of `testRuleScenario`
+compiles unchanged.
+
+### `dev-onedetail`: `PolicyInspector.tsx` needs no edit, and here is why
+
+`RuleScenarioTester` now takes an **optional** `target?: TestTarget` that
+**defaults to the draft**. The review surface names no version, so it targets the
+draft, which is what a reviewer is deciding about. Your file becomes correct by
+doing nothing.
+
+**The one thing not to do:** do not pass a version into it from the review
+surface, and do not reach for `publishedVersionId` if you see it in an older
+branch - it is gone. A reviewer testing a draft against a published version
+answers a question nobody asked, and it is what produced the error the user hit.
+
+If you ever mount the tester somewhere a version genuinely has been chosen, pass
+`target={testTarget(versionId, versionNumber)}` from `policyTesting.ts`.
+
+### Two wordings that are now load-bearing, guarded in `noDoorThatCannotOpen.test.tsx`
+
+1. **A result states what it ran against.** `scenario-target` on the rule tester,
+   `policy-case-target` on the policy runner, `policy-tests-target` on the tab.
+   A verdict with no named target is not evidence.
+2. **A draft result does not carry into publication.** `RESULT_DOES_NOT_CARRY_OVER`
+   renders only when the target is the draft. A candidate that passed becomes
+   `untested` when published, not `passing`. The four states stay honest across
+   that boundary or they are decoration.
+
+Four mutations, all caught: defaulting the tester to a version (5 tests);
+dropping the version id from the version-scoped call (1); reintroducing an
+"Once published" dead cell in the actions column (1); deleting the draft caveat (1).
+
+### Still open, for the producer to rule on
+
+The brief asks the judged route for *"a verdict, with confidence"*.
+`contracts/correlation.py` bans invented probabilities, and a percentage printed
+beside an exact computed answer reads as the judged route apologising for itself
+- which is the seventh guard evasion arriving through the front door. The judged
+route already has a third state, `uncertain`, with *"The case would have to
+state:"* chips naming what is missing. That is what confidence reaches for, in a
+form a reviewer can act on. `CONFIDENCE_NUMBER` in `noDoorThatCannotOpen.test.tsx`
+currently holds that line. Say the word and I will change it, but I want the
+ruling recorded rather than inferred.
+
+Minor asymmetry worth knowing: the judge endpoint returns no `tested_against`, so
+the client synthesises it from the resolved target. Acceptable, because the judge
+is handed the rule that was loaded from that target - but it is a synthesis, not
+a server assertion.

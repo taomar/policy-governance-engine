@@ -36,7 +36,7 @@ import { ReadOutlined } from "@ant-design/icons";
 import { Input } from "antd";
 import type { CanonicalRule } from "../api";
 import { DirectionalText } from "./DirectionalText";
-import { putCaseToRule, testingDoor, type CaseAnswer } from "./policyTesting";
+import { putCaseToRule, targetLabel, RESULT_DOES_NOT_CARRY_OVER, type CaseAnswer, type TestTarget } from "./policyTesting";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -52,18 +52,19 @@ const DECIDED_BY: Record<CaseAnswer["decidedBy"], { label: string; color: string
 
 export function PolicyCaseRunner({
   policySetKey,
-  publishedVersionId,
+  target,
   rules,
 }: {
   policySetKey: string | null | undefined;
   /**
-   * The published version the policy is read at, or null when it has none.
+   * What the case is put to: the policy as it is drafted, or a named published
+   * version of it.
    *
-   * Passed down rather than guessed, and used only to decide which door each
-   * rule can be asked through — see `testingDoor`. It is a fact about the
-   * record, not a permission granted by the caller.
+   * Passed down rather than guessed, and reported in the answer rather than
+   * left for the reader to infer from which page they are on. It is a fact
+   * about the record, not a permission granted by the caller.
    */
-  publishedVersionId: string | null | undefined;
+  target: TestTarget;
   rules: readonly CanonicalRule[];
 }) {
   const [scenario, setScenario] = useState("");
@@ -71,9 +72,6 @@ export function PolicyCaseRunner({
   const [answers, setAnswers] = useState<CaseAnswer[] | null>(null);
   const [asked, setAsked] = useState(0);
   const [running, setRunning] = useState(false);
-
-  const askable = rules.filter((rule) => testingDoor(rule, publishedVersionId) !== "engine-awaits-publication");
-  const awaitingPublication = rules.length - askable.length;
 
   const run = async () => {
     setRunning(true);
@@ -88,7 +86,7 @@ export function PolicyCaseRunner({
         scenario: scenario.trim(),
         reasoningEffort,
         policySetKey,
-        publishedVersionId,
+        target,
       });
       collected.push(answer);
       setAnswers([...collected]);
@@ -118,15 +116,10 @@ export function PolicyCaseRunner({
         style={{ marginBottom: 16 }}
       />
 
-      {awaitingPublication > 0 ? (
-        <Paragraph type="secondary" data-testid="policy-case-awaits-publication">
-          {awaitingPublication === 1
-            ? "One rule states its test as a comparison, and the engine computes that against a published version."
-            : `${awaitingPublication} rules state their test as a comparison, and the engine computes those against a published version.`}{" "}
-          Nothing has been published for this policy yet, so those rules are listed below without an
-          answer rather than being sent to a decider that is not theirs.
-        </Paragraph>
-      ) : null}
+      <Paragraph type="secondary" data-testid="policy-case-target">
+        The case is put to <Text strong>{targetLabel(target)}</Text>.
+        {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
+      </Paragraph>
 
       <Paragraph>
         <Text strong>Describe a case in plain English</Text>
@@ -157,7 +150,7 @@ export function PolicyCaseRunner({
             void run();
           }}
           loading={running}
-          disabled={!scenario.trim() || rules.length === 0 || askable.length === 0}
+          disabled={!scenario.trim() || rules.length === 0}
           data-testid="policy-case-run"
         >
           {running

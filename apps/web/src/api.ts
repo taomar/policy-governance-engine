@@ -138,15 +138,30 @@ export interface WorkspaceCounts {
 export interface ProjectPortfolioInsight {  key: string;
   document_count: number;
   review_pending: number;
+  /** The same outstanding review work counted in the unit it is decided in.
+   *
+   *  A policy is what gets reviewed, approved, published and exported; rules
+   *  are its contents, and one policy commonly holds several. A register
+   *  quoting only rules answers "how much text is waiting" when the reader
+   *  asked "how many decisions".
+   *
+   *  Optional because absent is a real state and not zero. A server that has
+   *  not restarted since this field was added serves the row without it, and a
+   *  client reading the missing key as 0 would report no policies over a queue
+   *  that plainly holds work. Fall back to `review_pending` and name its unit. */
+  review_pending_policies?: number;
   /** Live (non-superseded) candidate records held by this project, whether or not
    *  any have been published. `active_rule_count` below counts PUBLISHED rules and
    *  is 0 until a version is approved, so the two disagree by design: they measure
    *  different stages of the same record's life, not the same thing twice. */
   live_candidate_count: number;
-  /** Live records whose test the source states as a comparison, so it can be
-   *  evaluated directly. */
+  /** The same generation counted in policies. Optional for the same reason as
+   *  `review_pending_policies`. */
+  live_policy_count?: number;
+  /** Live records whose test the source states as a comparison, so they take the
+   *  Deterministic route. */
   candidate_direct_count: number;
-  /** Live records the source states in words, so they are decided by reading.
+  /** Live records the source states in words, so they take the AI Ready route.
    *  Counted independently of `candidate_direct_count`: a record carrying neither
    *  mode is in no route count, so the two need not sum to `live_candidate_count`
    *  and a caller must not derive one by subtracting the other. */
@@ -1588,6 +1603,22 @@ export interface RuleScenarioTestResult {
   testability_reason: "rule_not_machine_executable" | null;
   dmn_mapping_statuses: string[];
   formulation_requirements: string[];
+  tested_against: ScenarioTestTarget;
+}
+
+/** What a scenario test actually ran against.
+ *
+ * A verdict with no target is not evidence. A reviewer tests the candidate as
+ * it stands -- there may be no published version at all -- while a policy admin
+ * tests what is in force and picks which version. The same rule can be put to
+ * the same case on both surfaces and honestly return different answers, so the
+ * result carries its own target rather than leaving the reader to infer it from
+ * the page they happen to be on. */
+export interface ScenarioTestTarget {
+  kind: "draft" | "published_version";
+  policy_version_id: string | null;
+  version_number: number | null;
+  label: string;
 }
 
 export interface QualityFinding {
@@ -2404,17 +2435,48 @@ export const aiApi = {
       body: JSON.stringify({ rule, scenario, reasoning_effort: reasoningEffort }),
     }),
 
+  // The REAL, deterministic-engine-backed scenario tester, run against the
+  // rule as the caller holds it -- a candidate still being reviewed, with no
+  // published version anywhere. AI only translates the scenario into facts and
+  // explains the result; evaluator.engine.evaluate_policy always decides the
+  // verdict, exactly as it does for a published rule.
+  //
+  // This exists because a reviewer decides whether to approve *this draft*.
+  // Testing a draft against a published version answers a question nobody
+  // asked, and on a set that has never published there is no version to answer
+  // it with. See testRuleScenario below for the published surface.
+  computeScenario: (rule: CanonicalRule, scenario: string, reasoningEffort: string) =>
+    request<RuleScenarioTestResult>("/api/ai/rules/compute-scenario", {
+      method: "POST",
+      body: JSON.stringify({ rule, scenario, reasoning_effort: reasoningEffort }),
+    }),
+
   // The REAL, deterministic-engine-backed scenario tester for an already
   // -published rule: AI only translates the scenario into facts and explains
   // the result; evaluator.engine.evaluate_policy always decides the verdict.
   // See ai_scenario_engine.py's module docstring for how this differs from
   // evaluateScenario above.
-  testRuleScenario: (policySetKey: string, ruleId: string, scenario: string, reasoningEffort: string) =>
+  //
+  // `policyVersionId` is the version the admin chose to read the record at.
+  // Omitting it falls back to whichever version is active *now*, which makes
+  // the answer depend on when it was asked -- so the published surface always
+  // names the version it is testing.
+  testRuleScenario: (
+    policySetKey: string,
+    ruleId: string,
+    scenario: string,
+    reasoningEffort: string,
+    policyVersionId?: string | null
+  ) =>
     request<RuleScenarioTestResult>(
       `/api/ai/policy-sets/${encodeURIComponent(policySetKey)}/rules/${encodeURIComponent(ruleId)}/test-scenario`,
       {
         method: "POST",
-        body: JSON.stringify({ scenario, reasoning_effort: reasoningEffort }),
+        body: JSON.stringify({
+          scenario,
+          reasoning_effort: reasoningEffort,
+          policy_version_id: policyVersionId ?? null,
+        }),
       }
     ),
 

@@ -53,7 +53,14 @@ import { RuleName } from "./RuleName";
 import { RuleScenarioTester } from "./RuleScenarioTester";
 import { PolicyCaseRunner } from "./PolicyCaseRunner";
 import { engineDecidesRule } from "../ruleExecutability";
-import { testingDoor, type PolicyTesting, type TestingDoor } from "./policyTesting";
+import {
+  ruleDecider,
+  targetLabel,
+  DRAFT_TARGET,
+  RESULT_DOES_NOT_CARRY_OVER,
+  type Decider,
+  type PolicyTesting,
+} from "./policyTesting";
 import "./policyTabPanes.css";
 
 const { Text, Paragraph } = Typography;
@@ -1110,13 +1117,15 @@ export interface RuleTestRow {
    *  guards exist to keep out of the words, arriving through the interaction
    *  instead. */
   engineEvaluates: boolean;
-  /** Which door this rule can actually be tested through, here and now.
+  /** Which instrument settles this rule: the engine computes it, or a judge
+   *  reads it.
    *
-   *  `engineEvaluates` answers what the rule is; this answers what can be asked
-   *  of it, which is the same question plus whether a published version exists
-   *  for the engine to compute against. Both are derived from the record — see
-   *  `testingDoor`. */
-  door: TestingDoor;
+   *  `engineEvaluates` and this answer the same question; this one is in the
+   *  vocabulary the rest of the testing path speaks, so a row and the runner it
+   *  opens cannot disagree. Neither depends on whether anything is published —
+   *  that is the other axis, and conflating the two was what produced a rule
+   *  with no way to be checked. See `ruleDecider`. */
+  decider: Decider;
 }
 
 const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: string }> = {
@@ -1150,7 +1159,6 @@ const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: st
 export function policyTestRows(
   record: PolicyRecordView,
   tests: readonly PolicyTestListItem[],
-  publishedVersionId?: string | null,
 ): RuleTestRow[] {
   const byRule = new Map<string, PolicyTestListItem[]>();
   for (const item of tests) {
@@ -1184,7 +1192,7 @@ export function policyTestRows(
       testIds: covering.map((item) => item.test.id),
       awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
       engineEvaluates: engineDecidesRule(entry.rule),
-      door: testingDoor(entry.rule, publishedVersionId),
+      decider: ruleDecider(entry.rule),
     };
   });
 }
@@ -1195,7 +1203,7 @@ export function policyTestRows(
  */
 export type PolicyTestingVerbs = Pick<
   PolicyTesting,
-  "generate" | "run" | "publishedVersionId" | "busy" | "working" | "error" | "dismissError"
+  "generate" | "run" | "target" | "busy" | "working" | "error" | "dismissError"
 >;
 
 export function PolicyTestsPane({
@@ -1217,16 +1225,19 @@ export function PolicyTestsPane({
    */
   policySetKey?: string;
 }) {
-  const rows = policyTestRows(record, tests ?? [], testing?.publishedVersionId ?? null);
+  const rows = policyTestRows(record, tests ?? []);
   const covered = rows.filter((row) => row.state !== "untested").length;
-  const writableRows = rows.filter((row) => row.door === "engine-scenario");
+  // Writing scenarios in advance is a batch, and a batch is built out of a
+  // published version's assembled package. That is the only thing here that
+  // needs one; every rule can be put a case now regardless.
+  const writableRows = testing?.generate ? rows.filter((row) => row.decider === "engine") : [];
   const untestedRuleIds = writableRows
     .filter((row) => row.state === "untested")
     .map((row) => row.ruleId);
   const everyTestId = rows.flatMap((row) => row.testIds);
   const awaitingReview = rows.reduce((total, row) => total + row.awaitingReview, 0);
-  const readDecided = rows.filter((row) => row.door === "judge-case").length;
-  const awaitingPublication = rows.filter((row) => row.door === "engine-awaits-publication").length;
+  const readDecided = rows.filter((row) => row.decider === "judge").length;
+  const target = testing?.target ?? DRAFT_TARGET;
   const [caseRuleId, setCaseRuleId] = useState<string | null>(null);
   const [policyCaseOpen, setPolicyCaseOpen] = useState(false);
   const caseRule = caseRuleId
@@ -1320,14 +1331,10 @@ export function PolicyTestsPane({
         </Paragraph>
       ) : null}
 
-      {testing && awaitingPublication > 0 ? (
-        <Paragraph type="secondary" data-testid="policy-tests-awaits-publication">
-          {awaitingPublication === 1
-            ? "One rule of this policy states its test as a comparison between named quantities."
-            : `${awaitingPublication} rules of this policy state their test as a comparison between named quantities.`}{" "}
-          The engine computes those against a published version, and this policy has not been
-          published yet — so writing scenarios for them is offered once it is. Every rule stating
-          its test in words can be put to a case now.
+      {testing ? (
+        <Paragraph type="secondary" data-testid="policy-tests-target">
+          Everything on this tab is put to <Text strong>{targetLabel(target)}</Text>.
+          {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
         </Paragraph>
       ) : null}
 
@@ -1402,7 +1409,7 @@ export function PolicyTestsPane({
                       >
                         Run
                       </Button>
-                    ) : row.door === "engine-scenario" && testing.generate ? (
+                    ) : row.decider === "engine" && testing.generate ? (
                       <Button
                         size="small"
                         type="link"
@@ -1415,7 +1422,11 @@ export function PolicyTestsPane({
                       >
                         Write one
                       </Button>
-                    ) : row.door === "judge-case" ? (
+                    ) : (
+                      // Every rule can be put a case, on either surface. The
+                      // engine computes a comparison from the rule it is handed
+                      // and the judge reads the rule it is handed, so neither
+                      // waits on a publication.
                       <Button
                         size="small"
                         type="link"
@@ -1424,12 +1435,6 @@ export function PolicyTestsPane({
                       >
                         Put a case
                       </Button>
-                    ) : (
-                      <Tooltip title="The engine computes this rule's comparison against a published version. Once this policy is published, writing a scenario for it is offered here.">
-                        <Text type="secondary" data-testid={`awaits-publication-${row.ruleId}`}>
-                          Once published
-                        </Text>
-                      </Tooltip>
                     ),
                 } as const,
               ]
@@ -1448,7 +1453,7 @@ export function PolicyTestsPane({
         >
           <PolicyCaseRunner
             policySetKey={policySetKey}
-            publishedVersionId={testing?.publishedVersionId ?? null}
+            target={target}
             rules={record.rules.map((entry) => entry.rule)}
           />
         </Modal>
@@ -1472,7 +1477,7 @@ export function PolicyTestsPane({
               does not change what the table reports, which describes the scenarios stored against
               the rule.
             </Paragraph>
-            <RuleScenarioTester policySetKey={policySetKey ?? ""} rule={caseRule} />
+            <RuleScenarioTester policySetKey={policySetKey ?? ""} rule={caseRule} target={target} />
           </div>
         </Modal>
       ) : null}

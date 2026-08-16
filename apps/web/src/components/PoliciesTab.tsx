@@ -286,6 +286,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const testing = usePolicyTesting({
     policySetKey,
     policyVersionId: versionId || null,
+    policyVersionNumber: versions.find((v) => v.id === versionId)?.version_number ?? null,
     actor: actor.name,
     onChanged: useCallback(() => setTestsEpoch((n) => n + 1), []),
   });

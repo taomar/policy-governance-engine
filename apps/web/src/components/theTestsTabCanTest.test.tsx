@@ -120,7 +120,7 @@ function verbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs 
     // A version by default, because the batch door the older tests exercise is
     // the one that only exists where a version does. Tests about an unpublished
     // record say so explicitly, which is the state that matters.
-    publishedVersionId: "a-published-version",
+    target: { kind: "published_version", policyVersionId: "a-published-version", versionNumber: 3 },
     busy: new Set<string>(),
     working: false,
     error: null,

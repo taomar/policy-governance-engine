@@ -98,7 +98,7 @@ function verbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs 
   return {
     generate: vi.fn().mockResolvedValue(undefined),
     run: vi.fn().mockResolvedValue(undefined),
-    publishedVersionId: "a-published-version",
+    target: { kind: "published_version", policyVersionId: "a-published-version", versionNumber: 3 },
     busy: new Set<string>(),
     working: false,
     error: null,
