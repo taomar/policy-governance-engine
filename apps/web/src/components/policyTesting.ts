@@ -221,6 +221,37 @@ const SETTLEMENT_OF_STATUS: Record<EvaluationStatus, CaseSettlement> = {
   ERROR: "uncomputable",
 };
 
+/**
+ * Everything a deterministic `PolicyTest` needs to reproduce ONE engine rule's
+ * computed verdict on ONE case — and nothing an informational answer or a
+ * judge's advisory reading could supply.
+ *
+ * The facts the model inferred from the case become the test's inputs and the
+ * computed statuses become its expectations, so re-running it is the same
+ * deterministic arithmetic with no model in the loop: the guard the reviewer
+ * keeps re-runs on every future publish (Section 4.1) without ever re-asking
+ * the model, which is why an informational answer — synthesised by us, resting
+ * on no single rule's verdict — and a judge's reading — which states no facts —
+ * cannot become one. Only a determination the engine settled carries this.
+ *
+ * Present on an engine answer only when it actually computed a per-rule verdict;
+ * null everywhere else. Whether a present seed is *offered* as a guard is not
+ * decided here — a policy-level reading keeps only the seeds of answers that
+ * settle — but the material to build one exists only where this is non-null.
+ */
+export interface CaseGuardSeed {
+  ruleId: string;
+  ruleTitle: string;
+  /** The case as the reviewer wrote it, stored so the guard names its origin. */
+  scenario: string;
+  /** The facts the model read out of the case: the deterministic test's inputs. */
+  inferredFacts: Record<string, unknown>;
+  /** The status the deterministic evaluator must return for the guard to pass. */
+  expectedOverallStatus: EvaluationStatus;
+  /** The settling rule's own status, asserted so the guard proves this rule fired. */
+  expectedRuleStatus: EvaluationStatus;
+}
+
 /** One rule's answer to one case, in the terms of whichever decider answered. */
 export interface CaseAnswer {
   ruleId: string;
@@ -260,6 +291,14 @@ export interface CaseAnswer {
    * must never be hidden — without picking a winner or averaging them.
    */
   adverse: boolean;
+  /**
+   * The deterministic seed for keeping THIS engine verdict as a guard, or null
+   * when this answer cannot become one — a judge's reading states no facts, and
+   * a failed request computed nothing. Guardability itself is decided a level up
+   * (a reading keeps only the seeds of rules that *settle*); this only carries
+   * the material, present exactly when the engine computed a per-rule verdict.
+   */
+  guardSeed: CaseGuardSeed | null;
 }
 
 /**
@@ -316,6 +355,19 @@ export async function putCaseToRule(
         // A breach is the one settled outcome that points against the case, and
         // the only one that can make two settling rules disagree.
         adverse: status === "NOT_SATISFIED",
+        // Keepable as a guard only where the engine actually computed a verdict:
+        // the inferred facts and computed statuses are exactly what a
+        // deterministic `PolicyTest` re-runs, with no model in the loop.
+        guardSeed: result.rule_result
+          ? {
+              ruleId: rule.rule_id,
+              ruleTitle: rule.title,
+              scenario,
+              inferredFacts: result.inferred_facts,
+              expectedOverallStatus: result.overall_evaluation_status,
+              expectedRuleStatus: result.rule_result.status,
+            }
+          : null,
       };
     }
 
@@ -344,6 +396,9 @@ export async function putCaseToRule(
       unanswered: null,
       settlement,
       adverse: false,
+      // A judge states no facts, so there is nothing a deterministic guard could
+      // re-run: an advisory reading is never keepable as one.
+      guardSeed: null,
     };
   } catch (caught) {
     return {
@@ -356,6 +411,8 @@ export async function putCaseToRule(
       unanswered: refusal(caught),
       settlement: "unanswered",
       adverse: false,
+      // Nothing was computed, so there is no verdict to keep.
+      guardSeed: null,
     };
   }
 }

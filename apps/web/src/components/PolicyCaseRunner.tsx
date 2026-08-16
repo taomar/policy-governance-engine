@@ -35,18 +35,27 @@
  * answer is composed by this app, marked as ours and citing each rule it read.
  * That synthesis is our words about the document, never a verdict on a case.
  *
- * Nothing here is saved. This is a reviewer looking, not a calling system
- * evaluating, and the audit trail records the second only.
+ * Reading a case saves nothing on its own. A reviewer may take one further,
+ * deliberate step — keeping a settled determination as a guard, which writes to
+ * this policy's tests so it re-runs on every future publish — but asking is a
+ * reviewer looking, not a calling system evaluating, and the evaluation audit
+ * trail records the second only, never either of these.
  */
 import { useState } from "react";
 import { Alert, Button, Empty, Progress, Select, Space, Table, Tag, Typography } from "antd";
-import { ReadOutlined } from "@ant-design/icons";
+import { ReadOutlined, SaveOutlined } from "@ant-design/icons";
 import { Input } from "antd";
-import type { CanonicalRule } from "../api";
+import {
+  policyTestApi,
+  PolicyPlatformApiError,
+  type CanonicalRule,
+  type CreatePolicyTestRequest,
+  type EvaluationStatus,
+} from "../api";
 import { DirectionalText } from "./DirectionalText";
 import { baseDirection } from "../directionalText";
 import { RuleName } from "./RuleName";
-import { putCaseToRule, targetLabel, RESULT_DOES_NOT_CARRY_OVER, type CaseAnswer, type TestTarget } from "./policyTesting";
+import { putCaseToRule, targetLabel, RESULT_DOES_NOT_CARRY_OVER, type CaseAnswer, type CaseGuardSeed, type TestTarget } from "./policyTesting";
 import { answerPolicyCase, type CaseIntent, type InformationalAnswer, type InformationalGrounding } from "./policyCaseIntent";
 import { readPolicyCase, type PolicyCaseReading } from "./policyCaseSummary";
 import "./policyCaseRunner.css";
@@ -453,6 +462,224 @@ function DecisionReading({
   );
 }
 
+/**
+ * A guard's name is the reviewer's own case text, trimmed only for legibility in
+ * a list — never a document quotation, so trimming it breaks no verbatim rule.
+ * It is what a reviewer recognizes when this guard later surfaces a failure under
+ * Quality.
+ */
+function guardName(scenario: string): string {
+  const oneLine = scenario.trim().replace(/\s+/g, " ");
+  const clipped = oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine;
+  return `Case: ${clipped}`;
+}
+
+/**
+ * The guard's description is ours, not the document's, so it says plainly what
+ * the guard protects. `expected_rule_id` (stored on the test) names which rule;
+ * this states the verdict that rule must keep returning.
+ */
+function guardDescription(status: EvaluationStatus): string {
+  const verdict = status === "SATISFIED" ? "satisfied" : "not satisfied";
+  return (
+    "Kept from the case dialog. On every version published from now on, the deterministic " +
+    `evaluator must still read this case as "${verdict}" for this rule, or Quality flags it.`
+  );
+}
+
+/**
+ * Keeping a settled determination as a regression guard — a deliberate step, and
+ * the only thing on this whole surface that writes anything.
+ *
+ * WHY KEEPING SEVERAL IS NOT THE AGGREGATION THE READING REFUSES
+ *
+ * Each seed is one rule's reproducible verdict on this case: the facts the engine
+ * read from it, and the status that rule must keep returning. Keeping several is
+ * keeping several separate deterministic checks, never a policy-level ruling
+ * summed from them. Every guard re-runs on each future publish (Section 4.1) with
+ * no model in the loop — which is exactly why only an engine-settled
+ * determination can become one, and an informational or judged answer cannot.
+ *
+ * WHAT IT DOES NOT TOUCH
+ *
+ * It writes to this policy's tests. It never writes to the evaluation audit
+ * trail, which records what calling systems asked: a reviewer keeping a guard is
+ * not a calling system, and the meaning of that trail must not blur.
+ */
+function KeepAsGuard({
+  policySetKey,
+  seeds,
+}: {
+  policySetKey: string;
+  seeds: readonly CaseGuardSeed[];
+}) {
+  const [saving, setSaving] = useState(false);
+  const [keptCount, setKeptCount] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const keep = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      for (const seed of seeds) {
+        const status = seed.expectedRuleStatus;
+        const body: CreatePolicyTestRequest = {
+          name: guardName(seed.scenario),
+          description: guardDescription(status),
+          test_kind: status === "SATISFIED" ? "positive" : "negative",
+          input_facts: seed.inferredFacts,
+          expected_overall_status: seed.expectedOverallStatus,
+          expected_rule_id: seed.ruleId,
+          expected_rule_status: status,
+        };
+        await policyTestApi.create(policySetKey, body);
+      }
+      setKeptCount(seeds.length);
+    } catch (caught) {
+      setError(caught instanceof PolicyPlatformApiError ? caught.detail : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (keptCount !== null) {
+    // Constraint 5: name the state precisely. A guard now EXISTS and has NOT yet
+    // run — it runs first on the next publish, not now — which is a different
+    // state from one that has run and passed or failed.
+    return (
+      <Alert
+        type="success"
+        showIcon
+        style={{ marginTop: 16 }}
+        data-testid="policy-case-guard-kept"
+        message={keptCount === 1 ? "Kept as a guard." : `Kept as ${keptCount} guards.`}
+        description="It has not run yet. It runs first on the next version you publish, and on every publish after, flagging this case under Quality if the determination ever changes."
+      />
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16 }} data-testid="policy-case-guard-offer">
+      <Paragraph style={{ marginBottom: 8 }}>
+        <Text strong>Is this answer right? Keep it as a guard.</Text> A guard re-runs this exact case
+        against every version you publish from now on and flags it under Quality if the determination
+        ever changes. It writes to this policy&apos;s tests — never to the evaluation audit trail.
+      </Paragraph>
+      <Button
+        icon={<SaveOutlined />}
+        onClick={() => {
+          void keep();
+        }}
+        loading={saving}
+        data-testid="policy-case-guard-keep"
+      >
+        {seeds.length === 1 ? "Keep as a guard" : `Keep as ${seeds.length} guards`}
+      </Button>
+      {error ? (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginTop: 8 }}
+          message={error}
+          data-testid="policy-case-guard-error"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Whether — and how — a case just answered can be kept as a guard, decided in one
+ * place so every not-guardable answer states WHY rather than silently offering
+ * nothing (a greyed control with no reason is exactly what constraint 5 forbids).
+ *
+ * The outcomes are kept apart: an engine-settled determination is keepable; an
+ * informational answer and a judge-settled one are each not, for their own named
+ * reason; and an un-persisted grouping has no policy to attach a guard to.
+ */
+function GuardFromCase({
+  showInformational,
+  reading,
+  policySetKey,
+  target,
+}: {
+  showInformational: boolean;
+  reading: PolicyCaseReading | null;
+  policySetKey: string | null | undefined;
+  target: TestTarget;
+}) {
+  // An informational answer is our synthesis across several rules, not one rule's
+  // verdict. Named, never greyed out in silence.
+  if (showInformational) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        data-testid="policy-case-not-guardable"
+        message="This informational answer cannot be kept as a guard."
+        description="A guard re-runs one rule's determination on a set of facts. This answer is composed by this app from several rules and states no single rule's verdict, so there is nothing deterministic for a guard to re-run."
+      />
+    );
+  }
+
+  if (!reading) return null;
+
+  // Only a settled case is a determination at all. The other states explain
+  // themselves in the reading above, and carry no verdict to keep.
+  if (reading.state !== "settled") return null;
+
+  // Settled, but by a judge reading words: it states no facts, so nothing
+  // deterministic could re-run. Named for the same reason.
+  if (reading.guardSeeds.length === 0) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        data-testid="policy-case-not-guardable"
+        message="This determination cannot be kept as a guard."
+        description="It is settled by a rule the judge read in words, which states no facts. A guard re-runs deterministic facts, so there is nothing here for one to re-run."
+      />
+    );
+  }
+
+  // Guardable — but a guard attaches to a persisted policy (the policy is the
+  // currency). A grouping inferred at read time has none.
+  if (!policySetKey) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        data-testid="policy-case-not-guardable"
+        message="A guard needs a published policy to attach to."
+        description="This grouping is read from the draft and is not persisted as a policy set, so there is nothing for a guard to re-run against yet."
+      />
+    );
+  }
+
+  // Guardable and persisted — but a guard re-runs against future *published*
+  // versions (that is when run_active_tests_for_version fires). A case put to
+  // the draft was computed against a single rule in isolation and against words
+  // that may still change before they are published, so its reading does not
+  // carry over into a faithful guard. Keep it once the policy is published.
+  if (target.kind !== "published_version") {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        data-testid="policy-case-not-guardable"
+        message="Keep this as a guard once the policy is published."
+        description="A guard re-runs on every future published version. This case was put to the draft, whose rules may still change before they are published, so there is no published version yet for a guard to protect."
+      />
+    );
+  }
+
+  return <KeepAsGuard policySetKey={policySetKey} seeds={reading.guardSeeds} />;
+}
+
 export function PolicyCaseRunner({
   policySetKey,
   target,
@@ -627,6 +854,13 @@ export function PolicyCaseRunner({
         </div>
       ) : null}
 
+      <GuardFromCase
+        showInformational={showInformational && informational !== null}
+        reading={reading}
+        policySetKey={policySetKey}
+        target={target}
+      />
+
       {!showInformational && reading ? (
         <Paragraph
           type="secondary"
@@ -707,8 +941,9 @@ export function PolicyCaseRunner({
 
       {(showInformational && informational) || (answers && answers.length > 0) ? (
         <Text type="secondary" style={{ fontSize: 12 }} data-testid="policy-case-not-saved">
-          Answers read here are yours to look at. Nothing is written to this policy's tests or to
-          the evaluation audit trail, which records what calling systems asked.
+          Reading a case here writes nothing. The one thing that does is deliberately keeping a
+          guard, which writes to this policy&apos;s tests — never to the evaluation audit trail,
+          which records what calling systems asked.
         </Text>
       ) : null}
     </div>

@@ -19,7 +19,7 @@
  * name is a finding aid over a rule. Citing what the rules said is not summing
  * what they said.
  */
-import type { CaseAnswer } from "./policyTesting";
+import type { CaseAnswer, CaseGuardSeed } from "./policyTesting";
 
 /**
  * Where a whole policy's answers leave the case. Four, kept apart for the same
@@ -59,6 +59,19 @@ export interface PolicyCaseReading {
    * every consulted rule stays reachable beneath the answer.
    */
   rulesRead: number;
+  /**
+   * The determinations a reviewer could keep as regression guards: the seeds of
+   * the engine-settled rules, and only those.
+   *
+   * This is NOT the aggregation the file refuses. A guard is one rule's
+   * reproducible verdict on one case — `expected_rule_status` for a named rule,
+   * re-run deterministically — so keeping several is keeping several separate
+   * checks, never a policy-level ruling summed from them. A judge's reading
+   * states no facts and a synthesised informational answer is ours, not a rule's
+   * verdict, so neither appears here: an informational reading returns an empty
+   * list, which is what lets the interface say plainly that it is not guardable.
+   */
+  guardSeeds: CaseGuardSeed[];
 }
 
 /**
@@ -89,6 +102,12 @@ export function readPolicyCase(answers: readonly CaseAnswer[]): PolicyCaseReadin
   // from each answer's own settled outcome, not from the words shown.
   const divergent = settling.some((a) => a.adverse) && settling.some((a) => !a.adverse);
 
+  // Only an engine-settled rule carries a seed; a judge's settling reading does
+  // not. Keeping these is citing several reproducible checks, not summing them.
+  const guardSeeds = settling
+    .filter((a): a is CaseAnswer & { guardSeed: CaseGuardSeed } => a.guardSeed !== null)
+    .map((a) => a.guardSeed);
+
   return {
     state,
     settling: [...settling],
@@ -97,5 +116,6 @@ export function readPolicyCase(answers: readonly CaseAnswer[]): PolicyCaseReadin
     unresolved: [...unresolved],
     divergent,
     rulesRead: answers.length,
+    guardSeeds,
   };
 }
