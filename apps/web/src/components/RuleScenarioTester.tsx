@@ -335,12 +335,27 @@ export function RuleScenarioTester({
             </Paragraph>
           )}
 
+          {/* The engine's own account of the answer. The timestamp and the hash
+              are its audit handles, and each is written only if the engine sent
+              one: an answer that arrives without them is still an answer, and a
+              missing handle must not cost the reader the verdict it belongs to.
+              Reading them unguarded threw during render and took the whole
+              panel — and the deterministic route is the smaller of the two, so
+              nobody would have seen it for a while. */}
           <Text type="secondary" style={{ fontSize: 12 }} data-testid="scenario-decided-by">
-            Computed by the engine {new Date(result.evaluation_timestamp).toLocaleString()} · result
-            hash{" "}
-            <Text code copyable={{ text: result.result_hash }} style={{ fontSize: 12 }}>
-              {result.result_hash.slice(0, 12)}…
-            </Text>{" "}
+            Computed by the engine
+            {result.evaluation_timestamp
+              ? ` ${new Date(result.evaluation_timestamp).toLocaleString()}`
+              : ""}
+            {result.result_hash ? (
+              <>
+                {" "}
+                · result hash{" "}
+                <Text code copyable={{ text: result.result_hash }} style={{ fontSize: 12 }}>
+                  {result.result_hash.slice(0, 12)}…
+                </Text>
+              </>
+            ) : null}{" "}
             · not saved to the audit trail (exploratory check only)
           </Text>
         </div>

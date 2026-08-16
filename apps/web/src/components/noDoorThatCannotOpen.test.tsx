@@ -310,6 +310,8 @@ describe("a control is drawn only where it can act", () => {
       missing_facts: [],
       explanation: "An account of why",
       reasoning_effort: "low",
+      evaluation_timestamp: "2024-01-01T00:00:00Z",
+      result_hash: "abcdef012345",
     });
 
     const answer = await putCaseToRule(rule("a", "A computed rule", "deterministic"), {
@@ -434,6 +436,8 @@ describe("a result says what it ran against", () => {
       missing_facts: [],
       explanation: "An account of why",
       reasoning_effort: "low",
+      evaluation_timestamp: "2024-01-01T00:00:00Z",
+      result_hash: "abcdef012345",
     });
 
     render(<RuleScenarioTester policySetKey="a-key" rule={rule("a", "A computed rule", "deterministic")} />);
@@ -443,6 +447,43 @@ describe("a result says what it ran against", () => {
 
     await waitFor(() => expect(computeScenario).toHaveBeenCalledTimes(1));
     expect(testRuleScenario).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The engine's timestamp and result hash are audit handles, not the answer.
+   * Reading them unguarded threw during render, which lost the verdict the
+   * reader had asked for and took the surrounding panel with it. It surfaced as
+   * an unhandled error attributed to an unrelated file, because the throw
+   * happens after the call that a routing test awaits.
+   *
+   * The deterministic route is much the smaller of the two, so a crash confined
+   * to it can sit unnoticed for a long time. An answer that arrives without its
+   * handles is still an answer, and must still be readable.
+   */
+  it("still shows a computed verdict when the engine sends no audit handles", async () => {
+    computeScenario.mockResolvedValue({
+      rule_id: "a",
+      rule_result: { status: "SATISFIED" },
+      inferred_facts: {},
+      assumptions: [],
+      missing_facts: [],
+      explanation: "An account of why",
+      reasoning_effort: "low",
+    });
+
+    render(<RuleScenarioTester policySetKey="a-key" rule={rule("a", "A computed rule", "deterministic")} />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "A described situation" } });
+    fireEvent.click(screen.getByTestId("scenario-run"));
+
+    const said = (await screen.findByTestId("scenario-decided-by")).textContent ?? "";
+    expect(said).toMatch(/engine/i);
+    // No handle, so nothing announcing one - never the word with an empty space
+    // after it, and never the ellipsis left by a hash that was not there.
+    expect(said).not.toMatch(/result hash/i);
+    expect(said).not.toMatch(/Invalid Date/);
+    // The verdict itself survived the missing handles.
+    expect(await screen.findByText(/An account of why/)).toBeTruthy();
   });
 });
 
