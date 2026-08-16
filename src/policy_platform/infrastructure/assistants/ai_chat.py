@@ -548,6 +548,41 @@ async def ask(
                             f"Rules of policy set '{policy_set_key}' version {active.version_number} "
                             f"({standing}):\n" + "\n".join(rule_lines)
                         )
+                    else:
+                        # Empty, not missing: the version is in force but lists
+                        # no rules to show. A set cannot normally approve nothing,
+                        # so this is a debug — a note that the block was reached
+                        # and had nothing to add, not a lookup that failed.
+                        logger.debug(
+                            "ask() resolved policy set %r version %s but it lists no rules; "
+                            "its approved-rules context is empty, not missing",
+                            policy_set_key,
+                            active.version_number,
+                        )
+                else:
+                    # Empty, not failed: the set resolved, but it has no version
+                    # in force for this ask (none active, or the named one is not
+                    # this set's). It has nothing approved to ground on *yet* — a
+                    # different state from a key that names no set at all, and
+                    # kept apart from it so a set mid-drafting does not warn.
+                    logger.debug(
+                        "ask() resolved policy set %r but it has no applicable approved version; "
+                        "its approved-rules context is empty, not missing",
+                        policy_set_key,
+                    )
+            else:
+                # Failed, not absent: a key was named and no policy set has it.
+                # The ask still answers from the rule alone — that degrade is
+                # deliberate (see the except below, "answer from rules alone") —
+                # but the skip is no longer silent. Silence here read as "this set
+                # has no approved version", hiding a lookup that found nothing
+                # where the caller believed it had named a set: exactly what a
+                # draft ask sending a uuid instead of a key produced, unseen.
+                logger.warning(
+                    "ask() named policy set %r but no policy set has that key; "
+                    "answering without its approved-rules context",
+                    policy_set_key,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to load approved rules context during ask(): %s", exc)
 
