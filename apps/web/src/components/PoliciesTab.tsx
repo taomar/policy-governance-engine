@@ -571,17 +571,38 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
     [cards, openPolicyKey],
   );
 
-  /** The file the open policy was read out of, where the runs resolve it.
+  /** The file each policy was read out of, keyed by the version it came from.
    *
-   *  `null` rather than a guess when they do not: this names a document to a
-   *  reader tracing one, and a wrong name is worse than none. */
-  const documentName = useMemo(() => {
-    const versionId = openPolicyCard?.policy.document_version_id;
-    if (!versionId) return null;
-    return (
-      extractionRuns?.find((run) => run.document_version_id === versionId)?.document_title ?? null
-    );
-  }, [openPolicyCard, extractionRuns]);
+   *  Every card asks this for its own policy. A page-wide answer would be the
+   *  name of whichever policy happened to be open, handed to policies that came
+   *  out of a different file — which is how a short passage ends up captioned
+   *  with the name of the book instead of its own subject. Empty when the runs
+   *  did not load, and then a card asks the narrower question about its label,
+   *  which is the answer it had before this existed.
+   *
+   *  `null` rather than a guess where the runs do not resolve it: this names a
+   *  document to a reader tracing one, and a wrong name is worse than none. */
+  const documentNameByVersion = useMemo(() => {
+    const byVersion = new Map<string, string>();
+    for (const run of extractionRuns ?? []) {
+      const title = run.document_title?.trim();
+      if (title && !byVersion.has(run.document_version_id)) {
+        byVersion.set(run.document_version_id, title);
+      }
+    }
+    return byVersion;
+  }, [extractionRuns]);
+
+  const documentNameOf = useCallback(
+    (versionId: string | null | undefined) =>
+      (versionId && documentNameByVersion.get(versionId)) || null,
+    [documentNameByVersion],
+  );
+
+  const documentName = useMemo(
+    () => documentNameOf(openPolicyCard?.policy.document_version_id),
+    [documentNameOf, openPolicyCard],
+  );
 
   /** Bring the panel to where the reader can see it, whatever they opened.
    *
@@ -1080,7 +1101,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                              than drawn and inert. */
                           onSelectRule={(entry) => handleSelectRule(entry.rule)}
                           selectedRuleId={selectedRuleId}
-                          documentName={documentName}
+                          documentName={documentNameOf(card.policy.document_version_id)}
                         />
                       ))}
 

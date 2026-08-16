@@ -268,4 +268,33 @@ describe("the published page expands a rule into that same reading", () => {
     expect(source()).not.toMatch(/from\s+"\.\/PublishedPolicyCard"/);
     expect(source()).not.toMatch(/from\s+"\.\.\/publishedPolicyCards"/);
   });
+
+  /**
+   * A card is captioned with a generated subject, and that subject is withheld
+   * when it says no more than the document already does — which needs the name
+   * of the document the *card* came from.
+   *
+   * The page resolved one name for whichever policy was open and handed it to
+   * every card on the list. So a card was asked "does your label repeat this
+   * name?" about a different file, or about nothing at all when none was open,
+   * and a short passage kept a caption naming the book it sits in. The review
+   * queue resolves per card; this is the same question asked the same way.
+   */
+  const cardElement = () => {
+    const text = source();
+    const start = text.indexOf("<PolicyReviewCard");
+    expect(start).toBeGreaterThan(-1);
+    return text.slice(start, text.indexOf("/>", start));
+  };
+
+  it("asks each card's own document for the name, not the page's", () => {
+    expect(cardElement()).toMatch(/documentName=\{[A-Za-z]+\(\s*card\./);
+  });
+
+  it("hands no card a name resolved from whatever else is open", () => {
+    // The open policy's name is still resolved, because the panel beside the
+    // list is showing that one policy and is right to use it. What must not
+    // happen is that value reaching a card, which is a different policy.
+    expect(cardElement()).not.toMatch(/documentName=\{documentName\}/);
+  });
 });
