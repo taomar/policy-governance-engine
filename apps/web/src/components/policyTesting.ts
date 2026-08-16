@@ -184,6 +184,43 @@ export const COMPUTED_ANSWER: Record<EvaluationStatus, { label: string; color: s
   ERROR: { label: "This could not be computed", color: "default" },
 };
 
+/**
+ * Where a rule's answer leaves the case, as a category rather than a sentence.
+ *
+ * A policy-level reading has to lead with the rules that *settle* the case and
+ * keep the rest as supporting detail, and it must do that without re-reading the
+ * prose each answer already carries. This is that category, derived from the
+ * decider's own status and never from the words on screen, so a reworded label
+ * can never move a rule between buckets.
+ *
+ *   - `settles`      the decider reached the case: the engine computed that it
+ *                    meets or breaches the rule, or the judge read the rule as
+ *                    applying to it.
+ *   - `stands_aside` the rule does not bear on the case.
+ *   - `unsettled`    the rule bears, but what deciding it needs was not stated.
+ *   - `uncomputable` the engine could not compute a verdict.
+ *   - `unanswered`   nobody answered; the request for this rule did not complete.
+ */
+export type CaseSettlement =
+  | "settles"
+  | "stands_aside"
+  | "unsettled"
+  | "uncomputable"
+  | "unanswered";
+
+/**
+ * The engine's status, bucketed into where it leaves the case. Keyed on the
+ * status enum, not the label, so the sentence a reviewer reads can be reworded
+ * without silently re-bucketing a rule.
+ */
+const SETTLEMENT_OF_STATUS: Record<EvaluationStatus, CaseSettlement> = {
+  SATISFIED: "settles",
+  NOT_SATISFIED: "settles",
+  NOT_APPLICABLE: "stands_aside",
+  INDETERMINATE: "unsettled",
+  ERROR: "uncomputable",
+};
+
 /** One rule's answer to one case, in the terms of whichever decider answered. */
 export interface CaseAnswer {
   ruleId: string;
@@ -210,6 +247,19 @@ export interface CaseAnswer {
    * silently resolved against draft rows and looked grounded.
    */
   testedAgainst: TestTarget;
+  /**
+   * Where this answer leaves the case, for a policy-level reading to lead with
+   * what settles it and keep the rest as supporting detail. Derived from the
+   * decider's status, never from `label`.
+   */
+  settlement: CaseSettlement;
+  /**
+   * True only when a rule the case *settles* is one it breaches. It lets a
+   * policy-level reading say plainly when the rules that settle a case do not all
+   * point the same way — one met and one breached is exactly the divergence that
+   * must never be hidden — without picking a winner or averaging them.
+   */
+  adverse: boolean;
 }
 
 /**
@@ -262,6 +312,10 @@ export async function putCaseToRule(
         account: result.explanation ?? "",
         missing: result.missing_facts ?? [],
         unanswered: null,
+        settlement: SETTLEMENT_OF_STATUS[status] ?? "uncomputable",
+        // A breach is the one settled outcome that points against the case, and
+        // the only one that can make two settling rules disagree.
+        adverse: status === "NOT_SATISFIED",
       };
     }
 
@@ -271,6 +325,15 @@ export async function putCaseToRule(
     // honoured by the rule that arrives, and reported rather than assumed.
     const judged = await aiApi.evaluateScenario(rule, scenario, reasoningEffort);
     const answer = JUDGED_ANSWER[judged.applies] ?? JUDGED_ANSWER.uncertain;
+    // The judge reads whether the rule applies, not whether the case complies, so
+    // it never returns a breach: an applying rule settles the case, a standing-
+    // aside rule does not bear, and anything else is the rule borne-but-unsettled.
+    const settlement: CaseSettlement =
+      judged.applies === "yes"
+        ? "settles"
+        : judged.applies === "no"
+          ? "stands_aside"
+          : "unsettled";
     return {
       ...base,
       decidedBy: "judge",
@@ -279,6 +342,8 @@ export async function putCaseToRule(
       account: judged.reasoning ?? "",
       missing: judged.missing_facts ?? [],
       unanswered: null,
+      settlement,
+      adverse: false,
     };
   } catch (caught) {
     return {
@@ -289,6 +354,8 @@ export async function putCaseToRule(
       account: "",
       missing: [],
       unanswered: refusal(caught),
+      settlement: "unanswered",
+      adverse: false,
     };
   }
 }

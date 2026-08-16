@@ -1,0 +1,60 @@
+/*
+ * Styling owned by the policy-case runner.
+ *
+ * Kept out of App.css deliberately: App.css is being reworked by another hand,
+ * and these rules belong to one surface. Everything here follows the tokens in
+ * index.css and the restraint the generated rule name already established — the
+ * only thing that carries meaning rather than decoration is the synthesis
+ * marker, the app saying, in that same visual language, that the words beneath
+ * are the app's and not the document's.
+ */
+
+/*
+ * An answer the app composed. It wears the same ✦ and the same "by this app"
+ * caption the generated rule name wears — and, like that name, it marks itself
+ * with weight and case, never with a colour or a rail, so a reader who has
+ * learned what the mark means on a rule meets it meaning the same thing here.
+ * The quotation styling is never borrowed; the document's own characters are set
+ * apart by the quotation marks the rest of the app already uses for source text.
+ */
+.app-synthesis {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.app-synthesis__mark {
+  opacity: 0.55;
+}
+
+.app-synthesis__caption {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.app-synthesis__body {
+  margin-top: 6px;
+}
+
+/* One cited rule beneath a composed answer. No rail: the finding aids and the
+ * quoted sentence are told apart by weight and by the quotation marks, as they
+ * are everywhere else source text is shown. */
+.policy-case-citation {
+  margin: 10px 0;
+}
+
+/* The policy-level reading that leads a determination: the one answer and the
+ * rules it rests on, above the per-rule detail rather than instead of it. */
+.policy-case-reading {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.policy-case-reading__rule {
+  margin-top: 8px;
+}
