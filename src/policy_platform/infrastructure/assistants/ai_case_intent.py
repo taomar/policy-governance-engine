@@ -117,11 +117,11 @@ therefore which kind it is."""
 _INFORMATIONAL_SYSTEM_PROMPT = """A reviewer has asked what a governance policy provides on some \
 subject. You are given the reviewer's question and the policy's rules as the record holds them. Each \
 rule carries an id, a title, a description, the exact sentence from the source document it was drawn \
-from, the kind of rule it is and whether it is machine-executable, the facts it is measured against \
-(each with the unit it is counted in), its compiled condition, its scope, its effect, and any \
-exceptions or advice. This is the whole set you may draw on: answer only from these rules, and cite \
-only ids that appear among them. Your job is to gather the material that answers the question and \
-state it plainly.
+from, the kind of rule it is and how it is decided — a `rule_type`, and an `evaluation_mode` of \
+either deterministic or ai_ready — the facts it is measured against (each with the unit it is counted \
+in), its compiled condition, its scope, its effect, and any exceptions or advice. This is the whole \
+set you may draw on: answer only from these rules, and cite only ids that appear among them. Your job \
+is to gather the material that answers the question and state it plainly.
 
 Use only what the rules say. Do not invent a limit, a number, or a condition that is not in the \
 material you were given. A rule bears on the question when what it holds speaks to the subject the \
