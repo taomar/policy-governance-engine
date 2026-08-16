@@ -344,7 +344,26 @@ def assemble(
 
     lookup = provisions or {}
     grouped: dict[tuple[str | None, str], dict[str, list[CanonicalRule]]] = {}
+    seen: set[str] = set()
     for rule in rules:
+        # One rule_id, one rule -- even when it arrives twice. The id is a hash
+        # of a rule's logic, so two live candidate records of one provision (a
+        # published reading and a later re-extraction of it) carry the same id,
+        # and the draft caller lists every live record. Counting or drawing both
+        # would put a rule on its card twice while the published surface, which
+        # passes one record per id, showed it once -- and the client trusts the
+        # count as its denominator, so the two surfaces have to agree here.
+        #
+        # The first occurrence is kept. A duplicate can only be a later
+        # re-extraction of a rule that already existed, so the earlier record is
+        # the incumbent: the reading that has had the chance to be reviewed and
+        # published, and the one the published path shows -- keeping it makes the
+        # surfaces agree. Which reading a reviewer should act on when a
+        # re-extraction disagrees is a separate affordance, not settled by which
+        # prose is left standing here.
+        if rule.rule_id in seen:
+            continue
+        seen.add(rule.rule_id)
         provision = lookup.get(rule.rule_id)
         key = provision.key if provision is not None else policy_key(rule)
         policy = grouped.setdefault((_document_version(rule), key), {})
@@ -386,11 +405,18 @@ def assemble(
     # remove a decision from the review queue, and a duplicated one would show
     # a reviewer the same obligation twice under two headings -- both worse
     # than the fragmentation this exists to fix, and both cheap to rule out.
+    #
+    # The partition is over rule ids, not records: two records of one rule are
+    # collapsed above, so what must come out is every distinct id that went in,
+    # each exactly once. Asserting against the record count would fire on that
+    # legitimate collapse; asserting against the id set catches a rule the
+    # assembly itself drops or repeats, which is the failure that matters.
     assert all(policy.passages for policy in policies), "assembly produced an empty policy"
     assert all(
         passage.rules for policy in policies for passage in policy.passages
     ), "assembly produced an empty passage"
     placed = [rule.rule_id for policy in policies for rule in policy.rules]
-    assert len(placed) == len(rules), "assembly lost or duplicated a rule"
+    assert len(placed) == len(set(placed)), "assembly listed a rule more than once"
+    assert set(placed) == {rule.rule_id for rule in rules}, "assembly lost or invented a rule"
 
     return policies
