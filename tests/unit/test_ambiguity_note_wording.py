@@ -23,6 +23,25 @@ reading. It is not a statement about the record, which is quoting those words
 faithfully, and it is not a shortfall in anything. Wording that turns a fact
 about a document into a fault in a record is the recurring defect in this
 codebase, so the vocabulary is checked here too.
+
+That claim has two halves, and until this guard only one was mechanised. "Not a
+shortfall in the record" was enforced — the deficiency vocabulary below — but
+"not a statement about the record" was only stated. So copy could turn the
+status into a claim about WHO resolves the reading, which is the route's
+business and not this field's, and the deficiency scan stayed green while it
+did. A reviewer met exactly that: a warning reading "a person settles it"
+restated the AI Ready route. `test_the_wording_names_no_one_who_decides` closes
+the gap, so the second half of the claim above is now enforced rather than
+merely described. The general failure it guards against is a comment that
+promises a broader invariant than the assertions keep: it reads as protection
+and is not.
+
+Both vocabularies are English word lists over the English chrome in this module,
+and neither survives translation: a word list does not police Arabic. That is
+deliberate and acceptable — the Arabic surface is produced through the
+answer-language table, not this file, and the sibling deficiency scan makes the
+identical trade on the identical strings. It is written down so nobody later
+mistakes either scan for cover over translated copy.
 """
 from __future__ import annotations
 
@@ -72,6 +91,33 @@ _DEFICIENCY = (
     r"defect",
 )
 _DEFICIENCY_RE = re.compile(r"\b(?:" + "|".join(_DEFICIENCY) + r")\b", re.IGNORECASE)
+
+#: Words that name who resolves an open reading, or the act of resolving it.
+#: `ambiguity_status` reports that the SOURCE's wording reads more than one way;
+#: WHO settles which reading applies is the route's business — an AI Ready rule
+#: has a judge read it, a Deterministic rule computes — not this field's. Copy
+#: that says "a person settles it" restates the route, which the docstring's
+#: second claim forbids but the deficiency scan alone did not catch.
+#:
+#: Matched case-insensitively on word boundaries against display strings only.
+#: "read" is deliberately absent: every state legitimately says the wording can
+#: be "read more than one way".
+_WHO_DECIDES = (
+    r"a person",
+    r"persons?",
+    r"people",
+    r"someone",
+    r"anyone",
+    r"judges?",
+    r"reviewers?",
+    r"settles?",
+    r"settled",
+    r"settling",
+    r"decides?",
+    r"deciding",
+    r"decided",
+)
+_WHO_DECIDES_RE = re.compile(r"\b(?:" + "|".join(_WHO_DECIDES) + r")\b", re.IGNORECASE)
 
 #: Floors on what each scan LOOKED AT, as distinct from what it found.
 #:
@@ -316,6 +362,46 @@ def test_the_wording_describes_the_source_not_a_fault_in_the_record():
     )
     assert len(_DEFICIENCY) >= 8, (
         f"the vocabulary has {len(_DEFICIENCY)} patterns, expected at least 8. An emptied "
+        "pattern list clears every string ever written."
+    )
+
+
+def test_the_wording_names_no_one_who_decides():
+    """The other half of this module's docstring claim, now enforced.
+
+    `ambiguity_status` reports that the SOURCE's wording reads more than one
+    way. WHO resolves an open reading is the route's business — an AI Ready rule
+    has a judge read it against the case; a Deterministic rule computes — and
+    saying so here restates the route. The sibling scan above forbids framing
+    the record as a shortfall; this forbids framing the status as a handoff to
+    someone. Both turn a fact about the document into something it is not — one
+    an accusation, one a handoff.
+
+    Like its sibling this is an English word list over English display strings,
+    and a word list does not survive Arabic; it is not cover over translated
+    copy. See the module docstring for why that is acceptable here.
+    """
+
+    strings, examined = _display_strings()
+
+    offenders = [
+        f"{WORDING.name}:{lineno}: {match.group(0)!r} in {text[:70]!r}"
+        for lineno, text in strings
+        if (match := _WHO_DECIDES_RE.search(text))
+    ]
+    assert not offenders, (
+        "ambiguity wording that names who resolves an open reading, restating the "
+        "route instead of describing the source:\n  " + "\n  ".join(offenders)
+    )
+
+    # Floors last, same reasoning as the deficiency scan: the strings could go to
+    # zero, or the vocabulary could, and one number cannot report the other.
+    assert examined >= _MINIMUM_DISPLAY_STRINGS, (
+        f"read {examined} display strings out of {WORDING.relative_to(ROOT)}, expected at "
+        f"least {_MINIMUM_DISPLAY_STRINGS}. Nothing was checked for who-decides framing."
+    )
+    assert len(_WHO_DECIDES) >= 8, (
+        f"the vocabulary has {len(_WHO_DECIDES)} patterns, expected at least 8. An emptied "
         "pattern list clears every string ever written."
     )
 
