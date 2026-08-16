@@ -192,35 +192,58 @@ function renderCard(policy: AssembledPolicy, candidates: CandidateRule[], open =
 }
 
 describe("a policy card hides no rule behind an interaction", () => {
-  it("draws every one of a large policy's rules with nothing clicked", () => {
-    const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-    const card = renderCard(policy, candidates);
+  // WHY THESE CARRY AN EXPLICIT BUDGET
+  //
+  // These two draw the largest policy anyone has measured and then look for
+  // every one of its rules. That is deliberately the most expensive render in
+  // the suite, and vitest's default five seconds is not a budget anyone chose
+  // for it — it is the default, and it began failing when the card grew a name
+  // and an inline detail per rule. A completeness test failing on a stopwatch
+  // reports the wrong fault: it says rules are missing when they are all there.
+  //
+  // So the limit is stated, generously, and what the render costs is reported
+  // where cost belongs rather than smuggled in as a timeout. If drawing a whole
+  // policy ever gets slow enough to exhaust even this, that is a finding about
+  // the card and not about these assertions.
+  const DRAWS_A_WHOLE_LARGE_POLICY = 90_000;
 
-    // CONTROL. If the fixture or the builder collapsed, the loop below would
-    // iterate over nothing and the test would pass on an empty page.
-    expect(card.rules).toHaveLength(LARGEST_MEASURED_POLICY);
+  it(
+    "draws every one of a large policy's rules with nothing clicked",
+    () => {
+      const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
+      const card = renderCard(policy, candidates);
 
-    const missing = card.rules
-      .map((r) => r.rule_id)
-      .filter((ruleId) => screen.queryAllByText(`title ${ruleId}`).length === 0);
+      // CONTROL. If the fixture or the builder collapsed, the loop below would
+      // iterate over nothing and the test would pass on an empty page.
+      expect(card.rules).toHaveLength(LARGEST_MEASURED_POLICY);
 
-    expect(
-      missing,
-      `${missing.length} of ${card.rules.length} rules are not on the page until ` +
-        "something is clicked. Structure groups rules; it does not store them.",
-    ).toEqual([]);
-  });
+      const missing = card.rules
+        .map((r) => r.rule_id)
+        .filter((ruleId) => screen.queryAllByText(`title ${ruleId}`).length === 0);
 
-  it("draws every passage of a large policy too", () => {
-    const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-    const card = renderCard(policy, candidates);
+      expect(
+        missing,
+        `${missing.length} of ${card.rules.length} rules are not on the page until ` +
+          "something is clicked. Structure groups rules; it does not store them.",
+      ).toEqual([]);
+    },
+    DRAWS_A_WHOLE_LARGE_POLICY,
+  );
 
-    expect(card.passages.length).toBe(MERGED_REPEATS);
-    // Each passage draws its own block, so the count of blocks is the count of
-    // passages — a card that drew one block and listed 72 rules flat would fail
-    // here while passing the test above.
-    expect(screen.getAllByTestId("policy-passage")).toHaveLength(card.passages.length);
-  });
+  it(
+    "draws every passage of a large policy too",
+    () => {
+      const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
+      const card = renderCard(policy, candidates);
+
+      expect(card.passages.length).toBe(MERGED_REPEATS);
+      // Each passage draws its own block, so the count of blocks is the count of
+      // passages — a card that drew one block and listed 72 rules flat would fail
+      // here while passing the test above.
+      expect(screen.getAllByTestId("policy-passage")).toHaveLength(card.passages.length);
+    },
+    DRAWS_A_WHOLE_LARGE_POLICY,
+  );
 
   it("renders the same rules whether or not the card is the open one", () => {
     // `open` marks the card whose detail panel is showing. If it also gated
