@@ -72,9 +72,15 @@ _INTENTS = (INFORMATIONAL, DECISION)
 ANSWERED = "answered"
 NO_RULE_BEARS = "no_rule_bears"
 DECLINED = "declined"
-# The fourth state, a failed request, is not a value here: it is an exception
-# the caller turns into its own reply, so that "the policy holds nothing on
-# this" can never be produced by a request that did not actually run.
+#: The fourth state: a case read as informational whose answer did not get
+#: gathered. `answer_informational` never *returns* this — it raises, so that
+#: "the policy holds nothing on this" can never be produced by a request that
+#: did not actually run. Its caller `answer_policy_case`, which by then knows the
+#: intent was informational, catches that failure and materialises it as this
+#: status. That keeps it apart from the other three, and stops a known
+#: informational request from silently falling through to a determination, which
+#: would answer a different question than the one that was asked.
+FAILED = "failed"
 
 _CLASSIFY_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy into exactly \
 one of two kinds. Read only the question. Do not assume anything about the policy it was put to.
@@ -334,6 +340,16 @@ async def answer_policy_case(
     determination it is ``None`` and the caller runs the per-rule deciders it
     already has, unchanged. This module never runs those deciders itself, so
     there is one implementation of a determination and this is not a second.
+
+    Two kinds of failure are kept apart, because they are not the same fact. A
+    classification that does not complete leaves the intent *unknown*: there is
+    no honest answer to compose, so it is raised for the endpoint to turn into a
+    503 the product degrades on — never guessed into one intent or the other. A
+    gather that does not complete on a case already read as informational leaves
+    the intent *known*: that is the fourth informational state, reported as
+    ``{"status": "failed"}`` rather than raised, so the reader is told the answer
+    for their question did not come back rather than being handed a determination
+    of a different question.
     """
 
     effort = _normalise_effort(reasoning_effort)
@@ -347,9 +363,16 @@ async def answer_policy_case(
 
     informational = None
     if intent == INFORMATIONAL:
-        informational = await answer_informational(
-            rules, scenario=scenario, reasoning_effort=effort
-        )
+        try:
+            informational = await answer_informational(
+                rules, scenario=scenario, reasoning_effort=effort
+            )
+        except RuntimeError:
+            # The intent is known; only the gather failed. Report it as the
+            # fourth state rather than letting it propagate, which would fail
+            # the whole request and drop the product onto the determination
+            # path — answering a question the reviewer did not ask.
+            informational = {"status": FAILED, "answer": "", "citations": [], "note": ""}
 
     return {
         "intent": intent,

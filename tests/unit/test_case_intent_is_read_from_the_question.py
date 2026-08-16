@@ -71,16 +71,21 @@ class _StubClient:
         "note": "",
     }
     fail: bool = False
+    #: Fail only the informational gather, letting classification succeed. This
+    #: is the shape that proves a *known* informational request whose answer did
+    #: not come back is its own state, not the determination fallback.
+    fail_info: bool = False
 
     def __init__(self, settings: Any) -> None:  # noqa: D107 - shape only
         self._settings = settings
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         type(self).calls.append({"messages": messages, "kwargs": kwargs})
-        if type(self).fail:
-            raise RuntimeError("the model call failed")
         system = messages[0]["content"]
-        reply = type(self).classify_reply if "sort one question" in system else type(self).info_reply
+        is_classify = "sort one question" in system
+        if type(self).fail or (type(self).fail_info and not is_classify):
+            raise RuntimeError("the model call failed")
+        reply = type(self).classify_reply if is_classify else type(self).info_reply
         return json.dumps(reply, ensure_ascii=False)
 
 
@@ -98,6 +103,7 @@ def stubbed(monkeypatch: pytest.MonkeyPatch) -> type[_StubClient]:
         "note": "",
     }
     _StubClient.fail = False
+    _StubClient.fail_info = False
     return _StubClient
 
 
@@ -379,3 +385,45 @@ async def test_a_citation_to_a_rule_not_in_the_policy_is_dropped(stubbed):
 
     assert info["status"] == "no_rule_bears"
     assert info["citations"] == []
+
+
+# --------------------------------------------------------------------------- #
+# The two failures are not the same failure, at the policy level.
+# --------------------------------------------------------------------------- #
+
+
+async def test_a_gather_that_fails_on_a_known_informational_case_is_its_own_state(stubbed):
+    """The case was read as informational and the gather did not complete. That
+    is the fourth state, `failed`, and it must reach the reviewer as itself —
+    never as `no_rule_bears` (a true answer), and never by quietly dropping to
+    the determination path, which would answer a different question. Here the
+    classify call succeeds and only the informational call fails."""
+
+    stubbed.classify_reply = {"intent": "informational", "reasoning": "Asks what the policy provides."}
+    stubbed.fail_info = True
+
+    out = await ai_case_intent.answer_policy_case(
+        [_cap_rule().model_dump(mode="json")],
+        scenario="How many hours may a part-timer work?",
+    )
+
+    assert out["intent"] == "informational"
+    assert out["informational"] is not None
+    assert out["informational"]["status"] == "failed"
+    # Not dressed as the absence of a bearing rule.
+    assert out["informational"]["status"] != "no_rule_bears"
+
+
+async def test_a_classification_that_fails_is_raised_because_the_intent_is_unknown(stubbed):
+    """The other failure. When classification itself does not complete the intent
+    is unknown, so there is no honest answer to compose and none is invented: it
+    is raised for the endpoint to turn into a 503 the product degrades on, rather
+    than guessed into informational or decision."""
+
+    stubbed.fail = True
+
+    with pytest.raises(RuntimeError):
+        await ai_case_intent.answer_policy_case(
+            [_cap_rule().model_dump(mode="json")],
+            scenario="How many hours may a part-timer work?",
+        )
