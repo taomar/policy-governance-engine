@@ -44,6 +44,7 @@ import { ReadOutlined } from "@ant-design/icons";
 import { Input } from "antd";
 import type { CanonicalRule } from "../api";
 import { DirectionalText } from "./DirectionalText";
+import { baseDirection } from "../directionalText";
 import { RuleName } from "./RuleName";
 import { putCaseToRule, targetLabel, RESULT_DOES_NOT_CARRY_OVER, type CaseAnswer, type TestTarget } from "./policyTesting";
 import { answerPolicyCase, type CaseIntent, type InformationalAnswer, type InformationalGrounding } from "./policyCaseIntent";
@@ -82,43 +83,91 @@ function NamedRule({
 }
 
 /**
- * Every rule of the policy, listed so leading with a few never leaves a reviewer
- * believing those few were all there were.
+ * Every rule of the policy, accounted for, so leading with a few never leaves a
+ * reviewer believing those few were all there were.
  *
- * It is not behind a disclosure: what a reviewer needs to judge what they were
- * shown does not sit behind a click. It says how many rules were read and shows
- * each — its finding aids, and its own title verbatim — marking the ones the
- * answer above already rested on so the reader can tell cited from merely read
- * without either being hidden.
+ * The completeness claim — how many rules were read — always stays visible. What
+ * sits with it depends on whether an answer was composed:
+ *
+ *  - Beneath a composed answer, the rules it rests on are already shown in full
+ *    above, with their quotes. Repeating them here would be a second copy of one
+ *    fact, not a second fact, so this carries only the remainder — the rules not
+ *    cited above — and puts that enumeration behind a disclosure. That is
+ *    legitimate because the enumeration is provenance, not the evidence a
+ *    reviewer needs to judge a record (constraint 6); the claim that every rule
+ *    was read stays open, and the count still adds up.
+ *  - When no answer was composed, this list is the thing to read directly, so
+ *    every rule stays open with nothing behind a click.
  */
 function AllRulesReference({
   rules,
   policySetKey,
   citedIds,
   heading,
+  collapsible = false,
 }: {
   rules: readonly CanonicalRule[];
   policySetKey: string | null | undefined;
   citedIds: ReadonlySet<string>;
   heading: string;
+  collapsible?: boolean;
 }) {
   if (rules.length === 0) return null;
+
+  // The rules the answer already cited in full above are not repeated here:
+  // printing one rule twice is a second copy of one fact, not a second fact.
+  const remainder = rules.filter((rule) => !citedIds.has(rule.rule_id));
+
+  const list = (shown: readonly CanonicalRule[]) => (
+    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+      {shown.map((rule) => (
+        <div key={rule.rule_id} className="policy-case-reading__rule">
+          <NamedRule policySetKey={policySetKey} ruleId={rule.rule_id} variant="block" />
+          <DirectionalText>{rule.title}</DirectionalText>
+        </div>
+      ))}
+    </Space>
+  );
+
+  // Beneath a composed answer: the completeness claim is provenance, not the
+  // evidence, so the enumeration may sit behind a disclosure (constraint 6) —
+  // but the claim itself stays open, and the disclosure holds only the rules
+  // not already shown above.
+  if (collapsible) {
+    if (remainder.length === 0) {
+      return (
+        <div data-testid="policy-case-all-rules" style={{ marginTop: 16 }}>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            <Text strong>{heading}.</Text> Every one is cited above.
+          </Paragraph>
+        </div>
+      );
+    }
+    return (
+      <details
+        data-testid="policy-case-all-rules"
+        className="policy-case-all-rules"
+        style={{ marginTop: 16 }}
+      >
+        <summary className="policy-case-all-rules__summary">
+          <Text strong>{heading}.</Text>{" "}
+          <Text type="secondary">
+            The {remainder.length} not cited above {remainder.length === 1 ? "is" : "are"} kept here.
+          </Text>
+        </summary>
+        <div className="policy-case-all-rules__body">{list(remainder)}</div>
+      </details>
+    );
+  }
+
+  // No answer was composed: the list is the thing to read directly, so every
+  // rule stays open with nothing behind a click.
   return (
     <div data-testid="policy-case-all-rules" style={{ marginTop: 16 }}>
       <Paragraph type="secondary" style={{ marginBottom: 6 }}>
         <Text strong>{heading}.</Text> Each is listed here; none is hidden.
       </Paragraph>
-      <Space direction="vertical" size={8} style={{ width: "100%" }}>
-        {rules.map((rule) => (
-          <div key={rule.rule_id} className="policy-case-reading__rule">
-            <NamedRule policySetKey={policySetKey} ruleId={rule.rule_id} variant="block" />
-            <Space wrap size={6} align="start">
-              <DirectionalText>{rule.title}</DirectionalText>
-              {citedIds.has(rule.rule_id) ? <Tag color="purple">the answer rests on this</Tag> : null}
-            </Space>
-          </div>
-        ))}
-      </Space>
+      {list(rules)}
     </div>
   );
 }
@@ -276,9 +325,13 @@ function InformationalPanel({
               </div>
             ) : null}
             {quote ? (
-              <Paragraph style={{ marginBottom: 0 }}>
-                “<DirectionalText align>{quote}</DirectionalText>”
-              </Paragraph>
+              <p
+                className="policy-case-citation__quote directional-text--block"
+                dir={baseDirection(quote)}
+                style={{ marginBottom: 0 }}
+              >
+                “<DirectionalText>{quote}</DirectionalText>”
+              </p>
             ) : null}
           </div>
         );
@@ -291,6 +344,7 @@ function InformationalPanel({
         policySetKey={policySetKey}
         citedIds={citedIds}
         heading={`All ${rules.length} ${rules.length === 1 ? "rule" : "rules"} of this policy were read`}
+        collapsible
       />
     </div>
   );
@@ -510,24 +564,11 @@ export function PolicyCaseRunner({
     !showInformational && !running && answers && answers.length > 0 ? readPolicyCase(answers) : null;
 
   return (
-    <div className="policy-pane" data-testid="policy-case-runner">
-      <Alert
-        type="info"
-        showIcon
-        message="One case, one answer from this policy"
-        description={
-          <span>
-            Describe a situation and this policy answers it as a whole, leading with the rule or
-            rules the answer rests on and naming them so you can read each yourself. A question of
-            what the policy says is answered from the rules that state it; a case that describes a
-            situation for a determination is decided by each rule through its own route — a
-            comparison between named quantities is computed, what a rule requires in words is read —
-            and where those routes point different ways you are told, not handed one answer that hid
-            it.
-          </span>
-        }
-        style={{ marginBottom: 16 }}
-      />
+    <div className="policy-pane policy-case-runner" data-testid="policy-case-runner">
+      <Paragraph type="secondary" data-testid="policy-case-intro" style={{ marginBottom: 16 }}>
+        Describe a situation and this policy answers it as a whole, naming the rule or rules the
+        answer rests on so you can read each yourself.
+      </Paragraph>
 
       <Paragraph type="secondary" data-testid="policy-case-target">
         The case is put to <Text strong>{targetLabel(target)}</Text>.

@@ -58,3 +58,58 @@
 .policy-case-reading__rule {
   margin-top: 8px;
 }
+
+/*
+ * Hierarchy. The reader came for the answer, so the answer leads — set larger
+ * and looser than the rules beneath it. It leads by weight and measure, not by
+ * colour or a fill, so it stays the same neutral surface the ✦ mark taught the
+ * reader to read, and nothing here competes with a quotation for attention.
+ */
+.policy-case-runner .app-synthesis {
+  padding: 12px 16px;
+}
+
+.policy-case-runner .app-synthesis__body {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/*
+ * The generated-name caption is a finding aid, not a headline. App.css sets it
+ * in shouting caps with wide tracking; on this surface it appears beside every
+ * cited rule, so scoped only to here it is returned to sentence case and normal
+ * tracking. The wording is untouched — text-transform never changes the text a
+ * guard reads, only how it is drawn — and the mark, the caption and the "by this
+ * app" claim all remain, just quiet.
+ */
+.policy-case-runner .rule-name__caption {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/*
+ * A cited quotation, set inline. The opening and closing marks sit on the same
+ * block as the words they enclose — never on their own lines — and the block
+ * owns the run's direction so an Arabic quote reads from the right. This is the
+ * document's own text; it is never trimmed to make a row align (constraint 4).
+ */
+.policy-case-citation__quote {
+  margin-top: 4px;
+}
+
+/*
+ * The completeness claim is provenance, not the evidence, so its enumeration may
+ * sit behind a disclosure (constraint 6). The claim itself is the always-visible
+ * summary; the door is a native one and always opens.
+ */
+.policy-case-all-rules {
+  margin-top: 16px;
+}
+
+.policy-case-all-rules > summary {
+  cursor: pointer;
+}
+
+.policy-case-all-rules__body {
+  margin-top: 10px;
+}
