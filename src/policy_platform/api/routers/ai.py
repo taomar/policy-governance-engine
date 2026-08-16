@@ -730,7 +730,7 @@ class PolicyCaseAnswerRequest(BaseModel):
     reasoning_effort: str = "medium"
 
 
-@router.post("/policy-case/answer", include_in_schema=False)
+@router.post("/policy-case/answer")
 async def answer_policy_case(body: PolicyCaseAnswerRequest) -> dict:
     """Classify what a case put to a whole policy *is*, and — when it asks what
     the policy provides rather than for a determination — gather the answer the
@@ -747,18 +747,20 @@ async def answer_policy_case(body: PolicyCaseAnswerRequest) -> dict:
     endpoint cannot become a second, drifting decider. See ai_case_intent's
     module docstring for why the intent is read from the question alone.
 
-    WHY THIS IS NOT IN THE OPENAPI SURFACE
+    WHY THIS IS IN THE OPENAPI SURFACE
 
-    `include_in_schema=False`. This is a product-only seam: it exists to power one
-    dialog ("Put a case to this policy"), the web client is its only caller, and
-    it is not a contract offered to anyone else. It is kept out of the generated
-    OpenAPI reference deliberately — the reachability guard
-    (`test_endpoints_are_reachable_from_the_product`) reads `app.routes`, not the
-    schema, so it still holds this endpoint to having a real caller in the
-    product; only the human API reference in `docs/api.md` omits it. That doc was
-    out of scope to touch on the change that introduced this endpoint, and an
-    endpoint absent from the reference must be genuinely absent from the schema
-    rather than silently disagreeing with it.
+    It carries no `include_in_schema=False`. An earlier draft of this endpoint hid
+    it from the schema on the theory that a product-only seam need not appear in
+    the human `docs/api.md` reference. That was wrong: the coverage guard in
+    `test_capped_lists_are_wrapped` (`test_the_scan_reaches_every_route_the_application_serves`)
+    asserts that every route the app *serves* also appears in `app.openapi()`,
+    precisely so a route cannot slip past the schema-walking scans by being hidden.
+    A route absent from the schema is a route no schema-level guard can see — the
+    exact narrowing that guard exists to catch — so this endpoint stays visible.
+    The one consequence is that `docs/api.md`'s hand-maintained surface totals now
+    undercount by this operation until its owner reconciles them; that file is out
+    of scope for this change, so the reconciliation is reported rather than made
+    here.
     """
     _require_ai_configured()
     try:
