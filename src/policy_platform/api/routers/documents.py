@@ -141,6 +141,55 @@ async def upload_document(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="identical document content already uploaded")
 
+    # "new content", "content the register already holds under another name",
+    # and "refused" are three different facts, and only the third has a signal
+    # today (the 409 above, for an identical re-upload of THIS document). The
+    # same bytes filed under a different title -- or owner, or project -- are a
+    # legitimate second registration: an archived snapshot of a handbook, a
+    # re-parse under a new parser, one source serving two projects. Refusing
+    # those would remove a capability the register is actively using, so the
+    # upload proceeds. But a plain success reports this second fact as the
+    # first, leaving whoever maintains a compliance register unaware it now
+    # holds the same source twice -- a silent accept. So the other
+    # registrations of these exact bytes are gathered and returned with the
+    # success, scoped away from this document's own (not-yet-created) version.
+    #
+    # The empty list is load-bearing and distinct from absence: it says this
+    # lookup ran and found no other copy (the content is new to the register),
+    # not that the question went unasked -- the same []-vs-None distinction the
+    # ingestion diagnostics keep below.
+    other_copies_result = await session.execute(
+        select(
+            SourceDocument.id,
+            SourceDocument.title,
+            SourceDocument.owner,
+            DocumentVersion.id,
+            DocumentVersion.version_number,
+        )
+        .join(DocumentVersion, DocumentVersion.document_id == SourceDocument.id)
+        .where(
+            DocumentVersion.content_hash == content_hash,
+            SourceDocument.id != document.id,
+        )
+        .order_by(SourceDocument.created_at, DocumentVersion.version_number)
+    )
+    content_already_present = [
+        {
+            "document_id": str(other_document_id),
+            "title": other_title,
+            "owner": other_owner,
+            "document_version_id": str(other_version_id),
+            "version_number": other_version_number,
+        }
+        for (
+            other_document_id,
+            other_title,
+            other_owner,
+            other_version_id,
+            other_version_number,
+        ) in other_copies_result.all()
+    ]
+
     version_count = await session.execute(
         select(DocumentVersion).where(DocumentVersion.document_id == document.id)
     )
@@ -254,6 +303,13 @@ async def upload_document(
         # and the marker a reviewer sees later cannot disagree about the same
         # ingestion.
         "ingestion_status": ingestion_status_of(ingestion_diagnostics, extraction_error),
+        # The other registrations that already hold these exact bytes, under a
+        # different title/owner/project. An empty list is a positive answer --
+        # "checked, this content is new to the register" -- and is distinct
+        # from the field being absent. A non-empty list means the upload
+        # succeeded AND the register already held this source elsewhere, so a
+        # second registration cannot pass for new content in silence.
+        "content_already_present": content_already_present,
     }
 
 
