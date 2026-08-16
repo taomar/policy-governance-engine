@@ -69,7 +69,7 @@
 - **Artifact:** Policy record created with status = `DRAFT`, owner, category, review-due date, source citations.
 
 #### Phase 2: Authoring & Structuring
-- **Activities:** Policy author drafts natural-language text; AI-assisted extraction produces candidate canonical rules (condition trees, effects, scope dimensions, exceptions, aggregate limits); author reviews/corrects AI output; source-clause citations linked to each rule (traceability to original policy text paragraph).
+- **Activities:** Policy author drafts natural-language text; AI-assisted extraction produces candidate canonical rules (condition trees, effects, scope dimensions, exceptions); author reviews/corrects AI output; source-clause citations linked to each rule (traceability to original policy text paragraph).
 - **Artifact:** Draft `PolicyDocument` + set of `CanonicalRule` records in `DRAFT` status.
 
 #### Phase 3: Stakeholder Review
