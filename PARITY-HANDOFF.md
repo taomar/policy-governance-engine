@@ -758,3 +758,100 @@ rules). So a policy-scope judged run would be N separate calls; it is offered
 one rule at a time from its row instead, which is honest about what it costs.
 A batch judge endpoint is the server-side change that would make a
 policy-wide judged run reasonable.
+
+---
+
+## Item 17 - the policy is the unit of counting, selection and export
+
+The user: *"the main currency is policy, so if u show count show count to
+policies=x and rules=y and exporting we only now export policies not single
+rule"*. Four surfaces on the published page still counted, selected and wrote
+in rules. They now count, select and write in policies.
+
+### What changed, and where the wording lives
+
+`apps/web/src/policyExport.ts` is new and holds **both the file shape and the
+copy that describes it**, so a later edit cannot move one without the other.
+That pairing is deliberate: the previous divergence was not that the export was
+wrong, it was that the button said one thing and the file was another and
+nobody reads an export until they need it.
+
+| surface | before | after |
+|---|---|---|
+| version strip | `13 rules` | `2 policies` then `13 rules` |
+| select-all | `Select all 13 shown` | `Select all 2 policies in this filter` |
+| export selected | `Export selected JSONL` | `Export 2 policies (JSONL)` |
+| export all | `Export all 13 JSONL` | `Export all 2 policies (JSONL)` |
+| the file | one line per rule | one line per policy, rules nested |
+| the message after | filename only | policy count first, rule tally in parentheses |
+
+The toolbar line `2 policies - 13 of 13 rules shown` was already right and is
+untouched.
+
+### The export reuses `policyJsonDocument`, and had to
+
+`policiesAsJsonl` writes each line by calling `policyJsonDocument` from
+`policyCards.ts` - the same serialisation already rendered in the JSON tab
+under *"THIS POLICY AS ONE DOCUMENT - ITS RULES NESTED INSIDE IT"*. A second
+serialisation of a policy would have drifted exactly as the two card builders
+drifted, and would have drifted **silently**, because the JSON tab is read
+daily and an export is read once a quarter. So the export is not a new shape;
+it is the shape already on screen, written to a file.
+
+### Selection selects policies, and a half-selected policy cannot be expressed
+
+Selection is keyed on `provision_key`, not rule id. There are as many
+checkboxes as there are policies. This is the same symmetry as `Approve
+policy`: **the thing you can select is the thing you can act on.** A reviewer
+cannot select nine of a policy's twelve rules, because there is no such
+record to select.
+
+### The server side - answer to the question that was asked
+
+`GET /api/policy-sets/{key}/versions/{version_id}/export`
+(`policy_sets.py:946`) calls `approved_policy_version_to_package(version)` then
+`models_to_export(package.rules, format)`. **It emits flat rules**, in
+json/jsonl/csv, and its docstring describes a verbatim structural export for
+audit and archival. That is a legitimately different artefact from the
+reviewer-facing download and I did not change it.
+
+Two facts that decide where a policy-shaped export belongs:
+
+1. **The page's button never calls that endpoint.** It composed the file
+   client-side before this change and still does.
+2. **The server already assembles policies** - `listVersionPolicies` returns
+   `AssembledPolicy[]` from `assemble()`.
+
+So the recommendation stands as the producer framed it: a **policy-shaped
+export mode belongs on the server beside `listVersionPolicies`**, not as a
+replacement for the rules export, which has its own audience. The client is
+not reassembling anything today - it is reusing one serialisation - so this is
+not urgent, but if a second consumer ever needs the policy file, it should come
+from the server rather than from a second client.
+
+### Wording matched to review, deliberately
+
+`Select all N policies in this filter` is the review queue's own idiom
+(`Select all 37 policies in this filter`). Adopted verbatim rather than
+invented, so the two surfaces cannot drift on the noun.
+
+One thing left matching review rather than changed: the bare `N selected`
+counter does not name its unit on either page. If it should, it should change
+on both at once - routing that rather than fixing one side.
+
+### Tests
+
+`apps/web/src/theUnitIsThePolicy.test.ts`, 14 tests in three groups: *a line of
+the file is a policy*, *every control names what it counts*, *what was written
+is reported afterwards*. Every expected number is computed from the fixture
+shape; none is written down. Five mutations against `policyExport.ts` (line per
+rule; singular/plural swap; dropped trailing newline; button naming rules;
+message counting rules) - all five caught.
+
+### Live, port 5490, published version v2
+
+Strip reads `2 policies` then `13 rules`. Three checkboxes for two policies
+plus select-all. Selecting all gives `2 selected` and
+`Export 2 policies (JSONL)`. The written file: **2 lines**, keys
+`key / heading / heading_path / title / ... / passages`, **no top-level
+`rule_id`**, `1 + 12 = 13` rules nested, trailing newline present.
