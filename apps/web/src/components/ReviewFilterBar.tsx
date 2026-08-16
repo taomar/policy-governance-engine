@@ -23,9 +23,7 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   FilterOutlined,
-  PlusCircleOutlined,
   ReloadOutlined,
-  SwapOutlined,
 } from "@ant-design/icons";
 import type { ReviewFacets } from "../api";
 
@@ -92,6 +90,13 @@ export function ReviewFilterBar({
     ? facets.runs.filter((r) => r.document_id === documentFilter)
     : facets.runs;
   const removed = facets.removed;
+
+  // Row two carries only what the view-selector cannot: a plain-language "nothing
+  // moved" conclusion, the not-compared count (not a selectable slice), and the
+  // door onto superseded rules. When none apply, the bar is a single row — the
+  // per-delta counts themselves live in the selector above, not restated here.
+  const noChanges = changeCount === 0 && totals.unchanged > 0;
+  const showSecondaryRow = noChanges || totals.unclassified > 0 || removed.length > 0;
 
   const deltaOptions = [
     { value: "all", label: "Everything" },
@@ -179,47 +184,33 @@ export function ReviewFilterBar({
           </Button>
         </Space>
 
-        <Space wrap size={8} align="center">
-          {changeCount === 0 && totals.unchanged > 0 ? (
-            <Tag color="success" style={{ margin: 0 }}>
-              No changes since the previous extraction — {totals.unchanged} rule(s) matched exactly
-            </Tag>
-          ) : (
-            <>
-              {totals.new > 0 && (
-                <Tag color="green" icon={<PlusCircleOutlined />} style={{ margin: 0 }}>
-                  {totals.new} new
-                </Tag>
-              )}
-              {totals.changed > 0 && (
-                <Tag color="orange" icon={<SwapOutlined />} style={{ margin: 0 }}>
-                  {totals.changed} changed
-                </Tag>
-              )}
-              {totals.unchanged > 0 && (
-                <Tag style={{ margin: 0 }}>{totals.unchanged} unchanged</Tag>
-              )}
-            </>
-          )}
-          {totals.unclassified > 0 && (
-            <Tooltip title="Drafted before change tracking existed, or written by hand — there is no previous run to compare them against.">
-              <Tag style={{ margin: 0 }}>{totals.unclassified} not compared</Tag>
-            </Tooltip>
-          )}
-          {removed.length > 0 && (
-            <Badge count={removed.length} size="small" offset={[4, -2]}>
-              <Button
-                size="small"
-                type={showRemoved ? "primary" : "default"}
-                danger={!showRemoved}
-                icon={<DeleteOutlined />}
-                onClick={onToggleRemoved}
-              >
-                No longer found
-              </Button>
-            </Badge>
-          )}
-        </Space>
+        {showSecondaryRow && (
+          <Space wrap size={8} align="center">
+            {noChanges && (
+              <Tag color="success" style={{ margin: 0 }}>
+                No changes since the previous extraction — {totals.unchanged} rule(s) matched exactly
+              </Tag>
+            )}
+            {totals.unclassified > 0 && (
+              <Tooltip title="Drafted before change tracking existed, or written by hand — there is no previous run to compare them against.">
+                <Tag style={{ margin: 0 }}>{totals.unclassified} not compared</Tag>
+              </Tooltip>
+            )}
+            {removed.length > 0 && (
+              <Badge count={removed.length} size="small" offset={[4, -2]}>
+                <Button
+                  size="small"
+                  type={showRemoved ? "primary" : "default"}
+                  danger={!showRemoved}
+                  icon={<DeleteOutlined />}
+                  onClick={onToggleRemoved}
+                >
+                  No longer found
+                </Button>
+              </Badge>
+            )}
+          </Space>
+        )}
 
         {showRemoved && (
           <section className="review-removed-panel">
