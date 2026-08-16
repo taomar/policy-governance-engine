@@ -137,6 +137,20 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
     setUploadMessage(null);
     setUploadProblem(null);
     setUploadNotes([]);
+    // Title and Owner are marked required (the `*` on their fields); enforce
+    // that promise before sending, or a blank title becomes a nameless document
+    // in the register — worse than a refused upload, because a reviewer cannot
+    // tell what an unnamed source is. Each missing field gets its own sentence:
+    // "no title", "no owner" and "no file" are different facts (constraint 5)
+    // and must not collapse into one refusal.
+    if (!title.trim()) {
+      setError("Enter a title before uploading.");
+      return;
+    }
+    if (!owner.trim()) {
+      setError("Enter an owner before uploading.");
+      return;
+    }
     if (!file) {
       setError("Choose a file to upload.");
       return;

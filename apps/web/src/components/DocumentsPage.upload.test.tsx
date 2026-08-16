@@ -74,6 +74,18 @@ function attachFile() {
 
 async function startUpload() {
   attachFile();
+  // Title and Owner are required, and the page now enforces them before the
+  // POST leaves (pinned in DocumentsPage.validation.test.tsx). These flow tests
+  // are about what the reviewer is told DURING and AFTER a valid upload, so they
+  // need a valid form to reach that state. Setting these satisfies a
+  // newly-enforced precondition; it does not relax any assertion below — every
+  // in-flight and returned-state check is unchanged.
+  fireEvent.change(screen.getByPlaceholderText("Workplace Hardware Provisioning Policy"), {
+    target: { value: "Staff Handbook" },
+  });
+  fireEvent.change(screen.getByPlaceholderText("it-team"), {
+    target: { value: "hr-team" },
+  });
   const button = await screen.findByRole("button", { name: /^Upload$/ });
   await act(async () => {
     fireEvent.click(button);
