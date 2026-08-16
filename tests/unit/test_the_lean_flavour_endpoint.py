@@ -126,6 +126,26 @@ async def test_the_endpoint_returns_the_lean_flavour_for_a_known_provision(clien
     assert {rule["rule_id"] for rule in body["rules"]} == set(_RULE_IDS)
 
 
+async def test_the_transport_form_is_compact_and_pretty_is_reachable_and_agrees(client) -> None:
+    # The default body is the compact transport serialization: the exact bytes a
+    # model reads, with no indentation spent on whitespace.
+    compact = await client.get(f"/api/policy-payload/{_PROVISION_ID}")
+    assert compact.status_code == 200
+    assert compact.headers["content-type"].startswith("application/json")
+    compact_text = compact.text
+    assert "\n" not in compact_text
+
+    # The diagnostic form is reachable for a human reading the response directly,
+    # and is indented.
+    pretty = await client.get(f"/api/policy-payload/{_PROVISION_ID}", params={"pretty": "true"})
+    assert pretty.status_code == 200
+    assert "\n" in pretty.text
+
+    # Both forms are the same governed dict — the transport bytes never drift
+    # from what a reviewer inspects.
+    assert compact.json() == pretty.json()
+
+
 async def test_an_unknown_provision_is_a_404_not_an_empty_200(client) -> None:
     missing = uuid.UUID("00000000-0000-4000-8000-0000000000ee")
 
