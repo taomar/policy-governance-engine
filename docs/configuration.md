@@ -25,7 +25,7 @@ Copy-Item .env.example .env
 | `ALEMBIC_DATABASE_URL` | psycopg URL | Used by migrations (sync). **Required.** |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8010` | Port 8000 was already taken locally, hence 8010. |
 | `DEV_AUTH_ENABLED` | `true` | Local development flag; there is no real auth. |
-| `WEB_DEV_SERVER_PORT` | `5174` | Included in the API's CORS allow-list along with 5173–5179. |
+| `WEB_DEV_SERVER_PORT` | `5490` | Included in the API's CORS allow-list along with 5173–5180. |
 | `VITE_API_BASE_URL` | `http://localhost:8010` | Read by the frontend at build/dev time. |
 | `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | **Required for the product.** Blank leaves the platform in degraded mode (AI routes `503`). |
 | `AZURE_OPENAI_DEPLOYMENT` | blank | **Required.** Reasoning deployment: extraction, quality, correlation, rewrite, compare. |
@@ -187,9 +187,10 @@ No metrics endpoint, tracing, alerting or log aggregation is implemented.
 
 ### Operational notes
 
-- On startup the API marks any `extraction_runs` row still `running`/`pending`
-  as `failed`, because an in-process extraction cannot survive a restart. Rules
-  already committed by that run are kept.
+- On startup the API marks an `extraction_runs` row it owns
+  (`owner_kind == OWNER_API`) still `running`/`pending` as `failed`, because an
+  in-process extraction does not survive a restart. Runs owned by another
+  process are left untouched, and rules already committed by that run are kept.
 - Azure AI Search indexing is best-effort: failures are logged and swallowed so a
   document upload never fails because a downstream service is unavailable. The
   trade-off is that a document can be fully usable while missing from the index,
