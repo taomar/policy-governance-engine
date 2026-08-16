@@ -54,8 +54,8 @@ at the centre and depend on nothing else in the codebase.
 | Contracts | `policy_platform.contracts` | Pydantic models for the canonical rule, the condition AST, evaluation request/response, policy tests, correlation findings, and the canonical hash. No I/O. |
 | Evaluator | `policy_platform.evaluator` | The deterministic decision core: condition interpretation, precedence resolution, the evaluation engine, and the policy-test runner. No database, no network, no AI. |
 | Domain | `policy_platform.domain` | SQLAlchemy ORM entities and table definitions. |
-| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into eleven sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
-| API | `policy_platform.api` | FastAPI app, request/response schemas, and ten routers. |
+| Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into fourteen sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
+| API | `policy_platform.api` | FastAPI app, request/response schemas, and twelve routers. |
 
 ### Inside infrastructure
 
@@ -71,6 +71,8 @@ together. `ai/` holds the client itself.
 | `ingestion/` | PDF/DOCX parsing into clauses, source numbering, manual entry |
 | `docling/` | Docling conversion and graph discovery, under its own dependency boundary — see [Docling](docling.md) |
 | `extraction/` | The two model stages, then the condition compiler and what a record can support |
+| `consolidation/` | Collapsing a record the model emitted more than once into a single record |
+| `assembly/` | Grouping rules into the policies their source stated, with provision history and the rule-name and topic-label lookups |
 | `projection/` | Restating an approved rule: XACML, DMN parity, version diff, export |
 | `quality/` | Faithfulness to source, and the duplicate/contradiction/instability passes |
 | `correlation/` | Deterministic relationship discovery, and model-assisted contradiction finding |
@@ -119,9 +121,10 @@ consequence — a large document takes minutes rather than returning a job id.
 - **Anything → evaluator.** The evaluator is called as a plain function with an
   in-memory `ApprovedPolicyPackage` and a fact dictionary. Callers are the
   evaluation endpoint, the policy-test executor, and the AI scenario tester.
-- **Startup.** A lifespan hook marks any `extraction_runs` row still flagged
-  `running`/`pending` as `failed`, because an in-process extraction cannot
-  survive an API restart.
+- **Startup.** A lifespan hook marks an `extraction_runs` row it owns
+  (`owner_kind == OWNER_API`) still flagged `running`/`pending` as `failed`,
+  because an in-process extraction does not survive an API restart. Runs owned
+  by another process are left untouched, so the API only cleans up after itself.
 
 ## The document-to-decision path
 
