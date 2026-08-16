@@ -637,20 +637,38 @@ scrolls down to reach a rule has scrolled the panel off the top of the window, s
 the click answers them where they cannot see it, which is indistinguishable from
 the click doing nothing. That is very likely part of what "not clickable" meant.
 
-`111740c` handles it behaviourally on the published side — `revealPanel()` brings
-the panel back **only when it is genuinely outside the window**, via the exported
-`isOutsideWindow` predicate in `PoliciesTab.tsx`. The review side has the same
-structural characteristic and no such handling. Two options, and I have not taken
-either because both land outside my files:
+`111740c` handled it behaviourally on the published side — `revealPanel()` brought
+the panel back **only when it is genuinely outside the window**, via an exported
+`isOutsideWindow` predicate in `PoliciesTab.tsx`. Two options were open:
 
 1. **Reuse the behaviour.** Import `isOutsideWindow` and call
    `scrollIntoView({ block: "nearest" })` on selection in `ReviewQueue.tsx`.
-   Cheap, proven, and matches what already ships.
+   Cheap, proven, and matches what already shipped.
 2. **Fix the layout instead.** Give the card list its own scroll container so the
-   panel is never off-screen to begin with. Better, but it changes a layout two
-   surfaces share and should not be done as a side-effect of a selection fix.
+   panel is never off-screen to begin with.
 
-If (2) is chosen, the reveal call becomes dead and I will remove it.
+**Resolved: (2), and the compensation is deleted.** `.published-policy-list`
+(`App.css:4182`) is a real scroller — `flex: 1 1 auto`, `overflow-y: auto`,
+`scrollbar-gutter: stable` — inside the fixed-height workspace, so the list
+scrolls under a panel that cannot leave the window. There is nothing left to
+measure, so `isOutsideWindow`, `getBoundingClientRect` and `scrollIntoView` are
+gone from `PoliciesTab.tsx`. `revealPanel()` survives doing only the thing that
+was never compensation: restoring the split when a reader selects a record in
+list-only mode, and opening the drawer on a narrow screen.
+
+The narrow breakpoint opts out on purpose (`App.css:4198`): nothing above the
+list is a fixed height there, so a flexed child has nothing to fill, and the
+panel is a drawer rather than a column beside it — it cannot be scrolled out of
+view, so boxing the list would only shrink the reading.
+
+Guarded by `theListScrollsSoThePanelIsSeen.test.ts`: the desktop list must be a
+scroller, the narrow one must not be, and the page's source must contain none of
+those three traces. A structural fix that removes the need for a compensating
+fix is strictly better than keeping both.
+
+**Still open, and not mine:** the review side has the same characteristic. If it
+gets the same treatment it should be the same treatment — a scroller on the list,
+not a copy of a predicate that no longer exists.
 
 ### Not a defect: what an unrecognised review status counts as
 
@@ -1490,3 +1508,80 @@ Mutation-tested: reverting to the page-wide name fails both. Source-reading rath
 than render-asserting because the difference is invisible in a fixture where every
 policy shares one document - which is every fixture we have, and was also true of
 the live data that hid it.
+
+---
+
+## 23. The missing rule tabs were never on the Policies page
+
+**Landed:** `48f3a33`.
+
+### The report, and why it was routed to the wrong file
+
+The user: *"u did something i never asked, bring back the tabs for the rules as
+it was before."* On a rule, opening the detail gave a flat stack — `Set by`,
+`Applies to`, an effect tag, `Condition - when this rule fires`, `Record
+details` - with no tabs.
+
+The trace I was handed named `PublishedPolicyCard.tsx:168,380 -> RuleCard`.
+**That file does not exist.** It and `publishedPolicyCards.ts` were deleted in
+`ce8cf82`. This is the second brief in a row to cite a file:line inside a file
+already removed, so: **check that a file exists before acting on a trace through
+it.** Reading a deleted file's old line numbers produces a confident diagnosis
+of a defect that is somewhere else entirely.
+
+### Where it actually was
+
+`Record details` (`RuleCard.tsx:416`) is the fingerprint. No other renderer
+prints it, so if it is on screen the reader is looking at `RuleCard`.
+
+I browser-verified the Policies page in four configurations - desktop split,
+list mode, narrow viewport, and after a resize. **Every one: `.rule-card` = 0,
+`.policy-inspector` = 1, eight tabs, `Record details` absent.** The published
+surface was already fully tabbed. `PoliciesTab.tsx:1134` does render `RuleCard`,
+but only for rules no policy claims, and both live versions have none.
+
+The real site was **comparing two versions**. `ComparePage.tsx` expanded a
+diffed rule into `<RuleCard defaultExpanded />`, reached through
+`RuleDiffRow`'s chevron. Reproduced exactly: `ruleCards: 1, inspectors: 0,
+tabsInsideCard: 0, recordDetails: true`.
+
+**It was never a regression and never the fork.** Compare has drawn the flat
+card since it was written; it was simply never converted when every other
+surface was. Three complaints came from the fork and this one did not, which is
+why deleting the fork did not silence it.
+
+### The fix
+
+Both expansion sites draw `<PolicyInspector variant="embedded">`. Verified live
+after the change: `ruleCards: 0, inspectors: 1, embedded: 1, tabs: 8`
+(`Overview, Logic, Parties & routes, Scope, Test scenario, History, Notes,
+JSON`), `Record details` absent.
+
+Each side states the version it was read at - the **added** side at the later
+version, the **removed** side at the earlier one, via a `versionNumbered`
+lookup. A diff is the one place where two readings of "the same" rule sit side
+by side, so a reading with no stated target is the same failure as a verdict
+with no stated target.
+
+### `RuleCard` is not dead, and should not be deleted
+
+It keeps the callers it is honest for: `EditRuleModal`'s Live preview - which
+the user explicitly endorsed - `RewriteModal`, and the unclaimed-rule fallback.
+Those preview a rule **being written**, where a tabbed record inspector would be
+wrong. The rule to carry forward:
+
+> **Any surface that opens an existing rule draws the inspector. `RuleCard` is
+> for previewing a rule that is being written.**
+
+### Guards
+
+`oneRuleReadingEverywhere.test.tsx` grew a fourth describe block that reads
+`ComparePage.tsx` and fails if a flat card returns, if an expansion is not
+embedded, if the `RuleCard` import comes back, or if both sides of the diff
+resolve to the same version. Both mutations were run: restoring the flat card
+failed three guards, collapsing the two versions onto one failed the fourth.
+
+`RuleDiffRow`'s docstring named `RuleCard` and justified lazy mounting with a
+named document and an observed rule count. Both are gone - a comment is as
+bound by "no domain vocabulary, no observed counts as literals" as a string
+that reaches the screen.
