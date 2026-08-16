@@ -145,6 +145,40 @@ describe("ambiguity wording", () => {
     expect(checked).toBeGreaterThanOrEqual(STATUSES_AT_WRITING);
   });
 
+  it("says nothing about who decides — only what the source's wording does", () => {
+    // The defect the user reported twice: a warning reading "a person settles
+    // it" restates the AI Ready route (a judge reads the record against the
+    // case), not this status. `ambiguity_status` is a statement about the
+    // SOURCE's wording — whether the sentence reads more than one way — and who
+    // resolves an open reading is the route's business, not this field's. So no
+    // ambiguity copy may name an actor or the act of settling a reading. This
+    // is the web side of the same intent `test_ambiguity_note_wording.py`
+    // polices for framing; that one forbids deficiency vocabulary, this one
+    // forbids who-decides vocabulary.
+    const WHO_DECIDES =
+      /\b(?:a person|persons?|people|someone|anyone|judges?|reviewers?|settles?|settled|settling|decides?|deciding|decided)\b/i;
+
+    const strings: Array<[string, string]> = [];
+    for (const [status, note] of Object.entries(AMBIGUITY_NOTE)) {
+      strings.push([`${status}.label`, note.label]);
+      strings.push([`${status}.reason`, note.reason]);
+    }
+    strings.push(["UNKNOWN_AMBIGUITY_NOTE.label", UNKNOWN_AMBIGUITY_NOTE.label]);
+    strings.push(["UNKNOWN_AMBIGUITY_NOTE.reason", UNKNOWN_AMBIGUITY_NOTE.reason]);
+    strings.push(["AMBIGUITY_UNNAMED", AMBIGUITY_UNNAMED]);
+
+    const offenders = strings
+      .filter(([, text]) => WHO_DECIDES.test(text))
+      .map(([where, text]) => `${where}: ${text}`);
+    expect(offenders, `who-decides wording in ambiguity copy:\n${offenders.join("\n")}`).toEqual(
+      []
+    );
+
+    // Floor: the scan must have read the whole set, or an emptied mapping would
+    // pass the filter above by having nothing to test.
+    expect(strings.length).toBeGreaterThanOrEqual(STATUSES_AT_WRITING * 2);
+  });
+
   it("falls back for a status it has never seen, rather than guessing", () => {
     expect(ambiguityNote(UNSEEN_STATUS)).toBe(UNKNOWN_AMBIGUITY_NOTE);
     expect(ambiguityNote(null)).toBe(UNKNOWN_AMBIGUITY_NOTE);

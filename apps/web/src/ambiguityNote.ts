@@ -54,21 +54,21 @@ export const AMBIGUITY_NOTE: Record<string, AmbiguityNote> = {
   non_blocking: {
     label: "Reads more than one way, same outcome",
     reason:
-      "The wording this record was read from can be read more than one way, and the readings meet at the same outcome. Which reading a person takes does not change what happens.",
+      "The wording this record was read from can be read more than one way, and the readings meet at the same outcome. The difference is in how the sentence is read, not in what results.",
     severity: "info",
     prominent: true,
   },
   human_judgment_required: {
-    label: "Reads more than one way, a person settles it",
+    label: "Reads more than one way",
     reason:
-      "The wording this record was read from can be read more than one way. The record carries the source's words as they stand, and a person settles which reading applies to a case.",
+      "The wording this record was read from can be read more than one way, and the source does not itself say which reading is meant. The record carries the source's words as they stand.",
     severity: "warning",
     prominent: true,
   },
   blocking: {
     label: "Reads more than one way, outcomes differ",
     reason:
-      "The wording this record was read from can be read more than one way, and the readings lead to different outcomes. A person settles which reading applies before a case is decided on it.",
+      "The wording this record was read from can be read more than one way, and the readings lead to different outcomes. The record carries the source's words as they stand.",
     severity: "warning",
     prominent: true,
   },
@@ -86,7 +86,7 @@ export const AMBIGUITY_NOTE: Record<string, AmbiguityNote> = {
 export const UNKNOWN_AMBIGUITY_NOTE: AmbiguityNote = {
   label: "Recorded, not readable here",
   reason:
-    "This record carries a wording status that this screen has no description for. The stored value is shown below as it was written. Open the source to read the sentence yourself before deciding.",
+    "This record carries a wording status that this screen has no description for. The stored value is shown below as it was written; open the source to read the sentence yourself.",
   severity: "warning",
   prominent: true,
 };
