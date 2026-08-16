@@ -358,3 +358,112 @@ Also proposed and unenforced: floors F3–F5 (a run compares against the most
 recent prior run that read the same document version; every rule anchors to a
 clause span the previous run also cited; a rule whose anchor and decision fields
 are unchanged keeps its identity). F1 and F2 are landed as tests.
+
+---
+
+## 8. Second session — what was verified, and where section 7 was wrong
+
+Six commits on `taomar-microsoft-policy-queue-and-backlog`, branched from
+`67f820e`. Tree clean. **Python 3147 passed / 1 skipped / 0 failed. Web 1222
+passed / 80 files. `tsc -b --force` exit 0.**
+
+### The handover commit broke the build
+
+Section 6 above was measured *before* the commit that wrote it. That commit left
+the suite at 3141 passed / **2 failed**: this document named the two retired
+route names in `docs/`, and two of its sentences were rejected by the copy guard.
+The guard matches phrasing and is blind to polarity, so it rejects a sentence
+that denies the framing just as readily as one that asserts it.
+
+Fixed in `351af75` by moving those passages to
+[`failures/route-vocabulary-and-framing.md`](failures/route-vocabulary-and-framing.md),
+the one directory both guards exclude. No guard was changed and no allowlist
+grew. Both guards were then mutation-tested — red on an injected probe, green
+when it was removed — so they are still load-bearing rather than newly blind.
+
+**The lesson generalises: a guard that scans `docs/` will eventually reject the
+document that explains the guard.** Write that explanation in `docs/failures/`.
+
+### The user queue (all three closed)
+
+| id | outcome |
+|---|---|
+| `json-invisible` | `103fe0a`. The review page mounts the inspector embedded, where the pane is `height:auto`; the record was styled `flex: 1 1 0` for the panel regime, and a zero-basis growable child of an auto-height column has no free space to grow into, so it resolved to 0px while the pinned switcher above it survived. Measured live: `.json-view` 0px → 4399px. Fixed by parameterising the embedded boundary that already exists, not by adding a competing rule. |
+| `logic-rulename` | `59015a0`. `RuleName` already existed and the CSS already described the name — it was simply never wired, a §4.1 defect. Now each rule is headed by its generated name, marked as ours, with the element run demoted to the reference it is. The rule text was **already** expandable; no second disclosure was built. |
+| `ambiguity-yellow` | No change, on evidence — see below. |
+
+### `ambiguity_status` carries signal, and is not a restatement of the route
+
+Measured across all 2062 rules, stored status against `machine_executable`:
+
+| | `none` | `human_judgment_required` |
+|---|---|---|
+| `machine_executable = false` (2045) | 1764 | **281** |
+| `machine_executable = true` (17) | 17 | 0 |
+
+If the status merely repeated the route, all 2045 would carry the flag. 281 do —
+13.7%. `_ambiguity_for` (`formulation_mapping.py:1906`) was repaired earlier so
+that it reflects only the source's own wording, and the stored data shows that
+repair took. The banner renders only for a prominent status, so it appears on 2
+of the 14 published rules, not on every row.
+
+Its real weakness is a different one: it reports that a sentence reads more than
+one way without recording **which words** do. `ambiguityNote.ts` admits this in
+its own copy. That is the improvement worth making. Removing the block would
+destroy the only surface separating an unclear source from a clear one.
+
+### Section 7's backlog is stale — verify before spending an agent
+
+| id | section 7 says | measured |
+|---|---|---|
+| `quality-get` | a GET mutates on every page load | **already fixed.** `ai.py:773` documents the repair; the expensive work moved to `POST .../quality/runs` |
+| `ctx-element` | `PolicyContextElement` has no construction site | **the symbol does not exist** anywhere in `src/` or `tests/` — it appears only in this document |
+| `policyset-key` | add `policy_set_key` to `PolicyCard` | **already landed** (`policyCards.ts:176,380`) and confirmed resolving live on the published surface |
+| `stage-record` | no caller | real, but **deliberately accepted and allowlisted** in `test_capabilities_are_reachable.py:377` with its reason. Needs a decision — write the stages, or delete the reader endpoint — not a fix |
+| `pagination` | `list_candidate_rules` has no `limit` | **the item is wrong; do not implement it.** See below |
+| `dupe-key-loc` | duplicate key at `ProjectOverviewTab.tsx:136,144` | real, line numbers had drifted to `:148` and `:161`. Fixed in `d8650c0` |
+
+### `pagination` was refused, and the refusal is guarded
+
+Bounding that endpoint would be a wall under constraint 10, for four measured
+reasons: every consumer counts in **policy** units, not rules (constraint 2), so
+a rule offset cuts through the middle of a policy; the query orders by
+`created_at` alone, which the domain model itself warns is not a total order, so
+offset windows would silently drop or repeat rows; `api.ts:3033` documents that
+the policies view indexes *into* the flat list's ids, which truncation would
+dangle; and the web client never sends such a parameter, so it would reach
+nobody. `8f40e1c` is a test-only guard that blocks the change, including a
+signature check — because a behavioural test alone passes a `default=50` whenever
+the fixture is smaller than 50.
+
+### Two defects found that section 7 does not list
+
+- **Quality runs had no deterministic order.** `QualityRunRepository` ordered by
+  `run_at` alone, and `latest_quality_report` takes `runs[0]` as "the most recent
+  recorded evaluation". Two runs stamped in the same tick tied, so a reviewer
+  could be shown an older evaluation as the current one, and a different one on
+  the next read. Fixed in `93cf639`; correctness no longer rests on clock
+  resolution. The equivalent exposure on candidate rules was examined and is
+  **not** the same defect — no consumer there selects by position.
+- **`ProjectOverviewTab` overloaded one field as both React key and navigation
+  target**, so renaming the key to fix reconciliation would have stranded the
+  click. Identity and destination are now separate fields.
+
+### Operating notes to add to section 5
+
+- A fresh worktree has no `node_modules`, no `.env` and no `data/documents`.
+  Without `.env` the whole suite fails at collection, because `api/app.py:123`
+  builds the app at import time and that needs settings. Without
+  `data/documents` twelve reading-order tests error on a missing fixture. Both
+  are gitignored, so copy them from a working checkout.
+- `pyproject.toml` sets `pythonpath = ["src"]`, so a venv from another checkout
+  can be junctioned in and will still import *this* worktree's code.
+- Ports come from `.env`: `API_PORT=8050`, `WEB_DEV_SERVER_PORT=5490`, and Vite
+  sets `strictPort`. Do not assume 8000 or 5173 — two agents lost time to that,
+  and the producer supplied the wrong numbers.
+- Running the Python and web suites **at the same time** makes vitest workers
+  time out. It cost 19 spurious errors in one run here. Run them one at a time.
+- `Get-Content | Measure-Object -Line` skips blank lines and undercounts a
+  Markdown file by about 20%. Use `(Get-Content path).Count` before concluding
+  that a document was truncated.
+
