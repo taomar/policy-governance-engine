@@ -186,7 +186,7 @@ describe("a card says what it is made of", () => {
     // a reader has no way to catch.
     const { said } = shown(["deny", null]);
 
-    expect(said).toBe("1 decides a case · 1 does not state which");
+    expect(said).toBe("1 decides what happens · 1 does not state which");
   });
 });
 

@@ -410,7 +410,7 @@ describe("the numbering stays the document's", () => {
     renderPanel(cardFor("prov-1", MIXED));
     revealTheRuleList();
     expect(screen.getAllByTestId("policy-detail-passage")).toHaveLength(2);
-    fireEvent.click(chipNamed(/decide cases/));
+    fireEvent.click(chipNamed(/decide what happens/));
     const remaining = screen.getAllByTestId("policy-detail-passage");
     expect(remaining).toHaveLength(1);
     expect(remaining[0].getAttribute("data-passage")).toBe("p1-E1");

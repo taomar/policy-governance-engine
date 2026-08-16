@@ -319,7 +319,7 @@ describe("a policy holding rules is never described as holding none", () => {
     // in words, with the grammar the pill was there to get right.
     expect(screen.queryByText("1 rule")).toBeNull();
     expect(screen.queryByText(/no rules/i)).toBeNull();
-    expect(screen.getByText(/Its one rule decides a case\./)).toBeTruthy();
+    expect(screen.getByText(/Its one rule decides what happens\./)).toBeTruthy();
   });
 
   it("describes a policy whose rules all supply meanings without printing a zero", () => {
@@ -335,7 +335,7 @@ describe("a policy holding rules is never described as holding none", () => {
   it("still contrasts the two sides when the policy holds both", () => {
     const card = cardOf([{ id: "r-1" }, { id: "r-2", effectType: "informational" }]);
     render(<PolicyOverviewPane record={policyRecord(card)} />);
-    expect(screen.getByText(/1 decides a case · 1 supplies a meaning/)).toBeTruthy();
+    expect(screen.getByText(/1 decides what happens · 1 supplies a meaning/)).toBeTruthy();
   });
 
   it("counts a rule stating no effect apart rather than as one that decides", () => {
@@ -349,7 +349,7 @@ describe("a policy holding rules is never described as holding none", () => {
       { id: "r-3", effectType: undefined, statesNoEffect: true },
     ]);
     render(<PolicyOverviewPane record={policyRecord(card)} />);
-    const said = screen.getByText(/decides a case/).textContent ?? "";
+    const said = screen.getByText(/decides what happens/).textContent ?? "";
     const counts = [...said.matchAll(/(\d+)/g)].map((match) => Number(match[1]));
 
     expect(counts.reduce((total, one) => total + one, 0)).toBe(3);

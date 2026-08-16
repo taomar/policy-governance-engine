@@ -13,10 +13,10 @@
  * signal by counterexample and abandoned it; this would be the second.
  *
  * So the axis is not what a record is about but what it *does*: a record either
- * decides a case, or it supplies meaning. Prefaces, welcome messages, copyright
- * notices, definitions and classifications constrain nobody and fall on the
- * second side by construction — nobody has to decide what counts as "general",
- * and nothing here reads the words.
+ * decides what happens, or it supplies meaning. Prefaces, welcome messages,
+ * copyright notices, definitions and classifications constrain nobody and fall
+ * on the second side by construction — nobody has to decide what counts as
+ * "general", and nothing here reads the words.
  *
  * ## Why the effect and not the rule type
  *
@@ -134,13 +134,20 @@ export function stanceOfMany(stances: readonly RecordStance[]): RecordStance | "
  * How a group of records is introduced on screen.
  *
  * Phrased as what the records do, in the same words the composition count uses,
- * so a reviewer reading "3 decide cases" at the head of a card meets the same
- * verb again over the group those three are in. Neither heading carries a
+ * so a reviewer reading "3 decide what happens" at the head of a card meets the
+ * same verb again over the group those three are in. Neither heading carries a
  * comparative: one is not the important group and the other the leftovers.
+ *
+ * WHY NOT "decides a case". That was the wording until a reader who governs a
+ * business asked what a case was. "A case" is what this app calls a situation
+ * put to a rule; it is the vocabulary of the thing doing the deciding, not of
+ * the person reading the answer, and it appeared on a tab written for that
+ * person. What the reader wants to know is whether the rule settles an outcome
+ * or explains a word, and that can be said without a term of art.
  */
 export function stanceHeading(stance: RecordStance, count: number): string {
   if (stance === "decides") {
-    return count === 1 ? "Decides a case" : "Decide cases";
+    return count === 1 ? "Decides what happens" : "Decide what happens";
   }
   if (stance === "supplies-meaning") {
     return count === 1 ? "Supplies a meaning" : "Supply meanings";
@@ -196,13 +203,14 @@ export function stanceComposition<T>(
 /**
  * One tally as a phrase, in the same verbs the group headings use.
  *
- * Kept beside `stanceHeading` on purpose: a reviewer who reads "3 decide cases"
- * at the head of a card meets "Decide cases" again over the group those three
- * are in, and does not have to work out that they refer to the same rules.
+ * Kept beside `stanceHeading` on purpose: a reviewer who reads "3 decide what
+ * happens" at the head of a card meets "Decide what happens" again over the
+ * group those three are in, and does not have to work out that they refer to
+ * the same rules.
  */
 export function stanceTallyPhrase({ stance, count }: StanceTally): string {
   if (stance === "decides") {
-    return count === 1 ? "1 decides a case" : `${count} decide cases`;
+    return count === 1 ? "1 decides what happens" : `${count} decide what happens`;
   }
   if (stance === "supplies-meaning") {
     return count === 1 ? "1 supplies a meaning" : `${count} supply meanings`;
@@ -216,7 +224,7 @@ export function stanceTallyPhrase({ stance, count }: StanceTally): string {
  * Built from whatever stances are present rather than from a fixed pair of
  * slots. A policy holding rules of one kind returns null: the head already
  * carries the total, so the only thing this could add is a zero for the kind
- * the policy does not hold, and "12 decide cases · 0 supply meanings" invites
+ * the policy does not hold, and "12 decide what happens · 0 supply meanings" invites
  * the reader to look for twelve missing definitions that were never missing.
  * A policy whose records carry an effect this app has not met says so here
  * instead of being quietly counted as something it is not.

@@ -272,7 +272,7 @@ describe("what a published card says about itself", () => {
 
   it("describes what a policy is made of, and stays silent when there is nothing to contrast", () => {
     const deciding = [rule("r1"), rule("r2")].map((r) => asCardRule(r));
-    // Every rule decides a case. "2 decide cases · 0 supply a meaning" tells a
+    // Every rule decides what happens. "2 decide what happens · 0 supply a meaning" tells a
     // reader nothing they cannot see from the rule count.
     expect(policyCompositionLabel(policyComposition(deciding.map((e) => e.rule)))).toBeNull();
 

@@ -67,7 +67,7 @@ export interface PolicyComposition {
  * about, and why an unfamiliar effect counts as constraining. This function
  * used to ask it inline, and that second copy answered differently: it read
  * `effect?.type === "informational"` and so counted a record with no effect at
- * all as one that decides a case. Every count here is now that module's.
+ * all as one that decides what happens. Every count here is now that module's.
  */
 export function policyComposition(rules: readonly CanonicalRule[]): PolicyComposition {
   const tally = stanceComposition(rules, recordStance);
@@ -83,7 +83,7 @@ export function policyComposition(rules: readonly CanonicalRule[]): PolicyCompos
 /**
  * The composition as a phrase, or null when there is nothing to contrast.
  *
- * Null when every rule falls on one side: "12 decide cases · 0 supply meanings"
+ * Null when every rule falls on one side: "12 decide what happens · 0 supply meanings"
  * invites the reader to look for the missing definitions, and there are none
  * missing — the policy simply does not define anything. A count of zero is the
  * shape a deficit takes, so it is not printed for something that is not one.

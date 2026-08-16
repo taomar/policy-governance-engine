@@ -108,14 +108,14 @@ describe("what a policy is made of", () => {
   });
 
   it("says nothing when every rule is the same kind, rather than printing a zero", () => {
-    // The head already carries the total. "3 decide cases · 0 supply meanings"
+    // The head already carries the total. "3 decide what happens · 0 supply meanings"
     // asks the reader to look for definitions that were never missing.
     const oneKind = [rule("a"), rule("b"), rule("c")];
     expect(policyCompositionLabel(policyComposition(oneKind))).toBeNull();
 
     const twoKinds = [rule("a"), rule("b", { effect: { type: "informational", action: "means" } })];
     const label = policyCompositionLabel(policyComposition(twoKinds));
-    expect(label).toBe("1 decides a case · 1 supplies a meaning");
+    expect(label).toBe("1 decides what happens · 1 supplies a meaning");
   });
 });
 

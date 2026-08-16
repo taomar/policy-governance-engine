@@ -180,7 +180,7 @@ describe("the choices offered are whatever the policy holds", () => {
   });
 
   it("uses the same words as the summary line above it", () => {
-    // So a reviewer who read "4 decide cases · 8 supply meanings" recognises the
+    // So a reviewer who read "4 decide what happens · 8 supply meanings" recognises the
     // chips as the same fact rather than a second opinion about it.
     const { composition } = show(MIXED);
     const labels = chips().map((chip) => chip.textContent ?? "");
@@ -188,7 +188,7 @@ describe("the choices offered are whatever the policy holds", () => {
     for (const entry of composition.tally) {
       const phrase =
         entry.stance === "decides"
-          ? `${entry.count} decide cases`
+          ? `${entry.count} decide what happens`
           : `${entry.count} supply meanings`;
       expect(labels).toContain(phrase);
     }

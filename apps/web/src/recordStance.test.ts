@@ -20,6 +20,7 @@ import {
   stanceComposition,
   stanceHeading,
   stanceOfMany,
+  stanceTallyPhrase,
 } from "./recordStance";
 
 type EffectBearing = { effect?: { type?: string | null } | null };
@@ -174,6 +175,26 @@ describe("how a group is introduced", () => {
       expect(stanceHeading(stance, 3)).not.toMatch(/\b(ai|deterministic|ai.?ready|automat\w*|manual)\b/i);
     }
   });
+
+  it("uses no term this app invented for its own workings", () => {
+    // A reader who governs a business read "Its one rule decides a case" and
+    // asked what a case was. They were right to. "A case" is what this app calls
+    // a situation put to a rule -- the vocabulary of the thing deciding, not of
+    // the person reading the answer -- and it was printed on a surface written
+    // for that person.
+    //
+    // These are the words to watch, and this is the point where the next one
+    // would arrive. A heading here is read by someone who has never opened the
+    // code and never will; every word in it has to be a word they already own.
+    const TERMS_OF_ART =
+      /\b(a case|cases|scenario\w*|evaluat\w*|assert\w*|predicate\w*|decompos\w*|provision\w*|record\w*|candidate\w*|schema\w*|payload\w*|node\w*|attribute\w*|fact model)\b/i;
+    for (const stance of STANCE_ORDER) {
+      for (const count of [1, 4]) {
+        expect(stanceHeading(stance, count)).not.toMatch(TERMS_OF_ART);
+        expect(stanceTallyPhrase({ stance, count })).not.toMatch(TERMS_OF_ART);
+      }
+    }
+  });
 });
 
 describe("what a policy is made of", () => {
@@ -220,7 +241,7 @@ describe("what a policy is made of", () => {
 
   it("reads the stances in the order they are shown in", () => {
     // The phrase and the groups below it must agree, or the reviewer has to
-    // work out that "3 decide cases" refers to the group headed "Decide cases".
+    // work out that "3 decide what happens" refers to the group headed "Decide what happens".
     const tally = stanceComposition(
       [{}, withEffect("informational"), withEffect("deny")],
       recordStance,
@@ -249,7 +270,7 @@ describe("what a policy is made of", () => {
       ),
     );
 
-    expect(said).toBe("1 decides a case · 1 supplies a meaning · 1 does not state which");
+    expect(said).toBe("1 decides what happens · 1 supplies a meaning · 1 does not state which");
   });
 
   it("agrees with itself on number", () => {
@@ -260,7 +281,7 @@ describe("what a policy is made of", () => {
       ),
     );
 
-    expect(many).toBe("2 decide cases · 2 supply meanings");
+    expect(many).toBe("2 decide what happens · 2 supply meanings");
   });
 
   it("never rounds, approximates or hedges a count", () => {
@@ -278,7 +299,7 @@ describe("what a policy is made of", () => {
         ),
       ) ?? "";
 
-    expect(said).toBe("3 decide cases · 15 supply meanings · 1 does not state which");
+    expect(said).toBe("3 decide what happens · 15 supply meanings · 1 does not state which");
     expect(said).not.toMatch(/\b(about|around|approx\w*|roughly|nearly|over|under|some|many|several|most|few)\b/i);
     expect(said).not.toMatch(/[~+]|\.{3}|…/);
   });
