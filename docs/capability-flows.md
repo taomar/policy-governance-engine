@@ -83,7 +83,6 @@ flowchart TD
     Condition["Evaluate condition AST"]
     Exception["Apply rule exceptions"]
     Combine["Combine effects"]
-    Aggregate["Evaluate aggregate limits"]
     Hash["Stable result hash"]
     Response["Evaluation response"]
     Log[("Append-only decision log")]
@@ -92,7 +91,7 @@ flowchart TD
     Scope -- no --> NA["NOT_APPLICABLE"]
     Scope -- yes --> Missing
     Missing -- no --> IND["INDETERMINATE<br/>missing facts listed"]
-    Missing -- yes --> Condition --> Exception --> Combine --> Aggregate --> Hash --> Response --> Log
+    Missing -- yes --> Condition --> Exception --> Combine --> Hash --> Response --> Log
 ```
 
 The evaluator imports no database, network, or AI dependency. The same package,
@@ -197,7 +196,6 @@ These are important but do not need separate diagrams:
 
 | Capability | Control boundary |
 |---|---|
-| **Aggregate limits** | Author defines a shared cap; preview and runtime enforcement use the real deterministic evaluator. |
 | **Version compare** | Python computes added/removed/changed rules; AI may narrate the already-correct diff. |
 | **Exceptions** | Human waiver record; currently not consumed by the evaluator. |
 | **Attestations** | Human acknowledgement tied to one published version. |
