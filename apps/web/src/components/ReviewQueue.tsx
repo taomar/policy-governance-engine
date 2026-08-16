@@ -58,6 +58,7 @@ import { EditRuleModal } from "./EditRuleModal";
 import { ManagerActionModal } from "./ManagerActionModal";
 import { AskAboutRuleModal } from "./AskAboutRuleModal";
 import { AiRuleComposer } from "./AiRuleComposer";
+import { DirectionalText } from "./DirectionalText";
 import { ImmutableFieldsNotice } from "./ImmutableFieldsNotice";
 import { ExportMenu } from "./ExportMenu";
 import { ScopeFieldsEditor } from "./ScopeEditor";
@@ -66,9 +67,11 @@ import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
+import { approvedReadyPolicies } from "../approvedReadyDrawer";
 import {
   policyUnitCount,
   recordProgressLabel,
+  recordScaleLabel,
 } from "../policyRecordFacts";
 import { type LoadState, describeApiFailure } from "../loadState";
 import { qualityScanSummary } from "../qualityScanSummary";
@@ -1230,6 +1233,19 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const totalCandidates = candidates.length;
 
   /**
+   * The approved-but-unpublished records, grouped into the policies that carry
+   * them and named as their card is — the staging list the drawer shows.
+   *
+   * Derived from `approvedUnpublished` (not recomputed) so the drawer and the
+   * "Ready to publish" summary count the same records. The grouping rule lives
+   * in `approvedReadyDrawer.ts`, where it is tested by argument: it groups by
+   * provision so the unit is the policy (constraint 2), lands every approved
+   * rule in exactly one group so the drawer can never show fewer policies than
+   * there are, and titles each from the card's own `policyTitle`.
+   */
+  const approvedDrawerPolicies = approvedReadyPolicies(approvedUnpublished, allPolicyCards);
+
+  /**
    * True when this project holds no candidate rules at all -- not "none matched
    * the current filter", which is a different situation with a different
    * remedy.
@@ -1995,6 +2011,64 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               readyToPublish={approvedUnpublished.length}
               quality={qualityScan}
             />
+
+            {/* The approved-but-not-yet-live staging list, at the top of the
+                queue beside the "Ready to publish" figure it expands. Approving
+                a policy moves it out of the working queue (the Needs-review view)
+                and into here, where the next action — publishing — is taken.
+
+                It always renders: "nothing approved yet" and "the drawer is
+                collapsed" are different facts (constraint 5), so the empty state
+                is said, not vanished. Its count is in policies, with rules named
+                beside it (constraint 2); the list holds one row per policy and
+                every approved rule falls in exactly one, so a reviewer is never
+                shown fewer policies than there are. Native `<details>`, the same
+                disclosure the source pane and tests guide already use. */}
+            <details className="review-approved-drawer" data-testid="approved-ready-drawer">
+              <summary className="review-approved-drawer__summary">
+                <span className="review-approved-drawer__label">Approved, ready to publish</span>
+                {approvedDrawerPolicies.length > 0 ? (
+                  <Tag color="gold" className="review-approved-drawer__count">
+                    {recordScaleLabel(approvedDrawerPolicies.length, approvedUnpublished.length)}
+                  </Tag>
+                ) : (
+                  <Tag className="review-approved-drawer__count">none yet</Tag>
+                )}
+              </summary>
+              <div className="review-approved-drawer__body">
+                {approvedDrawerPolicies.length > 0 ? (
+                  <>
+                    <Text type="secondary" className="review-approved-drawer__note">
+                      Cleared and waiting to go live. Approving a policy moves it
+                      here and out of the Needs-review queue; publishing creates
+                      the numbered version the Policies tab shows.
+                    </Text>
+                    <ul className="review-approved-drawer__list">
+                      {approvedDrawerPolicies.map((policy) => (
+                        <li
+                          key={policy.key}
+                          className="review-approved-drawer__item"
+                          data-testid="approved-ready-item"
+                        >
+                          <DirectionalText>{policy.title}</DirectionalText>
+                          {policy.ruleCount > 1 && (
+                            <Text type="secondary" className="review-approved-drawer__item-rules">
+                              {policy.ruleCount} rules
+                            </Text>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <Text type="secondary">
+                    Nothing has been approved yet. When you approve a policy it
+                    leaves the Needs-review queue and appears here, ready to
+                    publish.
+                  </Text>
+                )}
+              </div>
+            </details>
 
             <ReviewFilterBar
               facets={facets}

@@ -3606,6 +3606,94 @@
   color: #9a6700;
 }
 
+/* ---------- Approved-ready drawer (review queue staging list) ----------
+   A quiet disclosure in the queue spine, between the summary and the filter
+   bar, listing the policies approved but not yet live. Modelled on the
+   tests-guide disclosure so it reads as the same idiom, but lighter — it sits
+   inside the panel, so it carries a border and no card shadow of its own. */
+.review-approved-drawer {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.review-approved-drawer__summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.review-approved-drawer__summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-approved-drawer__summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.review-approved-drawer[open] > .review-approved-drawer__summary::before {
+  transform: rotate(90deg);
+}
+
+.review-approved-drawer__summary:hover {
+  color: var(--text);
+}
+
+.review-approved-drawer__count {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-approved-drawer__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0 10px 10px;
+}
+
+.review-approved-drawer__note {
+  font-size: 11px;
+}
+
+.review-approved-drawer__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-approved-drawer__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+}
+
+.review-approved-drawer__item-rules {
+  margin-inline-start: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .review-workspace {
   display: flex;
   align-items: stretch;
