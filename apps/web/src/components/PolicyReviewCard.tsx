@@ -25,7 +25,6 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { DirectionalText } from "./DirectionalText";
 import { MarkedQuotation } from "./MarkedQuotation";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
-import { PolicyExplainButton } from "./PolicyExplainButton";
 import { RuleName } from "./RuleName";
 import "./PolicyReviewCard.css";
 
@@ -445,17 +444,11 @@ export function PolicyReviewCard({
           </div>
         </div>
         <Space size={4} className="policy-card__actions">
-          {/* Offered only where there is a persisted grouping to explain. A
-              policy assembled without one has no stable identity for the server
-              to read a record back from, and a button that could only report
-              that is a button that should not be drawn. The card is unchanged
-              and complete either way — this adds a reading, never a fact. */}
-          {card.policy.provision_id && (
-            <PolicyExplainButton
-              provisionId={card.policy.provision_id}
-              policyKey={card.policy.key}
-            />
-          )}
+          {/* Explaining a policy in plain words is offered on the detail panel —
+              a button in its header and an opener in its Overview pane — reached
+              from here by opening the policy. This card once mounted a third copy
+              of that same reading; a duplicate, not a distinct route, so it is
+              withdrawn and the card defers the reading to the panel it opens. */}
           {decidable && onApprove && onReject && (
             <>
               <Tooltip
