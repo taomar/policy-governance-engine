@@ -133,46 +133,46 @@ async def upload_document(
         session.add(document)
         await session.flush()
 
-    existing = await session.execute(
-        select(DocumentVersion).where(
-            DocumentVersion.document_id == document.id, DocumentVersion.content_hash == content_hash
-        )
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="identical document content already uploaded")
-
-    # "new content", "content the register already holds under another name",
-    # and "refused" are three different facts, and only the third has a signal
-    # today (the 409 above, for an identical re-upload of THIS document). The
-    # same bytes filed under a different title -- or owner, or project -- are a
-    # legitimate second registration: an archived snapshot of a handbook, a
-    # re-parse under a new parser, one source serving two projects. Refusing
-    # those would remove a capability the register is actively using, so the
-    # upload proceeds. But a plain success reports this second fact as the
-    # first, leaving whoever maintains a compliance register unaware it now
-    # holds the same source twice -- a silent accept. So the other
-    # registrations of these exact bytes are gathered and returned with the
-    # success, scoped away from this document's own (not-yet-created) version.
+    # Every registration of these exact bytes, fetched once and then
+    # classified, because "new content", "content the register already holds
+    # under another name", and "refused" are three different facts:
     #
-    # The empty list is load-bearing and distinct from absence: it says this
-    # lookup ran and found no other copy (the content is new to the register),
+    #   * a hit on THIS document (same title, same project) is an identical
+    #     re-upload and is refused (409) -- unchanged behaviour;
+    #   * hits on OTHER documents are a legitimate second registration of the
+    #     same source under a different title, owner, or project (an archived
+    #     snapshot, a re-parse under a new parser, one source serving two
+    #     projects). The register allows these, so the upload proceeds; but a
+    #     plain success would report "you already hold this" as "this is new"
+    #     -- a silent accept -- so those other registrations travel back with
+    #     the success instead;
+    #   * no hit at all is genuinely new content.
+    #
+    # Folding both questions into one lookup keeps this to a single round trip;
+    # the same-document decision is made in Python so the query does not have
+    # to name this document twice. The empty list below is load-bearing and
+    # distinct from absence: it says this lookup ran and found no other copy,
     # not that the question went unasked -- the same []-vs-None distinction the
-    # ingestion diagnostics keep below.
-    other_copies_result = await session.execute(
-        select(
-            SourceDocument.id,
-            SourceDocument.title,
-            SourceDocument.owner,
-            DocumentVersion.id,
-            DocumentVersion.version_number,
+    # ingestion diagnostics keep further down.
+    existing_copies = (
+        await session.execute(
+            select(
+                SourceDocument.id,
+                SourceDocument.title,
+                SourceDocument.owner,
+                DocumentVersion.id,
+                DocumentVersion.version_number,
+            )
+            .join(DocumentVersion, DocumentVersion.document_id == SourceDocument.id)
+            .where(DocumentVersion.content_hash == content_hash)
+            .order_by(SourceDocument.created_at, DocumentVersion.version_number)
         )
-        .join(DocumentVersion, DocumentVersion.document_id == SourceDocument.id)
-        .where(
-            DocumentVersion.content_hash == content_hash,
-            SourceDocument.id != document.id,
-        )
-        .order_by(SourceDocument.created_at, DocumentVersion.version_number)
-    )
+    ).all()
+    if any(str(copy_document_id) == str(document.id) for copy_document_id, *_ in existing_copies):
+        raise HTTPException(status_code=409, detail="identical document content already uploaded")
+    # Having ruled out an identical re-upload of this document, every remaining
+    # copy is another registration of the same bytes, so all of them belong in
+    # the signal.
     content_already_present = [
         {
             "document_id": str(other_document_id),
@@ -187,7 +187,7 @@ async def upload_document(
             other_owner,
             other_version_id,
             other_version_number,
-        ) in other_copies_result.all()
+        ) in existing_copies
     ]
 
     version_count = await session.execute(
