@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
@@ -19,7 +19,7 @@ import { policyUnitCount, recordScaleLabel } from "../policyRecordFacts";
 
 const { Text } = Typography;
 
-interface Stats {
+export interface Stats {
   documentCount: number;
   activeVersion: ApprovedPolicyVersion | null;
   versionCount: number;
@@ -39,6 +39,85 @@ interface Stats {
   readingRouteCount: number;
   liveRuleCount: number;
   sourceGroundedRuleCount: number;
+}
+
+/**
+ * One node of the project's lifecycle flow.
+ *
+ * `key` and `nav` are deliberately separate. `key` is the node's own identity —
+ * React reconciles the flow row by it, so two siblings must never share one, or a
+ * re-render can drop one of the pair or let it inherit the other's state. `nav` is
+ * where a click on the node goes. They differ because two distinct stages —
+ * "awaiting review" and "approved, not yet live" — are both worked from the Review
+ * tab, so they share a *destination* while remaining two separate steps a reviewer
+ * needs counted apart. Overloading one field for both is what once gave two steps
+ * the key "review"; `nav` carries the destination so `key` is free to be unique.
+ */
+export interface OverviewStep {
+  key: string;
+  nav: string;
+  label: string;
+  value: number | undefined;
+  detail: string | undefined;
+  icon: ReactNode;
+  tone: string;
+  attention?: boolean;
+}
+
+/**
+ * The lifecycle a project moves through, as the row the overview draws: documents
+ * in → candidates awaiting review → approved but not yet live → rules published.
+ * Each step counts in policy units first (the unit a reviewer decides in), with the
+ * rule tally underneath. Pure and exported so the sequence and its keys can be
+ * asserted without rendering the tab.
+ */
+export function buildOverviewSteps(stats: Stats | null, pending: number): OverviewStep[] {
+  return [
+    {
+      key: "documents",
+      nav: "documents",
+      label: "Documents uploaded",
+      value: stats?.documentCount,
+      detail: undefined,
+      icon: <FileTextOutlined />,
+      tone: "info",
+    },
+    {
+      key: "awaiting-review",
+      nav: "review",
+      label: pending > 0 ? "Awaiting review" : "Nothing pending review",
+      // Policies lead, because a policy is what a reviewer decides. The rule
+      // count stays underneath it: it is what a policy is made of, and a
+      // reviewer sizing the job wants both. Joined, never summed -- they count
+      // different things.
+      value: stats?.pendingPolicyCount,
+      detail: stats ? recordScaleLabel(stats.pendingPolicyCount, pending) : undefined,
+      icon: <ClockCircleOutlined />,
+      tone: pending > 0 ? "attention" : "neutral",
+      attention: pending > 0,
+    },
+    {
+      key: "approved-not-live",
+      nav: "review",
+      label: "Approved, not yet live",
+      value: stats?.approvedPolicyCount,
+      detail: stats
+        ? recordScaleLabel(stats.approvedPolicyCount, stats.approvedCandidateCount)
+        : undefined,
+      icon: <SafetyCertificateOutlined />,
+      tone: stats?.approvedCandidateCount ? "brand" : "neutral",
+      attention: (stats?.approvedCandidateCount ?? 0) > 0,
+    },
+    {
+      key: "policies",
+      nav: "policies",
+      label: "Rules published (active)",
+      value: stats?.activeVersion?.rule_count ?? 0,
+      detail: undefined,
+      icon: <CheckCircleOutlined />,
+      tone: "success",
+    },
+  ];
 }
 
 /**
@@ -135,48 +214,7 @@ export function ProjectOverviewTab({
     stats?.directRouteCount ?? 0,
     stats?.readingRouteCount ?? 0,
   );
-  const steps = [
-    {
-      key: "documents",
-      label: "Documents uploaded",
-      value: stats?.documentCount,
-      detail: undefined as string | undefined,
-      icon: <FileTextOutlined />,
-      tone: "info",
-    },
-    {
-      key: "review",
-      label: pending > 0 ? "Awaiting review" : "Nothing pending review",
-      // Policies lead, because a policy is what a reviewer decides. The rule
-      // count stays underneath it: it is what a policy is made of, and a
-      // reviewer sizing the job wants both. Joined, never summed -- they count
-      // different things.
-      value: stats?.pendingPolicyCount,
-      detail: stats ? recordScaleLabel(stats.pendingPolicyCount, pending) : undefined,
-      icon: <ClockCircleOutlined />,
-      tone: pending > 0 ? "attention" : "neutral",
-      attention: pending > 0,
-    },
-    {
-      key: "review",
-      label: "Approved, not yet live",
-      value: stats?.approvedPolicyCount,
-      detail: stats
-        ? recordScaleLabel(stats.approvedPolicyCount, stats.approvedCandidateCount)
-        : undefined,
-      icon: <SafetyCertificateOutlined />,
-      tone: stats?.approvedCandidateCount ? "brand" : "neutral",
-      attention: (stats?.approvedCandidateCount ?? 0) > 0,
-    },
-    {
-      key: "policies",
-      label: "Rules published (active)",
-      value: stats?.activeVersion?.rule_count ?? 0,
-      detail: undefined as string | undefined,
-      icon: <CheckCircleOutlined />,
-      tone: "success",
-    },
-  ];
+  const steps = buildOverviewSteps(stats, pending);
 
   return (
     <>
@@ -187,11 +225,11 @@ export function ProjectOverviewTab({
           <div key={step.key} style={{ display: "contents" }}>
             <div
               className={`project-flow-step${step.attention ? " project-flow-step-attn" : ""}`}
-              onClick={() => onNavigate(step.key)}
+              onClick={() => onNavigate(step.nav)}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onNavigate(step.key);
+                if (e.key === "Enter" || e.key === " ") onNavigate(step.nav);
               }}
             >
               <span className={`project-flow-icon project-flow-icon--${step.tone}`}>
