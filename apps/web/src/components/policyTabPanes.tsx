@@ -703,10 +703,10 @@ export function PolicyTestsPane({
   loading?: boolean;
   testing?: PolicyTestingVerbs;
   /**
-   * The set this policy is read within. Needed only by the engine's own
-   * scenario runner, which addresses a rule through its set; the judge reads
-   * the record it is handed. Absent, the case box still opens for the AI Ready
-   * rules, which is the majority of them.
+   * The set this policy is read within. The engine's own scenario runner
+   * addresses a rule through its set, so it wants this; the judge reads the
+   * record it is handed, so the case box opens on that route with whatever the
+   * caller supplies.
    */
   policySetKey?: string;
 }) {
