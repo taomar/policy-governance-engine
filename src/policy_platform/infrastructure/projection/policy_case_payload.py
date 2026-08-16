@@ -51,8 +51,10 @@ The four sections of ``grounding_projection_v1``
 ------------------------------------------------
 * **envelope** — the identity and the values every rule shares (schema, policy
   and policy-version ids, provision id/key, document-version id, the common
-  authority and effective dates, and the document's heading path, verbatim). A
-  rule carries one of these only when its value *differs* from the envelope.
+  effective dates, and the document's heading path, verbatim). A rule carries
+  one of these only when its value *differs* from the envelope. The `authority`
+  marker (who drafted the candidate, at what draft rank) is drafting provenance,
+  not policy content, so it is dropped outright rather than hoisted.
 * **spans** — each source passage stored once, keyed by an immutable content id,
   with the exact original text (uncut), the clause and search-document ids, the
   source hash, page, section and offsets. Rules point at spans by id instead of
@@ -489,14 +491,10 @@ def project_rule(
     if scope is not None:
         payload["scope"] = scope
 
-    # An envelope value only reappears on a rule that departs from it.
-    authority = {
-        "level": rule.authority.level,
-        "owner": rule.authority.owner,
-        "rank": rule.authority.rank,
-    }
-    if authority != envelope.get("authority"):
-        payload["authority"] = authority
+    # An envelope value only reappears on a rule that departs from it. The
+    # `authority` marker is drafting provenance (who drafted the candidate, at
+    # what draft rank), not policy content, so it is dropped outright — never
+    # hoisted and never repeated — the way run history is.
     if str(rule.effective_from) != envelope.get("effective_from"):
         payload["effective_from"] = str(rule.effective_from)
     effective_to = None if rule.effective_to is None else str(rule.effective_to)
@@ -553,15 +551,6 @@ def _build_envelope(
     )
     if document_version_id is not None:
         envelope["document_version_id"] = document_version_id
-
-    authority = _common(
-        [
-            {"level": r.authority.level, "owner": r.authority.owner, "rank": r.authority.rank}
-            for r in rules
-        ]
-    )
-    if authority is not None:
-        envelope["authority"] = authority
 
     effective_from = _common([str(r.effective_from) for r in rules])
     if effective_from is not None:

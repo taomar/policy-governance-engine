@@ -636,7 +636,7 @@ def test_dmn_collapses_to_a_status_with_no_second_notation_to_contradict() -> No
 # The envelope — values every rule shares are stored once; overrides only differ.
 # --------------------------------------------------------------------------- #
 def test_shared_values_are_hoisted_to_the_envelope_and_not_repeated() -> None:
-    """Authority, dates and the document id every rule shares live once.
+    """The dates and the document id every rule shares live once.
 
     When two rules agree, the value is in the envelope and neither rule repeats
     it. A rule carries one of these back only when it *differs* — which is the
@@ -658,7 +658,8 @@ def test_shared_values_are_hoisted_to_the_envelope_and_not_repeated() -> None:
     # The shared document id and effective date are hoisted.
     assert envelope["document_version_id"] == "v-1"
     assert "effective_from" in envelope
-    assert "authority" in envelope
+    # Drafting provenance is dropped, not hoisted, so it is absent even here.
+    assert "authority" not in envelope
 
     # And no rule repeats the shared values.
     for rule in payload["rules"]:
@@ -672,13 +673,11 @@ def test_a_real_difference_between_rules_is_never_erased() -> None:
 
     The envelope hoists only what *every* rule shares, so a field the rules
     disagree on stays off the envelope and each rule carries its own — the
-    outlier's distinct authority and date survive intact rather than being
+    outlier's distinct effective date survives intact rather than being
     silently unified with its sibling's.
     """
 
     from datetime import date
-
-    from tests.fixtures.factories import make_authority
 
     payload = build_case_payload(
         policy_set_id="set-1",
@@ -691,24 +690,45 @@ def test_a_real_difference_between_rules_is_never_erased() -> None:
                 "AI-ovr000002",
                 source_text="Two.",
                 subject="b",
-                authority=make_authority(rank=99, owner="board"),
                 effective_from=date(2030, 1, 1),
             ),
         ],
     )
 
     envelope = payload["envelope"]
-    # Nothing shared to hoist, so the disputed fields stay off the envelope.
-    assert "authority" not in envelope
+    # Nothing shared to hoist, so the disputed date stays off the envelope.
     assert "effective_from" not in envelope
 
     first, second = payload["rules"]
     # Each rule keeps its own value; the difference is preserved, not collapsed.
-    assert first["authority"] == {"level": "corporate", "owner": "test-owner", "rank": 10}
-    assert second["authority"] == {"level": "corporate", "owner": "board", "rank": 99}
-    assert first["authority"] != second["authority"]
     assert second["effective_from"] == "2030-01-01"
+    assert "effective_from" in first
     assert first["effective_from"] != second["effective_from"]
+
+
+def test_drafting_provenance_authority_is_never_carried() -> None:
+    """The `authority` marker is drafting provenance, so it is dropped entirely.
+
+    It records who drafted a candidate and at what draft rank — not the policy's
+    meaning — so it belongs with run history, not with the content a model reads.
+    It must appear neither in the envelope nor on any rule, even when every rule
+    shares it, the case where hoisting would otherwise have kept a single copy.
+    """
+
+    payload = build_case_payload(
+        policy_set_id="set-1",
+        provision_id="prov-1",
+        provision_key="key-1",
+        heading_path=["A heading"],
+        rules=[
+            _formulated("AI-prov00001", source_text="One.", subject="a"),
+            _formulated("AI-prov00002", source_text="Two.", subject="b"),
+        ],
+    )
+
+    assert "authority" not in payload["envelope"]
+    for rule in payload["rules"]:
+        assert "authority" not in rule
 
 
 # --------------------------------------------------------------------------- #
