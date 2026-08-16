@@ -23,8 +23,9 @@
  * That is an undefined ratio rendered as the worst possible grade.
  *
  * It is replaced with counts, deliberately, and no ratio is offered anywhere. A
- * record whose test the source states as a comparison can be evaluated directly; a
- * record the source states in words is decided by reading. Both are routes the
+ * record whose test the source states as a comparison takes the Deterministic
+ * route; a record the source states in words takes the AI Ready route, where a
+ * judge reads the rule against the case. Both are routes the
  * source chooses, not marks the extractor earns, and most real policy prose takes
  * the second. Any ratio between them invites reading one as a shortfall of the
  * other, and no caption survives that: a reader who sees a low percentage has
@@ -34,9 +35,11 @@
  * The two route counts are also independent rather than complementary. A record
  * carrying neither mode belongs to neither count, so they need not sum to the whole
  * and one is never derived by subtracting the other from the total -- that would
- * silently file an unrecorded route under "decided by reading" and claim a routing
+ * silently file an unrecorded route under a route name and claim a routing
  * decision the data does not contain.
  */
+
+import { POLICY_ROUTE_LABELS } from "./policyGrouping";
 
 /** The fields of a portfolio insight this module reads. Declared structurally so a
  *  caller can pass the full insight and a test can build a minimal one. */
@@ -95,10 +98,13 @@ export function projectRowClauses(facts: ProjectRowFacts): string[] {
  * Route wording for a set of records, used both for one project's row and for the
  * portfolio-wide statistic.
  *
- * "all decided by reading" rather than "0 evaluated directly · 411 decided by
- * reading": a zero shown beside a route reads as a score against a target, which is
- * exactly what counts were adopted to avoid. Naming only the routes that are
- * actually present says the same thing and implies no missing one.
+ * "all AI Ready" rather than "0 Deterministic · 411 AI Ready": a zero shown beside
+ * a route reads as a score against a target, which is exactly what counts were
+ * adopted to avoid. Naming only the routes that are actually present says the same
+ * thing and implies no missing one.
+ *
+ * The two route names are imported rather than written here, so the register, the
+ * card and the detail panel cannot end up calling the same route different things.
  */
 export function routeClauses(live: number, direct: number, reading: number): string[] {
   if (live === 0) return [];
@@ -106,12 +112,15 @@ export function routeClauses(live: number, direct: number, reading: number): str
   const safeDirect = Math.max(0, direct);
   const safeReading = Math.max(0, reading);
 
-  if (safeReading === live) return ["all decided by reading"];
-  if (safeDirect === live) return ["all evaluated directly"];
+  const readingRoute = POLICY_ROUTE_LABELS.ai_ready;
+  const directRoute = POLICY_ROUTE_LABELS.deterministic;
+
+  if (safeReading === live) return [`all ${readingRoute}`];
+  if (safeDirect === live) return [`all ${directRoute}`];
 
   const parts: string[] = [];
-  if (safeDirect > 0) parts.push(`${safeDirect} evaluated directly`);
-  if (safeReading > 0) parts.push(`${safeReading} decided by reading`);
+  if (safeDirect > 0) parts.push(`${safeDirect} ${directRoute}`);
+  if (safeReading > 0) parts.push(`${safeReading} ${readingRoute}`);
 
   // Records carrying neither mode. Never folded into either route -- that would
   // assert a routing decision the record does not carry -- and never dropped

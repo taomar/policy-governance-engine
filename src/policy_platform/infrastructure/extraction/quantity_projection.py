@@ -78,7 +78,7 @@ class QuantityRefusal(str, Enum):
     """Why a stated quantity did not become a condition.
 
     Every member is a statement about what the source supplied, never a verdict
-    on the record. A rule decided by reading is stated in words and settled by
+    on the record. An AI Ready rule is stated in words and settled by
     someone reading them; that is a route, not a defect, and these codes are
     read by a reviewer who needs to know which route this record took and why.
     """

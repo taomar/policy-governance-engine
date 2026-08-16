@@ -385,7 +385,7 @@ class EvaluationMode(str, Enum):
     #: deterministic engine can decide it without a model in the loop.
     DETERMINISTIC = "deterministic"
     #: Grounded and structured, but not reducible to a fact comparison — so it
-    #: is decided by reading it against the evidence for a case.
+    #: is AI Ready: a judge reads it against the evidence for a case.
     AI_READY = "ai_ready"
 
 

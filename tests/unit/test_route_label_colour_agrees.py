@@ -1,10 +1,12 @@
 """A route label must not be shown in a colour that argues with it.
 
 Every policy record is either `deterministic` — the source states its test as a
-comparison — or it is decided by reading. Both are routes. Neither is a fault.
-The words the app uses for the reading route were fixed some time ago and are
+comparison the engine computes — or it is `ai_ready`, where a judge reads the
+rule against the case and returns a verdict with its confidence. Both are
+routes. Neither is a fault.
+The words the app uses for the two routes were fixed some time ago and are
 now correct in every place they appear; the colours were not fixed with them,
-so a reader met "Decided by reading" written in the amber the same screen uses
+so a reader met a route name written in the amber the same screen uses
 for things that have gone wrong. The colour said one thing and the sentence
 beside it said the opposite, and colour is read first.
 
@@ -87,20 +89,24 @@ _MINIMUM_COLOURED_ELEMENTS = 10
 
 
 def _route_label_wording() -> set[str]:
-    """The words this app uses for the reading route, read from where it picks them.
+    """The words this app uses for its two routes, read from where it picks them.
 
     Deliberately not a list typed into this test. If `ruleExecutability.ts` is
     renamed or restructured this returns nothing, and the floor below turns that
     into a failure rather than a green run over an empty set.
+
+    Both names are read, not just the judged one. The route names were
+    consolidated so that each route has exactly one name, which means the
+    module now yields two strings rather than the four the chooser used to
+    invent; reading both keeps the floor below meaningful and extends the
+    colour rule to whichever route is being named.
     """
     source = VOCABULARY_SOURCE.read_text(encoding="utf-8")
     wording: set[str] = set()
 
     label = re.search(r"DETERMINISTIC_LABEL\s*=\s*\{(.*?)\}", source, re.S)
     if label:
-        no = re.search(r'\bno\s*:\s*"([^"]+)"', label.group(1))
-        if no:
-            wording.add(no.group(1))
+        wording.update(re.findall(r'\b(?:yes|no)\s*:\s*"([^"]+)"', label.group(1)))
 
     chooser = re.search(r"export function deterministicLabel\((.*?)\n\}", source, re.S)
     if chooser:
@@ -215,10 +221,10 @@ def test_the_vocabulary_is_read_from_the_module_that_chooses_it():
         "above would pass while checking nothing"
     )
     assert all(w.strip() for w in wording), f"blank wording extracted: {wording!r}"
-    # The chooser distinguishes several cases; one label means it stopped being read.
+    # Two routes, two names. One means the extractor has stopped being read.
     assert len(wording) >= 2, (
-        f"only extracted {sorted(wording)} — deterministicLabel names more than one "
-        "route, so the extractor has stopped following it"
+        f"only extracted {sorted(wording)} — the module names two routes, so the "
+        "extractor has stopped following it"
     )
 
 
@@ -226,11 +232,11 @@ def test_the_vocabulary_is_read_from_the_module_that_chooses_it():
     "snippet,should_flag",
     [
         ('<Tag color="gold">{DETERMINISTIC_LABEL.no}</Tag>', True),
-        ('<Tag color="orange">decided by reading</Tag>', True),
-        ('<Tag bordered={false} color="red">Decided by reading</Tag>', True),
+        ('<Tag color="orange">AI Ready</Tag>', True),
+        ('<Tag bordered={false} color="red">AI Ready</Tag>', True),
         ("<Tag>{DETERMINISTIC_LABEL.no}</Tag>", False),
-        ('<Tag color="default">Decided by reading</Tag>', False),
-        ('<Tag color="blue">Decided by reading</Tag>', False),
+        ('<Tag color="default">AI Ready</Tag>', False),
+        ('<Tag color="blue">AI Ready</Tag>', False),
         ('<Tag color="gold">Missing facts</Tag>', False),
     ],
 )

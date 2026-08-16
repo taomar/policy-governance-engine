@@ -10,9 +10,9 @@
  *  2. A rule that could not be run must not read as failing. A run that errored
  *     has claimed nothing about the policy; reporting it as a failure puts the
  *     defect on the record instead of on the run.
- *  3. A policy whose rules are all decided by reading must never be given a
- *     count of the other route. There is no target to fall short of, and "0"
- *     beside a populated figure is read as a shortfall whatever the caption.
+ *  3. A policy whose rules are all AI Ready must never be given a count of the
+ *     other route. There is no target to fall short of, and "0" beside a
+ *     populated figure is read as a shortfall whatever the caption.
  *  4. A rule that states no comparison must not appear in the facts table at
  *     all. An empty cell in a column headed "facts" is read as an omission by
  *     the rule, when it is a property of how the rule is decided.
@@ -223,10 +223,10 @@ describe("a route is never rendered as a shortfall", () => {
     expect(container.textContent).not.toContain("Statement of r-2");
   });
 
-  it("says how a policy decided by reading works, rather than what it holds none of", () => {
+  it("says how an AI Ready policy works, rather than what it holds none of", () => {
     const card = cardOf([{ id: "r-1" }]);
     render(<PolicyPartiesAndRoutesPane record={policyRecord(card)} />);
-    expect(screen.getByText(/the words\s+are the test/)).toBeTruthy();
+    expect(screen.getByText(/are the test, and a judge applies them/)).toBeTruthy();
   });
 
   /**
@@ -254,7 +254,7 @@ describe("a route is never rendered as a shortfall", () => {
   ];
 
   it.each([
-    ["a policy every rule of which is decided by reading", [{ id: "r-1" }, { id: "r-2" }]],
+    ["a policy every rule of which is AI Ready", [{ id: "r-1" }, { id: "r-2" }]],
     [
       "a policy with both routes in it",
       [{ id: "r-1", mode: "deterministic" as const, facts: ["a_named_value"] }, { id: "r-2" }],
@@ -265,7 +265,7 @@ describe("a route is never rendered as a shortfall", () => {
     );
     const rendered = container.textContent ?? "";
     // Control: the pane rendered its captions, so an empty match proves nothing.
-    expect(rendered).toMatch(/the words\s+are the test/);
+    expect(rendered).toMatch(/are the test, and a judge applies them/);
     for (const denial of REASSURANCE_SHAPED_AS_A_DENIAL) {
       expect(rendered).not.toMatch(denial);
     }

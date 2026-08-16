@@ -774,7 +774,7 @@ export function PolicyValidationLab({
             </div>
             <Text type="secondary" className="validation-filter-summary">
               Showing {visibleRules.length} testable policies from published v{selectedVersion?.version_number ?? "—"}.
-              This lab runs the policies whose test the source states as a comparison; the rest are decided by reading.
+              This lab runs the policies whose test the source states as a comparison; the rest take the AI Ready route.
             </Text>
             <div className="validation-rule-list">
               {visibleRules.map((rule) => (

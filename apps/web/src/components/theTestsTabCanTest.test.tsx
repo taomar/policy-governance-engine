@@ -248,18 +248,17 @@ describe("a refusal reaches the reviewer in the server's own words", () => {
 /**
  * FOUND BY RUNNING IT, NOT BY READING IT.
  *
- * The generate control was offered on every rule, and the server refused for a
- * rule decided by reading with: "blind validation runs against the deterministic
- * engine; these selected rules are decided by reading, so the engine does not
- * run them". The refusal is accurate and well worded. The interaction that
+ * The generate control was offered on every rule, and the server refused for an
+ * AI Ready rule with: "blind validation runs against the deterministic engine;
+ * these selected rules take the AI Ready route, so the engine does not run
+ * them". The refusal is accurate and well worded. The interaction that
  * provoked it was not.
  *
  * Offering an action on every rule and letting it fail on one of the two routes
  * teaches a reviewer that that route is the lesser one — the exact claim the
  * copy guards keep out of the words, arriving instead through what the buttons
- * do. So the offer is derived from the rule's own route, and what is true of a
- * rule decided by reading is stated positively: it is checked the way it is
- * decided.
+ * do. So the offer is derived from the rule's own route, and what is true of an
+ * AI Ready rule is stated positively: it is checked the way it is decided.
  */
 describe("the offer follows the route the rule takes", () => {
   it("offers to write a scenario for a rule the engine evaluates", () => {
@@ -274,7 +273,7 @@ describe("the offer follows the route the rule takes", () => {
     expect(screen.queryByTestId("put-case-a")).toBeNull();
   });
 
-  it("offers a rule decided by reading its own way in, not an engine scenario", () => {
+  it("offers an AI Ready rule its own way in, not an engine scenario", () => {
     render(
       <PolicyTestsPane
         record={record([rule("a", "One", "ai_ready")])}

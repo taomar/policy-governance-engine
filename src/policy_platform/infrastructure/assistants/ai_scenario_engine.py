@@ -317,7 +317,7 @@ async def run_rule_scenario(
 
     mapping_statuses, formulation_requirements = _formulation_status(rule)
 
-    # A policy decided by reading is deliberately skipped by the evaluator
+    # An AI Ready policy is deliberately skipped by the evaluator
     # before it reads facts. Do not spend two AI calls translating a scenario
     # the deterministic engine is contractually unable to evaluate, and do not
     # let an explainer guess that the scenario merely omitted facts.

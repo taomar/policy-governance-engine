@@ -1037,7 +1037,7 @@ def condition_provenance(
     `quantity_covers_one_clause` marks a sixth: the sentence stated a complete
     comparison and it was not adopted, because the formulator grouped this rule
     with others into one decision and a condition built from this sentence alone
-    would not carry the provision whole. That is a rule decided by reading, and
+    would not carry the provision whole. That is an AI Ready rule, and
     the code says which reading is required rather than reporting an absence
     that is not there — the comparison exists, and it is the scope of it that
     the record declines to claim.

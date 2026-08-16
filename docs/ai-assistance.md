@@ -110,7 +110,7 @@ The two checks are independent, and only the second is missing:
 A rule whose projection is `enrichment_required`, `ambiguous` or
 `not_directly_mappable` carries no compiled condition. The formulator still
 records what the source *stated* in its semantic projection, and the review UI
-shows that in XACML terms. The record is labelled **Decided by reading**, with
+shows that in XACML terms. The record is labelled **AI Ready**, with
 one sentence naming what the source did and what follows from it; the wording
 per provenance code lives in `conditionRoute.ts`. Nothing the formulator could
 not compile is written into the rule's condition. A statement whose subject is

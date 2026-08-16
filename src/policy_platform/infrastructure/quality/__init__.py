@@ -13,7 +13,7 @@ judging needs a reader.
 Five of the recorded mutations name `ai_quality`, more than any other module.
 They guard two things that are easy to get wrong in the same direction: that
 duplicate detection groups on the sentence rather than on the classification,
-and that a record decided by reading is described as a route rather than
+and that an AI Ready record is described as a route rather than
 reported as a defect. `ai_ready` is not a fault, and a quality pass is the most
 tempting place to start treating it as one.
 

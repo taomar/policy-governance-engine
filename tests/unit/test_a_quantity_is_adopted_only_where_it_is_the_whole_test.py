@@ -27,7 +27,7 @@ The rule this file pins down:
 * a decision naming this rule alone leaves the sentence as the only statement of
   the test, and adopting its comparison invents nothing;
 * a decision naming this rule among others means the condition would not carry
-  the provision whole, so the rule is decided by reading — and says so, naming
+  the provision whole, so the rule is AI Ready — and says so, naming
   the quantity it declined to adopt so the reader can check the judgement rather
   than take it;
 * a quantity that could not compile at all still refuses for its own reason.

@@ -21,8 +21,15 @@
  * The words. Route is a property of a rule; a card names the mix its rules take
  * for orientation and names each rule's own route beside that rule. Both labels
  * are read by the card, the detail panel and the published Policies view, so
- * they live in one place — three copies of "Decided by reading" is three chances
- * for one of them to become a complaint.
+ * they live in one place — three copies of a route name is three chances for one
+ * of them to drift into a complaint.
+ *
+ * There are two routes and each has exactly one name. A rule whose test the
+ * source states as a comparison is Deterministic: the engine computes it. A rule
+ * whose test the source states in words is AI Ready: a judge reads the rule
+ * against the case and returns a verdict with its confidence. Earlier releases
+ * called the second one three different things at once, which is how a route
+ * starts reading as a diagnosis.
  *
  * None of these is a grade. A rule the source states in words is taking the
  * route the source chose for it, and a passage holding one of each is the
@@ -31,9 +38,9 @@
  */
 
 export const POLICY_ROUTE_LABELS: Record<string, string> = {
-  deterministic: "Evaluated directly",
-  ai_ready: "Decided by reading",
-  mixed: "Evaluated directly and by reading",
+  deterministic: "Deterministic",
+  ai_ready: "AI Ready",
+  mixed: "Deterministic and AI Ready",
 };
 
 export function policyRouteLabel(route: string | null | undefined): string {

@@ -35,7 +35,7 @@
     "tests": ["tests/unit/test_extraction_quality_checks.py"]
   },
   {
-    "name": "a record decided by reading is never checked for sufficiency",
+    "name": "an AI Ready record is never checked for sufficiency",
     "file": "src/policy_platform/contracts/policy.py",
     "find": "    if not _states_its_test(core):\n        missing.append(\"what it requires\")",
     "replace": "    if False:\n        missing.append(\"what it requires\")",

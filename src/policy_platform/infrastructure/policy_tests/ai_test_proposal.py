@@ -92,7 +92,7 @@ policy is vague, incomplete, or unusable: most policy text states its test in wo
 policy may state its subject, its threshold and its approver completely and be decided correctly by a \
 judge reading it against a case. Each policy carries a "decision_readiness" object and an "attributes" \
 table — read them, and describe the policy accordingly. Writing "this policy cannot be evaluated" as \
-though it were a defect is wrong; say it is decided by reading instead.
+though it were a defect is wrong; say it is AI Ready instead.
 
 If the user message contains a "reviewer_guidance" field, treat it as a priority steer from the policy \
 reviewer: bias your coverage toward the areas, rules, or risks it names, and propose more tests there. It \
@@ -315,7 +315,7 @@ async def propose_policy_tests(
         non_executable = [rule.rule_id for rule in selected_rules if not rule.machine_executable]
         if non_executable:
             raise ValueError(
-                "blind validation runs against the deterministic engine; these selected rules are decided by reading, so the engine does not run them: "
+                "blind validation runs against the deterministic engine; these selected rules are AI Ready, so the engine does not run them: "
                 + ", ".join(non_executable)
             )
 

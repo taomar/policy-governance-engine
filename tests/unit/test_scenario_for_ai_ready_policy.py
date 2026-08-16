@@ -1,4 +1,4 @@
-"""Scenario-testing a policy that is decided by reading must not raise.
+"""Scenario-testing an AI Ready policy must not raise.
 
 `run_rule_scenario` short-circuits before any AI call when the deterministic
 engine cannot evaluate the policy, and returns an explanation instead. That

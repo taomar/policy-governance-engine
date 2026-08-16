@@ -113,7 +113,7 @@ def test_enrichment_demands_are_kept_in_memory_but_never_served():
 
     Across a whole document not one decision produced a table, and every record
     carried two or three of these codes — a standing demand attached to
-    policies that are decided by reading rather than by arithmetic. Tooling
+    policies that are AI Ready rather than decided by arithmetic. Tooling
     that acts on them still reads the parsed object.
     """
 

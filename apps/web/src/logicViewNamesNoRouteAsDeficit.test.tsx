@@ -92,9 +92,9 @@ function cardRule(
 
 /** The same rules twice, differing only in which route each one took.
  *
- *  The values are held constant on purpose: a rule decided by reading and a rule
- *  decided by comparison are being asked to look the same, so nothing else may
- *  vary between the two renders. */
+ *  The values are held constant on purpose: an AI Ready rule and a Deterministic
+ *  rule are being asked to look the same, so nothing else may vary between the
+ *  two renders. */
 function twoWays(size: number): [PolicyCard, PolicyCard] {
   const build = (flip: boolean): PolicyCard => {
     const rules = Array.from({ length: size }, (_, index) => {
@@ -268,7 +268,7 @@ describe("this view apologises for nothing", () => {
     // It sees this view's own sentences, including the headings and the line
     // that names what a rule leaves out — the copy most likely to acquire an
     // apology later.
-    expect(copy).toContain("What each rule states");
+    expect(copy).toContain("Condition");
     expect(copy).toContain("APPLIES");
     expect(copy).toContain("REQUIRES");
     expect(copy).toContain("states no");

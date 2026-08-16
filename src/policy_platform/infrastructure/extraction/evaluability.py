@@ -272,7 +272,7 @@ def dangling_referents(
     """Operative wording in `rule` that the record itself does not explain.
 
     The record is its own resolution scope, which is exactly the promise being
-    checked: a rule decided by reading is read on its own. So every field the
+    checked: an AI Ready rule is read on its own. So every field the
     record carries counts as available text, and the source sentence counts
     twice over — it is what a judge actually reads.
     """

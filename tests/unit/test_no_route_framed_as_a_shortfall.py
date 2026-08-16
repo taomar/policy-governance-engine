@@ -60,10 +60,29 @@ _READING_ROUTE: tuple[tuple[str, ...], ...] = (
     ("documentation", "only"),
     ("manual", "review"),
     ("judge", "reads"),
-    ("decided", "by", "reading"),
 )
+
+#: Names a route used to be given, kept recognised after being retired.
+#:
+#: The judged route is now called `AI Ready` and the computed one
+#: `Deterministic`, one name each. The names they replaced stay in this scan on
+#: purpose. A rule that only knew the current names would let copy written --
+#: or reverted -- under an old name walk straight past, and the old names are
+#: exactly what a reader meets when copy drifts back. Recognising them costs
+#: nothing and closes the hole that the rename would otherwise open.
+#:
+#: The sibling guard forbids these names outright. This one is about shape, so
+#: it keeps holding them to the same rule as the names that survived.
+_RETIRED_ROUTE_NAMES: tuple[tuple[str, ...], ...] = (
+    ("decided", "by", "reading"),
+    ("evaluated", "directly"),
+    ("human", "judgment", "requirement"),
+    ("human", "judgement", "requirement"),
+)
+
+_ROUTE_TERMS: tuple[tuple[str, ...], ...] = _READING_ROUTE + _RETIRED_ROUTE_NAMES
 _ROUTE_RE = re.compile(
-    rf"\b(?:{'|'.join(r'[-_ ]'.join(words) for words in _READING_ROUTE)})\b",
+    rf"\b(?:{'|'.join(r'[-_ ]'.join(words) for words in _ROUTE_TERMS)})\b",
     re.IGNORECASE,
 )
 
@@ -160,7 +179,7 @@ def _fingerprint(sentence: str) -> str:
 #: A fingerprint stops matching the moment the sentence is edited, which is
 #: exactly when somebody should look at it again.
 _QUOTED_TO_FORBID_IT = {
-    "aed132a967eb0905": "a system prompt line forbidding the frame",
+    "b4eb40dfcab54036": "a system prompt line forbidding the frame",
 }
 
 
@@ -291,6 +310,30 @@ class TestTheGuardWorks:
         route = " ".join(["ai", "ready"])
         text = f"This rule is {route}. The next page is missing."
         assert frames_a_route_as_a_shortfall(text) == []
+
+    def test_every_retired_name_is_still_recognised_as_a_route(self) -> None:
+        """A rename must not become a way through the scan.
+
+        The names below are no longer used. If copy drifts back to one of them
+        and calls it a shortfall in the same breath, that is exactly the fault
+        this file exists to catch, and it must not escape merely because the
+        name it used has since been retired.
+        """
+
+        for words in _RETIRED_ROUTE_NAMES:
+            for joiner in (" ", "-", "_"):
+                name = joiner.join(words)
+                assert _ROUTE_RE.search(name), f"{name!r} is no longer read as a route"
+                sentence = f"A rule sent to {name} cannot be checked here."
+                assert frames_a_route_as_a_shortfall(sentence) == [sentence], sentence
+
+    def test_a_retired_name_stated_plainly_is_still_left_alone(self) -> None:
+        """Recognising a name is not the same as forbidding it. Only the
+        pairing with a shortfall is the fault this file reports."""
+
+        for words in _RETIRED_ROUTE_NAMES:
+            name = " ".join(words)
+            assert frames_a_route_as_a_shortfall(f"This rule is {name}.") == [], name
 
     def test_every_exemption_is_earned(self) -> None:
         """An exemption matching nothing in the tree is a rule nobody holds.

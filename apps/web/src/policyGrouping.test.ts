@@ -47,9 +47,27 @@ describe("route wording", () => {
     // A policy stating one computable rule and one read rule is the ordinary
     // shape of a real document. Wording that implied otherwise would make the
     // common case look like a defect.
+    //
+    // Both route names in full, in the one vocabulary the product uses for
+    // them. Asserting on the names rather than on a paraphrase is the point:
+    // "evaluated directly" and "decided by reading" were two of the several
+    // names this route accumulated, and a test that accepted a paraphrase is
+    // how the drift went unnoticed.
     const label = POLICY_ROUTE_LABELS.mixed;
-    expect(label).toContain("directly");
-    expect(label).toContain("reading");
+    expect(label).toContain(POLICY_ROUTE_LABELS.deterministic);
+    expect(label).toContain(POLICY_ROUTE_LABELS.ai_ready);
+    expect(label).toBe("Deterministic and AI Ready");
+  });
+
+  it("gives the judged route exactly one name", () => {
+    // The failure: three names for one route -- "Decided by reading", the
+    // title-cased enum "Human Judgment Requirement", and "AI Ready" -- on
+    // surfaces a reader moves between, so the same route reads as three.
+    for (const label of Object.values(POLICY_ROUTE_LABELS)) {
+      expect(label).not.toMatch(/decided.by.reading|evaluated.directly|human.judg/i);
+    }
+    expect(POLICY_ROUTE_LABELS.ai_ready).toBe("AI Ready");
+    expect(POLICY_ROUTE_LABELS.deterministic).toBe("Deterministic");
   });
 
   it("keeps every route label free of deficit framing", () => {

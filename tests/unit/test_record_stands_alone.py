@@ -1,4 +1,4 @@
-"""A record decided by reading has to be readable on its own.
+"""An AI Ready record has to be readable on its own.
 
 The two halves of that promise, and both are properties of the *slice* the
 extractor took rather than of the document it was taken from:

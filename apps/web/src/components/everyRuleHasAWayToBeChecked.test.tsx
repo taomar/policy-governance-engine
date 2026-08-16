@@ -263,12 +263,12 @@ describe("neither route is offered as the lesser one", () => {
   it("carries no deficiency word beside a route name, in copy or in comment", () => {
     // The guard that scans for this is sentence-scoped and build-failing, and
     // it caught the first draft of this pane's own prop comment: "Absent, the
-    // case box still opens for the rules decided by reading". Nothing was
-    // wrong with the behaviour; the sentence put a lack word next to a route
-    // and left a reader carrying the lack. This keeps the check inside the
-    // suite that owns the pane, so a later tidy-up meets it here first.
+    // case box still opens for the AI Ready rules". Nothing was wrong with the
+    // behaviour; the sentence put a lack word next to a route and left a reader
+    // carrying the lack. This keeps the check inside the suite that owns the
+    // pane, so a later tidy-up meets it here first.
     const SHORTFALL = /\b(absent|missing|lacks?|lacking|gap|incomplete|insufficient|unsupported|unable|cannot|can't)\b/i;
-    const ROUTE = /(decided by reading|ai[-_ ]?ready|judge reads|put a case to the judge)/i;
+    const ROUTE = /(ai[-_ ]?ready|judge reads|put a case to the judge)/i;
 
     render(
       <PolicyTestsPane

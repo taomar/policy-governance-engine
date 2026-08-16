@@ -343,7 +343,7 @@ _LOGIC_SEVERITY: dict[LogicFindingSeverity, str] = {
 #: two are not the same axis — a damaged decomposition and a fabricated phrase
 #: are both serious, but only one of them can be answered by editing wording.
 #: Every one of these is a defect in how the document was *read* — never in the
-#: policy, and never in a record being decided by reading, which is a route and
+#: policy, and never in a record being AI Ready, which is a route and
 #: not a shortfall.
 _LOGIC_RECOMMENDATION_BY_SHAPE: dict[MismatchShape, str] = {
     MismatchShape.UNSUPPORTED: (
@@ -775,7 +775,7 @@ def _runner_fitness_findings(rules: list[CanonicalRule]) -> list[dict]:
                     "severity": "high",
                     "category": "not_decidable_as_written",
                     "finding": (
-                        f"'{rule.title}' ({rule.rule_id}) is decided by reading, but the record "
+                        f"'{rule.title}' ({rule.rule_id}) is AI Ready, but the record "
                         f"does not say {', or '.join(missing)}."
                     ),
                     "affected_rule_ids": [rule.rule_id],
@@ -799,7 +799,7 @@ def _canonical_core(rule: CanonicalRule):
 def _self_containment_findings(rules: list[CanonicalRule]) -> list[dict]:
     """Records whose operative wording points outside themselves.
 
-    A record decided by reading is read on its own, so wording like "in the
+    An AI Ready record is read on its own, so wording like "in the
     case of absences on that day" is only usable where the record also says
     which day. Where it does not, the reader is sent to a neighbour the record
     does not name, and the record still looks complete: it carries a condition,

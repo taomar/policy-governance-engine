@@ -14,7 +14,7 @@ probabilistic side of it.
 decides. It calls the deterministic evaluator to get the outcome and uses the
 model only to describe the scenario, so the decision is code's and the prose is
 the model's. Three of the recorded mutations live here, guarding that a rule
-decided by reading is offered as a route rather than reported as a fault.
+being AI Ready is offered as a route rather than reported as a fault.
 
 `rule_change_explainer` is here rather than with projection for the same
 reason: `rule_delta` computes the difference deterministically, and this only

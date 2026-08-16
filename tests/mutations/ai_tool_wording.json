@@ -14,14 +14,14 @@
     "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
   },
   {
-    "name": "an AI call is made for a policy decided by reading",
+    "name": "an AI call is made for an AI Ready policy",
     "file": "src/policy_platform/infrastructure/assistants/ai_scenario_engine.py",
     "find": "        \"testability_reason\": \"decided_by_reading\",",
     "replace": "        \"testability_reason\": \"rule_not_machine_executable\",",
     "tests": ["tests/unit/test_scenario_for_ai_ready_policy.py"]
   },
   {
-    "name": "the quality check reports being decided by reading as a defect",
+    "name": "the quality check reports the AI Ready route as a defect",
     "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
     "find": "            f\"{len(executable)} of them are evaluated by comparison, so the evaluator can \"",
     "replace": "            f\"{len(executable)} of them are machine-executable, so the evaluator can \"",

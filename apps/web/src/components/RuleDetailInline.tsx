@@ -259,7 +259,7 @@ export function RuleDetailInline({
     },
     {
       key: "readiness",
-      label: "Parties & readiness",
+      label: "Parties & routes",
       render: () => (
         <div className="inspector-pane">
           <DecisionReadinessView rule={rule} />

@@ -73,25 +73,25 @@ describe("a register row describes the generation a project is actually in", () 
       facts({ live_candidate_count: 100, candidate_direct_count: 3, candidate_reading_count: 97 }),
     );
     const line = mixed.join(" · ");
-    expect(line).toContain("3 evaluated directly");
-    expect(line).toContain("97 decided by reading");
+    expect(line).toContain("3 Deterministic");
+    expect(line).toContain("97 AI Ready");
     expect(line).not.toContain("%");
   });
 
   it("does not print a zero against a route that simply is not present", () => {
-    // "0 evaluated directly" is a score against a target nobody set. When every
+    // "0 Deterministic" is a score against a target nobody set. When every
     // record takes one route, the row says so positively.
     const line = projectRowClauses(facts()).join(" · ");
-    expect(line).toContain("all decided by reading");
-    expect(line).not.toContain("0 evaluated directly");
+    expect(line).toContain("all AI Ready");
+    expect(line).not.toContain("0 Deterministic");
   });
 
   it("shows records carrying no recorded route rather than filing them under one", () => {
     // Deriving one route by subtracting the other from the total would assert a
     // routing decision the record does not carry. The remainder is named.
     const line = routeClauses(10, 2, 5).join(", ");
-    expect(line).toContain("2 evaluated directly");
-    expect(line).toContain("5 decided by reading");
+    expect(line).toContain("2 Deterministic");
+    expect(line).toContain("5 AI Ready");
     expect(line).toContain("3 without a recorded route");
   });
 
@@ -130,8 +130,8 @@ describe("a register row describes the generation a project is actually in", () 
     const line = projectRowClauses(
       facts({ live_candidate_count: 12, candidate_direct_count: 12, candidate_reading_count: 0 }),
     ).join(" · ");
-    expect(line).toContain("all evaluated directly");
-    expect(line).not.toContain("0 decided by reading");
+    expect(line).toContain("all Deterministic");
+    expect(line).not.toContain("0 AI Ready");
   });
 });
 

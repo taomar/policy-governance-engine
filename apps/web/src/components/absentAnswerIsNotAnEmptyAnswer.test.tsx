@@ -214,7 +214,12 @@ describe("dashboard panels stop waiting for an answer that was refused", () => {
     serveProjects();
     renderDashboard();
 
-    expect(await screen.findByText(/4 candidate rules need a decision/i)).toBeTruthy();
+    // The fixture's portfolio insight carries no policy figure, which is
+    // absent rather than nought: the headline says what it has, in rules, and
+    // names that unit. It must never invent "0 policies" over a queue that
+    // plainly holds four rules.
+    expect(await screen.findByText(/4 rules need a decision/i)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\b0 policies\b/);
     await waitFor(() => {
       expect(document.body.textContent).toContain("1 projects");
     });

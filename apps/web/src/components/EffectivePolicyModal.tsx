@@ -65,7 +65,7 @@ export function EffectivePolicyModal({
                 <Text key={line}>{line}</Text>
               ))}
               <Tag variant="filled" className="effective-policy-flag">
-                decided by reading
+                AI Ready
               </Tag>
             </Space>
           );

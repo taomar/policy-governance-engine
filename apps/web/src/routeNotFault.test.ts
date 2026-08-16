@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
  * number -- it is to name which routes are present, in counts, in the words
  * `projectRegisterRow.routeCell` owns, the way the dashboard tile already does:
  *
- *     Decision routes / 2735 / all decided by reading
+ *     Decision routes / 2735 / all AI Ready
  *
  * SCOPE. Only the counter-cell shape is matched. A per-rule badge reading
  * "Deterministic" beside one rule states that rule's route with the rule in
@@ -239,5 +239,163 @@ describe("a route is not a fault, including when it is spelled as a number", () 
       .filter((cell) => isRouteTerm(cell.term) && isBareNumeral(cell.value))
       .map((cell) => `${cell.path}: <dt>${cell.term}</dt><dd>${cell.value}</dd>`);
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * ONE ROUTE, ONE NAME.
+ *
+ * A route is not a fault. It is also not three things. The interface had been
+ * calling the judged route by three names at once -- on a card, on a tab and in
+ * a tooltip -- and a reader with no way to know they are one route reads three,
+ * arranged in an order, with the last one the finished one. The route acquires
+ * a before and an after that nothing in the data supports, and it has become a
+ * shortfall without a shortfall word being written. That is the same defect
+ * this file already guards, arriving through vocabulary instead of layout.
+ *
+ * The names now are `AI Ready`, where a judge reads the rule against the case
+ * and returns a verdict with its confidence, and `Deterministic`, where the
+ * engine computes the comparison. One each.
+ *
+ * WHY WORD ATOMS AGAIN. Same reason as `ROUTE_TERM_WORDS` above: written as
+ * adjacent prose, these are the exact strings the sibling Python guard forbids
+ * anywhere under `apps/web/src`, and that guard cannot tell a phrase quoted as
+ * data from one written as language. So none is written down.
+ *
+ * WHY `.ts` AND NOT ONLY `.tsx`. The names live in label modules as much as in
+ * components -- `ruleExecutability.ts` and `policyGrouping.ts` are where a
+ * rename either takes or does not.
+ */
+const RETIRED_NAME_WORDS: readonly (readonly string[])[] = [
+  ["decided", "by", "reading"],
+  ["evaluated", "directly"],
+  ["parties", "readiness"],
+  ["human", "judgment", "requirement"],
+  ["human", "judgement", "requirement"],
+];
+
+/**
+ * Words joined by any short run of non-alphanumerics, so `&amp;` counts.
+ *
+ * The underscore is deliberately NOT a joiner. `human_judgment_requirement` is
+ * a `rule_type` value on the wire and in the database; it is not something a
+ * reader is ever shown. These rules police the words on screen, so the snake
+ * case spelling of an API value must stay legal or the rule would be demanding
+ * a schema migration to fix a caption.
+ */
+const RETIRED_NAME_PATTERNS: readonly RegExp[] = RETIRED_NAME_WORDS.map(
+  (words) => new RegExp(words.join("(?:&amp;|[^a-zA-Z0-9_]){1,8}"), "i"),
+);
+
+function retiredNamesIn(text: string): string[] {
+  return RETIRED_NAME_PATTERNS.flatMap((pattern) => {
+    const found = text.match(new RegExp(pattern.source, "gi"));
+    return found ? found : [];
+  });
+}
+
+/**
+ * Files carrying a retired name that this change was not permitted to edit.
+ *
+ * They belong to a concurrent change on the same tree. The test below holds
+ * each entry to still carrying a retired name, so the exemption fails -- and
+ * has to be deleted -- the moment the hand that owns those files fixes them.
+ * An exemption that outlives its reason is how the wording comes back.
+ *
+ * It is empty, and that is the healthy state rather than a gap in the guard.
+ * The last entry was `components/PolicyInspector.tsx`, whose flag for a rule
+ * the engine does not evaluate read "decided by reading". Removing the fork
+ * made that component the reading of a rule on every surface, including
+ * expanded in place under a published policy's rows -- so the phrasing stopped
+ * being one panel's and became the system's, and was rewritten to say what the
+ * source did rather than to name a route by a name it no longer has.
+ */
+const AWAITING_ANOTHER_HAND: readonly string[] = [];
+
+describe("the route has one name", () => {
+  const sources = {
+    ...(import.meta.glob("./**/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>),
+    ...(import.meta.glob("./**/*.tsx", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>),
+  };
+
+  const files = Object.entries(sources).filter(
+    ([path]) => !/\.(test|spec)\.tsx?$/.test(path),
+  );
+  const exempt = ([path]: [string, string]) =>
+    AWAITING_ANOTHER_HAND.some((tail) => path.endsWith(tail));
+
+  it("is reading the interface source rather than an empty directory", () => {
+    expect(files.length).toBeGreaterThan(100);
+    expect(files.some(([path]) => path.endsWith("ruleExecutability.ts"))).toBe(true);
+    expect(files.some(([path]) => path.endsWith("policyGrouping.ts"))).toBe(true);
+    expect(files.some(([path]) => path.endsWith("ReviewQueue.tsx"))).toBe(true);
+  });
+
+  it("recognises every retired name in the spellings a caption may take", () => {
+    for (const words of RETIRED_NAME_WORDS) {
+      for (const joiner of [" ", "-"]) {
+        expect(retiredNamesIn(words.join(joiner))).not.toEqual([]);
+        const titled = words.map((w) => w[0].toUpperCase() + w.slice(1)).join(joiner);
+        expect(retiredNamesIn(titled)).not.toEqual([]);
+      }
+    }
+    // The ampersand spelling, in both the plain and the escaped form.
+    expect(retiredNamesIn("Parties & readiness")).not.toEqual([]);
+    expect(retiredNamesIn("Parties &amp; readiness")).not.toEqual([]);
+  });
+
+  it("leaves an API value spelled in snake case alone", () => {
+    // `human_judgment_requirement` is a rule_type on the wire. Nobody reads it,
+    // and a caption rule that demanded a schema change would not survive.
+    expect(retiredNamesIn(["human", "judgment", "requirement"].join("_"))).toEqual([]);
+  });
+
+  it("leaves the surviving names, and the plain explanation, alone", () => {
+    const survivors = [
+      ["ai", "ready"].map((w) => w[0].toUpperCase() + w.slice(1)).join(" "),
+      "Deterministic",
+      "Parties & routes",
+      "a judge decides it by reading the record",
+      "the engine computes the comparison",
+      "Required facts",
+    ];
+    for (const wording of survivors) expect(retiredNamesIn(wording)).toEqual([]);
+  });
+
+  it("names no route by a name it no longer has", () => {
+    const offenders = files
+      .filter((entry) => !exempt(entry))
+      .flatMap(([path, text]) =>
+        retiredNamesIn(withoutComments(text)).map((found) => `${path}: ${found}`),
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  it("holds every exemption to still needing one", () => {
+    // No floor on the list's length: empty is the state this guard is trying to
+    // reach, and demanding an entry would make the last repair fail the test
+    // that exists to retire it. What is asserted is that nothing sits on the
+    // list without still earning its place.
+    for (const tail of AWAITING_ANOTHER_HAND) {
+      const entry = files.find(([path]) => path.endsWith(tail));
+      expect(entry, `${tail} is exempt but is not scanned -- remove the entry`).toBeDefined();
+      expect(
+        retiredNamesIn(withoutComments(entry![1])),
+        `${tail} no longer carries a retired name -- remove it from AWAITING_ANOTHER_HAND`,
+      ).not.toEqual([]);
+    }
+  });
+
+  it("has not let the exemption swallow the scan", () => {
+    const scanned = files.filter((entry) => !exempt(entry));
+    expect(scanned.length).toBeGreaterThan(100);
   });
 });

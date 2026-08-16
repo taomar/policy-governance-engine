@@ -462,7 +462,7 @@ class DmnDecision(_OmitEmptyModel):
     `FACT_MODEL_REQUIRED`, `OUTPUT_MODEL_REQUIRED` and so on. Across a whole
     document not one decision produced a table, and every record carried two or
     three of these codes: a standing demand, addressed to nobody, attached to
-    policies that are decided by reading rather than by arithmetic. The
+    policies that are AI Ready rather than settled by arithmetic. The
     scenario tooling that acts on them still reads the parsed object.
     """
 

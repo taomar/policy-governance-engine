@@ -1,4 +1,4 @@
-"""Nothing shown to a user reports being decided by reading as a defect.
+"""Nothing shown to a user reports the AI Ready route as a defect.
 
 A policy is served one of two ways. `deterministic` means the source states its
 test as a comparison the engine can compute. `ai_ready` means the source states
@@ -38,6 +38,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
@@ -46,7 +48,7 @@ DOCS = ROOT / "docs"
 #: Documents whose purpose is recording the wording that was removed.
 _FAILURE_RECORD = DOCS / "failures"
 
-#: Prose that frames being decided by reading as a shortfall.
+#: Prose that frames the AI Ready route as a shortfall.
 #:
 #: Hyphenated and spaced forms only. `machine_executable` with an underscore is
 #: the field, and is allowed everywhere.
@@ -121,6 +123,50 @@ _IS_TEST_FILE = re.compile(r"\.(test|spec)\.tsx?$")
 _MECHANISM = {
     SRC / "contracts" / "formulation.py",
 }
+
+#: ---------------------------------------------------------------------------
+#: ONE NAME PER ROUTE
+#:
+#: There are two routes and each has exactly one name: `Deterministic`, where
+#: the engine computes a comparison, and `AI Ready`, where a judge reads the
+#: rule against the case and returns a verdict with its confidence.
+#:
+#: The interface had been using at least three names for the second one at
+#: once. That is not a cosmetic problem. Every extra name is read as an extra
+#: property of the record: a reader meeting the same route called one thing on
+#: the card, another on the tab and a third in a tooltip concludes the three
+#: are distinct states and that a record is somewhere in a progression between
+#: them. A route that a reader believes is a stage has become a shortfall
+#: without a single shortfall word being written, which is precisely what the
+#: rest of this file is here to stop.
+#:
+#: So the retired names are forbidden outright, in the same places the framing
+#: rules apply. `Parties & readiness` is here because the rule tab and the
+#: policy tab drew the same content under two names, one of which named the
+#: retired vocabulary.
+_RETIRED_ROUTE_NAMES = (
+    r"decided[- ]by[- ]reading",
+    r"evaluated[- ]directly",
+    r"parties\s*(?:&(?:amp;)?|and)\s*readiness",
+    r"human[- ]judg(?:e)?ment[- ]requirement",
+)
+_RETIRED_RE = re.compile(rf"(?:{'|'.join(_RETIRED_ROUTE_NAMES)})", re.IGNORECASE)
+
+#: Files carrying a retired name that this change was not permitted to edit.
+#:
+#: EMPTY, and that is the finished state: the two files that were here --
+#: `PublishedPolicyCard.tsx` and `PolicyInspector.tsx` -- belonged to a
+#: concurrent change on the same tree, and both have since been fixed by the
+#: hand that owns them. Naming them was the only honest alternative to either
+#: leaving the rule out, which would let the retired names return everywhere,
+#: or editing files another hand owned.
+#:
+#: The mechanism stays because the situation recurs. `test_every_retired_name_
+#: exemption_is_earned` holds each entry to existing AND still carrying a
+#: retired name, so an entry fails the moment its file is fixed and has to be
+#: deleted rather than quietly outliving its reason -- which is exactly how
+#: both of the original entries left.
+_AWAITING_ANOTHER_HAND: set[Path] = set()
 
 
 def _string_literals(path: Path) -> list[tuple[int, str]]:
@@ -520,3 +566,163 @@ def test_the_documentation_scan_reaches_files_and_honours_its_exclusion():
     assert any(
         _FRAMING_RE.search(path.read_text(encoding="utf-8")) for path in excluded
     ), "no excluded document contains the framing, so the exclusion is unnecessary"
+
+
+# ---------------------------------------------------------------------------
+# ONE NAME PER ROUTE
+# ---------------------------------------------------------------------------
+
+
+def _retired_names_in(text: str) -> list[str]:
+    """Every retired route name in a block of text, in the order they appear."""
+    return [m.group(0) for m in _RETIRED_RE.finditer(text)]
+
+
+def test_the_retired_route_names_are_gone_from_the_interface():
+    """One route, one name. The interface had been using three at once.
+
+    "Decided by reading", "Human Judgment Requirement" and "AI Ready" were all
+    on screen for the same route at the same time. A reader has no way to know
+    they are one thing, and the natural reading of three names is three states
+    with a record moving between them -- so the route acquires a before and an
+    after, and the one that is named last starts to look like the finished one.
+    That is the shortfall reading arriving without a shortfall word, which is
+    why it belongs in this file and not in a style checklist.
+
+    "AI Ready" is the surviving name. "Deterministic" is its counterpart.
+    """
+
+    offenders: list[str] = []
+    examined = 0
+    for path in _rendered_web_files():
+        if path in _AWAITING_ANOTHER_HAND:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            examined += 1
+            for found in _retired_names_in(line):
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{lineno}: {found!r} in {line.strip()[:70]!r}"
+                )
+
+    assert examined > 10000, f"only {examined} lines read; the scan found no interface"
+    assert not offenders, (
+        "a retired route name is still on screen -- the route is called "
+        "'AI Ready' and its counterpart 'Deterministic':\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_retired_route_names_are_gone_from_the_service():
+    """The same names reach a user through an API message or a finding."""
+
+    offenders: list[str] = []
+    examined = 0
+    for path in sorted(SRC.rglob("*.py")):
+        for lineno, text in _string_literals(path):
+            examined += 1
+            for found in _retired_names_in(text):
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{lineno}: {found!r} in {text.strip()[:70]!r}"
+                )
+
+    assert examined > 2000, f"only {examined} literals read; the scan found no service"
+    assert not offenders, "a retired route name is still served:\n  " + "\n  ".join(offenders)
+
+
+def test_the_retired_route_names_are_gone_from_the_documentation():
+    """`docs/failures/` is excluded: recording retired wording is its purpose."""
+
+    offenders: list[str] = []
+    examined = 0
+    for path in sorted(DOCS.rglob("*.md")):
+        if _FAILURE_RECORD in path.parents:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            examined += 1
+            for found in _retired_names_in(line):
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{lineno}: {found!r} in {line.strip()[:70]!r}"
+                )
+
+    assert examined > 3000, f"only {examined} lines read; a blind scan finds nothing"
+    assert not offenders, (
+        "a retired route name is still documented:\n  " + "\n  ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "Decided by reading",
+        "decided by reading",
+        "decided-by-reading",
+        "Evaluated directly",
+        "evaluated-directly",
+        "Parties & readiness",
+        "Parties &amp; readiness",
+        "Parties and readiness",
+        "Human Judgment Requirement",
+        "human judgement requirement",
+        "human-judgment-requirement",
+    ],
+)
+def test_the_guard_would_notice_a_retired_name(wording):
+    """Positive control: a rule that matches nothing passes on any tree."""
+    assert _retired_names_in(wording), f"{wording!r} would be allowed back"
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "AI Ready",
+        "ai_ready",
+        "Deterministic",
+        "Deterministic and AI Ready",
+        "a judge reads the rule against the case",
+        "a judge decides it by reading the record",
+        "the engine computes the comparison",
+        "Parties & routes",
+        "Required facts",
+        "the AI Ready route returns a verdict with its confidence",
+    ],
+)
+def test_the_guard_leaves_the_surviving_names_alone(wording):
+    """Negative control: a rule that matches everything forbids the fix itself.
+
+    "a judge decides it by reading the record" is the sentence this codebase
+    uses to explain the route in plain words. It has to stay legal, which is
+    why the rule wants the past participle -- a name -- and not the verb.
+    """
+    assert not _retired_names_in(wording), f"{wording!r} was wrongly rejected"
+
+
+def test_every_retired_name_exemption_is_earned():
+    """An exemption outliving its reason is how the wording comes back.
+
+    Each entry must exist AND still carry a retired name. When the hand that
+    owns those files fixes them, this test goes red and the entry has to be
+    deleted -- the exemption cannot quietly become permanent.
+
+    The set is empty, which is the state this is aiming at, so the loop below
+    is a no-op today. It stays because the situation recurs, and because an
+    empty set is only trustworthy while something still checks the entries a
+    later change adds.
+    """
+
+    for path in sorted(_AWAITING_ANOTHER_HAND):
+        assert path.exists(), (
+            f"{path.relative_to(ROOT)} is exempt but does not exist -- remove the entry"
+        )
+        assert _retired_names_in(path.read_text(encoding="utf-8")), (
+            f"{path.relative_to(ROOT)} no longer carries a retired name; remove it "
+            "from _AWAITING_ANOTHER_HAND so the rule covers it again"
+        )
+
+
+def test_the_exemption_has_not_swallowed_the_scan():
+    """Guard the guard: exempting the whole interface would pass on nothing."""
+
+    scanned = [p for p in _rendered_web_files() if p not in _AWAITING_ANOTHER_HAND]
+    assert len(scanned) > 100, f"only {len(scanned)} files left after exemption"
+    assert (WEB / "components" / "ReviewQueue.tsx") in scanned
+    assert (WEB / "components" / "ProjectsPage.tsx") in scanned
+    assert (WEB / "ruleExecutability.ts") in scanned
