@@ -20,7 +20,7 @@ generated description as authoritative — this page only orients you. The
 description is generated from the same Pydantic contracts the evaluator consumes,
 so it cannot drift from the implementation.
 
-The current surface is **88 paths / 100 operations** across 12 tags.
+The current surface is **89 paths / 101 operations** across 13 tags.
 
 ## Endpoint groups
 
@@ -37,6 +37,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 | `policy-tests` | `/api/policy-tests` | 10 | Saved tests: list, create, propose (AI), review a proposal, run now, run history, failing tests, and validation batches. |
 | `policy-exceptions` | `/api/policy-exceptions` | 4 | Request a waiver, list, read, and grant/deny it. |
 | `policy-attestations` | `/api/policy-attestations` | 4 | Launch an acknowledgement campaign, list, search, acknowledge. |
+| `policy-payload` | `/api/policy-payload` | 1 | The lean projection of one policy for a model to read: its rules carried by id with the canonical attribute, the document's verbatim words, and the fact a case supplies — one representation, no second notation, no run history. |
 | `notes` | `/api/notes` | 3 | Free-form notes attached to an entity. |
 | `audit` | `/api/audit-events` | 1 | Read the immutable audit trail. |
 | `system` | `/health` | 1 | Liveness plus the configured environment name. |
