@@ -525,12 +525,19 @@ export function PolicyReviewCard({
                     const findings = findingsFor(rule.rule_id);
                     return (
                   <li
-                    // Keyed by the row's own identity, not by `rule_id`. That is
-                    // a hash of the rule's content, so two rules a passage
-                    // states in identical words would share one — and React
-                    // omits children that collide on a key. A card that drops a
-                    // rule is the one failure this queue cannot have.
-                    key={rule.recordId}
+                    // Keyed by the row's own identity, not by `rule_id` — that
+                    // is a hash of the rule's content, so two distinct rules a
+                    // passage states in identical words would share one, and
+                    // React omits children that collide on a key. `renderKey` is
+                    // that record id for an ordinary row, and the id suffixed
+                    // where one passage lists the same record twice (a draft
+                    // double the assembly corrects), so the two rows key apart
+                    // and neither is dropped. It disambiguates the key alone:
+                    // every occurrence is still counted, because a card that
+                    // drops a rule — or hides one to tidy the count — is the
+                    // failure this queue cannot have. Falls back to the id for a
+                    // record built without a render key.
+                    key={rule.renderKey ?? rule.recordId}
                     className="policy-card__rule"
                     data-testid="policy-card-rule"
                     // Says which row the panel beside this card is showing. On

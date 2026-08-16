@@ -85,6 +85,20 @@ export interface PolicyCardRule {
   candidate?: CandidateRule;
   /** This rule's own route, from the assembly. Never summarised away. */
   evaluation_mode: string;
+  /** The React key for this row.
+   *
+   *  The record's own id, except where one passage lists the same record more
+   *  than once — the shape the draft assembly emits when a rule has gained a
+   *  second, unreviewed candidate sharing its content-hash id, so the passage
+   *  carries the id twice and both entries resolve to the one record. There the
+   *  repeats are suffixed, so the rows key apart and React drops none of them.
+   *
+   *  Optional: a record built any other way carries none, and the row falls
+   *  back to its id. A key only — every occurrence is still carried in `rules`,
+   *  so this decides which row is which, never how many there are. Correcting a
+   *  doubled passage is the assembly's to do; this just refuses to lose a row
+   *  over it. */
+  renderKey?: string;
 }
 
 /**
@@ -325,9 +339,20 @@ function place(
     // shown by the other view with the reason attached.
     for (const passage of Array.isArray(policy.passages) ? policy.passages : []) {
       const rules: PolicyCardRule[] = [];
+      // How many times each record has already been placed in *this* passage. A
+      // record should be stated once; when the draft assembly lists it twice —
+      // a rule with a second, unreviewed candidate sharing its content-hash id —
+      // the repeat is keyed apart below so React keeps both rows rather than
+      // dropping one on the collision. The occurrence is kept, not hidden: the
+      // tally is the assembly's to correct, and trading a wrong count for a
+      // missing rule would be the worse of the two.
+      const placedInPassage = new Map<string, number>();
       for (const rule of Array.isArray(passage?.rules) ? passage.rules : []) {
         const candidate = byRuleId.get(rule.rule_id);
         if (!candidate) continue;
+        const recordId = candidate.id ?? rule.rule_id;
+        const priorInPassage = placedInPassage.get(recordId) ?? 0;
+        placedInPassage.set(recordId, priorInPassage + 1);
         rules.push({
           rule_id: rule.rule_id,
           rule: candidate.rule,
@@ -336,7 +361,13 @@ function place(
           // explains it as an immutable snapshot instead of as a build that
           // does not know what it is looking at.
           reviewStatus: candidate.review_status ?? "published",
-          recordId: candidate.id ?? rule.rule_id,
+          recordId,
+          // The row's key: its record id on the first placement, so the ordinary
+          // card keys exactly as before; the id suffixed on any repeat, so a
+          // passage that lists one record twice draws two rows that key apart
+          // instead of colliding into one. Disambiguates the key only — it never
+          // adds or removes a row, so the count is left exactly as assembled.
+          renderKey: priorInPassage === 0 ? recordId : `${recordId}#${priorInPassage}`,
           // The wider input narrowed back, in the one place it happens. A
           // record carrying a draft row's id and its review state is a draft
           // row; a published row carries neither and stays undefined, so
