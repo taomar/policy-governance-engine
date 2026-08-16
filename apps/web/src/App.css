@@ -11728,32 +11728,6 @@
   font-size: 12px;
 }
 
-/* What the grid's header row carried, kept, and no longer setting the width of
-   anything. */
-.policy-logic__coverage {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 0;
-  padding: 8px 10px;
-  list-style: none;
-  border: 1px solid var(--app-border, #e5e7eb);
-  border-radius: 6px;
-  background: var(--app-surface-muted, #f8fafc);
-  font-size: 12px;
-}
-
-.policy-logic__coverage-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  min-width: 0;
-  padding: 1px 7px;
-  border: 1px solid var(--app-border, #e5e7eb);
-  border-radius: 999px;
-  background: var(--app-surface, #ffffff);
-}
-
 /* The attribute's own name, never renamed and never shortened: a clipped name
    is the one thing that would leave a reviewer unsure which slot a quotation
    was recorded in.
@@ -11770,80 +11744,6 @@
   overflow: visible;
   text-overflow: clip;
   overflow-wrap: anywhere;
-}
-
-/* How many rules of the policy state this attribute. A count and never a
-   proportion: "1 of 20" is what the document did, where "5%" reads as a
-   shortfall in the one rule that differs. */
-.policy-logic__col-count {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Rules that filled the same set of attributes. A fact about the records, of
-   the same kind as the counts above, and never applied to the rules
-   themselves -- they stay in the order the document states them. */
-.policy-logic__shapes {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-}
-
-.policy-logic__shape {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  padding: 4px 0 4px 8px;
-  border-inline-start: 2px solid var(--app-border, #e5e7eb);
-}
-
-.policy-logic__shape-count {
-  min-width: 56px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.policy-logic__shape-rules {
-  display: flex;
-  flex: 1 1 140px;
-  flex-wrap: wrap;
-  gap: 2px 4px;
-  min-width: 0;
-  color: var(--app-text-muted, #6b7280);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-/* The number of a rule in a group, and the way to it. Drawn as the number it
-   already was, so a reader who never uses it reads what they read before. */
-.policy-logic__shape-rule {
-  padding: 0 3px;
-  border: 0;
-  border-radius: 3px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.policy-logic__shape-rule:hover,
-.policy-logic__shape-rule:focus-visible {
-  background: var(--app-surface-muted, #f3f4f6);
-  color: var(--app-text, #111827);
-}
-
-.policy-logic__shape-attrs {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
-  gap: 3px 6px;
-  min-width: 0;
 }
 
 /* One passage of the policy and the rules stated in it. The guide is the same
@@ -11916,14 +11816,69 @@
   );
 }
 
-/* Which sentence the rules came from. Merging a section's rules onto one card
-   must not merge its sentences into one. */
-.policy-logic__passage {
+/* Which passage the rules came from. Merging a section's rules onto one card
+   must not merge its sentences into one.
+
+   Two lines, not one, because they answer two questions: what the document
+   calls this passage, and which run of source elements it is addressed by. The
+   run used to be the whole heading, which named the passage in the pipeline's
+   language on a screen written for a compliance reader. It is kept, demoted. */
+.policy-logic__passage-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.policy-logic__passage-heading {
   margin: 0;
-  font-family: var(--app-font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text, #111827);
+  overflow-wrap: anywhere;
+}
+
+.policy-logic__passage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
   font-size: 11px;
   font-weight: 500;
   color: var(--app-text-muted, #6b7280);
+  overflow-wrap: anywhere;
+}
+
+.policy-logic__passage-key {
+  font-family: var(--app-font-mono, monospace);
+}
+
+/* The rule's own words, under the name generated for it. Verbatim, so it wraps
+   and is never clipped: a quotation shortened to fit a row is a quotation the
+   reviewer cannot check the decomposition against. */
+.policy-logic__rule-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--app-text, #111827);
+  overflow-wrap: anywhere;
+}
+
+/* The sentence the rule was read out of. Closed by default and the only closed
+   thing on this surface: every attribute the rule states is drawn above it,
+   open, so nothing a reviewer checks for completeness is behind this. */
+.policy-logic__source > summary {
+  font-size: 11.5px;
+  color: var(--app-text-muted, #6b7280);
+  cursor: pointer;
+}
+
+.policy-logic__source-text {
+  margin: 4px 0 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--app-border, #e5e7eb);
+  font-size: 12.5px;
+  color: var(--app-text, #111827);
   overflow-wrap: anywhere;
 }
 

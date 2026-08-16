@@ -453,6 +453,58 @@ describe("the document's own words lead the Overview", () => {
     const summary = screen.getByTestId("overview-source-rest").querySelector("summary");
     expect(summary?.textContent).toBe("The other passage this policy is stated in");
   });
+
+  /**
+   * The corpus is substantially Arabic, and the quotation is the one place this
+   * tab prints the document's characters rather than this app's. Direction is a
+   * property of the run, so the run carries it and no box around it does.
+   */
+  it("marks an Arabic quotation right-to-left on the quoted run itself", () => {
+    const arabic = "يجب على الموظف تقديم طلب خطي قبل الإجازة";
+    const view = record();
+    view.source = [{ key: "p1", page: 4, quotations: [arabic] }];
+    const { container } = render(<PolicyOverviewPane record={view} />);
+
+    const quoted = screen.getAllByTestId("overview-quotation")[0];
+    const runs = [...quoted.querySelectorAll("bdi")].filter((run) =>
+      /[\u0600-\u06FF]/.test(run.textContent ?? ""),
+    );
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) expect(run.getAttribute("dir")).toBe("rtl");
+
+    // Reversible: a reviewer who copies the quotation gets the document's
+    // characters back, in the order they are stored.
+    expect(quoted.textContent).toBe(arabic);
+
+    // And the section around it stays as it was, so this app's English labels
+    // are not reordered by whichever passage was read first.
+    expect(container.querySelector("[data-testid='overview-source']")?.getAttribute("dir") ?? null)
+      .toBeNull();
+  });
+
+  /**
+   * A right-to-left block has to start on the right.
+   *
+   * Isolating a run fixes its reading order but not where the line begins. An
+   * Arabic quotation left in a left-starting block wraps to the wrong side and
+   * reads as ragged, which a reviewer sees as damage in the document rather
+   * than in this screen. `align` is what puts a block on the side its own base
+   * direction starts from, and it belongs on anything owning its full width --
+   * which the quotation and each roster title do.
+   */
+  it("starts a right-to-left quotation and rule title on the side they read from", () => {
+    const arabic = "يجب على الموظف تقديم طلب إجازة خطي قبل موعد الإجازة";
+    const view = record({ rules: [rule("a", "run-1")] });
+    view.rules[0].rule.title = arabic;
+    view.source = [{ key: "p1", page: 4, quotations: [arabic] }];
+    const { container } = render(<PolicyOverviewPane record={view} />);
+
+    for (const selector of ["[data-testid='overview-quotation']", ".policy-pane__rule-title"]) {
+      const host = container.querySelector(selector);
+      const block = host?.querySelector(".directional-text--block") ?? host;
+      expect(block?.className ?? "").toContain("directional-text--block");
+    }
+  });
 });
 
 describe("the Overview is not a debugging panel", () => {

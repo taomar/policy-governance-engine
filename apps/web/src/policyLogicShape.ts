@@ -106,6 +106,12 @@ export interface LogicRuleReading {
   /** The rule's number on the card, so "rule 9" means the same in both. */
   ordinal: number;
   passageKey: string;
+  /** What the rule states, in the record's own words. Carried so a reader can
+   *  tell one rule from another by what it says rather than by its number. */
+  title: string;
+  /** The sentence the rule was formulated from, where the record kept one.
+   *  `null` where it did not, which is a different fact from an empty one. */
+  statedText: string | null;
   /** Present only where the policy's rules disagree, as on the card's badges. */
   ruleType: string | null;
   route: string | null;
@@ -139,7 +145,16 @@ export interface LogicShape {
 
 /** One passage of the policy and the rules stated in it. */
 export interface LogicPassageBlock {
+  /** The source element run the passage is addressed by. Kept because it is how
+   *  a reader quotes a passage back to the pipeline, and shown as a reference
+   *  rather than as the heading it was once mistaken for. */
   passageKey: string;
+  /** What the document calls this passage, exactly as its rules cite it. Empty
+   *  where no citation recorded a heading, which is a fact about how the
+   *  document was read and is stated as such rather than filled in. */
+  headings: string[];
+  /** The page the passage was quoted from, or `null` where none was recorded. */
+  page: number | null;
   rules: LogicRuleReading[];
 }
 
@@ -220,6 +235,47 @@ function statedRule(entry: PolicyCardRule | undefined): CanonicalRule | undefine
 function hasTable(rule: PolicyCardRule): boolean {
   const attributes = statedRule(rule)?.attributes;
   return attributes !== undefined && attributes !== null;
+}
+
+/**
+ * The sentence the rule was formulated from, or `null` where none was kept.
+ *
+ * Read from the record rather than composed: this is the document's own run of
+ * text and the one thing on this surface a reviewer checks the decomposition
+ * against. `null` and `""` are not the same answer — a record that kept no
+ * source text has not been read as stating nothing — so an empty run is
+ * reported as absent rather than as a quotation of nothing.
+ */
+function statedSentence(rule: CanonicalRule | undefined): string | null {
+  const stated = rule?.formulation?.canonical?.source_text?.trim();
+  if (stated) return stated;
+  const described = rule?.description?.trim();
+  return described ? described : null;
+}
+
+/**
+ * What the document calls this passage, from the citations of its rules.
+ *
+ * Every distinct heading, in the order first cited, and never one of them
+ * chosen to stand for the rest: a passage whose rules cite two headings sits
+ * under two, and picking one silently would file it somewhere the document did
+ * not. An empty list means no rule of the passage recorded a heading, which is
+ * a fact about how the document was read and is said as such rather than
+ * filled in with the passage's key.
+ *
+ * Reads the citations defensively because a record may arrive without them —
+ * an absent list of citations is a rule that cited nothing, not a crash.
+ */
+function citedHeadings(entries: readonly PolicyCardRule[]): string[] {
+  const headings: string[] = [];
+  for (const entry of entries) {
+    const stated = statedRule(entry);
+    for (const reference of stated?.evidence ?? []) {
+      const heading = (reference.section ?? "").trim();
+      if (heading && !headings.includes(heading)) headings.push(heading);
+    }
+  }
+  return headings;
 }
 
 /**
@@ -395,6 +451,8 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
         ruleId: rule.rule_id,
         ordinal,
         passageKey: passage.passage.key,
+        title: asStated?.title ?? "",
+        statedText: statedSentence(asStated),
         ruleType: facets.ruleType === null ? (asStated?.rule_type ?? null) : null,
         route: facets.route === null ? rule.evaluation_mode : null,
         branches,
@@ -408,7 +466,13 @@ export function policyLogicShape(card: PolicyCard): PolicyLogicShape {
       // Consecutive rather than keyed: the rules arrive in document order, and
       // a passage that states rules in two runs stated them in two runs.
       if (last && last.passageKey === reading.passageKey) last.rules.push(reading);
-      else blocks.push({ passageKey: reading.passageKey, rules: [reading] });
+      else
+        blocks.push({
+          passageKey: reading.passageKey,
+          headings: citedHeadings(passage.rules),
+          page: passage.passage.page ?? null,
+          rules: [reading],
+        });
     }
   }
 

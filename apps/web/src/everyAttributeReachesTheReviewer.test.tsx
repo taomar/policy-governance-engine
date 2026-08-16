@@ -261,15 +261,20 @@ describe("every attribute of every rule is in the output", () => {
     ).toBeGreaterThan(0);
   }, WHOLE_POLICY);
 
-  it("keeps the coverage count for every attribute any rule states", () => {
+  it("loses no attribute name by having dropped the aggregate panel above the rules", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     const shape = policyLogicShape(policy);
-    render(<PolicyLogicTable card={policy} />);
+    const view = render(<PolicyLogicTable card={policy} />).container;
 
-    const coverage = screen.getByTestId("policy-logic-coverage").textContent ?? "";
+    // The panel that counted attributes across the policy is gone. It answered
+    // a question about the records rather than about the document, and a
+    // reviewer said it showed no value; deleting it is only safe if nothing it
+    // named stopped reaching them.
+    expect(screen.queryByTestId("policy-logic-coverage")).toBeNull();
+
+    const written = view.textContent ?? "";
     for (const column of shape.columns) {
-      expect(coverage).toContain(column.attribute);
-      expect(coverage).toContain(`${column.filled} of ${shape.total}`);
+      expect(written).toContain(column.attribute);
     }
     expect(shape.columns.length).toBeGreaterThan(1);
   }, WHOLE_POLICY);
@@ -441,14 +446,26 @@ describe("a rule reads the way the rule inspector reads it", () => {
   });
 });
 
-describe("nothing is behind a control and nothing is hidden", () => {
-  it("offers nothing to expand, and hides no part of the view", () => {
+describe("nothing a reviewer checks is behind a control", () => {
+  it("keeps every stated attribute, absent list and signature open on arrival", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     render(<PolicyLogicTable card={policy} />);
     const view = screen.getByTestId("policy-logic");
 
-    expect(view.querySelectorAll("details")).toHaveLength(0);
-    expect(view.querySelectorAll("[aria-expanded]")).toHaveLength(0);
+    // The view used to hold no disclosure at all. It now holds exactly one per
+    // rule, and it holds the sentence the rule was read out of -- text this
+    // view never showed before, added under a summary rather than shown by
+    // default because it repeats what the Reading tab prints in full.
+    //
+    // What must never move behind one is anything a reviewer checks the
+    // extraction by: the attributes a rule states, the attributes it does not,
+    // and which side of the rule each sits on. That is the invariant.
+    for (const disclosure of Array.from(view.querySelectorAll("details"))) {
+      expect(disclosure.getAttribute("data-testid")).toBe("policy-logic-source");
+      expect(disclosure.querySelectorAll(".policy-attr-name")).toHaveLength(0);
+      expect(disclosure.querySelectorAll("[data-absent]")).toHaveLength(0);
+      expect(disclosure.querySelectorAll("[data-testid='policy-logic-rule']")).toHaveLength(0);
+    }
     expect(view.querySelectorAll("[hidden]")).toHaveLength(0);
     expect(
       view.querySelectorAll('[style*="display: none"], [style*="display:none"]'),
@@ -457,35 +474,17 @@ describe("nothing is behind a control and nothing is hidden", () => {
     expect(view.querySelectorAll("*").length).toBeGreaterThan(0);
   }, WHOLE_POLICY);
 
-  it("carries a reader to a rule of a group without putting the rule behind it", () => {
-    // The groups say which rules are alike; the reader's next move is to go and
-    // read one. Every rule is drawn either way — this only moves the view.
+  it("addresses every rule of the policy uniquely", () => {
     const policy = unevenPolicy(LARGEST_MEASURED_POLICY);
     render(<PolicyLogicTable card={policy} />);
     const view = screen.getByTestId("policy-logic");
 
-    const jumps = Array.from(
-      view.querySelectorAll<HTMLButtonElement>(".policy-logic__shape-rule"),
-    );
-    expect(jumps.length).toBeGreaterThan(0);
-    // Every rule the groups name is drawn, before anything is pressed.
+    // Every rule is drawn, and each is addressable on its own -- what a reader
+    // linking to one rule of a long policy needs, and what the deleted group
+    // panel's jump buttons used to depend on.
     expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(
       LARGEST_MEASURED_POLICY,
     );
-
-    for (const jump of jumps) {
-      // A real control, reachable by keyboard, that does not submit anything.
-      expect(jump.tagName).toBe("BUTTON");
-      expect(jump.getAttribute("type")).toBe("button");
-      expect(jump.hasAttribute("disabled")).toBe(false);
-      // Its face is a number, which says nothing on its own when it is read
-      // aloud away from the group that gives it its meaning.
-      expect(jump.textContent?.trim()).toMatch(/^\d+$/);
-      expect((jump.getAttribute("aria-label") ?? "").trim()).not.toBe("");
-      expect(jump.getAttribute("aria-label")).not.toMatch(/^\d+$/);
-    }
-
-    // Each one names a rule that is on the page, addressably and once.
     const ids = Array.from(view.querySelectorAll("[data-rule]")).map((node) =>
       node.getAttribute("id"),
     );
@@ -493,54 +492,15 @@ describe("nothing is behind a control and nothing is hidden", () => {
     expect(new Set(ids).size).toBe(ids.length);
   }, WHOLE_POLICY);
 
-  it("presses a jump and arrives at that rule with every rule still drawn", () => {
-    const policy = unevenPolicy(6);
-    render(<PolicyLogicTable card={policy} />);
-    const view = screen.getByTestId("policy-logic");
-    const before = view.innerHTML;
-
-    // jsdom lays nothing out and so does not implement this. Standing one in
-    // is what lets the test see where the reader was sent.
-    const scrolled: Element[] = [];
-    const proto = Element.prototype as unknown as Record<string, unknown>;
-    const had = Object.prototype.hasOwnProperty.call(proto, "scrollIntoView");
-    const previous = proto.scrollIntoView;
-    proto.scrollIntoView = function scrollIntoView(this: Element) {
-      scrolled.push(this);
-    };
-
-    try {
-      const jump = view.querySelector<HTMLButtonElement>(
-        ".policy-logic__shape-rule",
-      );
-      expect(jump).not.toBeNull();
-      jump?.click();
-
-      // It went to a rule of this policy, and to the one it names.
-      expect(scrolled).toHaveLength(1);
-      const arrived = scrolled[0] as HTMLElement;
-      expect(arrived.getAttribute("data-testid")).toBe("policy-logic-rule");
-      expect(
-        arrived.querySelector(".policy-card__rule-ordinal")?.textContent?.trim(),
-      ).toBe(jump?.textContent?.trim());
-      // A reader who cannot see the page arrives where a seeing reader does.
-      expect(document.activeElement).toBe(arrived);
-    } finally {
-      if (had) proto.scrollIntoView = previous;
-      else delete proto.scrollIntoView;
-    }
-
-    // Nothing was disclosed, folded, or moved: the same view, all of it.
-    expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(6);
-    expect(view.innerHTML).toBe(before);
-  });
-
-  it("counts the policy and not a share of it", () => {
-    // Every number here is a statement about one population: this policy's
-    // rules. The policy states its own count, and the view must print that one,
-    // never a count of whatever happens to be on screen. Two readings of one
-    // policy that disagreed on the denominator would look alike and mean
-    // different things, and a reviewer could not tell which they were holding.
+  it("draws the policy's stated rule count and no count of its own", () => {
+    // Every number here was a statement about one population: this policy's
+    // rules. The panel that printed those aggregates is gone -- a reviewer said
+    // it showed no value -- and with it goes the way two readings of one policy
+    // could disagree on a denominator and look alike.
+    //
+    // What survives is the invariant underneath: the view draws the rules the
+    // policy states, each once, and volunteers no total of its own. A panel
+    // re-added later that counted whatever was on screen would fail here.
     for (const size of [1, 7, 63]) {
       const policy = unevenPolicy(size);
       const stated = policy.policy.rule_count;
@@ -549,29 +509,9 @@ describe("nothing is behind a control and nothing is hidden", () => {
       const { unmount } = render(<PolicyLogicTable card={policy} />);
       const view = screen.getByTestId("policy-logic");
 
-      const heading = view.querySelector(
-        ".policy-detail-panel__section-label",
-      )?.textContent;
-      expect(heading).toContain(
-        stated === 1 ? "1 rule" : `${stated} rules`,
-      );
-
-      const counts = Array.from(
-        view.querySelectorAll(".policy-logic__col-count"),
-      ).map((n) => n.textContent?.trim());
-      expect(counts.length).toBeGreaterThan(0);
-      for (const count of counts) {
-        // "n of m": m is the policy, always.
-        const m = /\bof\s+(\d+)\s*$/.exec(count ?? "");
-        expect(m).not.toBeNull();
-        expect(Number(m?.[1])).toBe(stated);
-        // and n is a real share of it, never more.
-        expect(Number(/^(\d+)\b/.exec(count ?? "")?.[1])).toBeLessThanOrEqual(
-          stated,
-        );
-      }
-      // Drawn once each, so the count and the blocks agree.
       expect(screen.getAllByTestId("policy-logic-rule")).toHaveLength(stated);
+      expect(view.querySelectorAll(".policy-logic__col-count")).toHaveLength(0);
+      expect(view.querySelector(".policy-detail-panel__section-label")).toBeNull();
       unmount();
     }
   }, WHOLE_POLICY);

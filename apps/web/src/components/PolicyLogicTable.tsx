@@ -7,8 +7,8 @@ import type {
   LogicAttributeReading,
   LogicBranch,
   LogicMark,
+  LogicPassageBlock,
   LogicRuleReading,
-  LogicShapeMember,
 } from "../policyLogicShape";
 import { policyLogicShape } from "../policyLogicShape";
 import { policyRouteLabel } from "../policyGrouping";
@@ -54,11 +54,25 @@ const { Text } = Typography;
  * names — the rows here and the rows there are laid out by one rule in one
  * stylesheet, not by two that happen to agree today.
  *
- * The overview above the rules is what this view adds, because it is the part
- * only a policy has: how many of its rules state each attribute, which rules
- * state the same set as each other, and what they all state alike. That
- * composes with the tree instead of competing with it — the counts say where to
- * look and the trees say what is there.
+ * The overview above the rules was what this view added, and it is gone. It
+ * counted how many of the policy's rules stated each attribute and grouped the
+ * rules that stated the same set, and both were true. Neither was read. A
+ * reviewer's verdict on it was that it showed no value, and looking at it
+ * again they were right: a reader arriving at a policy wants to know what its
+ * rules say, and a strip of `subject 9 of 9` chips over a list of attribute
+ * names is a census of the schema rather than a reading of the document. The
+ * counts are still computed — each rule's own block names what that rule
+ * leaves out, and that line is derived from them — so nothing a reader could
+ * see was lost with the panel that reported them in aggregate.
+ *
+ * WHAT REPLACED IT AT THE TOP OF EACH PASSAGE
+ *
+ * The passage heading was the source element run and nothing else, which is the
+ * pipeline's address for a passage and means nothing to the compliance officer
+ * this screen is for. The document's own heading leads now, the page follows,
+ * and the run stays as the reference it always was rather than as the name it
+ * was mistaken for. Each rule then carries the name generated for it and its
+ * own stated words, so the trees below can be told apart by what they say.
  *
  * A sentence with its constituents marked up was the other candidate and was
  * rejected for the same reason: it reads well, and it would have been a third
@@ -86,14 +100,13 @@ const { Text } = Typography;
  *
  * WHAT THE COUNTS COUNT
  *
- * Every number here — the rule count in the heading, and the `n of m` beside
- * each attribute — counts the whole policy. A policy arrives whole, so the
- * rules on the card are the policy's rules and there is no second population
- * to confuse them with. If something above this view ever lets a reviewer
- * narrow which rules they are looking at, these numbers must keep counting the
- * policy and not the narrowing: an `n of m` that quietly meant "of the ones
- * showing" would make two different readings of one policy look alike, and a
- * reviewer comparing them could not tell which they had. There is a test on
+ * Every number this view still prints counts the whole policy. A policy arrives
+ * whole, so the rules on the card are the policy's rules and there is no second
+ * population to confuse them with. If something above this view ever lets a
+ * reviewer narrow which rules they are looking at, these numbers must keep
+ * counting the policy and not the narrowing: a count that quietly meant "of the
+ * ones showing" would make two different readings of one policy look alike, and
+ * a reviewer comparing them could not tell which they had. There is a test on
  * `card.policy.rule_count` that says so.
  *
  * WHAT IS NOT HERE, AND WHY
@@ -109,31 +122,17 @@ const { Text } = Typography;
  *
  * It adds no summary, composes no sentence, and detects nothing. Every string
  * here is a run of the document, a canonical field name, an effect the record
- * declares, or a count of rules. Rules stay in document order under the passage
- * that states them: ordering by how many attributes a rule filled would rank
- * rules by completeness, and a rule whose test the source states in words would
- * sit at the bottom of every policy in the system.
+ * declares, or a name generated for a rule and marked as generated. Rules stay
+ * in document order under the passage that states them: ordering by how many
+ * attributes a rule filled would rank rules by completeness, and a rule whose
+ * test the source states in words would sit at the bottom of every policy in
+ * the system.
  */
 export function PolicyLogicTable({ card }: { card: PolicyCard }) {
   const logic = policyLogicShape(card);
 
-  const known = logic.blocks
-    .flatMap((block) => block.rules)
-    .filter((rule) => !rule.unrecorded).length;
-  /* Worth printing only when it says something a reader cannot get from the
-     blocks themselves: that some rules are alike. One group per rule is a list
-     of every rule again, so that case is said in a sentence instead. */
-  const shapesCollapse = logic.shapes.length > 0 && logic.shapes.length < known;
-
   return (
     <div className="policy-logic" data-testid="policy-logic">
-      <Text type="secondary" className="policy-detail-panel__section-label">
-        What each rule states —{" "}
-        {logic.total === 1 ? "1 rule" : `${logic.total} rules`}
-        {logic.columns.length > 0 &&
-          ` · ${logic.columns.length === 1 ? "1 attribute" : `${logic.columns.length} attributes`} across them`}
-      </Text>
-
       {logic.columns.length === 0 ? (
         <Text type="secondary">
           No decomposition was recorded for the rules of this policy, so there is
@@ -141,79 +140,6 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
         </Text>
       ) : (
         <>
-          {/* What the header row of the grid carried, kept, and no longer
-              setting the width of anything. A count, not a proportion and not a
-              bar: "1 of 20" is what the document did; "5%" invites reading it
-              as a shortfall in the rule that is the odd one out. */}
-          <ul
-            className="policy-logic__coverage"
-            data-testid="policy-logic-coverage"
-          >
-            {logic.columns.map((column) => (
-              <li
-                key={`${column.side}-${column.attribute}`}
-                className="policy-logic__coverage-item"
-                data-side={column.side}
-              >
-                <span className="policy-logic__col-label">
-                  <Wrappable text={column.attribute} />
-                </span>
-                <span className="policy-logic__col-count">
-                  {column.filled} of {logic.total}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          {logic.shared.length > 0 && (
-            <Text type="secondary" className="policy-logic__note">
-              {logic.total === 1
-                ? `This rule states ${listNames(logic.shared.map((fact) => fact.attribute))}.`
-                : `All ${logic.total} rules state ${listNames(logic.shared.map((fact) => fact.attribute))} with the same words.`}
-            </Text>
-          )}
-
-          {shapesCollapse ? (
-            <ul className="policy-logic__shapes" data-testid="policy-logic-shapes">
-              {logic.shapes.map((shape, index) => (
-                <li key={index} className="policy-logic__shape">
-                  <span className="policy-logic__shape-count">
-                    {shape.rules.length === 1
-                      ? "1 rule"
-                      : `${shape.rules.length} rules`}
-                  </span>
-                  <span className="policy-logic__shape-rules">
-                    {shape.rules.map((member) => (
-                      <JumpToRule key={member.ruleId} member={member} />
-                    ))}
-                  </span>
-                  <span className="policy-logic__shape-attrs">
-                    {shape.attributes.length === 0 ? (
-                      <span className="policy-logic__absent-name">
-                        none of these attributes
-                      </span>
-                    ) : (
-                      shape.attributes.map((attribute) => (
-                        <span
-                          key={attribute}
-                          className="policy-logic__col-label"
-                        >
-                          <Wrappable text={attribute} />
-                        </span>
-                      ))
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            known > 1 && (
-              <Text type="secondary" className="policy-logic__note">
-                No two of these {known} rules state the same set of attributes.
-              </Text>
-            )
-          )}
-
           {logic.blocks.map((block, index) => (
             <section
               key={`${block.passageKey}-${index}`}
@@ -223,7 +149,7 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
               {/* Which sentence these rules came from. A reviewer reading across
                   fourteen rules still needs the passage boundary; merging a
                   section onto one card must not merge its sentences into one. */}
-              <h4 className="policy-logic__passage">{block.passageKey}</h4>
+              <PassageHead block={block} />
               {block.rules.map((rule) => (
                 <RuleBlock key={rule.ruleId} rule={rule} />
               ))}
@@ -244,10 +170,42 @@ export function PolicyLogicTable({ card }: { card: PolicyCard }) {
   );
 }
 
-/** Canonical names run together, so a sentence about them stays a sentence. */
-function listNames(names: string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+/**
+ * Which passage of the document these rules were read from.
+ *
+ * It used to be the source element run — `p4-E000007` — and nothing else. That
+ * is the address the pipeline uses and it is the right thing to quote back when
+ * asking where something came from, but as the only thing on the line it named
+ * the passage in a language the reader of this screen does not speak, and a
+ * reviewer said so.
+ *
+ * So the document's own heading leads where its rules cite one, the page
+ * follows where one was recorded, and the element run stays as the reference it
+ * always was. Nothing was removed to make room: a passage whose rules cite no
+ * heading still shows its run, because a reader who has only the run still has
+ * a way to find the passage.
+ */
+function PassageHead({ block }: { block: LogicPassageBlock }) {
+  return (
+    <div className="policy-logic__passage-head">
+      {block.headings.length > 0 && (
+        <h4 className="policy-logic__passage-heading">
+          {block.headings.map((heading, index) => (
+            <Fragment key={heading}>
+              {index > 0 && <span aria-hidden> · </span>}
+              <DirectionalText>{heading}</DirectionalText>
+            </Fragment>
+          ))}
+        </h4>
+      )}
+      <p className="policy-logic__passage">
+        {block.page !== null && (
+          <span className="policy-logic__passage-page">Page {block.page}</span>
+        )}
+        <span className="policy-logic__passage-key">{block.passageKey}</span>
+      </p>
+    </div>
+  );
 }
 
 /** Where one part of a name ends and the next begins, in any naming style. */
@@ -367,42 +325,7 @@ function blockId(ruleId: string): string {
   return `policy-logic-rule-${ruleId}`;
 }
 
-/**
- * The number of a rule in a group, and a way to get to it.
- *
- * The groups above answer "which of these rules are alike"; the reader's next
- * move is to go and read the one that is not. On a policy of sixty rules that
- * meant scrolling and counting block heads. This carries them there instead.
- *
- * It hides nothing: every rule is already drawn, and this only moves the view
- * to one of them. Focus goes with the scroll, so a reader who does not see the
- * page arrives where a reader who does sees.
- */
-function JumpToRule({ member }: { member: LogicShapeMember }) {
-  return (
-    <button
-      type="button"
-      className="policy-logic__shape-rule"
-      // The number alone is the whole label on screen, where the group around
-      // it says what it counts. Read aloud, out of that group, it would be a
-      // bare digit, so the spoken name says what the number is.
-      aria-label={`Rule ${member.ordinal}`}
-      onClick={() => {
-        const block = document.getElementById(blockId(member.ruleId));
-        if (!block) return;
-        // Not every environment that runs this component lays anything out.
-        if (typeof block.scrollIntoView === "function") {
-          block.scrollIntoView({ block: "start", behavior: "auto" });
-        }
-        block.focus({ preventScroll: true });
-      }}
-    >
-      {member.ordinal}
-    </button>
-  );
-}
-
-/** One rule, whole: what scopes it, then what follows from it. */
+/** One rule, whole: what it is called, then what scopes it, then what follows. */
 function RuleBlock({ rule }: { rule: LogicRuleReading }) {
   const [applies, outcome] = rule.branches;
   return (
@@ -426,6 +349,12 @@ function RuleBlock({ rule }: { rule: LogicRuleReading }) {
         </span>
       </div>
 
+      {rule.title && (
+        <p className="policy-logic__rule-title" data-verbatim="true">
+          <DirectionalText align>{rule.title}</DirectionalText>
+        </p>
+      )}
+
       {rule.unrecorded ? (
         // Nothing is known either way, which is a different fact from absence
         // and wears the mark this app reserves for it.
@@ -444,6 +373,20 @@ function RuleBlock({ rule }: { rule: LogicRuleReading }) {
           </span>
           <Branch branch={outcome} />
         </div>
+      )}
+
+      {/* The one thing on this surface that is behind a control, and the reason
+          is that it is the one thing this surface never showed: the sentence
+          the rule was read out of. Every attribute the rule states is drawn
+          above it, open, so a reviewer checking whether anything was dropped
+          still never has to press anything to find out. */}
+      {rule.statedText && (
+        <details className="policy-logic__source" data-testid="policy-logic-source">
+          <summary>What the document says here</summary>
+          <blockquote className="policy-logic__source-text" data-verbatim="true">
+            <DirectionalText align>{rule.statedText}</DirectionalText>
+          </blockquote>
+        </details>
       )}
     </article>
   );
