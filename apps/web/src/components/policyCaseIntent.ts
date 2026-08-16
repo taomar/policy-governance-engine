@@ -52,20 +52,58 @@ export type CaseIntent = "informational" | "decision";
 export type InformationalStatus = "answered" | "no_rule_bears" | "declined" | "failed";
 
 /**
- * One rule the stated answer drew on, named by its id alone.
+ * Which state a citation's source sentence is in. Four, kept apart for the same
+ * reason the answer's statuses are: an empty quote must never stand in for the
+ * document's words, and the reader is told which case it is (constraint 5).
  *
- * The id is the whole of it on purpose. It is the identity the server validated
- * against the closed set of rules it was shown — a citation naming an id not in
- * that set is a fabrication the server refuses — so the id is the one token that
- * carries a checkable claim. The rule's `title`, its verbatim sentence, and any
- * generated name are the record's own, held by the client already; the client
- * resolves them from the id at render time rather than trusting a second copy
- * carried back over the wire. A generated name in particular must never cross
- * the wire, into a payload or back out as a citation (constraint 8), and an
- * id-only citation is what keeps it from having to.
+ *   - `quoted`      — the rule's verbatim sentence was resolved and is carried.
+ *   - `no_citation` — the rule points at no clause at all.
+ *   - `unresolved`  — it points at a clause, but no span carried the sentence.
+ *   - `not_stored`  — a span is present but its text was never stored (empty),
+ *     the app's "source text was not stored with its rules" case.
+ */
+export type InformationalCitationSourceState =
+  | "quoted"
+  | "no_citation"
+  | "unresolved"
+  | "not_stored";
+
+/**
+ * The document's own words a citation rests on, resolved by the server.
+ *
+ * The verbatim sentence is followed from the rule's `evidence_refs` into the
+ * payload's `spans` on the server — over the closed payload it was grounded on —
+ * rather than re-joined in the browser (§4.2). `text` is present only in the
+ * `quoted` state and is the document's sentence exactly: uncut, untranslated,
+ * unwrapped (constraint 4). `page` and `section` ride along when the span
+ * recorded them, so a reader can find the sentence in the document. No generated
+ * name is ever carried here; the display name is still the client's to resolve
+ * from the id (constraint 8).
+ */
+export interface InformationalCitationSource {
+  state: InformationalCitationSourceState;
+  text?: string;
+  page?: number;
+  section?: string;
+}
+
+/**
+ * One rule the stated answer drew on, named by its id, with the document's own
+ * verbatim source sentence resolved onto it by the server.
+ *
+ * The id is the checkable part: it is the identity the server validated against
+ * the closed set of rules it was shown — a citation naming an id not in that set
+ * is a fabrication the server refuses — so the id is the one token that carries a
+ * checkable claim. `source` carries the document's own words the rule rests on,
+ * resolved server-side by following `evidence_refs` into `spans`, so the browser
+ * no longer re-implements that join (§4.2); it is optional only so a reply from
+ * an older server still types. The rule's generated *name* is the app's, not the
+ * document's, and still must never cross the wire (constraint 8); the client
+ * resolves it from the id at render time.
  */
 export interface InformationalCitation {
   rule_id: string;
+  source?: InformationalCitationSource;
 }
 
 /**
