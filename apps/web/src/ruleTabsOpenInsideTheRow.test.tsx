@@ -40,7 +40,7 @@ import type { PolicyCard } from "./policyCards";
 import { fromDraftRow } from "./policyCards";
 import { CandidateRow } from "./components/CandidateRow";
 import { PolicyDetailPanel } from "./components/PolicyDetailPanel";
-import { RuleDetailInline } from "./components/RuleDetailInline";
+import { PolicyInspector } from "./components/PolicyInspector";
 
 beforeEach(() => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -72,12 +72,34 @@ afterEach(() => {
 const ONLY_IN_OVERVIEW = "Every attribute, as recorded";
 const ONLY_IN_LOGIC = "Condition — when this rule fires";
 const ONLY_IN_SCOPE = "Applies to";
-const ONLY_IN_HISTORY = "What has happened to this record";
+const ONLY_IN_HISTORY = "Current revision";
 const ONLY_IN_JSON = "Evaluator JSON";
 const ONLY_IN_NOTES = "Review discussion";
 const ARABIC_RUN = "إنذار كتابي";
 
-const EVERY_TAB = ["Overview", "Logic", "Parties & routes", "Scope", "History", "Notes", "JSON"];
+const EVERY_TAB = ["Overview", "Logic", "Parties & routes", "Scope", "Test scenario", "History", "Notes", "JSON"];
+
+/** The caption that marks the real reading of a record, and the one thing the
+ *  expansion's predecessor never carried: the words of the source document,
+ *  quoted, with their citation. */
+const THE_SOURCE_BLOCK = /Original source text — the exact words from the source document/i;
+
+/** What the shipped queue passes when it opens a rule under its row. Written
+ *  once so the harness cannot drift from the call site it stands for: the same
+ *  component, embedded, told it is looking at a candidate, and given the policy
+ *  set so the reviewer can put a case to the record they are deciding. */
+function inlineRecord(row: CandidateRule) {
+  return (
+    <PolicyInspector
+      rule={row.rule}
+      policySetKey="set"
+      variant="embedded"
+      recordKind="candidate"
+      recordLabel="candidate"
+      notesTarget={{ entityType: "candidate_rule", entityId: row.id, title: "Review discussion" }}
+    />
+  );
+}
 
 function canonical(ruleId: string): CanonicalRule {
   return {
@@ -171,7 +193,7 @@ function QueueHarness({ ruleIds }: { ruleIds: string[] }) {
               findingsCount={0}
               statusColor="default"
               statusLabel="Pending"
-              renderDetail={() => <RuleDetailInline candidate={row} />}
+              renderDetail={() => inlineRecord(row)}
               onToggleSelect={() =>
                 setSelected((current) => {
                   const next = new Set(current);
@@ -237,44 +259,63 @@ describe("the full record opens inside the row it belongs to", () => {
     fireEvent.click(expanderFor("R1"));
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(EVERY_TAB);
+    // Trimmed: a tab's label may carry a decorative icon beside its words, and
+    // the whitespace that separates them is not a claim about anything.
+    expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual(EVERY_TAB);
 
     // Exactly one is selected, and it is the first.
     const selected = tabs.filter((t) => t.getAttribute("aria-selected") === "true");
     expect(selected).toHaveLength(1);
     expect(selected[0].textContent).toBe("Overview");
 
-    // What a reviewer judges the rule on is open, unclicked: the attributes as
-    // recorded, the test as recorded, and the document's own words.
+    // What a reviewer judges the rule on is open, unclicked.
+    //
+    // THE LINE BETWEEN THE FIRST TAB AND THE REST
+    //
+    // Overview carries the rule as the document states it: its statement, and
+    // every attribute as recorded — the subject, the condition, the modality,
+    // the predicate and the consequence, each in the document's own words,
+    // beside the identifier a case supplies a value for. That is the test in
+    // the words it was written in, and it is enough to judge the rule.
+    //
+    // Logic carries the same rule compiled — the condition as a tree, the
+    // required facts, the exceptions and the caps it shares. That is a derived
+    // reading, and one click for a derived reading is the right price. It is
+    // not copied onto Overview: a second copy of the record's logic is exactly
+    // the drift the fold was built to close.
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
-    expect(within(panel).getByText("The test, as recorded")).toBeTruthy();
+    expect(within(panel).getByText("Every attribute, as recorded")).toBeTruthy();
     expect(panel.textContent).toContain("The words the document uses for R1");
   });
 
-  it("builds one tab's body and no others", () => {
+  it("builds nothing for a tab that has not been opened, and keeps what it built", () => {
     render(<QueueHarness ruleIds={["R1"]} />);
     fireEvent.click(expanderFor("R1"));
 
     // Control: the open tab's body is there to be found.
     expect(screen.getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
 
-    for (const closed of [ONLY_IN_LOGIC, ONLY_IN_HISTORY, ONLY_IN_JSON, ONLY_IN_NOTES]) {
-      expect(screen.queryByText(closed)).toBeNull();
+    // Nothing else is built. This is the claim that matters at the length of a
+    // queue: a row that renders every pane and shows one pays for all of them,
+    // times the number of rows.
+    for (const unopened of [ONLY_IN_LOGIC, ONLY_IN_HISTORY, ONLY_IN_JSON, ONLY_IN_NOTES]) {
+      expect(screen.queryByText(unopened)).toBeNull();
     }
 
     fireEvent.click(screen.getByRole("tab", { name: "Logic" }));
-
-    // The one that was open is now gone, not merely hidden.
     expect(screen.getByText(ONLY_IN_LOGIC)).toBeTruthy();
-    expect(screen.queryByText(ONLY_IN_OVERVIEW)).toBeNull();
+    // Still nothing built for the tabs nobody has asked for.
     expect(screen.queryByText(ONLY_IN_JSON)).toBeNull();
-    // Still exactly one panel, however many tabs have now been visited.
-    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(screen.queryByText(ONLY_IN_HISTORY)).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "JSON" }));
-    expect(screen.getByText(ONLY_IN_JSON)).toBeTruthy();
-    expect(screen.queryByText(ONLY_IN_LOGIC)).toBeNull();
+    // A pane that has been opened stays built. This is a change from the
+    // queue's own tab strip, which tore each pane down on the way out, and it
+    // is the better behaviour rather than a cost of adopting the shared one:
+    // going to Logic to check a rule fires and back to Overview must not
+    // discard what the reviewer had already scrolled to or typed. What is
+    // avoided is building panes nobody opened, and that still holds above.
+    expect(screen.getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
   });
 
   it("keeps the logic tree the reviewer already reads, rather than a second rendering of it", () => {
@@ -302,12 +343,12 @@ describe("the full record opens inside the row it belongs to", () => {
     render(<QueueHarness ruleIds={["R1"]} />);
     fireEvent.click(expanderFor("R1"));
 
-    const list = screen.getByRole("tablist");
-    expect(list.getAttribute("aria-label")).toContain("Summary line for R1");
+    // One strip, and every tab in it points at the panel it opens, so a reader
+    // who never sees the screen is told what a sighted one is shown.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
 
     const tabs = screen.getAllByRole("tab");
     for (const tab of tabs) {
-      expect(tab.tagName).toBe("BUTTON");
       expect(tab.getAttribute("aria-controls")).toBeTruthy();
     }
     // Reaching the strip costs one Tab, and leaving it costs one more.
@@ -319,22 +360,57 @@ describe("the full record opens inside the row it belongs to", () => {
     expect(panel.getAttribute("aria-labelledby")).toBe(open.id);
   });
 
-  it("moves between tabs with the arrow keys, and to the ends with Home and End", () => {
+  /**
+   * The strip is manually activated: arrows move the focus, Enter or Space
+   * opens what the focus is on.
+   *
+   * This is the deliberate half of adopting the shared strip. Automatic
+   * activation — open whatever the arrow lands on — builds every pane a
+   * keyboard user travels past, and the panes here are the whole record: the
+   * logic tree, the version history, the raw JSON. A reader crossing the strip
+   * to reach JSON would build six panes to read one. Manual activation is what
+   * the ARIA practices recommend exactly when panes are expensive, and it is
+   * what makes "costs what its reader opened" hold for a keyboard user too.
+   */
+  it("moves the focus with the arrow keys, and opens what it lands on with Enter or Space", () => {
     render(<QueueHarness ruleIds={["R1"]} />);
     fireEvent.click(expanderFor("R1"));
 
-    const list = screen.getByRole("tablist");
-    fireEvent.keyDown(list, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Logic");
+    const openTab = () => {
+      const tab = screen.getByRole("tab", { selected: true });
+      // The strip inserts its own position announcement — "Tab 2 of 8" — for a
+      // reader who cannot see how far along the strip they are. It is not part
+      // of the tab's name, so it comes off before comparing.
+      return (tab.textContent ?? "").replace(/^Tab \d+ of \d+/, "").trim();
+    };
+    /** Any tab in the strip reaches the strip's own handler, and the first one
+     *  is the stable handle: its name gains a position announcement once it is
+     *  focused, so it is taken by position rather than by name. */
+    const strip = () => screen.getAllByRole("tab")[0];
+    const press = (code: string) => fireEvent.keyDown(strip(), { code });
 
-    fireEvent.keyDown(list, { key: "End" });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toBe("JSON");
+    expect(openTab()).toBe("Overview");
 
-    fireEvent.keyDown(list, { key: "Home" });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Overview");
+    // Travelling past a tab does not open it.
+    press("ArrowRight");
+    expect(openTab()).toBe("Overview");
 
-    fireEvent.keyDown(list, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toBe("JSON");
+    // Asking for it does.
+    press("Enter");
+    expect(openTab()).toBe("Logic");
+
+    press("End");
+    expect(openTab()).toBe("Logic");
+    press("Space");
+    expect(openTab()).toBe("JSON");
+
+    press("Home");
+    press("Enter");
+    expect(openTab()).toBe("Overview");
+
+    press("ArrowLeft");
+    press("Enter");
+    expect(openTab()).toBe("JSON");
   });
 
   it("leaves the queue's scroll, its selection and its render count alone while tabs are used", () => {
@@ -368,25 +444,22 @@ describe("the full record opens inside the row it belongs to", () => {
     expect(screen.getByTestId("queue-renders").textContent).toBe(rendersBefore);
   });
 
-  it("does not repeat a statement the surface above already quotes", () => {
+  it("repeats the statement, and earns the repetition by carrying the source", () => {
     const row = candidate("R1");
-    const { unmount } = render(
-      <ActorProvider>
-        <RuleDetailInline candidate={row} />
-      </ActorProvider>,
-    );
-    // Nothing above a queue row carries the statement, so the detail carries it.
-    expect(screen.getByText("What the document says")).toBeTruthy();
-    unmount();
+    render(<ActorProvider>{inlineRecord(row)}</ActorProvider>);
 
-    render(
-      <ActorProvider>
-        <RuleDetailInline candidate={row} statementVisibleAbove />
-      </ActorProvider>,
-    );
-    expect(screen.queryByText("What the document says")).toBeNull();
-    // Control: the rest of the tab is still there, so this is a suppressed
-    // block and not a component that failed to render.
+    // The card above quotes the statement, and so does this. That repetition
+    // used to be suppressed by a flag, back when the expansion drew panes of its
+    // own and had nothing else to offer. Keeping the flag meant keeping a second
+    // reading of a record alive, which is the drift this work exists to close.
+    expect(screen.getAllByText(/The words the document uses for R1/).length).toBeGreaterThan(0);
+
+    // What the repetition buys: the source document's own words, under a
+    // caption naming them as such. The predecessor never carried this — it
+    // linked out to "the full record" as though the full record were elsewhere.
+    expect(screen.getByText(THE_SOURCE_BLOCK)).toBeTruthy();
+
+    // Control: this is the record's reading and not some fragment of it.
     expect(screen.getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
   });
 
@@ -410,10 +483,10 @@ describe("the full record opens inside the row it belongs to", () => {
     const panels = screen.getAllByRole("tabpanel");
     const tabs = screen.getAllByRole("tab");
 
-    // 72 rows open: 72 strips of 7 tabs, and 72 panels — one each, not seven.
+    // 72 rows open: 72 strips, and 72 panels — one each, not one per tab.
     expect(panels).toHaveLength(72);
-    expect(tabs).toHaveLength(72 * 7);
-    // Not one closed tab's body was built, over 72 rows.
+    expect(tabs).toHaveLength(72 * EVERY_TAB.length);
+    // Not one unopened tab's body was built, over 72 rows.
     expect(screen.queryByText(ONLY_IN_JSON)).toBeNull();
     expect(screen.queryByText(ONLY_IN_HISTORY)).toBeNull();
     expect(screen.queryAllByText(ONLY_IN_OVERVIEW)).toHaveLength(72);
@@ -426,38 +499,49 @@ describe("the full record opens inside the row it belongs to", () => {
   }, 60_000);
 
   /**
-   * The other half of the same claim: visiting a tab must not leave it mounted.
+   * The other half of the same claim: a row costs the tabs its reader opened.
    *
-   * A tab library that keeps every visited pane alive looks identical on screen
-   * to one that does not — the reviewer sees one pane either way — and the cost
-   * only shows up after a reviewer has worked down a long policy. So this walks
-   * every tab, records what each one costs on its own, and asserts that after
-   * the walk the row costs what its current tab costs and not the sum.
+   * A tab strip that mounts everything up front looks identical on screen to one
+   * that does not — the reviewer sees one pane either way — and the cost only
+   * shows up after a reviewer has worked down a long policy. So this measures
+   * what an untouched row costs against what a row costs whose reader has been
+   * through every tab, and asserts the first is a fraction of the second.
+   *
+   * A pane, once opened, stays. That is deliberate and is asserted above: going
+   * to Logic and back must not discard what the reviewer had scrolled to or
+   * typed into Overview. What must never happen is paying that price for tabs
+   * nobody opened, which is what the gap measured here proves is not happening.
    */
-  it("does not accumulate panes as tabs are visited", () => {
+  it("costs what its reader opened, not what it could open", () => {
     render(<QueueHarness ruleIds={["R1"]} />);
     const empty = document.querySelectorAll("*").length;
     fireEvent.click(expanderFor("R1"));
 
+    // A row nobody has clicked a tab in: one pane, the one it opened on.
+    const justOpened = document.querySelectorAll("*").length - empty;
+
     const perTab: Record<string, number> = {};
+    let running = justOpened;
     for (const name of EVERY_TAB) {
       fireEvent.click(screen.getByRole("tab", { name }));
-      perTab[name] = document.querySelectorAll("*").length - empty;
+      const now = document.querySelectorAll("*").length - empty;
+      perTab[name] = now - running;
+      running = now;
     }
     const afterWalk = document.querySelectorAll("*").length - empty;
-    const ifAllSeven = EVERY_TAB.reduce((sum, name) => sum + perTab[name], 0);
 
-    // Having been through all seven, the row costs what its last tab costs.
-    expect(afterWalk).toBe(perTab[EVERY_TAB[EVERY_TAB.length - 1]]);
-    // Control: the tabs are not all empty, so the comparison means something.
-    expect(ifAllSeven).toBeGreaterThan(afterWalk);
+    // The whole point: reading a rule costs a fraction of reading all of it.
+    expect(justOpened).toBeLessThan(afterWalk);
+    // Control: the strip itself is not the whole cost, so the gap is panes.
+    expect(justOpened).toBeGreaterThan(0);
 
     // eslint-disable-next-line no-console
     console.log(
-      `[one rule] DOM elements added by the open row, per tab — ` +
+      `[one rule] DOM elements added by the open row — on opening: ${justOpened}; ` +
+        `added by each tab as it was opened — ` +
         EVERY_TAB.map((name) => `${name}: ${perTab[name]}`).join("; ") +
-        `; after visiting all seven: ${afterWalk}; if all seven were mounted at once: ${ifAllSeven} ` +
-        `(×72 rules: ${afterWalk * 72} vs ${ifAllSeven * 72})`,
+        `; after opening every tab: ${afterWalk} ` +
+        `(×72 rules: ${justOpened * 72} read, vs ${afterWalk * 72} fully explored)`,
     );
   }, 30_000);
 
@@ -515,7 +599,7 @@ describe("the full record opens inside the row it belongs to", () => {
           card={card}
           statusColor={() => "default"}
           statusLabel={() => "Pending"}
-          ruleDetail={() => <RuleDetailInline candidate={row} statementVisibleAbove />}
+          ruleDetail={() => inlineRecord(row)}
         />
       </ActorProvider>,
     );
@@ -547,6 +631,88 @@ describe("the full record opens inside the row it belongs to", () => {
     // it a second time — it leads with what the panel does not already show.
     expect(within(region as HTMLElement).queryByText("What the document says")).toBeNull();
     expect(within(region as HTMLElement).getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
+  });
+});
+
+/**
+ * ONE READING OF A RECORD, ACROSS THE WHOLE FILE
+ *
+ * The behavioural tests above prove that the expansion they render is the full
+ * record. They cannot prove there is no *second* expansion elsewhere in the
+ * queue rendering something shorter — and that is exactly how this drifted the
+ * first time. A guard written against the one expansion its author was looking
+ * at passed while a second sat hundreds of lines below it, and the two readings
+ * of one record went on diverging.
+ *
+ * So this reads the whole file and counts. It is deliberately mechanical: it
+ * does not care which expansion is which, only that every one of them mounts
+ * the same component and that no shorter renderer is reachable at all.
+ */
+describe("the queue has one reading of a record and no second one", () => {
+  const SOURCES = import.meta.glob("./components/ReviewQueue.tsx", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
+  const source = () => {
+    const entries = Object.entries(SOURCES);
+    // Control: a glob that matches nothing passes every assertion below in
+    // silence, so the file count is asserted before anything is read from it.
+    expect(entries).toHaveLength(1);
+    return entries[0][1];
+  };
+
+  it("imports no shorter renderer of a rule", () => {
+    const text = source();
+    // Control: the file does import the reading it is supposed to use, so a
+    // rename that broke every match would fail here rather than pass quietly.
+    expect(text).toContain("PolicyInspector");
+
+    for (const shorter of ["RuleDetailInline", "InlineTabs", "RuleCard"]) {
+      expect(text.includes(shorter)).toBe(false);
+    }
+  });
+
+  it("mounts the record surface everywhere a rule's detail is drawn", () => {
+    const text = source();
+
+    // Every callback the queue hands to a row or a card for drawing a rule's
+    // detail. Both names are counted because the two surfaces spell it
+    // differently, and a third spelling should show up here as a shortfall
+    // rather than as an unnoticed second reading.
+    const detailCallbacks = [
+      ...text.matchAll(/\b(renderDetail|ruleDetail)=\{/g),
+    ].map((m) => m[1]);
+    const mounts = [...text.matchAll(/<PolicyInspector\b/g)];
+
+    // Control: both are found, so neither count is the count of a typo.
+    expect(detailCallbacks.length).toBeGreaterThan(0);
+    expect(mounts.length).toBeGreaterThan(0);
+
+    // Pinned. A fourth mount or a third detail callback is a decision about
+    // where a record can be read, and it should be made on purpose.
+    expect(detailCallbacks).toHaveLength(2);
+    expect(mounts).toHaveLength(4);
+  });
+
+  it("tells the record surface whose notes it is showing, wherever it is embedded", () => {
+    const text = source();
+
+    // A rule's notes default to the published rule's own identity. An embedded
+    // expansion of a *candidate* that accepted that default would file a
+    // reviewer's note against the record they are not looking at, so every
+    // embedded mount has to name its target.
+    const embedded = [...text.matchAll(/<PolicyInspector\b[\s\S]{0,900}?\/>/g)]
+      .map((m) => m[0])
+      .filter((m) => m.includes('variant="embedded"'));
+
+    // Control: the embedded mounts exist to be checked.
+    expect(embedded).toHaveLength(2);
+    for (const mount of embedded) {
+      expect(mount).toContain("notesTarget=");
+      expect(mount).toContain("candidate_rule");
+    }
   });
 });
 

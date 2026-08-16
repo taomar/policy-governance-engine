@@ -39,6 +39,7 @@ import {
   RuleScopePane,
   RuleTechnicalMetadata,
 } from "./ruleTabPanes";
+import { RecordedAttributes } from "./RecordedAttributes";
 import { DirectionalText } from "./DirectionalText";
 import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
@@ -305,6 +306,16 @@ export function PolicyInspector({
         <Paragraph type="secondary">{readableDescription(rule.description)}</Paragraph>
       )}
       {overviewSupplement}
+      {/* What the record assigns, field by field, in the display the reviewer
+          agreed to: one row per attribute, the attribute's own name, the
+          document's words verbatim, and the identifier a case supplies.
+
+          It sits above the identifiers because it is the substance — what this
+          rule reaches and what follows from it — and the identifiers are how a
+          reader traces it afterwards. It used to exist only in the queue's own
+          inline reading of a record, which is why that reading could not simply
+          be replaced by this one until it moved. */}
+      <RecordedAttributes attributes={rule.attributes} />
       <Descriptions column={1} size="small" bordered className="inspector-descriptions">
         {/* THREE IDENTIFIERS, THREE DIFFERENT THINGS
          *
@@ -819,7 +830,12 @@ export function PolicyInspector({
                   key: "test-scenario",
                   label: (
                     <span>
-                      <ExperimentOutlined /> Test scenario
+                      {/* Decorative. Antd icons render `role="img"` with an
+                          `aria-label`, which joins the tab's computed name — so
+                          without this the tab announced its icon's name before
+                          its own. */}
+                      <ExperimentOutlined aria-hidden />
+                      {" Test scenario"}
                     </span>
                   ),
                   children: testScenario,

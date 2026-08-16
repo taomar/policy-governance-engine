@@ -111,7 +111,6 @@ import { ReviewFilterBar, DELTA_META } from "./ReviewFilterBar";
 import { ReviewStatusTabs, REVIEW_STATUS_TABS } from "./ReviewStatusTabs";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
-import { RuleDetailInline } from "./RuleDetailInline";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -1554,16 +1553,43 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
           if (!entry?.candidate) return null;
           return (
-            <RuleDetailInline
-              candidate={entry.candidate}
-              // The card above already quotes this rule's statement, verbatim,
-              // in the passage it came from. Repeating it inside the expansion
-              // is the one thing an expansion can do that is worse than showing
-              // nothing: it charges a click for words already read.
-              statementVisibleAbove
-              allRules={openPolicyCard.rules.map((r) => r.rule)}
-              onOpenFullRecord={() => openRuleWithinPolicy(ruleId)}
-            />
+            <div className="policy-card__rule-detail" data-testid="policy-card-rule-detail">
+              {/* The same reading of a rule that the panel and the policies page
+                  give. This expanded a stack of its own — seven panes, no
+                  labelled identity table, no verbatim source, and a link out to
+                  "the full record" as though the full record were somewhere
+                  else. A rule read differently depending on where it was opened
+                  from, which is the drift this work exists to close.
+
+                  The statement is quoted on the card above and is quoted again
+                  inside. Avoiding that repetition was worth a flag while this
+                  drew its own panes; it is not worth keeping a second reading of
+                  a record alive. One reading everywhere is the point, and the
+                  source arrives here with its citation, which the card does not
+                  carry.
+
+                  `variant="embedded"` is a placement, not a permission: it drops
+                  the window chrome and sizes to its content, and changes nothing
+                  about what may be read or done. */}
+              <PolicyInspector
+                rule={entry.rule}
+                allRules={openPolicyCard.rules.map((r) => r.rule)}
+                policySetKey={selectedKey}
+                variant="embedded"
+                recordKind="candidate"
+                recordLabel="candidate"
+                onSelectRule={selectCandidateRule}
+                /* A candidate's discussion belongs to the candidate. Left to its
+                   default the notes pane writes against the published rule id,
+                   so a reviewer's note on a record they have not yet decided
+                   would land on a different record entirely. */
+                notesTarget={{
+                  entityType: "candidate_rule",
+                  entityId: entry.candidate.id,
+                  title: "Review discussion",
+                }}
+              />
+            </div>
           );
         }}
         onApprove={
@@ -2264,9 +2290,26 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               statusColor={STATUS_COLOR[candidate.review_status] ?? "default"}
                               statusLabel={STATUS_LABEL[candidate.review_status] ?? candidate.review_status}
                               renderDetail={() => (
-                                <RuleDetailInline
-                                  candidate={candidate}
-                                  onOpenFullRecord={() => openCandidate(candidate)}
+                                /* Same reading as the policy card's rule detail
+                                   above, and for the same reason. The row already
+                                   wraps this in its own labelled region, and its
+                                   header still opens the record in the panel, so
+                                   nothing is lost by the expansion no longer
+                                   linking out to a fuller version of itself —
+                                   there is no fuller version any more. */
+                                <PolicyInspector
+                                  rule={candidate.rule}
+                                  allRules={candidateRules}
+                                  policySetKey={selectedKey}
+                                  variant="embedded"
+                                  recordKind="candidate"
+                                  recordLabel="candidate"
+                                  onSelectRule={selectCandidateRule}
+                                  notesTarget={{
+                                    entityType: "candidate_rule",
+                                    entityId: candidate.id,
+                                    title: "Review discussion",
+                                  }}
                                 />
                               )}
                               onOpenFullRecord={() => openCandidate(candidate)}

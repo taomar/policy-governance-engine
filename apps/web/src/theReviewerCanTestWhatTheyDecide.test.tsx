@@ -167,7 +167,14 @@ describe("every inspector the queue mounts is accounted for", () => {
     // Not a measurement of anything in a document: it is the number of call
     // sites this file has read and reasoned about. A new one must be considered
     // rather than inherit whichever behaviour it happens to get.
-    expect(mounts).toHaveLength(2);
+    //
+    // It was two, and this guard is why the two that followed were reasoned
+    // about rather than added quietly. The queue used to read a record two
+    // ways — the full surface when a rule was opened, and a shorter retelling
+    // inside a row's own expansion — and the two drifted. The expansions now
+    // mount this same surface, so the count is four: the panel's, the
+    // superseded-record view's, and one for each of the two expansions.
+    expect(mounts).toHaveLength(4);
   });
 
   it("names the policy set on the mount bound to the record being decided", () => {

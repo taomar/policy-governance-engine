@@ -33,15 +33,18 @@
  * returns.
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { CandidateRule, CanonicalRule } from "./api";
 import { CandidateRow } from "./components/CandidateRow";
-import { RuleDetailInline } from "./components/RuleDetailInline";
+import { PolicyInspector } from "./components/PolicyInspector";
+import { RecordedAttributes } from "./components/RecordedAttributes";
 
-beforeAll(() => {
-  // antd reads both on mount and jsdom implements neither.
+beforeEach(() => {
+  // antd reads both on mount and jsdom implements neither. Restored before
+  // every test because the teardown below removes every stub, and the record
+  // surface mounts antd components that read them on their first render.
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
     media: query,
@@ -169,7 +172,21 @@ function QueueHarness({ ruleIds }: { ruleIds: string[] }) {
               findingsCount={0}
               statusColor="default"
               statusLabel="Pending"
-              renderDetail={() => <RuleDetailInline candidate={row} />}
+              renderDetail={() => (
+                /* The same reading the queue ships: the row's expansion is the
+                   full record, not a shorter retelling of it. */
+                <PolicyInspector
+                  rule={row.rule}
+                  variant="embedded"
+                  recordKind="candidate"
+                  recordLabel="candidate"
+                  notesTarget={{
+                    entityType: "candidate_rule",
+                    entityId: row.id,
+                    title: "Review discussion",
+                  }}
+                />
+              )}
               onToggleSelect={() =>
                 setSelected((current) => {
                   const next = new Set(current);
@@ -290,9 +307,13 @@ describe("a rule's detail opens where the rule stands", () => {
   });
 
   it("says a missing attribute table differently from an empty one", () => {
+    // Rendered directly, because this is a claim about the display the reviewer
+    // agreed to and not about where it is mounted. It is mounted in two places
+    // now — the queue's expansion and the full record — and it says the same
+    // thing in both because it is one component.
     const withoutTable = candidate("R1");
     delete (withoutTable.rule as { attributes?: unknown }).attributes;
-    const { unmount } = render(<RuleDetailInline candidate={withoutTable} />);
+    const { unmount } = render(<RecordedAttributes attributes={withoutTable.rule.attributes} />);
     // One per group: neither "what it applies to" nor "what follows" is known
     // when the record carried no table at all.
     expect(screen.getAllByText(/did not carry an attribute table/)).toHaveLength(2);
@@ -301,7 +322,7 @@ describe("a rule's detail opens where the rule stands", () => {
 
     const withEmptyTable = candidate("R2");
     withEmptyTable.rule.attributes = { applies: [], outcome: [] };
-    render(<RuleDetailInline candidate={withEmptyTable} />);
+    render(<RecordedAttributes attributes={withEmptyTable.rule.attributes} />);
     expect(screen.getAllByText(/present and names none/)).toHaveLength(2);
     expect(screen.queryByText(/did not carry an attribute table/)).toBeNull();
   });
