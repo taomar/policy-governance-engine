@@ -15,10 +15,15 @@
  *
  * Two things are load-bearing and are what most of this file tests:
  *
- *   1. A rule stays under the quotation it was drawn from. The rule and its
+ *   1. A rule stays with the quotation it was drawn from. The rule and its
  *      source are the two halves of the evidence a reviewer is checking, and no
  *      ordering is worth separating them. So grouping happens inside a passage
  *      and passages move whole.
+ *
+ *      Which of the two comes first is a presentation decision and is not
+ *      pinned here: the passage's words now follow the rules they gave, headed
+ *      by a caption naming them as the source. What this file tests is that
+ *      they stay in the same passage block, whichever order they are drawn in.
  *
  *   2. The numbers keep the document's order. They are the only record on the
  *      card of where the source states each rule, so after a re-ordering they
@@ -180,8 +185,8 @@ describe("a card leads with what it decides", () => {
 });
 
 describe("what the grouping may not cost", () => {
-  it("never moves a rule out from under the quotation it was drawn from", () => {
-    // The one thing this card exists to show. A rule shown under a passage it
+  it("never separates a rule from the quotation it was drawn from", () => {
+    // The one thing this card exists to show. A rule shown beside a passage it
     // did not come from is a false claim about the source, and it would be a
     // false claim made in order to tidy a list.
     const drawn = draw([
