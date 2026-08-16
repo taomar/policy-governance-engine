@@ -834,7 +834,7 @@ export function PolicyDetailPanel({
                     <CodeOutlined />{" "}
                     {jsonFlavor === "full"
                       ? "This policy as one document — its rules nested inside it"
-                      : "The same policy, lean — one representation, rule and document ids, no run history"}
+                      : "The same policy, lean for a model — each passage and fact stored once, rules referencing them by id, no run history"}
                   </Text>
                   <Tooltip
                     title={

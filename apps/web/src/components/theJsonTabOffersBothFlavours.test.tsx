@@ -140,12 +140,12 @@ describe("the JSON tab offers a full and a lean flavour", () => {
 
   it("asks the server for the lean flavour, and shows exactly what it returned", async () => {
     const returned = {
-      flavor: "lean",
+      projection: "grounding_projection_v1",
       representation: "canonical",
-      policy_id: "a-policy",
-      provision_id: "a-policy-provision",
-      search_document_id: null,
-      rules: [{ rule_id: "r1", source_text: "The document's own words." }],
+      envelope: { policy_set_id: "a-policy", provision_id: "a-policy-provision" },
+      spans: { sp_abc123: { text: "The document's own words.", clause_id: "E1" } },
+      facts: {},
+      rules: [{ rule_id: "r1", evidence_refs: ["sp_abc123"] }],
     };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -163,7 +163,9 @@ describe("the JSON tab offers a full and a lean flavour", () => {
     // The agreed path, for this provision — not the blocked `/policies` prefix.
     expect(url).toContain("/api/policy-payload/a-policy-provision");
 
-    await waitFor(() => expect(jsonText()).toContain('"flavor": "lean"'));
+    await waitFor(() =>
+      expect(jsonText()).toContain('"projection": "grounding_projection_v1"'),
+    );
     // What the server returned, verbatim — including the document's own words,
     // which the tab must not have rebuilt for itself.
     expect(jsonText()).toContain("The document's own words.");
