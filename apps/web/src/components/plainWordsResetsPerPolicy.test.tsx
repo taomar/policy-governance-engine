@@ -213,9 +213,10 @@ describe("the Explain dialog's plain-words reading", () => {
     rerender(<PolicyExplainButton provisionId={B} policyKey="POLICY-B" />);
 
     // Opening the dialog again asks about policy B, and shows B — not A again.
+    // Opened fresh, it reads in the default language, which travels as no tag.
     asked.mockClear();
     fireEvent.click(screen.getByTestId("policy-explain-button"));
-    await waitFor(() => expect(asked).toHaveBeenCalledWith(B, expect.anything()));
+    await waitFor(() => expect(asked).toHaveBeenCalledWith(B, false, undefined));
     const bReading = await screen.findByTestId("policy-explain-reading");
     expect(bReading.textContent).toContain("Reading of prov-B");
     expect(bReading.textContent).not.toContain("Reading of prov-A");

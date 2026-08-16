@@ -4,6 +4,13 @@ import { BulbOutlined } from "@ant-design/icons";
 import { aiApi, type PolicyExplanation } from "../api";
 import { describeApiFailure, type LoadState } from "../loadState";
 import { DirectionalText } from "./DirectionalText";
+import { AnswerLanguageToggle } from "./AnswerLanguageToggle";
+import {
+  ASK_ANSWER_LANGUAGES,
+  DEFAULT_ASK_ANSWER_LANGUAGE,
+  answerLanguageOverride,
+  type AskAnswerLanguage,
+} from "../askAnswerLanguage";
 
 const { Text } = Typography;
 
@@ -62,6 +69,15 @@ export function PolicyExplainButton({
   const [state, setState] = useState<LoadState | "idle">("idle");
   const [result, setResult] = useState<PolicyExplanation | null>(null);
   const [failure, setFailure] = useState<string>("");
+  // Two languages, kept apart on purpose. `language` is the reader's current
+  // choice for the *next* reading; `resultLanguage` is the one the reading now
+  // on screen was actually written in. They diverge the instant the reader moves
+  // the toggle after a reading is shown, and relabelling words that were not
+  // written in the newly chosen language would be a false claim about them — so
+  // the reading keeps the language it was asked in until a new one replaces it.
+  const [language, setLanguage] = useState<AskAnswerLanguage>(DEFAULT_ASK_ANSWER_LANGUAGE);
+  const [resultLanguage, setResultLanguage] =
+    useState<AskAnswerLanguage>(DEFAULT_ASK_ANSWER_LANGUAGE);
 
   // This button is not remounted when the policy under it changes. It sits in a
   // panel that swaps which record it shows while the button keeps its position,
@@ -76,19 +92,34 @@ export function PolicyExplainButton({
     setState("idle");
     setResult(null);
     setFailure("");
+    // The language choice belongs to the policy it was made on. The next policy
+    // opens in the default, the same as a freshly rendered card, rather than
+    // inheriting a choice made about a record no longer on screen.
+    setLanguage(DEFAULT_ASK_ANSWER_LANGUAGE);
+    setResultLanguage(DEFAULT_ASK_ANSWER_LANGUAGE);
   }, [provisionId]);
 
   async function ask(regenerate = false) {
     const forPolicy = provisionId;
+    // Read the choice now, not when the reply lands: the reader can move the
+    // toggle while the request is in flight, and the reading that comes back was
+    // written in the language asked for here, not whichever is selected when it
+    // arrives — so it is labelled as this one.
+    const askedIn = language;
     setState("loading");
     setFailure("");
     try {
-      const reading = await aiApi.explainPolicy(forPolicy, regenerate);
+      const reading = await aiApi.explainPolicy(
+        forPolicy,
+        regenerate,
+        answerLanguageOverride(askedIn),
+      );
       // The reader may have moved to another policy while this was in flight.
       // A reading answered for a policy no longer on screen is dropped, never
       // shown under the one that replaced it.
       if (askedFor.current !== forPolicy) return;
       setResult(reading);
+      setResultLanguage(askedIn);
       setState("ready");
     } catch (error) {
       // The request never landed or the server refused it. Distinct from the
@@ -99,6 +130,20 @@ export function PolicyExplainButton({
       setState("unavailable");
     }
   }
+
+  // One control, its own radio `name` so it does not merge with the Overview
+  // pane's toggle when that sits behind this open dialog. Its accessible name is
+  // in the language now selected, so a reader hears the choice they move into.
+  const languageToggle = (
+    <AnswerLanguageToggle
+      languages={ASK_ANSWER_LANGUAGES}
+      value={language}
+      onChange={setLanguage}
+      label={language.copy.languageChoiceLabel}
+      scopeNote={language.copy.languageScopeNote}
+      name="policy-explain-language"
+    />
+  );
 
   return (
     <>
@@ -183,7 +228,7 @@ export function PolicyExplainButton({
                   {/* Unquoted, for the reason the subject label gives: quotation
                       marks would present these as somebody's exact words, and
                       they are nobody's. */}
-                  <div className="policy-explain__text">
+                  <div className="policy-explain__text" lang={resultLanguage.tag}>
                     <DirectionalText>{result.explanation}</DirectionalText>
                   </div>
                   <p className="policy-explain__provenance">
@@ -199,9 +244,25 @@ export function PolicyExplainButton({
                         `It covers the first ${result.rules.length} of this policy's ${result.rule_count} rules; the rest are on the card and are unaffected.`}
                     </Text>
                   </p>
-                  <Button size="small" onClick={() => void ask(true)}>
-                    Write it again
-                  </Button>
+                  {/* The choice sits beside the action that composes the next
+                      reading, so the reader sets the language and asks again in
+                      one place. Laid out inline: the row's own class would need
+                      styles that live where this component does not own them. */}
+                  <div
+                    className="policy-explain__reask"
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    {languageToggle}
+                    <Button size="small" onClick={() => void ask(true)}>
+                      Write it again
+                    </Button>
+                  </div>
                 </section>
               ) : (
                 <Alert

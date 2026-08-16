@@ -318,6 +318,21 @@ export function askAnswerLanguageByTag(tag: string | null | undefined): AskAnswe
 }
 
 /**
+ * The tag to send with a request for a chosen answer language, or `undefined`
+ * for the default — which travels as no directive at all.
+ *
+ * The default is the server's own writing language; sending its tag would
+ * append a "write in this language" instruction to a prompt that already writes
+ * in it, making a different request with a different cache entry for no change a
+ * reader asked for. So the default never travels. This is one function, not an
+ * inline check repeated at each call site, so two surfaces that both offer the
+ * choice cannot come to disagree about what "the default" puts on the wire.
+ */
+export function answerLanguageOverride(chosen: AskAnswerLanguage): string | undefined {
+  return chosen.tag === DEFAULT_ASK_ANSWER_LANGUAGE.tag ? undefined : chosen.tag;
+}
+
+/**
  * Puts the two counts into a coverage sentence.
  *
  * The counts sit in the copy as `{covered}` and `{total}` rather than the
