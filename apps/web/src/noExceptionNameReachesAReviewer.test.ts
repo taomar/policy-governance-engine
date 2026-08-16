@@ -29,10 +29,10 @@ describe("no reviewer is shown an exception name by the surfaces this change own
 
   const OWNED = [
     "./components/ReviewQueue.tsx",
-    "./components/RuleDetailInline.tsx",
     "./components/CandidateRow.tsx",
     "./components/PolicyDetailPanel.tsx",
-    "./components/InlineTabs.tsx",
+    "./components/PolicyInspector.tsx",
+    "./components/RecordedAttributes.tsx",
     "./components/ruleTabPanes.tsx",
     "./components/RecordActionsMenu.tsx",
   ];

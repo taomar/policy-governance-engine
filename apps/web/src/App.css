@@ -12135,26 +12135,23 @@
 }
 
 /* ---------------------------------------------------------------------------
-   One rule's detail, opened where the rule stands.
+   Every attribute, as recorded: one row of three parts.
 
-   The reviewer used to leave the queue to read a rule and click back to return,
-   and the policy they were comparing it against went away while they were gone.
-   This is what they get instead: the row stays where it is, the rules above and
-   below it stay on screen, and the detail unfolds under it.
+   The attribute's own name, the document's words verbatim, and the identifier
+   a case supplies a value for. Nothing renamed, nothing merged, nothing hidden.
+
+   These names begin `rule-detail-inline` because that is where the display was
+   born -- a shorter rendering the queue drew inside a row, since removed. The
+   display outlived it: it is now its own component and is drawn on the record
+   surface itself, so it reaches the published record too. The prefix is left
+   alone deliberately, because renaming it would touch every rule below for no
+   gain a reader would ever see.
 
    Nothing here clips. Every cell of the attribute table holds a run of the
    source document, and a document's words are not a thing to abbreviate -- so
    cells wrap, the table scrolls sideways rather than shrinking them, and
    `nothingIsClipped` asserts that no rule in this block says otherwise.
    --------------------------------------------------------------------------- */
-.rule-detail-inline {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 12px 2px 4px;
-  font-size: 13px;
-}
-
 .rule-detail-inline__block {
   display: flex;
   flex-direction: column;
@@ -12170,25 +12167,9 @@
   color: var(--app-text-muted, #6b7280);
 }
 
-.rule-detail-inline__prose {
-  margin: 0;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
 .rule-detail-inline__quiet {
   font-size: 12px;
   line-height: 1.55;
-}
-
-.rule-detail-inline__list {
-  margin: 0;
-  padding-inline-start: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
 }
 
 .rule-detail-inline__attr-group {
@@ -12260,32 +12241,6 @@
 
 .rule-detail-inline__datatype {
   color: var(--app-text-muted, #6b7280);
-}
-
-.rule-detail-inline__ids {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 2px 12px;
-  margin: 6px 0 0;
-  font-size: 12px;
-}
-
-.rule-detail-inline__id-row {
-  display: contents;
-}
-
-.rule-detail-inline__ids dt {
-  color: var(--app-text-muted, #6b7280);
-}
-
-.rule-detail-inline__ids dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.rule-detail-inline__footer {
-  display: flex;
-  justify-content: flex-start;
 }
 
 /* The same detail inside the policy panel, under the rule it belongs to. */
