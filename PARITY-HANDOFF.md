@@ -1129,3 +1129,89 @@ applied to*. Same sentence, same file as item 11.
 **To `dev-rulename` and `dev-onedetail` - the render cost above.** Restated
 because it is now measured twice: the largest policy costs about six seconds to
 draw on this machine.
+
+---
+
+## Item 20 - a quality finding is a finding, and a heading is read by someone who has never opened the code
+
+Two things landed together because they are the same mistake at two scales: a
+screen written in the vocabulary of the thing that produced it, read by someone
+who did not produce it.
+
+### 20a. "Decomposition damaged" was a red box with no verb
+
+On a rule, under **Parties & routes**, in red:
+
+> **Decomposition damaged** - "The sentence was mis-split, so every claim derived
+> from it inherits the error. This one is ours to fix, not the document's."
+
+The user asked *"what is that error?"* - which is the whole finding. The content
+is honest and worth keeping: it says the defect is **ours**, not the document's,
+and that everything below it inherits the error. What it lacked was a reader.
+
+**Why it was in the wrong place.** `evaluability` has five values and they are
+**not the same kind of thing**. `decidable`, `discretionary`, `underspecified`
+and `not_a_decision` are readings of *the document* - how the source states its
+test - and none of them is anyone's fault. `malformed` says *this app* divided
+the source's sentence in the wrong place. That does not describe the parties and
+attributes listed below it; it **invalidates** them. So it no longer sits in the
+verdict tag row with the other four. It is lifted out into a finding of its own.
+
+**What a finding has to carry**, and this one now does:
+
+| part | what it answers |
+|---|---|
+| heading | what happened, naming this app as the cause |
+| consequence | what it costs - everything derived from the sentence inherits it |
+| approval | whether the rule is safe to approve. It is not, and it says so |
+| next step | what to do about it |
+
+`splitDefectFinding(reviewStatus)` in `ruleExecutability.ts` derives the next
+step from **`candidateEditability`**, not from the surface it is drawn on. A
+record still open to revision is pointed at **Suggest rewrite**; a sealed record
+is given the record's own `editBlockedReason`, verbatim, so a reviewer meets
+**one** account of what the record admits rather than two that must be
+reconciled. A reviewer is never pointed at a control they do not have.
+
+`Alert type` went from `error` to `warning`. It is a finding, not a crash, and
+the copy is now guarded against crash vocabulary
+(`aFindingSaysWhatToDo.test.tsx`, `READS_AS_A_CRASH` and `INTERNAL_VOCABULARY`,
+the latter including a bare `/[a-z]+_[a-z]+/` so no snake_case enum can reach a
+reader). Seven mutations were tried; all seven were caught. The label itself
+moved from **"Decomposition damaged"** to **"Split in the wrong place"** - the
+first is a word for the pipeline stage, the second is a description of what went
+wrong that needs no glossary.
+
+**To `dev-onedetail` - one thing is missing and it is yours.** The finding
+*names* `Suggest rewrite` rather than offering it, because
+`aiApi.suggestRewrite(candidateId, ...)` needs a **candidate id** and
+`CanonicalRule` carries only `rule_id`. Thread the candidate id through
+`RuleDetailInline.tsx` / `PolicyInspector.tsx` and this finding can carry a real
+button instead of a sentence describing one. Naming it precisely was the correct
+answer while the id is out of reach - it is not the correct answer once it is.
+
+### 20b. "Its one rule decides a case"
+
+Same failure, on the policy Overview. **"A case"** is what this app calls a
+situation put to a rule. It is the vocabulary of the thing doing the deciding,
+not of the person reading the answer, and it was printed on a tab written for
+that person - who read it and asked what a case was.
+
+`stanceHeading` and `stanceTallyPhrase` in `recordStance.ts` now say **"Decides
+what happens"** and **"3 decide what happens"**. Both surfaces draw from these
+two functions, so the count at the head of a card and the heading over the group
+those rules are in still meet in the same verb. Nothing was restated in a second
+vocabulary to fix this.
+
+A guard in `recordStance.test.ts` now holds the words to watch - `a case`,
+`scenario`, `evaluate`, `predicate`, `decompose`, `provision`, `record`,
+`candidate`, `schema`, `payload`, `node`, `attribute` - and runs over every
+stance at both singular and plural. Four mutations: the old phrase returning to
+the heading, the old phrase returning to the tally, and a **fresh** term of art
+arriving in each. All four caught, which is the part that matters - a guard that
+only catches the string you just deleted is a changelog, not a test.
+
+**Correction to a routing in item 19.** I sent `dev-rulename` a request to fix
+*"decides a case"* in `policyCards.ts`. It is not there. It is composed in
+`policyRecordFacts.ts` from `recordStance.ts`, both of which are mine and both of
+which are now fixed. **`dev-rulename` should stand down on that item.**
