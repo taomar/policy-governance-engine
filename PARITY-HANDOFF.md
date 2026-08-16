@@ -661,3 +661,100 @@ nobody has taught the map about — a typo in a status string would quietly
 inflate "decided". Left as it is: the shape is depended on by other callers and
 changing it is out of this brief. Recording it so the next person to see it does
 not treat it as new.
+
+---
+
+## Item 16 — both routes can be tested, and one derivation says which
+
+**Landed:** `06fcbe6` (rule scope), `c9cca0d` (policy scope), `efb71e6` (copy).
+
+### What was wrong
+
+`RuleScenarioTester` promised a judge in an alert and then disabled the case
+box, the effort select and the submit button for every rule the engine would
+not run, captioning the button `Not testable by the deterministic engine`.
+On the live counts that is **670 rules shut out so that 7 could be served**.
+The judged endpoint existed and was reachable only from the draft-authoring
+surfaces — `AiRuleComposer` and `EditRuleModal`. Once a rule was published,
+the judge could not be asked about it at all. **Instance thirteen** of the
+signature failure.
+
+At policy scope the same rules reached a cell reading `Checked by reading`
+with nothing behind it — the dead end the Tests tab was built to remove, moved
+one column right.
+
+### The two paths, as built
+
+| route | endpoint | decided by | answer |
+|---|---|---|---|
+| `deterministic` **and** executable | `testRuleScenario` | the engine computes the comparison | `EvaluationStatus`, plus the facts it read out of the case |
+| everything else | `evaluateScenario` | a judge reads the record against the case | `applies: yes / no / uncertain`, reasoning, predicted outcome, what the case would have to state |
+
+### The confidence question, and why there is no number
+
+The brief asked for `a verdict, with confidence`. `ScenarioEvaluation` has
+no confidence field, and **Section 53 of the governing spec removed confidence
+scores** — recorded in `src/policy_platform/contracts/correlation.py:13`: *a
+model asked for a probability will supply one, and `0.91` reads as
+measurement when it is invention*. `contracts/graph_run.py:17` says the same
+of provenance strength.
+
+**Decision: the third verdict is the confidence.** `uncertain` renders as
+*"The case as described does not settle it"*, followed by what the case would
+have to state — a state the reviewer can act on rather than a number they can
+only weigh. A figure beside an exact computed result would also read as the
+judged route apologising for itself, which is the framing this project bans.
+If a confidence figure is genuinely wanted, it needs a Section 53 decision
+first, not a UI change.
+
+### One derivation, `engineDecidesRule`
+
+Now in `apps/web/src/ruleExecutability.ts` and used by both surfaces. Two
+copies of this question existed and disagreed:
+
+* `RuleScenarioTester` rendered off `evaluation_mode` and disabled off
+  `machine_executable`, so a rule whose fields disagreed was offered a
+  control that led to a refusal.
+* `policyTestRows` asked `evaluation_mode` alone, so a rule stating a
+  comparison with no executable condition was offered a scenario the server
+  refuses to write (`ai_test_proposal.py` raises for exactly this).
+
+Both fields are read; the engine is chosen only when both say so. That is not
+a preference for the judge — it is the only ordering under which nobody is
+handed an answer from a decider that never looked at their case.
+
+### For whoever owns the guard
+
+`tests/unit/test_no_route_framed_as_a_shortfall.py` is **sentence-scoped**:
+it fires only when a route word and a lack word share a sentence. That is why
+`Not testable by the deterministic engine` — the worst instance in the
+product — passed it for months: the refusal and the route were in different
+sentences. Worth considering whether a refusal verb next to a route name in
+*adjacent* sentences should also fire.
+
+The guard did catch my own prop comment (*"Absent, the case box still opens
+for the rules decided by reading"*) — eighth phrasing, second caught before a
+human. Fixed in the sentence, and the same check now also lives in
+`everyRuleHasAWayToBeChecked.test.tsx` so a later tidy-up meets it in the
+file it is editing.
+
+### Ownership taken
+
+`RuleScenarioTester.tsx` and `ruleExecutability.ts` appear in no agent's
+list. Taken, consistent with precedent. Say if that is wrong.
+
+### Live check
+
+Published `ai_ready` rule, port 5490: box enabled, button reads *"Put this
+case to the judge"*, a real case returned `uncertain` rendered as its own
+verdict with **no digits**, and the caption *"Read by a judge against the
+record on screen · not saved to the audit trail (exploratory check only)"*.
+
+### Not built, and why
+
+There is **no batch judge endpoint**. `policy_tests` generation is
+engine-only by design (`ai_test_proposal.py` raises for non-executable
+rules). So a policy-scope judged run would be N separate calls; it is offered
+one rule at a time from its row instead, which is honest about what it costs.
+A batch judge endpoint is the server-side change that would make a
+policy-wide judged run reasonable.
