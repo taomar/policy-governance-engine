@@ -39,35 +39,14 @@ import {
   aiApi,
   PolicyPlatformApiError,
   type CanonicalRule,
-  type EvaluationStatus,
   type RuleScenarioTestResult,
   type ScenarioEvaluation,
 } from "../api";
 import { DETERMINISTIC_LABEL, engineDecidesRule } from "../ruleExecutability";
+import { COMPUTED_ANSWER, JUDGED_ANSWER } from "./policyTesting";
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
-
-const STATUS_COLOR: Record<EvaluationStatus, string> = {
-  SATISFIED: "green",
-  NOT_SATISFIED: "red",
-  NOT_APPLICABLE: "default",
-  INDETERMINATE: "gold",
-  ERROR: "red",
-};
-
-/**
- * The three answers a judge can return, in the words a reviewer reads.
- *
- * `uncertain` is an answer about the case, not about the rule: the rule was
- * read, and what it needs to decide was not described. Wording it as a
- * property of the rule would report a route as a defect.
- */
-const JUDGED_VERDICT: Record<ScenarioEvaluation["applies"], { label: string; color: string }> = {
-  yes: { label: "This rule applies to the case", color: "green" },
-  no: { label: "This rule stands aside from the case", color: "blue" },
-  uncertain: { label: "The case as described does not settle it", color: "gold" },
-};
 
 type ReasoningEffort = "low" | "medium" | "high";
 
@@ -192,11 +171,11 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         <div className="scenario-test-result" data-testid="scenario-answer">
           <Space style={{ marginBottom: 12 }} wrap>
             <Tag
-              color={JUDGED_VERDICT[judged.applies].color}
+              color={JUDGED_ANSWER[judged.applies].color}
               className="scenario-test-verdict-tag"
               data-testid="scenario-verdict"
             >
-              {JUDGED_VERDICT[judged.applies].label}
+              {JUDGED_ANSWER[judged.applies].label}
             </Tag>
             <Tag>Reasoning effort: {judged.reasoning_effort}</Tag>
           </Space>
@@ -234,11 +213,11 @@ export function RuleScenarioTester({ policySetKey, rule }: RuleScenarioTesterPro
         <div className="scenario-test-result" data-testid="scenario-answer">
           <Space style={{ marginBottom: 12 }} wrap>
             <Tag
-              color={rr ? STATUS_COLOR[rr.status] : "default"}
+              color={rr ? COMPUTED_ANSWER[rr.status].color : "default"}
               className="scenario-test-verdict-tag"
               data-testid="scenario-verdict"
             >
-              {rr ? rr.status : "NO RESULT"}
+              {rr ? COMPUTED_ANSWER[rr.status].label : COMPUTED_ANSWER.ERROR.label}
             </Tag>
             {rr?.effect_action && (
               <Tag

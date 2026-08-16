@@ -117,6 +117,10 @@ function verbs(overrides: Partial<PolicyTestingVerbs> = {}): PolicyTestingVerbs 
   return {
     generate: vi.fn().mockResolvedValue(undefined),
     run: vi.fn().mockResolvedValue(undefined),
+    // A version by default, because the batch door the older tests exercise is
+    // the one that only exists where a version does. Tests about an unpublished
+    // record say so explicitly, which is the state that matters.
+    publishedVersionId: "a-published-version",
     busy: new Set<string>(),
     working: false,
     error: null,

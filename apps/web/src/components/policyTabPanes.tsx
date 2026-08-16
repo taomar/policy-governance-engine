@@ -51,8 +51,9 @@ import { NotesPanel } from "./NotesPanel";
 import { policyProvenance, whenItApplies } from "./policyProvenance";
 import { RuleName } from "./RuleName";
 import { RuleScenarioTester } from "./RuleScenarioTester";
+import { PolicyCaseRunner } from "./PolicyCaseRunner";
 import { engineDecidesRule } from "../ruleExecutability";
-import type { PolicyTesting } from "./policyTesting";
+import { testingDoor, type PolicyTesting, type TestingDoor } from "./policyTesting";
 import "./policyTabPanes.css";
 
 const { Text, Paragraph } = Typography;
@@ -1078,6 +1079,13 @@ export interface RuleTestRow {
    *  guards exist to keep out of the words, arriving through the interaction
    *  instead. */
   engineEvaluates: boolean;
+  /** Which door this rule can actually be tested through, here and now.
+   *
+   *  `engineEvaluates` answers what the rule is; this answers what can be asked
+   *  of it, which is the same question plus whether a published version exists
+   *  for the engine to compute against. Both are derived from the record — see
+   *  `testingDoor`. */
+  door: TestingDoor;
 }
 
 const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: string }> = {
@@ -1111,6 +1119,7 @@ const TEST_STATE: Record<RuleTestState, { label: string; color?: string; why: st
 export function policyTestRows(
   record: PolicyRecordView,
   tests: readonly PolicyTestListItem[],
+  publishedVersionId?: string | null,
 ): RuleTestRow[] {
   const byRule = new Map<string, PolicyTestListItem[]>();
   for (const item of tests) {
@@ -1144,6 +1153,7 @@ export function policyTestRows(
       testIds: covering.map((item) => item.test.id),
       awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
       engineEvaluates: engineDecidesRule(entry.rule),
+      door: testingDoor(entry.rule, publishedVersionId),
     };
   });
 }
@@ -1154,7 +1164,7 @@ export function policyTestRows(
  */
 export type PolicyTestingVerbs = Pick<
   PolicyTesting,
-  "generate" | "run" | "busy" | "working" | "error" | "dismissError"
+  "generate" | "run" | "publishedVersionId" | "busy" | "working" | "error" | "dismissError"
 >;
 
 export function PolicyTestsPane({
@@ -1176,16 +1186,18 @@ export function PolicyTestsPane({
    */
   policySetKey?: string;
 }) {
-  const rows = policyTestRows(record, tests ?? []);
+  const rows = policyTestRows(record, tests ?? [], testing?.publishedVersionId ?? null);
   const covered = rows.filter((row) => row.state !== "untested").length;
-  const writableRows = rows.filter((row) => row.engineEvaluates);
+  const writableRows = rows.filter((row) => row.door === "engine-scenario");
   const untestedRuleIds = writableRows
     .filter((row) => row.state === "untested")
     .map((row) => row.ruleId);
   const everyTestId = rows.flatMap((row) => row.testIds);
   const awaitingReview = rows.reduce((total, row) => total + row.awaitingReview, 0);
-  const readDecided = rows.length - writableRows.length;
+  const readDecided = rows.filter((row) => row.door === "judge-case").length;
+  const awaitingPublication = rows.filter((row) => row.door === "engine-awaits-publication").length;
   const [caseRuleId, setCaseRuleId] = useState<string | null>(null);
+  const [policyCaseOpen, setPolicyCaseOpen] = useState(false);
   const caseRule = caseRuleId
     ? (record.rules.find((entry) => entry.rule_id === caseRuleId)?.rule ?? null)
     : null;
@@ -1202,7 +1214,7 @@ export function PolicyTestsPane({
 
       {testing && rows.length > 0 ? (
         <Space wrap size="small" style={{ marginBottom: 12 }} data-testid="policy-test-actions">
-          {writableRows.length > 0 && (
+          {testing.generate && writableRows.length > 0 && (
             <Popconfirm
               title="Write scenarios for these rules?"
               description={
@@ -1215,7 +1227,7 @@ export function PolicyTestsPane({
               okText="Write them"
               cancelText="Not now"
               onConfirm={() => {
-                void testing.generate(
+                void testing.generate?.(
                   untestedRuleIds.length > 0 ? untestedRuleIds : writableRows.map((r) => r.ruleId),
                 );
               }}
@@ -1228,6 +1240,14 @@ export function PolicyTestsPane({
               </Button>
             </Popconfirm>
           )}
+          <Button
+            size="small"
+            type={testing.generate ? "default" : "primary"}
+            onClick={() => setPolicyCaseOpen(true)}
+            data-testid="policy-put-case"
+          >
+            Put a case to this policy
+          </Button>
           <Popconfirm
             title="Run every test of this policy?"
             description={
@@ -1264,8 +1284,19 @@ export function PolicyTestsPane({
         <Paragraph type="secondary" data-testid="policy-tests-instrument">
           A rule stating a comparison is checked by writing a scenario the engine computes, and the
           result is kept. A rule stating its test in words is checked by putting a case to the judge
-          that reads it — one rule at a time, from its row, and what comes back is an answer to look
-          at rather than a record to keep.
+          that reads it — from its row, or to the whole policy at once — and what comes back is an
+          answer to look at rather than a record to keep.
+        </Paragraph>
+      ) : null}
+
+      {testing && awaitingPublication > 0 ? (
+        <Paragraph type="secondary" data-testid="policy-tests-awaits-publication">
+          {awaitingPublication === 1
+            ? "One rule of this policy states its test as a comparison between named quantities."
+            : `${awaitingPublication} rules of this policy state their test as a comparison between named quantities.`}{" "}
+          The engine computes those against a published version, and this policy has not been
+          published yet — so writing scenarios for them is offered once it is. Every rule stating
+          its test in words can be put to a case now.
         </Paragraph>
       ) : null}
 
@@ -1340,20 +1371,20 @@ export function PolicyTestsPane({
                       >
                         Run
                       </Button>
-                    ) : row.engineEvaluates ? (
+                    ) : row.door === "engine-scenario" && testing.generate ? (
                       <Button
                         size="small"
                         type="link"
                         loading={testing.busy.has(row.ruleId)}
                         disabled={testing.working}
                         onClick={() => {
-                          void testing.generate([row.ruleId]);
+                          void testing.generate?.([row.ruleId]);
                         }}
                         data-testid={`generate-rule-test-${row.ruleId}`}
                       >
                         Write one
                       </Button>
-                    ) : (
+                    ) : row.door === "judge-case" ? (
                       <Button
                         size="small"
                         type="link"
@@ -1362,12 +1393,35 @@ export function PolicyTestsPane({
                       >
                         Put a case
                       </Button>
+                    ) : (
+                      <Tooltip title="The engine computes this rule's comparison against a published version. Once this policy is published, writing a scenario for it is offered here.">
+                        <Text type="secondary" data-testid={`awaits-publication-${row.ruleId}`}>
+                          Once published
+                        </Text>
+                      </Tooltip>
                     ),
                 } as const,
               ]
             : []),
         ]}
       />
+
+      {policyCaseOpen ? (
+        <Modal
+          open
+          width={860}
+          onCancel={() => setPolicyCaseOpen(false)}
+          footer={null}
+          title="Put a case to this policy"
+          destroyOnHidden
+        >
+          <PolicyCaseRunner
+            policySetKey={policySetKey}
+            publishedVersionId={testing?.publishedVersionId ?? null}
+            rules={record.rules.map((entry) => entry.rule)}
+          />
+        </Modal>
+      ) : null}
 
       {caseRule ? (
         <Modal
