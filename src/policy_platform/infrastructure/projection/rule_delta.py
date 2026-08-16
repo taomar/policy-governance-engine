@@ -138,20 +138,74 @@ NON_SEMANTIC_PROSE = frozenset({"title", "description", "category", "group_label
 #: not something a rule decides.
 NON_SEMANTIC_POSITIONAL = frozenset({"source_index", "source_rule_indexes"})
 
+#: The same three exclusions as above — provenance, derived-from-neighbours, and
+#: prose — but for keys nested inside `formulation`, where the model's own
+#: working is kept. Until this existed, only the *top level* was filtered, so a
+#: rule could be reported `changed` because the model reworded a display string
+#: several levels down while every decision it stated was identical. Measured on
+#: two real re-extractions of unchanged documents, these recovered a tenth of the
+#: rules that had been reported as changed.
+#:
+#: Every member is here for a stated reason, and each was measured on its own
+#: before being added. This is a denylist, not a pattern: `semantic_core` works
+#: by exclusion precisely so that a field nobody has classified yet still counts
+#: towards identity (see `test_an_unclassified_field_is_included_rather_than_
+#: ignored`), and a wildcard would quietly opt future fields out of that.
+#:
+#: What is deliberately *not* here matters as much. `attributes[].text` and
+#: `fact_model[].name` read like prose but carry the decision — "5 days paid" is
+#: the entitlement, not a description of it. Dropping a decision-bearing field
+#: would let two rules that decide different things match, and a match copies the
+#: reviewer's approval forward (see `_classify_run_delta`), so an over-broad
+#: exclusion here forges a human's signature. Both were measured as worth nothing
+#: anyway.
+NON_SEMANTIC_NESTED = frozenset(
+    {
+        # A restatement of the canonical rule for display. The rule itself is
+        # already in the core; including its projection asks the same question
+        # twice and lets a rephrased projection outvote an identical decision.
+        # The single largest contributor of the group.
+        "semantic_projection",
+        # The passage the rule was read from. `anchor_fingerprint` exists to
+        # carry exactly this (see `_source_text`), so keeping it in the content
+        # fingerprint too lets one fact decide identity twice — and makes a rule
+        # whose passage was re-sliced by a whitespace look like a new decision.
+        "source_text",
+        # Which part of the passage a field was read from. Provenance, at the
+        # granularity of a single field.
+        "source_origin",
+        # Cross-references to other rules in the same batch. Exactly the reason
+        # `related_rule_ids` is in NON_SEMANTIC_DERIVED, one level down: a rule's
+        # identity must not move because a neighbour appeared.
+        "relationships",
+        # The extractor's remarks on its own output — how confident it was, how
+        # the projection went, what it noticed it lacked, where it saw more than
+        # one reading. Notes about the reading, not the reading. `ambiguity_
+        # status` remains a top-level field and is still part of identity.
+        "extraction_status",
+        "dmn_mapping_status",
+        "missing_components",
+        "ambiguity",
+    }
+)
+
 NON_SEMANTIC: frozenset[str] = (
     NON_SEMANTIC_PROVENANCE | NON_SEMANTIC_DERIVED | NON_SEMANTIC_PROSE
 )
 
+#: Applied at every depth, unlike NON_SEMANTIC which applies only at the top.
+NON_SEMANTIC_AT_ANY_DEPTH: frozenset[str] = NON_SEMANTIC_POSITIONAL | NON_SEMANTIC_NESTED
 
-def _drop_positions(value):
+
+def _drop_nested(value):
     if isinstance(value, dict):
         return {
-            key: _drop_positions(item)
+            key: _drop_nested(item)
             for key, item in value.items()
-            if key not in NON_SEMANTIC_POSITIONAL
+            if key not in NON_SEMANTIC_AT_ANY_DEPTH
         }
     if isinstance(value, list):
-        return [_drop_positions(item) for item in value]
+        return [_drop_nested(item) for item in value]
     return value
 
 
@@ -163,10 +217,16 @@ def semantic_core(payload: dict) -> dict:
     two the same rule?* — and if they answered it differently, one of them would
     eventually carry a decision the other would have refused to.
 
+    Exclusion is deliberately shallow-by-default and deep only for the named
+    keys in `NON_SEMANTIC_AT_ANY_DEPTH`. An unclassified field is *included*, so
+    a new field nobody has thought about yet makes two rules look different —
+    the safe direction, because the cost is a redundant review and the cost of
+    the other direction is a decision carried onto a rule that changed.
+
     Callers that need the *whole* record, prose included, add the prose
     themselves rather than redefining the core.
     """
-    return _drop_positions(
+    return _drop_nested(
         {key: value for key, value in payload.items() if key not in NON_SEMANTIC}
     )
 
@@ -185,11 +245,33 @@ def _normalise_words(text: str) -> list[str]:
 
 
 def _source_text(payload: dict) -> str:
+    """The document passage this rule was read from, for the anchor fingerprint.
+
+    Two places are checked because the extraction contract nests the passage one
+    level deeper than this function originally looked. Measured across four real
+    extraction runs, `formulation.source_text` was present on none of 1,370
+    rules and `formulation.canonical.source_text` on all of them — so every
+    AI-extracted rule was silently taking the fallback below, and the anchor,
+    whose whole purpose is to be the stable axis when wording moves, was being
+    computed from model-authored prose that is rewritten on every run.
+
+    It went unnoticed because the mapper happens to seed `description` from the
+    same passage today, making the fallback produce the right string for the
+    wrong reason. The day a description becomes an actual description, every
+    anchor in the system would have changed meaning at once, and the delta would
+    have reported a document that had not moved as entirely rewritten.
+    """
+
     formulation = payload.get("formulation")
     if isinstance(formulation, dict):
-        text = formulation.get("source_text")
-        if isinstance(text, str) and text.strip():
-            return text
+        canonical = formulation.get("canonical")
+        candidates = [
+            formulation.get("source_text"),
+            canonical.get("source_text") if isinstance(canonical, dict) else None,
+        ]
+        for text in candidates:
+            if isinstance(text, str) and text.strip():
+                return text
     # Hand-authored and AI-composed rules carry no document passage. Falling
     # back to the description keeps them comparable to themselves across runs
     # instead of collapsing every one of them onto a single empty anchor.
