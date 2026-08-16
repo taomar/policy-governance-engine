@@ -27,7 +27,7 @@
  * fails closed to the per-rule determination path: a classification that did not
  * arrive must never masquerade as one that did.
  */
-import { API_UNREACHABLE_STATUS, PolicyPlatformApiError, type CanonicalRule } from "../api";
+import { API_UNREACHABLE_STATUS, PolicyPlatformApiError } from "../api";
 
 /**
  * Kept in step with `VITE_API_BASE_URL` in `api.ts`. Repeated rather than
@@ -52,15 +52,20 @@ export type CaseIntent = "informational" | "decision";
 export type InformationalStatus = "answered" | "no_rule_bears" | "declined" | "failed";
 
 /**
- * One rule the stated answer drew on: the app's finding aid for it (`title`, and
- * a generated name resolved separately by `RuleName`) plus the document's own
- * sentence, `quote`, carried verbatim from the record and never rewritten,
- * translated or trimmed.
+ * One rule the stated answer drew on, named by its id alone.
+ *
+ * The id is the whole of it on purpose. It is the identity the server validated
+ * against the closed set of rules it was shown — a citation naming an id not in
+ * that set is a fabrication the server refuses — so the id is the one token that
+ * carries a checkable claim. The rule's `title`, its verbatim sentence, and any
+ * generated name are the record's own, held by the client already; the client
+ * resolves them from the id at render time rather than trusting a second copy
+ * carried back over the wire. A generated name in particular must never cross
+ * the wire, into a payload or back out as a citation (constraint 8), and an
+ * id-only citation is what keeps it from having to.
  */
 export interface InformationalCitation {
   rule_id: string;
-  title: string;
-  quote: string;
 }
 
 /**
@@ -116,14 +121,16 @@ export interface PolicyCaseAnswer {
  * Classify a case put to a policy, and gather the answer when it is
  * informational.
  *
- * The rules are sent as the reviewer sees them — the same canonical rules the
- * rest of the surface holds — so the server quotes their stored source, not a
- * shape reassembled here. Throws `PolicyPlatformApiError` when the server refuses
- * or cannot be reached, which the caller treats as a signal to fall back to the
- * per-rule determination path rather than as an answer.
+ * The policy is named by its provision id, not sent as rules from here. The
+ * server builds the lean record it grounds on from that id — the one canonical
+ * projection, never a shape reassembled by a caller — so the closed set the
+ * answer may draw on is the server's to define and to validate citations
+ * against. Throws `PolicyPlatformApiError` when the server refuses or cannot be
+ * reached, which the caller treats as a signal to fall back to the per-rule
+ * determination path rather than as an answer.
  */
 export async function answerPolicyCase(
-  rules: readonly CanonicalRule[],
+  provisionId: string,
   options: { scenario: string; reasoningEffort: string },
 ): Promise<PolicyCaseAnswer> {
   const { scenario, reasoningEffort } = options;
@@ -132,7 +139,7 @@ export async function answerPolicyCase(
     res = await fetch(`${API_BASE_URL}/api/ai/policy-case/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules, scenario, reasoning_effort: reasoningEffort }),
+      body: JSON.stringify({ provision_id: provisionId, scenario, reasoning_effort: reasoningEffort }),
     });
   } catch (cause) {
     // Never reached a server. Raised as the same unreachable error every other

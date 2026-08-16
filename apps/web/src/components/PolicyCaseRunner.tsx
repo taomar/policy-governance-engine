@@ -224,6 +224,12 @@ function InformationalPanel({
   }
 
   const citedIds = new Set(citations.map((c) => c.rule_id));
+  // The answer cites rules by id; their title and verbatim sentence are the
+  // record's own, held here already. Resolve them from the id rather than trust
+  // a second copy over the wire — and a generated name never travels at all,
+  // `NamedRule` looks it up from the id at render (constraint 8). The sentence
+  // shown is the document's, uncut and untranslated (constraint 4).
+  const ruleById = new Map(rules.map((r) => [r.rule_id, r] as const));
   return (
     <div data-testid="policy-case-answer">
       <div className="app-synthesis" data-generated="true" data-testid="policy-case-answer-text">
@@ -256,19 +262,27 @@ function InformationalPanel({
             : `The answer rests on these ${citations.length} rules:`}
         </Text>
       </Paragraph>
-      {citations.map((c) => (
-        <div key={c.rule_id} className="policy-case-citation" data-testid="policy-case-citation">
-          <NamedRule policySetKey={policySetKey} ruleId={c.rule_id} variant="block" />
-          <div>
-            <Text strong>
-              <DirectionalText>{c.title}</DirectionalText>
-            </Text>
+      {citations.map((c) => {
+        const cited = ruleById.get(c.rule_id);
+        const quote = cited?.formulation?.canonical?.source_text ?? "";
+        return (
+          <div key={c.rule_id} className="policy-case-citation" data-testid="policy-case-citation">
+            <NamedRule policySetKey={policySetKey} ruleId={c.rule_id} variant="block" />
+            {cited?.title ? (
+              <div>
+                <Text strong>
+                  <DirectionalText>{cited.title}</DirectionalText>
+                </Text>
+              </div>
+            ) : null}
+            {quote ? (
+              <Paragraph style={{ marginBottom: 0 }}>
+                “<DirectionalText align>{quote}</DirectionalText>”
+              </Paragraph>
+            ) : null}
           </div>
-          <Paragraph style={{ marginBottom: 0 }}>
-            “<DirectionalText align>{c.quote}</DirectionalText>”
-          </Paragraph>
-        </div>
-      ))}
+        );
+      })}
 
       <GroundingLine grounding={informational.grounding} />
 
@@ -389,6 +403,7 @@ export function PolicyCaseRunner({
   policySetKey,
   target,
   rules,
+  provisionId,
 }: {
   policySetKey: string | null | undefined;
   /**
@@ -401,6 +416,18 @@ export function PolicyCaseRunner({
    */
   target: TestTarget;
   rules: readonly CanonicalRule[];
+  /**
+   * The persisted provision this policy is, when it has one. The policy-level
+   * grounded answer is built server-side from this id, so it is what the one
+   * model call needs and all it needs.
+   *
+   * Absent — `null` or `undefined` — for a policy whose boundary was inferred at
+   * read time rather than persisted: there is no provision to name, so no record
+   * to ground on, and the case falls to the per-rule deciders below. That is the
+   * honest reading of an un-persisted grouping, not a failure, so nothing here
+   * reports it as one.
+   */
+  provisionId?: string | null;
 }) {
   const [scenario, setScenario] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
@@ -429,16 +456,24 @@ export function PolicyCaseRunner({
     // per-rule deciders: a rule that states the answer would be reported as
     // unsettled for want of the very quantity being asked about.
     //
+    // Only a persisted provision can be asked: the grounded answer is built from
+    // the record the server holds under that id. Without one there is nothing to
+    // ground on, so the case goes to the per-rule deciders — the same path a
+    // classification that did not arrive takes, and for the same reason: a
+    // policy-level answer that was never composed must not be invented here.
+    //
     // Fail closed. If the classification cannot be reached or is refused, put the
     // case to the rules rather than answer a different question than the one
     // asked — a classification that did not arrive must not masquerade as one
     // that did. This path never says so in words that read as an error: nothing
     // failed for the reviewer, the case is simply decided rule by rule.
     let classified: Awaited<ReturnType<typeof answerPolicyCase>> | null = null;
-    try {
-      classified = await answerPolicyCase(rules, { scenario: scenario.trim(), reasoningEffort });
-    } catch {
-      classified = null;
+    if (provisionId) {
+      try {
+        classified = await answerPolicyCase(provisionId, { scenario: scenario.trim(), reasoningEffort });
+      } catch {
+        classified = null;
+      }
     }
 
     if (classified && classified.intent === "informational" && classified.informational) {

@@ -15,9 +15,11 @@
  * beneath it rather than in place of it. These pin the two halves of that:
  *
  *  - An informational request is answered from the rules that state the answer,
- *    in the app's own words marked as the app's, quoting each rule verbatim, and
- *    never fanned out to the per-rule deciders — so a rule with an unmet required
- *    fact is reported by what it states, not by a demand for the fact.
+ *    in the app's own words marked as the app's, citing each rule it rests on by
+ *    id — the title and the verbatim sentence are resolved from the record the
+ *    client already holds, not carried back over the wire — and never fanned out
+ *    to the per-rule deciders, so a rule with an unmet required fact is reported
+ *    by what it states, not by a demand for the fact.
  *  - A determination is read at the policy level: it leads with the rules that
  *    settle the case and names them, says plainly when those rules do not all
  *    point the same way, keeps every rule reachable below, and — this is the
@@ -25,7 +27,8 @@
  *    required fact rule by rule.
  *  - The four informational states are kept apart, and a classification that did
  *    not arrive falls closed to the determination path without reading as an
- *    error.
+ *    error. A policy with no persisted provision has no record to ground on, so
+ *    it is decided by its rules the same way, and never asks the server at all.
  *
  * The intent itself is decided by the model, on the backend, and the test with
  * teeth against a phrase list lives there
@@ -105,9 +108,22 @@ beforeEach(() => {
 
 const A_VERSION = testTarget("a-published-version", 3);
 
+/** Some persisted provision. Its value is opaque here: the server builds the
+ *  grounded record from it, and these tests hold that server at the mock, so all
+ *  that matters is that a provision is present for the grounded call to be made. */
+const A_PROVISION = "prov-1";
+
 /** A rule as the surface holds it. Which decider it calls for is derived from
- *  the pair of `evaluation_mode` and `machine_executable`, so both are set. */
-function rule(id: string, title: string, mode: "deterministic" | "ai_ready"): CanonicalRule {
+ *  the pair of `evaluation_mode` and `machine_executable`, so both are set. Its
+ *  verbatim sentence — the document's own words — is carried on `formulation`
+ *  where the record keeps it, because an id-only citation is resolved to that
+ *  sentence from here, not handed it by the server. */
+function rule(
+  id: string,
+  title: string,
+  mode: "deterministic" | "ai_ready",
+  sourceText = "",
+): CanonicalRule {
   return {
     rule_id: id,
     title,
@@ -120,6 +136,7 @@ function rule(id: string, title: string, mode: "deterministic" | "ai_ready"): Ca
     scope: {},
     source: { document_id: "d", quotes: [] },
     lineage: { extraction_run_id: "r" },
+    formulation: sourceText ? { canonical: { source_text: sourceText } } : undefined,
   } as unknown as CanonicalRule;
 }
 
@@ -129,7 +146,7 @@ function type(scenario: string): void {
 }
 
 describe("an informational request is answered from the rules that state it", () => {
-  it("marks the answer as the app's, quotes each rule verbatim, and keeps every rule reachable", async () => {
+  it("marks the answer as the app's, resolves each cited rule's title and verbatim sentence from the record, and keeps every rule reachable", async () => {
     answerPolicyCase.mockResolvedValue({
       intent: "informational",
       classification_reasoning: "reads as a request for what the policy provides",
@@ -137,9 +154,9 @@ describe("an informational request is answered from the rules that state it", ()
       informational: {
         status: "answered",
         answer: "This policy sets a weekly ceiling for the class of employee asked about.",
-        citations: [
-          { rule_id: "cap", title: "The weekly ceiling", quote: "not more than 24 hrs per week" },
-        ],
+        // The server cites by id alone: a generated name never crosses the wire,
+        // and the title and sentence are the record's, resolved here.
+        citations: [{ rule_id: "cap" }],
         note: "",
         grounding: {
           prompt_version: "ai-case-intent-v2",
@@ -156,8 +173,9 @@ describe("an informational request is answered from the rules that state it", ()
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
+        provisionId={A_PROVISION}
         rules={[
-          rule("cap", "The weekly ceiling", "deterministic"),
+          rule("cap", "The weekly ceiling", "deterministic", "not more than 24 hrs per week"),
           rule("x", "A second rule", "ai_ready"),
           rule("y", "A third rule", "ai_ready"),
         ]}
@@ -177,8 +195,11 @@ describe("an informational request is answered from the rules that state it", ()
       "This policy sets a weekly ceiling for the class of employee asked about.",
     );
 
-    // The rule it rests on is cited, with the document's own sentence verbatim.
+    // The rule it rests on is cited by id and resolved here to its own title and
+    // the document's own sentence, verbatim — neither of which was sent back by
+    // the server.
     const citation = screen.getByTestId("policy-case-citation");
+    expect(citation.textContent ?? "").toContain("The weekly ceiling");
     expect(citation.textContent ?? "").toContain("not more than 24 hrs per week");
 
     // Every rule of the policy stays reachable, and it says how many were read.
@@ -205,9 +226,7 @@ describe("an informational request is answered from the rules that state it", ()
       informational: {
         status: "answered",
         answer: "The answer rests only on the rule actually present.",
-        citations: [
-          { rule_id: "cap", title: "The weekly ceiling", quote: "not more than 24 hrs per week" },
-        ],
+        citations: [{ rule_id: "cap" }],
         note: "",
         grounding: {
           prompt_version: "ai-case-intent-v2",
@@ -224,7 +243,8 @@ describe("an informational request is answered from the rules that state it", ()
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
-        rules={[rule("cap", "The weekly ceiling", "deterministic")]}
+        provisionId={A_PROVISION}
+        rules={[rule("cap", "The weekly ceiling", "deterministic", "not more than 24 hrs per week")]}
       />,
     );
 
@@ -255,9 +275,7 @@ describe("an informational request is answered from the rules that state it", ()
       informational: {
         status: "answered",
         answer: "The ceiling is stated directly by the rule below.",
-        citations: [
-          { rule_id: "cap", title: "The weekly ceiling", quote: "not more than 24 hrs per week" },
-        ],
+        citations: [{ rule_id: "cap" }],
         note: "",
       },
     });
@@ -266,7 +284,8 @@ describe("an informational request is answered from the rules that state it", ()
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
-        rules={[rule("cap", "The weekly ceiling", "deterministic")]}
+        provisionId={A_PROVISION}
+        rules={[rule("cap", "The weekly ceiling", "deterministic", "not more than 24 hrs per week")]}
       />,
     );
 
@@ -301,6 +320,7 @@ describe("an informational request is answered from the rules that state it", ()
         <PolicyCaseRunner
           policySetKey="a-key"
           target={A_VERSION}
+          provisionId={A_PROVISION}
           rules={[rule("a", "A rule", "ai_ready"), rule("b", "Another rule", "deterministic")]}
         />,
       );
@@ -348,6 +368,7 @@ describe("a determination is read at the policy level, over the rules it rests o
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
+        provisionId={A_PROVISION}
         rules={[
           rule("applies", "A rule stated in words", "ai_ready"),
           rule("cap", "A computed rule", "deterministic"),
@@ -392,6 +413,7 @@ describe("a determination is read at the policy level, over the rules it rests o
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
+        provisionId={A_PROVISION}
         rules={[rule("cap", "A computed rule", "deterministic")]}
       />,
     );
@@ -432,6 +454,7 @@ describe("a determination is read at the policy level, over the rules it rests o
       <PolicyCaseRunner
         policySetKey="a-key"
         target={A_VERSION}
+        provisionId={A_PROVISION}
         rules={[
           rule("applies", "A rule stated in words", "ai_ready"),
           rule("breach", "A computed rule", "deterministic"),
@@ -464,6 +487,7 @@ describe("a classification that did not arrive falls closed to the determination
       <PolicyCaseRunner
         policySetKey="a-key"
         target={DRAFT_TARGET}
+        provisionId={A_PROVISION}
         rules={[rule("a", "A rule stated in words", "ai_ready")]}
       />,
     );
@@ -476,5 +500,44 @@ describe("a classification that did not arrive falls closed to the determination
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/error/i);
     expect(text).not.toMatch(/failed/i);
+  });
+});
+
+describe("a policy with no persisted provision is decided by its rules", () => {
+  it("never asks the server for a policy-level answer and reads no differently from any other determination", async () => {
+    // A policy whose boundary was inferred at read time has no provision to name,
+    // so there is no record to ground a policy-level answer on. The case is put
+    // to the rules — the same honest determination path — and the server is never
+    // asked. A grounded answer that was never composed must not be invented, and
+    // its absence must not read as a failure.
+    evaluateScenario.mockResolvedValue({
+      applies: "uncertain",
+      reasoning: "An account of why",
+      predicted_outcome: "",
+      missing_facts: ["something the case did not state"],
+      reasoning_effort: "low",
+    });
+
+    render(
+      <PolicyCaseRunner
+        policySetKey="a-key"
+        target={A_VERSION}
+        provisionId={null}
+        rules={[rule("a", "A rule stated in words", "ai_ready")]}
+      />,
+    );
+
+    type("A described situation");
+    await waitFor(() => expect(screen.getByTestId("policy-case-rollup")).toBeTruthy());
+
+    // The one grounded call is gated on a provision, so with none it is not made.
+    expect(answerPolicyCase).not.toHaveBeenCalled();
+    // The determination path ran in its place, and nothing reads as an error.
+    expect(evaluateScenario).toHaveBeenCalledTimes(1);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/error/i);
+    expect(text).not.toMatch(/failed/i);
+    // No policy-level synthesised answer is drawn.
+    expect(screen.queryByTestId("policy-case-answer-text")).toBeNull();
   });
 });

@@ -1498,6 +1498,7 @@ export function PolicyTestsPane({
             policySetKey={policySetKey}
             target={target}
             rules={record.rules.map((entry) => entry.rule)}
+            provisionId={record.policy.provision_id ?? null}
           />
         </Modal>
       ) : null}
