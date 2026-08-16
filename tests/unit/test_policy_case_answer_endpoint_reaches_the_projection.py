@@ -20,7 +20,10 @@ nothing. These tests are the end-to-end evidence that the endpoint at
 projection could only have obtained from a *seeded database row*, and an id that
 was never seeded is refused by code. So the grounding universe at the HTTP layer
 is provably the seam's projection of what is in the database, not a set the
-endpoint invented or a bag of rules a client supplied.
+endpoint invented or a bag of rules a client supplied. And the citation the
+answer returns carries the document's *verbatim* source sentence, resolved
+server-side from the projection's ``spans`` -- so the reader gets the document's
+own words, not a bare id the browser would have to re-join against the payload.
 """
 from __future__ import annotations
 
@@ -45,6 +48,8 @@ from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from policy_platform.api.app import create_app  # noqa: E402
 from policy_platform.api.routers import ai as ai_router  # noqa: E402
 from policy_platform.contracts.conditions import AllCondition  # noqa: E402
+from policy_platform.contracts.formulation import CanonicalPolicy, RuleFormulation  # noqa: E402
+from policy_platform.contracts.policy import EvidenceReference  # noqa: E402
 from policy_platform.domain.models import (  # noqa: E402
     Base,
     CandidateRule,
@@ -81,6 +86,15 @@ _RULE_IDS = ("AI-case-endpoint01", "AI-case-endpoint02")
 #: An id deliberately never seeded. If the model cites it, the grounding check
 #: must refuse it -- a citation to a rule the projection never carried.
 _GHOST_ID = "AI-case-endpoint-ghost"
+
+#: The cited rule is seeded with its own source sentence and the clause it was
+#: drawn from, so the end-to-end proof includes the regression the user hit: the
+#: citation must carry the document's verbatim words back, resolved server-side by
+#: following the rule's ``evidence_refs`` into the projection's ``spans`` -- not a
+#: bare id the browser would have to re-join against the payload.
+_CAP_SOURCE = "Part-time staff are engaged to work no more than twenty-four hours in any week."
+_CAP_PAGE = 19
+_CAP_SECTION = "2. Employee Classification"
 
 #: The classify call and the informational gather are told apart by the system
 #: prompt each is handed; the classifier's opens with this phrase.
@@ -166,6 +180,29 @@ async def client(monkeypatch):
             )
         )
         for index, rule_id in enumerate(_RULE_IDS, start=1):
+            rule = make_rule(rule_id, AllCondition(all=[]))
+            if rule_id == _RULE_IDS[0]:
+                # The cited rule carries its own sentence and the clause it came
+                # from, so the projection stores that sentence in ``spans`` and the
+                # rule points at it -- the shape the citation resolver must follow.
+                rule = rule.model_copy(
+                    update={
+                        "formulation": RuleFormulation(
+                            canonical=CanonicalPolicy(source_text=_CAP_SOURCE)
+                        ),
+                        "evidence": [
+                            EvidenceReference(
+                                document_version_id=str(_VERSION_ID),
+                                source_hash="h" * 16,
+                                page=_CAP_PAGE,
+                                section=_CAP_SECTION,
+                                clause_id="C-CAP-EP",
+                                start_offset=0,
+                                end_offset=len(_CAP_SOURCE),
+                            )
+                        ],
+                    }
+                )
             session.add(
                 CandidateRule(
                     id=uuid.UUID(int=0xF00 + index),
@@ -175,7 +212,7 @@ async def client(monkeypatch):
                     rule_type="obligation",
                     review_status="candidate",
                     delta_status="new",
-                    payload_json=make_rule(rule_id, AllCondition(all=[])).model_dump(mode="json"),
+                    payload_json=rule.model_dump(mode="json"),
                 )
             )
         await session.commit()
@@ -209,12 +246,22 @@ async def test_a_case_reaches_the_projection_and_cites_a_seeded_rule(client) -> 
 
     info = body["informational"]
     assert info["status"] == "answered"
-    # The citation is an id and nothing but an id -- the payload never carried a
-    # generated name, so a name could not come back as a citation (constraint 8).
-    assert info["citations"] == [{"rule_id": _RULE_IDS[0]}]
-    assert set(info["citations"][0]) == {"rule_id"}
+    # The citation names the seeded rule by id and carries the document's own
+    # verbatim sentence back, resolved server-side from the projection's spans --
+    # the regression the user hit, proven fixed end to end (constraint 4).
+    citation = info["citations"][0]
+    assert citation["rule_id"] == _RULE_IDS[0]
+    assert citation["source"]["state"] == "quoted"
+    assert citation["source"]["text"] == _CAP_SOURCE
+    # The span's page and section ride along so a reader can find the sentence.
+    assert citation["source"]["page"] == _CAP_PAGE
+    assert citation["source"]["section"] == _CAP_SECTION
+    # Only the id and the document's source cross the wire -- no generated name,
+    # which the payload never carried, so a name could not come back (constraint 8).
+    assert set(citation) == {"rule_id", "source"}
+    assert f"Rule {_RULE_IDS[0]}" not in json.dumps(info, ensure_ascii=False)
     # And the id is one that was seeded: reachable back to a rule that exists.
-    assert info["citations"][0]["rule_id"] in _RULE_IDS
+    assert citation["rule_id"] in _RULE_IDS
     # The grounding line reports the universe it checked against -- the two seeded
     # rules, the whole provision, not a subset and not something wider.
     assert info["grounding"]["rules_available"] == len(_RULE_IDS)

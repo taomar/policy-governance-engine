@@ -56,9 +56,12 @@ or the judge's to make, one rule at a time, through the paths that already exist
 and are already audited. This module classifies, and — for an informational
 request only — gathers and states what the policy holds. The words it composes
 are its own and are marked as its own by the caller; it cites the rules its
-answer rests on by id, and the reader's surface resolves each id to that rule's
-name and its verbatim source sentence, so the document's own words reach the
-reader unrewritten, untranslated, and untrimmed.
+answer rests on by id, and carries with each citation that rule's *verbatim
+source sentence* — resolved here by following the rule's ``evidence_refs`` into
+the payload's ``spans`` — so the document's own words reach the reader
+unrewritten, untranslated, and untrimmed. Only the display *name* is left for the
+reader's surface to resolve from the id, because a generated name is this app's
+and must not cross the wire dressed as the document's (constraint 8).
 """
 from __future__ import annotations
 
@@ -112,6 +115,17 @@ DECLINED = "declined"
 #: informational request from silently falling through to a determination, which
 #: would answer a different question than the one that was asked.
 FAILED = "failed"
+
+#: The states a citation's source sentence can be in, kept apart for the same
+#: reason the answer's four states are (constraint 5): an empty quote must never
+#: stand in for the document's words, and a reader is told which case it is.
+#: The projection stores each sentence once in ``spans`` and points every rule at
+#: the spans it was drawn from through ``evidence_refs``; the quote is resolved by
+#: following that reference, and these name the four ways that resolution can land.
+SOURCE_QUOTED = "quoted"  # the rule's verbatim sentence was found and is carried
+SOURCE_NO_CITATION = "no_citation"  # the rule points at no clause (empty ``evidence_refs``)
+SOURCE_UNRESOLVED = "unresolved"  # it points at a clause, but no span carried the sentence
+SOURCE_NOT_STORED = "not_stored"  # the span is present but its text was never stored (empty)
 
 _CLASSIFY_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy into exactly \
 one of two kinds. You are given the question and, below it, the facts and quantities the policy's rules \
@@ -420,6 +434,99 @@ async def classify_case_intent(
     return {"intent": intent, "reasoning": str(parsed.get("reasoning") or "")}
 
 
+def _rules_by_id(rules: list[dict]) -> dict[str, dict]:
+    """Index the payload's rules by their string id, first occurrence winning.
+
+    The citation resolver needs each cited rule's ``evidence_refs``; the model
+    cites by id, so the rules are indexed by the same id here rather than scanned
+    per citation.
+    """
+
+    by_id: dict[str, dict] = {}
+    for rule in rules:
+        rid = rule.get("rule_id")
+        if rid is not None and str(rid) not in by_id:
+            by_id[str(rid)] = rule
+    return by_id
+
+
+def _citation_source(rule: dict | None, spans: dict) -> dict:
+    """Follow a cited rule's ``evidence_refs`` into ``spans`` and return the
+    verbatim sentence it rests on — or the reason there is none.
+
+    The lean ``grounding_projection_v1`` payload stores every source sentence once
+    in ``spans`` and has each rule point at the spans it was drawn from by id,
+    attaching the rule's own quoted sentence to its first evidence reference
+    (see ``policy_case_payload._evidence_refs``). A citation names a rule; to show
+    the reader the words that rule rests on, that reference has to be followed.
+    It is followed here — once, server-side, over the closed payload the answer
+    was grounded on — never shipped to the client to redo, which would mean
+    carrying the whole span dictionary to the browser and re-implementing the join
+    there (§4.2). The text is returned exactly as the span holds it, uncut and
+    untranslated (constraint 4); ``page`` and ``section`` ride along when the span
+    recorded them, so a reader can find the sentence in the document.
+
+    Four outcomes are kept apart (constraint 5), each naming which case it is so a
+    blank never stands in for the document's words:
+
+      - ``quoted`` — a span carried the sentence; ``text`` (and any ``page`` /
+        ``section``) is returned.
+      - ``no_citation`` — the rule points at no clause at all.
+      - ``unresolved`` — it points at a clause, but no referenced span carried the
+        sentence (the reference resolved to nothing here).
+      - ``not_stored`` — a referenced span is present but its text was never stored
+        (empty), the app's "source text was not stored with its rules" case.
+
+    A generated rule name is never read or returned here (constraint 8): the only
+    words carried are the document's own verbatim sentence, and the reader's
+    surface still resolves the display name from the id.
+    """
+
+    refs = (rule or {}).get("evidence_refs") or []
+    if not refs:
+        return {"state": SOURCE_NO_CITATION}
+
+    for ref in refs:
+        span = spans.get(ref)
+        if span is None or "text" not in span:
+            # Either the reference resolved to nothing, or it is a supporting
+            # clause carrying identity but no quoted sentence — keep looking for
+            # the span that holds the rule's words.
+            continue
+        text = span.get("text")
+        if not text:
+            # The span is present but its sentence was never stored. Distinct from
+            # a missing span, and never emitted as an empty-string quote.
+            return {"state": SOURCE_NOT_STORED}
+        source: dict = {"state": SOURCE_QUOTED, "text": text}
+        page = span.get("page")
+        if page is not None:
+            source["page"] = page
+        section = span.get("section")
+        if section is not None:
+            source["section"] = section
+        return source
+
+    # References were named, but none resolved to a span carrying the sentence —
+    # not the same as citing no clause at all, so it is its own state.
+    return {"state": SOURCE_UNRESOLVED}
+
+
+def _citations(cited_ids: list[str], rules_by_id: dict[str, dict], spans: dict) -> list[dict]:
+    """Build the citations the answer rests on: each cited id, with the verbatim
+    source sentence resolved from the payload's spans.
+
+    Every id here has already been checked against the closed payload, so each
+    names a real rule; this attaches to it the document's own words that rule
+    rests on, resolved server-side (never a name this app authored — constraint 8).
+    """
+
+    return [
+        {"rule_id": rid, "source": _citation_source(rules_by_id.get(rid), spans)}
+        for rid in cited_ids
+    ]
+
+
 async def answer_informational(
     payload: dict, *, scenario: str, reasoning_effort: str = "medium"
 ) -> dict:
@@ -538,11 +645,15 @@ async def answer_informational(
         # standing back, kept separate from the record holding nothing.
         return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
 
-    # Cite by id only. The reader's surface resolves each id to its display name
-    # and its verbatim source sentence, so nothing this app authored crosses the
-    # wire as if it were the document's, and every cited id was checked against
-    # the payload above.
-    citations = [{"rule_id": rid} for rid in cited_ids]
+    # Cite by id, and carry the document's own verbatim source sentence for each —
+    # resolved server-side here by following the rule's ``evidence_refs`` into the
+    # payload's ``spans`` (constraint 4: exactly as stored, uncut and untranslated).
+    # No name this app authored crosses the wire (constraint 8): the reader's
+    # surface still resolves each id to its display name. Every id was checked
+    # against the payload above, and a rule whose sentence is missing, unstored or
+    # unreferenced is told apart rather than shown as an empty quote (constraint 5).
+    spans = payload.get("spans") or {}
+    citations = _citations(cited_ids, _rules_by_id(rules), spans)
     return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
 
 

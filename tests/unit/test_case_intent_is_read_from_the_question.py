@@ -43,13 +43,15 @@ The gather is one pass over one policy's lean ``grounding_projection_v1``
 record — the same projection the JSON tab renders — not one call per rule. The
 record is the closed set the answer may draw on. The document's own words ride
 in that record's ``spans``, uncut and untranslated, so the quantity a reviewer
-asks after reaches the model as the document wrote it. Citations come back as
-bare ``rule_id``s: no name this app authored crosses the wire, and the reader's
-surface resolves each id to its display name and its verbatim source sentence.
-So these backend tests assert two things about grounding — that the record's own
-words are what is *sent* to the model, and that only ids are cited — and leave
-the "the quote shown to the reader is exact" property to the surface that
-resolves it.
+asks after reaches the model as the document wrote it. A citation names a rule by
+``rule_id`` and carries, resolved server-side from that record's ``spans``, the
+rule's own verbatim source sentence — never a name this app authored, which stays
+off the wire for the reader's surface to resolve from the id (constraint 8). So
+these backend tests assert that the record's own words are what is *sent* to the
+model, that the citation carries the document's verbatim sentence back *exactly*
+(constraint 4), that no app-authored name leaks with it, and that the four states
+a source can be in — quoted, uncited, unresolved, unstored — are told apart
+(constraint 5).
 """
 from __future__ import annotations
 
@@ -342,9 +344,19 @@ async def test_an_informational_request_reports_what_a_rule_states_not_a_demand(
     info = out["informational"]
     assert info["status"] == "answered"
 
-    # The answer rests on the rule that states the ceiling, cited by id. The name
-    # and the verbatim sentence are resolved by the reader's surface from the id.
+    # The answer rests on the rule that states the ceiling, cited by id — and the
+    # citation now carries that rule's own verbatim sentence, resolved server-side
+    # from the record's spans. Only the display name is left for the reader's
+    # surface to resolve from the id.
     assert [c["rule_id"] for c in info["citations"]] == ["R-CAP"]
+    cap_citation = info["citations"][0]
+    assert cap_citation["source"]["state"] == "quoted"
+    assert cap_citation["source"]["text"] == VERBATIM_EN
+    # The page and section the span recorded ride along, so a reader can find it.
+    assert cap_citation["source"]["page"] == 7
+    assert cap_citation["source"]["section"] == "3. Conditions of Work"
+    # No app-authored name crosses the wire with the citation (constraint 8).
+    assert "Weekly hours for part-time staff" not in json.dumps(info, ensure_ascii=False)
 
     # And the record's own words — the ceiling the reviewer asked after — are what
     # the model was shown, so it could report the answer rather than demand it.
@@ -446,9 +458,9 @@ async def test_a_failed_request_is_raised_not_reported_as_absent(stubbed):
 
 async def test_the_records_own_words_are_what_the_model_is_shown(stubbed):
     """The answer is the app's; the words it rests on are the document's. The
-    model could return any wording for the answer, but what it is grounded in is
-    the record's verbatim sentence, present in the payload, and the citation that
-    comes back is the rule's id — nothing the app wrote is returned as a quote."""
+    model could return any wording for the answer, but what the citation carries
+    back is the record's verbatim sentence — resolved server-side from the payload's
+    spans, exactly as stored — and never a name this app authored."""
 
     stubbed.info_reply = {
         "bears": True,
@@ -463,16 +475,22 @@ async def test_the_records_own_words_are_what_the_model_is_shown(stubbed):
     )
 
     assert [c["rule_id"] for c in info["citations"]] == ["R-CAP"]
-    # No wording crosses back as a quote; only the id does.
-    assert all(set(c) == {"rule_id"} for c in info["citations"])
-    # The document's own sentence is what the model was shown.
+    # What crosses back is the id and the document's own verbatim sentence — nothing
+    # more. The keys are exactly these two; no app-authored title rides along.
+    citation = info["citations"][0]
+    assert set(citation) == {"rule_id", "source"}
+    assert citation["source"]["state"] == "quoted"
+    assert citation["source"]["text"] == VERBATIM_EN
+    assert "Weekly hours for part-time staff" not in json.dumps(info, ensure_ascii=False)
+    # The document's own sentence is also what the model was shown.
     sent = _gather_call(stubbed)["messages"][1]["content"]
     assert VERBATIM_EN in sent
 
 
 async def test_an_arabic_source_reaches_the_model_as_characters_and_untranslated(stubbed):
     """A clause in Arabic reaches the model in Arabic, as characters, exactly —
-    the projection does not escape it to \\uXXXX and does not translate it."""
+    the projection does not escape it to \\uXXXX and does not translate it — and
+    the citation carries that same Arabic sentence back, exactly (constraint 4)."""
 
     stubbed.info_reply = {
         "bears": True,
@@ -482,13 +500,15 @@ async def test_an_arabic_source_reaches_the_model_as_characters_and_untranslated
         "note": "",
     }
 
-    await ai_case_intent.answer_informational(
+    info = await ai_case_intent.answer_informational(
         _payload(_cap_rule(source_text=VERBATIM_AR)), scenario="كم ساعة يعمل الموظف بدوام جزئي؟"
     )
 
     sent = _gather_call(stubbed)["messages"][1]["content"]
     assert VERBATIM_AR in sent
     assert "\\u" not in sent
+    # The citation carries the Arabic sentence back untranslated and unescaped.
+    assert info["citations"][0]["source"]["text"] == VERBATIM_AR
 
 
 # --------------------------------------------------------------------------- #
@@ -676,3 +696,168 @@ async def test_a_classification_that_fails_is_raised_because_the_intent_is_unkno
             _payload(_cap_rule()),
             scenario="How many hours may a part-timer work?",
         )
+
+
+# --------------------------------------------------------------------------- #
+# A citation carries the document's verbatim source, resolved from the record's
+# spans — and the four states that resolution can land in are told apart.
+# --------------------------------------------------------------------------- #
+
+
+async def test_a_long_source_sentence_is_carried_back_uncut(stubbed):
+    """A quotation is never truncated to fit (constraint 4). However long the
+    rule's sentence, the citation carries it back exactly, character for
+    character, the same as the record stored it."""
+
+    long_source = (
+        "Part-time regular employees are employees typically hired to work on an "
+        "hourly basis for no more than twenty-four hours in any given week, and "
+        "such employees are not entitled to the benefits, allowances, gratuities "
+        "or other emoluments that accrue to full-time regular employees, save "
+        "where this handbook or the employee's own letter of appointment expressly "
+        "provides otherwise in writing and with the prior approval of the Vice "
+        "Chancellor or a person to whom that authority has been duly delegated."
+    )
+    assert len(long_source) > 300  # genuinely longer than a card would want to show
+
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "Part-time regular staff are capped at twenty-four hours a week.",
+        "cited_rule_ids": ["R-CAP"],
+        "declined": False,
+        "note": "",
+    }
+
+    info = await ai_case_intent.answer_informational(
+        _payload(_cap_rule(source_text=long_source)),
+        scenario="How many hours may a part-timer work?",
+    )
+
+    source = info["citations"][0]["source"]
+    assert source["state"] == "quoted"
+    # Exactly as stored: no clip, no ellipsis, no re-wrap.
+    assert source["text"] == long_source
+
+
+def test_a_resolved_citation_quotes_the_span_with_its_page_and_section():
+    """The happy path of resolution, unit-tested on the resolver itself: a rule
+    that points at a span carrying the sentence is quoted from it, and the span's
+    page and section ride along so a reader can find it in the document."""
+
+    rule = {"rule_id": "R-1", "evidence_refs": ["s1"]}
+    spans = {
+        "s1": {"text": VERBATIM_EN, "page": 19, "section": "2. Employee Classification"},
+    }
+
+    source = ai_case_intent._citation_source(rule, spans)
+
+    assert source == {
+        "state": "quoted",
+        "text": VERBATIM_EN,
+        "page": 19,
+        "section": "2. Employee Classification",
+    }
+
+
+def test_page_and_section_are_omitted_when_the_span_did_not_record_them():
+    """Page and section are carried only when the span has them. A span that
+    recorded neither yields a quote with neither key, rather than a null the
+    reader's surface would have to special-case."""
+
+    rule = {"rule_id": "R-1", "evidence_refs": ["s1"]}
+    spans = {"s1": {"text": VERBATIM_EN, "page": None, "section": None}}
+
+    source = ai_case_intent._citation_source(rule, spans)
+
+    assert source == {"state": "quoted", "text": VERBATIM_EN}
+
+
+def test_the_rules_own_sentence_is_found_past_identity_only_supporting_refs():
+    """A rule may point at several spans; only the one carrying the sentence has a
+    ``text``. The resolver walks past the supporting references that carry
+    identity without words and quotes the span that holds the sentence."""
+
+    rule = {"rule_id": "R-1", "evidence_refs": ["support", "s-words"]}
+    spans = {
+        # A supporting clause: identity, but the sentence is not on it.
+        "support": {"clause_id": "c-1", "page": 4},
+        "s-words": {"text": VERBATIM_EN, "page": 7, "section": "3. Conditions of Work"},
+    }
+
+    source = ai_case_intent._citation_source(rule, spans)
+
+    assert source["state"] == "quoted"
+    assert source["text"] == VERBATIM_EN
+
+
+def test_a_rule_that_points_at_no_clause_is_uncited_not_an_empty_quote():
+    """A rule with no ``evidence_refs`` points at no clause at all. That is its
+    own state — ``no_citation`` — never an empty-string quote (constraint 5)."""
+
+    source = ai_case_intent._citation_source({"rule_id": "R-1", "evidence_refs": []}, {})
+
+    assert source == {"state": "no_citation"}
+    assert "text" not in source
+
+
+def test_a_missing_rule_is_uncited_rather_than_erroring():
+    """A cited id that resolves to no rule at all (``None`` handed in) is treated
+    as pointing at no clause, not an error — the citation still names its id, and
+    the source simply says there is nothing to quote."""
+
+    source = ai_case_intent._citation_source(None, {"s1": {"text": VERBATIM_EN}})
+
+    assert source == {"state": "no_citation"}
+
+
+def test_a_reference_that_resolves_to_nothing_is_unresolved_not_uncited():
+    """A rule that *does* point at a clause, but whose reference finds no span
+    carrying the sentence, is ``unresolved`` — kept apart from a rule that points
+    at no clause at all, because the two are different facts about the record."""
+
+    rule = {"rule_id": "R-1", "evidence_refs": ["ghost"]}
+
+    # The ref names a span that is not in the dictionary at all.
+    assert ai_case_intent._citation_source(rule, {}) == {"state": "unresolved"}
+    # And a ref whose span carries identity but never a ``text`` key is the same
+    # state: the sentence was not found on any referenced span.
+    identity_only = {"ghost": {"clause_id": "c-9", "page": 3}}
+    assert ai_case_intent._citation_source(rule, identity_only) == {"state": "unresolved"}
+
+
+def test_a_span_whose_text_was_never_stored_is_not_stored_not_an_empty_quote():
+    """A span that resolved but whose ``text`` is empty is the app's "source text
+    was not stored with its rules" case — ``not_stored`` — and is never emitted as
+    an empty-string quote a reader would read as the document saying nothing."""
+
+    rule = {"rule_id": "R-1", "evidence_refs": ["s1"]}
+    spans = {"s1": {"text": "", "page": 5, "section": "1. Preamble"}}
+
+    source = ai_case_intent._citation_source(rule, spans)
+
+    assert source == {"state": "not_stored"}
+    assert "text" not in source
+
+
+async def test_a_rule_whose_text_was_not_stored_reports_not_stored_end_to_end(stubbed):
+    """The unstored case, through the whole gather rather than the resolver alone:
+    a rule projected with an empty source sentence still cites, but its source
+    reports ``not_stored`` — distinct from a rule whose sentence is present."""
+
+    stubbed.info_reply = {
+        "bears": True,
+        "answer": "The policy speaks to this, though its sentence was not stored.",
+        "cited_rule_ids": ["R-CAP"],
+        "declined": False,
+        "note": "",
+    }
+
+    info = await ai_case_intent.answer_informational(
+        _payload(_cap_rule(source_text="")), scenario="How many hours may a part-timer work?"
+    )
+
+    citation = info["citations"][0]
+    assert citation["rule_id"] == "R-CAP"
+    assert citation["source"]["state"] == "not_stored"
+    # No empty quote is emitted anywhere on the citation.
+    assert "text" not in citation["source"]
