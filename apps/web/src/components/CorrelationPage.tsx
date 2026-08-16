@@ -30,6 +30,7 @@ import {
 } from "../api";
 import { useActor } from "../ActorContext";
 import { DirectionalText } from "./DirectionalText";
+import { baseDirection } from "../directionalText";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -476,9 +477,22 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
                       {ev.rule_id || `rule #${ev.policy_index}`}
                     </Text>
                     {ev.source_text && (
-                      <Paragraph style={{ margin: 0 }}>
-                        “<DirectionalText align>{ev.source_text}</DirectionalText>”
-                      </Paragraph>
+                      // The block element must *carry* the quotation marks, with
+                      // the quote inline inside it. Emitting the marks as bare
+                      // text nodes around a `<DirectionalText align>` put a
+                      // `display: block` element (the `.directional-text--block`
+                      // that `align` adds) between two inline siblings, which
+                      // broke the citation across three lines. `dir` is read from
+                      // the text so a right-to-left quote aligns correctly; on
+                      // today's Latin-leading corpus baseDirection returns "ltr"
+                      // and this changes nothing visible.
+                      <p
+                        className="directional-text--block"
+                        dir={baseDirection(ev.source_text)}
+                        style={{ margin: 0 }}
+                      >
+                        “<DirectionalText>{ev.source_text}</DirectionalText>”
+                      </p>
                     )}
                   </div>
                 ))}
