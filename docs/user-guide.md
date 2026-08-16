@@ -95,7 +95,7 @@ Use the tabs in journey order:
 Documents -> Review -> Quality -> Policies -> Tests -> Regression
 ```
 
-Supporting tabs include Aggregate Limits, Compare, and Decision Log.
+Supporting tabs include Compare and Decision Log.
 
 ## 3. Upload and control a source document
 
@@ -350,7 +350,6 @@ for runtime evidence.
 
 | Task | Workspace |
 |---|---|
-| Define a shared ceiling across rules | Aggregate Limits |
 | Export candidates for offline review | Review |
 | Export governed rules | Policies |
 | Compare two immutable packages | Compare |
