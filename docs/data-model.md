@@ -1,7 +1,11 @@
 # Data model
 
-27 tables, defined as SQLAlchemy models in `src/policy_platform/domain/models.py`
-and migrated with Alembic (`alembic/versions/`). PostgreSQL 16.
+Twenty-nine tables in PostgreSQL 16, migrated with Alembic (`alembic/versions/`).
+Twenty-seven are defined as SQLAlchemy models in
+`src/policy_platform/domain/models.py`; the two aggregate-limit tables
+(`policy_aggregate_limits`, `approved_aggregate_limits`) remain in the database
+but are no longer mapped there — their API surface and web page are retired while
+the tables are retained pending a decision.
 
 Every table has a UUID primary key and `created_at` / `updated_at` timestamps.
 
@@ -17,6 +21,7 @@ erDiagram
     POLICY_SETS ||--o{ CANDIDATE_RULES : "queues"
     POLICY_SETS ||--o{ APPROVED_POLICY_VERSIONS : "publishes"
     APPROVED_POLICY_VERSIONS ||--o{ APPROVED_RULES : "snapshot of"
+    APPROVED_POLICY_VERSIONS ||--o{ APPROVED_AGGREGATE_LIMITS : "snapshot of"
     APPROVED_RULES ||--o{ RULE_EXCEPTIONS : "carries"
     APPROVED_RULES ||--o{ EVIDENCE_REFERENCES : "traces to"
     CLAUSES ||--o{ EVIDENCE_REFERENCES : "cited by"
@@ -33,6 +38,7 @@ erDiagram
 |---|---|
 | `policy_sets` | A project: a named collection of policies for one business domain, addressed by a stable `key`. Also carries ownership/RACI fields, periodic-review dates, and the `trusted_config` used by extraction. |
 | `policy_authorities` | Authority level, owner and rank, used for deterministic precedence. |
+| `policy_aggregate_limits` | Mutable draft definition of a cross-rule aggregate cap. Retained in the database pending a decision; no longer ORM-mapped, and its API surface and web page are retired. |
 
 ### Source documents
 
@@ -95,6 +101,7 @@ Nothing drops a rule for want of a provision.
 |---|---|
 | `approved_policy_versions` | An immutable, approved, versioned policy package — the unit the evaluator consumes. Exactly one is active per policy set. |
 | `approved_rules` | A single approved rule belonging to a version, with the provision key and heading chain it was published under. |
+| `approved_aggregate_limits` | Immutable snapshot of an aggregate limit as of one published version. Retained in the database pending a decision; no longer ORM-mapped, and its API surface and web page are retired. |
 | `rule_exceptions` | An approved exception attached to a rule. |
 | `evidence_references` | Source lineage for a rule: document version, page, section, clause, offsets. |
 
