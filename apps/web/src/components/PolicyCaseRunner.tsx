@@ -586,6 +586,18 @@ export function PolicyCaseRunner({
         </div>
       ) : null}
 
+      {!showInformational && reading ? (
+        <Paragraph
+          type="secondary"
+          style={{ fontSize: 12, marginTop: 16, marginBottom: 0 }}
+          data-testid="policy-case-detail-heading"
+        >
+          <Text strong>Behind the reading — each rule on its own.</Text> The reading above rests on
+          these; every rule read is kept here, in the words its own decider gave, so the detail is
+          present to check rather than the thing you meet first. None is hidden.
+        </Paragraph>
+      ) : null}
+
       {!showInformational ? (
         <Table<CaseAnswer>
         size="small"

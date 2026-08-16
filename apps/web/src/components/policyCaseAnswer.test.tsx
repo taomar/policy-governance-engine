@@ -467,6 +467,18 @@ describe("a determination is read at the policy level, over the rules it rests o
     // Nothing is totalled into one policy-wide score.
     expect(text).not.toMatch(/\d+\s*(of|\/)\s*\d+\s*(passed|failed)/i);
     expect(text).not.toMatch(/overall verdict/i);
+    // The per-rule detail is demoted to supporting evidence beneath the reading
+    // and labelled as such: the reading is what the reader meets first, the table
+    // is kept below to check, and a regression that re-promotes the table above
+    // the answer fails here.
+    const rollup = screen.getByTestId("policy-case-rollup");
+    const detailHeading = screen.getByTestId("policy-case-detail-heading");
+    expect(detailHeading.textContent ?? "").toMatch(
+      /present to check rather than the thing you meet first/i,
+    );
+    expect(
+      rollup.compareDocumentPosition(detailHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("still demands an unmet required fact rule by rule on the determination path", async () => {
