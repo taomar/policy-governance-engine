@@ -91,3 +91,43 @@
   color: #64748b;
 }
 
+/* A run the server still reports as "running" but that has not written for
+ * longer than the stall policy (STALL_AFTER_SECONDS in the component). The panel
+ * keeps the last figures and the lit stage — they are where the run actually got
+ * to — but must not animate as though work is still moving, which would be the
+ * same lie as a chain that reads finished mid-run.
+ *
+ * The pipeline's motion lives in the shared App.css, which this component does
+ * not own; App.css already zeroes exactly these selectors under
+ * prefers-reduced-motion. Here the same selectors are re-zeroed for a stalled
+ * run, each prefixed with .extract-progress--stalled so the rule carries one
+ * more class than the App.css original and wins on specificity regardless of
+ * stylesheet order — no edit to App.css. The determinate progress bar is not in
+ * this list on purpose: a stalled run is rendered with status="normal", so it
+ * never carries .ant-progress-status-active and its sheen animation cannot
+ * start. */
+.extract-progress--stalled .extract-stage--active .extract-stage-icon,
+.extract-progress--stalled .extract-stage--active .extract-stage-value,
+.extract-progress--stalled .extract-flow--moving .extract-flow-dot,
+.extract-progress--stalled .extract-flow--moving::after {
+  animation: none;
+}
+
+/* The gone-quiet row and its clock. Neutral Secondary Ink — not amber, not red:
+ * a stall is operational state, and the reserved-hue rule (DESIGN.md) keeps
+ * green/red/gold for policy semantics only. The "not alive" signal is carried by
+ * the stilled motion above and the stated fact below, never by colour. */
+.extract-stall {
+  margin-top: 2px;
+}
+
+.extract-stall-icon {
+  color: #64748b;
+  flex: 0 0 auto;
+}
+
+.extract-stall-text {
+  font-size: 12px;
+  color: #64748b;
+}
+

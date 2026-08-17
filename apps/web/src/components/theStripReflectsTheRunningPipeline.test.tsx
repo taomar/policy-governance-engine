@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import type { ExtractionProgress } from "../api";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
+
+/** Must match the component's own POLL_MS. It is not exported (nothing else
+ * needs it), so the interval is restated here for the timer-based tests; if the
+ * component's changes, these two move together or the idle-poll test fails
+ * loudly, which is the drift being guarded against. */
+const POLL_MS = 2000;
 
 /**
  * The strip has to say what the run is actually doing, and two states are the
@@ -103,6 +109,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // Some tests below drive the poll loop with fake timers; make sure a real
+  // clock is restored before the next test regardless of how this one ended.
+  vi.useRealTimers();
 });
 
 describe("comparing is a running state, not a finished one", () => {
@@ -329,5 +338,196 @@ describe("the route each drafted rule takes is shown, and a route's 0 reads apar
     expect(region).not.toBeNull();
     expect(region!.querySelector(".ant-progress")).toBeNull();
     expect(region!.textContent ?? "").not.toMatch(/%/);
+  });
+});
+
+/**
+ * A run must be discoverable by any viewer of the document, not only by the tab
+ * that started it. The panel is handed `documentVersionId` — everything it needs
+ * to ask — so on mount it queries the server directly, regardless of whether
+ * this tab has an extract in flight (`running`). The prior panel bailed out of
+ * its poll on `!running`, so a run started elsewhere, or one still going after a
+ * navigate-away-and-back, rendered as nothing: the server held a complete record
+ * and no consumer read it.
+ *
+ * Three of constraint 5's four discovery states are pinned here (the fourth,
+ * "running but not moving", is the stall block below):
+ *   - not-asked-yet must not render as asked-and-idle;
+ *   - a run this tab did not start must render;
+ *   - an idle document must settle after one read, not poll on forever.
+ */
+describe("the panel finds a run it did not start, and settles when there is none", () => {
+  it("renders a running extraction discovered on mount with running=false", async () => {
+    // The producer's live shape: a run this tab did not start, mid-formulation.
+    extractionProgress.mockResolvedValue(
+      payload({
+        stage: "Formulating rules from batch 9 of 38 · pages 17–18 — 11 policy statement(s) found",
+        processed_batches: 8,
+        processed_clauses: 89,
+        processed_pages: 17,
+        passages_found: 36,
+        rules_drafted: 20,
+        rules_deterministic: 0,
+        rules_ai_ready: 20,
+        rules_committed: 20,
+        skipped: 4,
+        superseded: 298,
+      }),
+    );
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    // Pre-fix this never appears — the poll bailed on `!running`.
+    expect(await screen.findByText("RUN-TEST")).toBeTruthy();
+    expect(document.querySelector(".extract-pipeline")).not.toBeNull();
+  });
+
+  it("renders the lopsided 0-Deterministic / 20-AI-Ready split as two plain counts", async () => {
+    // The real corpus shape, discovered on mount. It must read as two counts,
+    // never a bar or percentage that would draw the 0 as a shortfall.
+    extractionProgress.mockResolvedValue(
+      payload({
+        stage: "Formulating rules from batch 9 of 38 · pages 17–18 — 11 policy statement(s) found",
+        processed_batches: 8,
+        rules_drafted: 20,
+        rules_deterministic: 0,
+        rules_ai_ready: 20,
+        rules_committed: 20,
+      }),
+    );
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    await screen.findByText("RUN-TEST");
+    const region = document.querySelector(".extract-routes");
+    expect(region).not.toBeNull();
+    const chip = (name: string) =>
+      Array.from(region!.querySelectorAll(".extract-route")).find((c) =>
+        c.textContent?.includes(name),
+      );
+    // 0 Deterministic is a real "no rule took this route" — shown, not hidden.
+    expect(chip("Deterministic")?.querySelector(".extract-stage-value")?.textContent).toBe("0");
+    expect(chip("AI Ready")?.querySelector(".extract-stage-value")?.textContent).toBe("20");
+    // Nothing ranks one route against the other.
+    expect(region!.querySelector(".ant-progress")).toBeNull();
+    expect(region!.textContent ?? "").not.toMatch(/%/);
+  });
+
+  it("asks once on an idle document and does not schedule further polls", async () => {
+    vi.useFakeTimers();
+    try {
+      extractionProgress.mockResolvedValue({ active: false } as unknown as ExtractionProgress);
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      // Flush the mount read and advance past several poll intervals.
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3 + 100);
+      // Asked exactly once: an idle document settles, it does not poll on.
+      expect(extractionProgress).toHaveBeenCalledTimes(1);
+      // And renders nothing — there is no run for this document.
+      expect(screen.queryByText("RUN-TEST")).toBeNull();
+      expect(document.querySelector(".extract-pipeline")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not claim there is no run before it has asked", async () => {
+    // "Not asked yet" must read apart from "asked, nothing running": before the
+    // mount read resolves the panel shows a checking affordance, not the blank
+    // it settles to once the server has said there is nothing.
+    let resolvePoll: (p: ExtractionProgress) => void = () => {};
+    extractionProgress.mockImplementation(
+      () =>
+        new Promise<ExtractionProgress>((res) => {
+          resolvePoll = res;
+        }),
+    );
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    // Mount read in flight: a distinct checking state, not silence.
+    expect(await screen.findByText(/checking for an extraction/i)).toBeTruthy();
+    // Server answers "nothing running" → the checking state clears to blank.
+    resolvePoll({ active: false } as unknown as ExtractionProgress);
+    await waitForElementToBeRemoved(() => screen.queryByText(/checking for an extraction/i));
+    expect(document.querySelector(".extract-pipeline")).toBeNull();
+  });
+});
+
+/**
+ * The fourth discovery state: the server still calls the run "running", but has
+ * not written to it in longer than the stall policy allows. finish() stamps
+ * updated_at, so a completed or failed run never looks stalled; an abandoned one
+ * keeps its record (pruned only when the next extraction starts) reading
+ * active:true, status running, with elapsed_seconds climbing while updated_at
+ * stays frozen. The panel must not animate that as a live run — the same class
+ * of lie as a chain that reads finished mid-work.
+ *
+ * The silence is computed only from server-stamped values —
+ * elapsed_seconds − (updated_at − started_at) — so it is right on the very first
+ * poll, before any cross-poll diff exists, and no client clock enters it.
+ */
+describe("a run that stopped writing reads as gone quiet, not as working", () => {
+  type WireProgress = ExtractionProgress & { started_at?: number; updated_at?: number };
+
+  /** A running payload whose last write was `silence` seconds of server time ago. */
+  const withSilence = (silence: number, over: Partial<ExtractionProgress> = {}): WireProgress => {
+    const started = 1_000_000;
+    const elapsed = 300;
+    // now = started + elapsed, and silence = elapsed − (updated − started),
+    // so updated = started + elapsed − silence.
+    const updated = started + elapsed - silence;
+    return {
+      ...payload({
+        stage: "Formulating rules from batch 9 of 38 · pages 17–18 — 11 policy statement(s) found",
+        processed_batches: 8,
+        processed_clauses: 89,
+        rules_drafted: 20,
+        rules_deterministic: 0,
+        rules_ai_ready: 20,
+        rules_committed: 20,
+        elapsed_seconds: elapsed,
+        ...over,
+      }),
+      started_at: started,
+      updated_at: updated,
+    };
+  };
+
+  it("stops the spinner and states the silence when a running run has gone quiet", async () => {
+    extractionProgress.mockResolvedValue(withSilence(200));
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    await screen.findByText("RUN-TEST");
+    // The plain fact, stated — not a verdict of failure.
+    expect(screen.getByText(/no update for/i)).toBeTruthy();
+    // Nothing animates as alive: no spinner anywhere, and the progress bar is
+    // out of its "active" (animated) state.
+    expect(document.querySelector(".anticon-loading")).toBeNull();
+    expect(document.querySelector(".ant-progress-status-active")).toBeNull();
+    expect(document.querySelector(".extract-progress--stalled")).not.toBeNull();
+    // Not failed: the run may yet resume, so it must not read as an error.
+    expect(document.querySelector(".anticon-close-circle")).toBeNull();
+  });
+
+  it("keeps animating a run that is merely between writes, not stalled", async () => {
+    // 10s of silence — a normal gap mid-batch, well under the policy. The panel
+    // must keep presenting it as working: spinner on, not stalled.
+    extractionProgress.mockResolvedValue(withSilence(10));
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    await screen.findByText("RUN-TEST");
+    expect(screen.queryByText(/no update for/i)).toBeNull();
+    expect(document.querySelector(".anticon-loading")).not.toBeNull();
+    expect(document.querySelector(".extract-progress--stalled")).toBeNull();
+  });
+
+  it("never reads a finished run as stalled, however long since its last write", async () => {
+    // A completed run whose updated_at is ancient. The done state must win: the
+    // stall affordance is for running runs only.
+    extractionProgress.mockResolvedValue(
+      withSilence(9999, {
+        status: "completed",
+        stage: "Done — no changes.",
+        processed_batches: 38,
+        rules_committed: 20,
+        delta_unchanged: 20,
+      }),
+    );
+    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+    await screen.findByText("RUN-TEST");
+    expect(screen.queryByText(/no update for/i)).toBeNull();
+    expect(document.querySelector(".extract-progress--stalled")).toBeNull();
   });
 });

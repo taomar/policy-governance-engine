@@ -4,6 +4,7 @@ import { Progress, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   CheckCircleFilled,
+  ClockCircleOutlined,
   CloseCircleFilled,
   ExperimentOutlined,
   FileTextOutlined,
@@ -35,6 +36,30 @@ const POLL_MS = 2000;
  * that visibly collapses on the next poll. A wrong ETA is worse than none,
  * because it is the number someone uses to decide whether to wait. */
 const MIN_BATCHES_FOR_ETA = 2;
+
+/** How long a "running" run may go without writing before the panel stops
+ * presenting it as live and says so.
+ *
+ * This is a policy, not a measurement: it is the line past which continued
+ * silence is worth surfacing, chosen — not observed. Healthy in-batch silence
+ * on the live corpus reached ~64s (a formulate step between server writes); a
+ * genuinely abandoned run sat unchanged for 175s and, by construction, would
+ * sit so indefinitely. 90s clears the healthy gap with headroom and still flags
+ * a true stall inside a minute and a half. The copy states only the fact ("No
+ * update for N"), so if a slow batch ever crosses the line the readout is still
+ * true and clears itself the moment the next write lands. */
+const STALL_AFTER_SECONDS = 90;
+
+/** The only two statuses finish() is ever called with (ai_extraction.py): a run
+ * in either has stopped for good. Polling continuation keys on this rather than
+ * on the payload's `active` flag, because `active` stays true through a
+ * 15-minute retention window after a run finishes — keying on `active` would
+ * poll a done run for that whole window. Anything not in this set (including any
+ * status added later) is treated as still in flight. */
+const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+function isTerminal(status: string | undefined): boolean {
+  return status !== undefined && TERMINAL_STATUSES.has(status);
+}
 
 function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
@@ -146,26 +171,54 @@ const STAGES: { key: StageKey; label: string; icon: ReactNode; hint: string }[] 
  */
 export default function ExtractionProgressPanel({ documentVersionId, running }: Props) {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
+  // Whether the mount read has completed at least once. This separates "not
+  // asked yet" (show a checking affordance) from "asked, nothing running"
+  // (render nothing) — two states constraint 5 forbids collapsing, and which
+  // the old panel collapsed by never asking at all unless this tab had started
+  // the run.
+  const [checked, setChecked] = useState(false);
   // Ref, not state: the poll loop reads this to decide whether to reschedule,
   // and a stale closure over `running` would leave a timer running forever.
   const runningRef = useRef(running);
   runningRef.current = running;
 
   useEffect(() => {
-    if (!running) return;
     let cancelled = false;
     let timer: number | undefined;
 
+    // One poll loop that runs regardless of `running`, so a run is discoverable
+    // by any viewer of the document and not only by the tab that started it —
+    // the §4.1 defect the old two-effect version had, where the server held a
+    // complete progress record and nothing read it unless this tab was the one
+    // extracting. It also subsumes the old "one last read on the running→idle
+    // edge": the loop keeps reading until the server reports a terminal status,
+    // so it settles on the final "Done — N rules" line on its own.
     const poll = async () => {
       try {
         const next = await aiApi.extractionProgress(documentVersionId);
-        if (!cancelled) setProgress(next);
+        if (cancelled) return;
+        setProgress(next);
+        setChecked(true);
+        // Reschedule while either this tab has an extract in flight (the
+        // in-session path, unchanged), or the server reports a run that has not
+        // reached a terminal status. Keying on terminal status, not `active`,
+        // stops the loop polling a finished run through its 15-minute retention
+        // window; an idle document (active:false) simply does not reschedule.
+        if (runningRef.current || (next.active === true && !isTerminal(next.status))) {
+          timer = window.setTimeout(poll, POLL_MS);
+        }
       } catch {
-        // A failed poll is not a failed extraction — the run continues
-        // server-side regardless. Keep the last good readout and retry.
-      }
-      if (!cancelled && runningRef.current) {
-        timer = window.setTimeout(poll, POLL_MS);
+        if (cancelled) return;
+        // The mount read has still happened — settle out of "checking" rather
+        // than claiming to check forever.
+        setChecked(true);
+        // A failed poll is not a failed extraction: on the in-session path keep
+        // retrying (the last good readout is preserved). A bare discovery read
+        // has nothing to preserve and no in-flight request to track, so it does
+        // not schedule on — the next mount (e.g. re-navigation) re-checks.
+        if (runningRef.current) {
+          timer = window.setTimeout(poll, POLL_MS);
+        }
       }
     };
 
@@ -176,27 +229,20 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     };
   }, [documentVersionId, running]);
 
-  // One last read after the request resolves, so the panel settles on the
-  // terminal "Done — N rules" line instead of freezing on the final batch.
-  useEffect(() => {
-    if (running) return;
-    if (!progress) return;
-    let cancelled = false;
-    void aiApi
-      .extractionProgress(documentVersionId)
-      .then((next) => {
-        if (!cancelled) setProgress(next);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-    // Intentionally not depending on `progress` — this fires on the
-    // running→idle edge only, and re-running on its own result would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, documentVersionId]);
-
-  if (!running && !progress?.active) return null;
+  if (!running && !progress?.active) {
+    // Nothing is running for this document as far as this tab has been told. But
+    // "we asked and there is nothing" and "we have not asked yet" are different
+    // states (constraint 5): until the mount read resolves, show a checking
+    // affordance; only once it has (`checked`) settle to rendering nothing.
+    return checked ? null : (
+      <div className="extract-progress extract-progress--checking">
+        <div className="extract-progress-line">
+          <LoadingOutlined spin />
+          <Text type="secondary">Checking for an extraction&hellip;</Text>
+        </div>
+      </div>
+    );
+  }
 
   if (!progress?.active) {
     // Request is in flight but the server has not published totals yet (it is
@@ -257,6 +303,38 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   // trailing comparison pass, so both light every box as complete. `comparing`
   // keeps its own indicator below the chain so it is never mistaken for done.
   const chainSettled = done || comparing;
+
+  // updated_at and started_at are on the wire (the server stamps them on every
+  // write) but not declared on api.ts's ExtractionProgress type, which this file
+  // must not edit. Read them through a narrow local view of the very payload the
+  // panel already fetched — this is the server's own field, not a client-side
+  // recomputation of one, so §4.1 ("a second copy always drifts") does not apply.
+  const clock = progress as ExtractionProgress & {
+    started_at?: number;
+    updated_at?: number;
+  };
+  // Seconds since the run last wrote anything, computed entirely from
+  // server-stamped values so no client clock enters it and it is correct on the
+  // very first poll, before any cross-poll diff exists:
+  //   elapsed_seconds recomputes each read as now − started_at;
+  //   updated_at − started_at freezes at the last write.
+  // Their difference is the server-time gap between "now" and "last write".
+  const secondsSinceUpdate =
+    clock.started_at !== undefined && clock.updated_at !== undefined
+      ? Math.max(0, elapsed - (clock.updated_at - clock.started_at))
+      : null;
+  // A run the server still calls "running" but has not written to in longer than
+  // the stall policy. Such a run keeps its record — elapsed_seconds still
+  // climbing — indefinitely, because the record is pruned only when the next
+  // extraction starts; without this the panel would animate an abandoned run as
+  // live forever ("animate a corpse"). Only meaningful mid-run: a settled or
+  // failed run has legitimately stopped writing, and finish() stamps updated_at
+  // so it cannot false-trip this.
+  const stalled =
+    !chainSettled &&
+    !failed &&
+    secondsSinceUpdate !== null &&
+    secondsSinceUpdate >= STALL_AFTER_SECONDS;
 
   // Extrapolated from batches actually finished, not from a fixed per-batch
   // guess: batch cost varies with how much policy a page carries, so the only
@@ -365,7 +443,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   ].filter(Boolean);
 
   return (
-    <div className={`extract-progress${failed ? " extract-progress--failed" : ""}`}>
+    <div
+      className={`extract-progress${failed ? " extract-progress--failed" : ""}${
+        stalled ? " extract-progress--stalled" : ""
+      }`}
+    >
       <div className="extract-pipeline" aria-label="Extraction pipeline">
         {STAGES.map((s, i) => {
           // Nothing in the chain is active once it is settled (done, or the
@@ -471,6 +553,13 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <CheckCircleFilled style={{ color: "var(--success)" }} />
         ) : failed ? (
           <CloseCircleFilled style={{ color: "var(--danger)" }} />
+        ) : stalled ? (
+          // Not a spinner: a run that has gone quiet must not carry the same
+          // "work in progress" motion as one that is writing. A still clock in
+          // neutral ink reads "as of the last update" without implying failure —
+          // the run may resume — and stall is operational state, which the
+          // reserved-hue rule keeps off the policy palette (so no amber or red).
+          <ClockCircleOutlined className="extract-stall-icon" />
         ) : (
           <LoadingOutlined spin />
         )}
@@ -484,6 +573,18 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <span className="extract-progress-pct">{pct}%</span>
         )}
       </div>
+      {stalled && secondsSinceUpdate !== null && (
+        // States the silence as a plain fact, next to the last stage the run
+        // reported. Deliberately not a verdict of failure: the run may resume,
+        // and if it does the next server write clears this. role="status" so
+        // assistive tech hears that the figures above are now the last reported.
+        <div className="extract-progress-line extract-stall" role="status">
+          <Text className="extract-stall-text">
+            No update for {duration(secondsSinceUpdate)}. This run may have stalled &mdash; the
+            figures above are the last it reported.
+          </Text>
+        </div>
+      )}
       <div className="extract-progress-line extract-progress-counters">
         <Text type="secondary">{counters.join(" · ")}</Text>
         {superseded > 0 && (
@@ -496,10 +597,10 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         percent={done ? 100 : pct}
         size="small"
         showInfo={false}
-        status={failed ? "exception" : done ? "success" : "active"}
+        status={failed ? "exception" : done ? "success" : stalled ? "normal" : "active"}
         strokeColor={failed ? undefined : "var(--brand-600)"}
       />
-      {!chainSettled && !failed && (
+      {!chainSettled && !failed && !stalled && (
         // Extraction continues server-side, so the one thing a reviewer needs
         // to know before walking away is that they may. Without it the honest
         // assumption is that closing the tab cancels the run. Gated on
@@ -507,6 +608,8 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         // batch has already committed, so "rules appear as each batch commits"
         // describes work that has stopped — the same "says it is still doing X
         // when it is not" defect the comparison indicator below exists to avoid.
+        // Also suppressed while stalled: a run that has gone quiet is not
+        // committing batches either, so the sentence would describe stopped work.
         <div className="extract-progress-line extract-progress-hint">
           <Text type="secondary">
             This keeps running if you navigate away — rules appear in the review queue as each
