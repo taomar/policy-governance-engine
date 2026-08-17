@@ -9,7 +9,27 @@
  *
  * So the card reads each record's own review state through `candidateEditability`,
  * the one place in this app that knows what a state permits, and treats the
- * handlers as how a decision is recorded rather than whether one may be.
+ * handlers as how a decision is recorded rather than whether one may be. That
+ * invariant is the whole point of this file and it is unchanged: whether a
+ * decision may be made is read from the record, never from the wiring.
+ *
+ * WHAT CHANGED — READING IS NOW A PRECONDITION OF DECIDING
+ *
+ * A list card now opens collapsed and reveals its rules on demand, and the
+ * decision is revealed with them: `showBody` gates both, so Approve and Reject
+ * are not drawn until the reviewer has opened the rules those buttons would
+ * decide. This is the half of constraint 6 that has not expired — a decision may
+ * not be taken on a record no one has read. It does not weaken the invariant
+ * above; it adds a second thing that must hold before the control is drawn, on
+ * top of the record permitting it.
+ *
+ * So an absent decision now has two possible reasons, and constraint 5 forbids
+ * conflating them. One is the fold: the rules are unread, and revealing them
+ * brings the decision the record permits. The other is the record: it is sealed,
+ * and no amount of reading opens it. The reveal is what tells them apart — it
+ * cures the first absence and leaves the second exactly as it was. So the tests
+ * below that prove a decision absent reveal the card first: with the fold out of
+ * the way, what they show missing is the record's silence and not the fold's.
  *
  * These tests wire the handlers deliberately, because that is the mistake being
  * guarded against. If the card is ever reverted to asking about its props, every
@@ -114,18 +134,42 @@ function draw(card: PolicyCard) {
 describe("what may be decided is read from the record", () => {
   afterEach(cleanup);
 
-  it("offers no decision on a policy whose records are all sealed, however it is wired", () => {
+  it("offers no decision on a sealed policy even once its rules are read, however it is wired", () => {
+    // Revealed first, so `showBody` is true and the fold is not what withholds
+    // the decision: the only thing left keeping Approve and Reject absent is that
+    // the records are sealed. This is the record's silence, which no reading
+    // opens — the counterpart to the unread card below, whose silence a reading
+    // cures. The handlers are wired throughout, so the absence is the record's
+    // and not the call site's.
     draw(cardOf(["published", "published"]));
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+  });
+
+  it("withholds a decidable policy's decision while its rules are unread, and brings it on reveal", () => {
+    // The other reason a decision can be absent, which constraint 5 forbids
+    // reading as the same thing as the sealed card above. These records are open,
+    // so the record permits a decision; collapsed, it is still withheld, because
+    // the rules have not been read — constraint 6's half that has not expired. The
+    // proof that it is the fold and not the record is that revealing the rules
+    // brings the decision, which the sealed card's reveal did not.
+    draw(cardOf(["candidate", "candidate"]));
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+    expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /reject/i })).toBeTruthy();
   });
 
   it("offers no way to gather a sealed policy into a decision either", () => {
     // A tick may still be offered — a sealed policy can be gathered to be taken
     // away, and the published page counts and exports whole policies — but what
-    // it gathers must not be a decision. It says so in words, and the controls
-    // that would write one are absent.
+    // it gathers must not be a decision. Revealed first, so the writing controls
+    // are shown absent because the record is sealed and not merely folded; it
+    // says so in words, and those controls are absent.
     draw(cardOf(["published"]));
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
     const tick = screen.queryByRole("checkbox");
@@ -158,22 +202,32 @@ describe("what may be decided is read from the record", () => {
   });
 
   it("offers the decision on a policy whose records are still open", () => {
+    // Revealed first: the decision is drawn beside the rules now, only once they
+    // are on screen. With them open, the record's permission is what remains, and
+    // it is granted.
     draw(cardOf(["candidate", "candidate"]));
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
     expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /reject/i })).toBeTruthy();
   });
 
   it("offers it when one record of the policy is still open and the rest are not", () => {
+    // The mix is the point: one candidate among a published and an approved
+    // record. One open record makes the policy decidable, and once its rules are
+    // read the decision is offered.
     draw(cardOf(["published", "candidate", "approved"]));
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
     expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
   });
 
   it("offers no decision on a state this build does not recognise", () => {
     // Not a default into either answer: an unrecognised state is not known to
-    // permit a decision, so the card does not offer one. A new state reaching
-    // this build shows up as a control that is missing rather than as a write
-    // to a record nobody here understands.
+    // permit a decision, so the card does not offer one. Revealed first, so the
+    // fold is not the reason — the reason is that the state is unknown, and a new
+    // state reaching this build shows up as a control that is missing rather than
+    // as a write to a record nobody here understands.
     draw(cardOf(["a_state_from_a_later_build"]));
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
   });
 
