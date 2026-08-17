@@ -14,6 +14,7 @@ the end of each document.
 | [`rotated-cell-content-loss.md`](rotated-cell-content-loss.md) | A provision lost in a rotated merged cell; three mechanisms behaved correctly and the content still vanished |
 | [`route-vocabulary-and-framing.md`](route-vocabulary-and-framing.md) | The retired route names and the framings that keep escaping the guards; why this is the only directory that may spell them |
 | [`table-header-split-across-two-rows.md`](table-header-split-across-two-rows.md) | A two-row table header read as one, reproduced and deliberately not fixed; plus three backlog items that did not reproduce |
+| [`traces-into-deleted-files.md`](traces-into-deleted-files.md) | Two briefs that cited a `file:line` inside an already-deleted file; why a symptom can outlive its report, and to confirm a file exists before tracing through it |
 
 ---
 

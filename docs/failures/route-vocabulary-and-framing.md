@@ -96,6 +96,54 @@ does the job.
 
 ---
 
+## 5. The guards read strings, not controls
+
+Both guards scan prose and Python string literals. They cannot see a button. A
+control offered on every record and refused by the server on one of the two
+routes teaches the reviewer, through the interaction, the framing the guards
+keep out of the words — with no forbidden string ever written.
+
+So the rule for anyone adding a control to a record surface is: **derive the
+offer from the route, and state what is true of the other route positively.** Do
+not place one affordance on both routes and let the server's refusal on one of
+them do the framing the guards forbid.
+
+Worked example — the scenario tester. Blind validation-batch generation is run
+by the deterministic engine, and the server refuses any rule that is decided by
+reading, in those words. Rather than offer the control everywhere and let that
+refusal speak, the pane derives the offer from `rule.evaluation_mode`: it offers
+a scenario only to a rule the engine evaluates, and a rule whose test is words
+renders `Checked by reading` — a positive statement of how that rule is decided,
+not a notice of what it lacks.
+
+### The confidence number — settled: there is none
+
+Recorded here so it is not re-litigated from the absence of a reason. A judged
+verdict shows **no confidence number**, and that no-number state is pinned by
+`CONFIDENCE_NUMBER` in `noDoorThatCannotOpen.test.tsx`. Three reasons, the last
+of which is why the note belongs in this file:
+
+1. Section 53 of the governing spec removed confidence scores.
+   `contracts/correlation.py` records why — a model asked for a probability will
+   supply one, and `0.91` reads as a measurement when it is invention;
+   `contracts/graph_run.py` says the same of provenance strength.
+2. Every other figure this product prints is counted from a record. One number
+   that is a self-report, sitting beside numbers that are counts, would corrupt
+   the reader's calibration of all of them.
+3. A number shown only on the judged route would be that route apologising for
+   itself beside an exact computed result — the framing this directory exists to
+   keep out of the product. It would arrive as a **control, not a string**, so
+   the guards in sections 3 and 4 would never catch it. That is section 5's
+   hazard in its sharpest form.
+
+The verdict already carries an honest confidence: its third state, `uncertain`,
+renders as *"The case as described does not settle it"* followed by what the
+case would have to state — something a reviewer can act on rather than a number
+they can only weigh. A confidence figure, if ever wanted, needs a Section 53
+decision, not a UI change.
+
+---
+
 ## Reproducing
 
 ```powershell

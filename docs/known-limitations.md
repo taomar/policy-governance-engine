@@ -107,6 +107,39 @@ inventory and commands.
   property, gives a reason, and reads as settled, while the behaviour it
   describes lives in another module that a reader has no cause to open.
 
+- **Drawing the largest policy costs about six seconds.** The Review and
+  Policies rule card gained a per-rule name and inline detail, and rendering the
+  largest measured policy now takes roughly six seconds on a developer machine —
+  enough that `apps/web/src/nothingIsBehindAClick.test.tsx` states its own raised
+  time limit and records the cost rather than reporting a fault that is not there.
+  The cost is real, not a test artefact: a reviewer scrolling a queue of large
+  policies feels the same delay.
+
+- **A corrected extraction artefact survives in records already extracted.**
+  `infrastructure/extraction/quantity_projection.py` used to borrow a comparison
+  from a number-bearing predicate for a bare magnitude, so a plain quantity such
+  as `"Received 3 doses"` could be projected as an instruction
+  (`"You required to Received 3 doses"`). It now refuses that — a bare magnitude
+  states what the quantity *is*, not a test, so it takes the `NO_COMPARISON`
+  refusal — fixed at source in `18ca0e4`. The fix is forward-looking: rules
+  extracted before it keep the wrong text until their document is re-extracted,
+  so the artefact can still be read on a published policy even though the defect
+  is closed. Re-extraction is the only thing that rewrites an existing record.
+
+- **The bulk-selection counter names no unit.** On both the Review and Policies
+  panes the selection counter reads `N selected` without naming that the unit is
+  policies. It is kept identical on the two surfaces on purpose; if it gains a
+  unit it should gain one on both at once rather than let one side drift from the
+  other.
+
+- **The Overview omits two provenance facts it cannot honestly evidence.** A
+  rule's sequence position in the document (`source_elements` is an element key
+  such as `p1-E000004`, not an ordinal) and its ingestion time
+  (`DocumentVersion.created_at` exists, but neither the Review nor Policies
+  surface loads `SourceDocument`) are left out rather than approximated. Each is
+  cheap to add once a caller loads the document record; neither is worth a
+  request on its own.
+
 ## Documentation gaps
 
 - **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is
