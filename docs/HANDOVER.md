@@ -864,3 +864,40 @@ same way in both places; an inconsistency here is how a working system comes to 
 broken.
 
 
+### 9.15 A change elsewhere can make an existing passing test vacuous without failing it
+
+The sharpest finding of the closing pass, and distinct from 9.8. In 9.8 a guard's
+docstring promised more than its assertions had *ever* checked. Here the assertions
+were adequate when written, and an unrelated change quietly made them impossible to
+fail — **while staying green**, so nothing announced it.
+
+Collapsing policy cards made Approve conditional on the rules having been revealed.
+The two tests that asserted a decision **is** offered went red, were noticed, and
+were fixed. But the neighbouring tests asserting a decision is **not** offered on a
+sealed record stayed green — and they stayed green for the wrong reason:
+
+* the card was sealed, so `decidable` was false, **and**
+* the card was collapsed, so `showBody` was false.
+
+Either alone suppresses Approve. So those tests would have continued passing **if the
+sealing logic had been deleted entirely**. Their titles claimed *sealed → no
+decision*; their bodies now only established *collapsed → no decision*.
+
+The failing tests were the lucky case: red is loud. The dangerous case is the
+absence-assertion, because adding a second sufficient cause for an absence makes the
+test weaker and greener at the same time.
+
+**Fix applied:** those absence tests now reveal the rules first, so decidability is
+the *sole* remaining reason for the absence, and the title matches what the body
+proves. A new test sits the two reasons adjacent so they cannot be conflated:
+decidable-but-unread → revealing **brings** the control back (curable); sealed →
+revealing does **not** (permanent). Same absence on screen, two different reasons,
+separately pinned.
+
+**Defence:** when a change adds a new precondition to a behaviour, audit the tests
+that assert that behaviour is **absent** — not just the ones that fail. Ask of each:
+*if the original cause were removed, would this still pass?* If yes, it is now
+measuring the new precondition and has quietly stopped guarding what its name claims.
+Grep by what a test **renders**, not by what it is named about.
+
+
