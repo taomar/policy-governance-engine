@@ -2128,6 +2128,20 @@ SKIP_BATCH_UNREAD = "batch_unread"
 SKIP_DISCARDED = "discarded"
 SKIP_NOT_EXTRACTED = "not_extracted"
 
+#: A batch that was `BATCH_UNREAD` on the first pass and read on a later one.
+#:
+#: A batch can be lost to something that has nothing to do with the batch — a
+#: momentary DNS or transport failure while the rest of the run reads fine. The
+#: content was not judged; it was never reached. So once it *is* read, coverage
+#: is whole, and this kind is deliberately kept out of `COVERAGE_AFFECTING_SKIPS`
+#: below: a recovered batch does not break coverage.
+#:
+#: It is a separate kind rather than an erased entry because a run that recovered
+#: from a transient failure is not the same event as one that never hit it, and
+#: a reader maintaining a register is owed that difference. The entry keeps the
+#: original reason so the recovery does not delete the evidence that it happened.
+SKIP_BATCH_RECOVERED = "batch_recovered"
+
 #: The kinds that mean part of the document was never read. Coverage is derived
 #: from this set, so a skip site added later is counted correctly by declaring
 #: its kind rather than by remembering to update a flag elsewhere.
@@ -2143,6 +2157,51 @@ def skip_breaks_coverage(skip: dict) -> bool:
     """
 
     return skip.get("kind", SKIP_BATCH_UNREAD) in COVERAGE_AFFECTING_SKIPS
+
+
+def is_retryable_skip(skip: dict) -> bool:
+    """True only when this skip is a batch that was never read.
+
+    Deliberately the mirror image of `skip_breaks_coverage`, and the asymmetry is
+    the point. That function answers "did we miss coverage?", where an untagged
+    or unfamiliar skip must count as the alarming case. This one answers "may we
+    send this to the model again?", where the safe default is the opposite: only
+    a skip *explicitly* tagged as the batch-never-read kind may be re-read.
+
+    A judgement — a passage read and declined, a sentence read and not extracted
+    — must never be retried: the model gave an answer, and re-asking until it
+    answers differently is rolling dice until you like the result, which would
+    empty the skip ledger of meaning. An untagged skip could be anything, so it
+    is treated as *not* retryable rather than risk re-asking a judgement on the
+    strength of a default that exists only to raise a coverage alarm.
+    """
+
+    return skip.get("kind") == SKIP_BATCH_UNREAD
+
+
+def mark_recovered(ledger: list[dict], *, identity: str, note: str) -> bool:
+    """Relabel an unread batch as recovered, in place, without losing its history.
+
+    Finds the `BATCH_UNREAD` entry with this `identity` and turns it into a
+    `BATCH_RECOVERED` one. Refuses to touch an entry of any other kind: recovery
+    only ever applies to a batch that was never read, so a judgement can never be
+    laundered into coverage through here. Returns True when an entry was
+    relabelled, False when none matched.
+
+    The original reason is preserved and the recovery `note` is added to it,
+    rather than overwritten. A run that recovered from a transient failure is a
+    different event from one that never failed, and the ledger keeps that
+    difference: coverage is now whole, but the record still shows it took a
+    second attempt to make it so.
+    """
+
+    for entry in ledger:
+        if entry.get("kind") == SKIP_BATCH_UNREAD and entry.get("identity") == identity:
+            first_attempt = entry.get("reason", "")
+            entry["kind"] = SKIP_BATCH_RECOVERED
+            entry["reason"] = f"{note} (first attempt: {first_attempt})" if first_attempt else note
+            return True
+    return False
 
 
 #: Marks an entry whose subject could not be identified. Entries carrying it are
