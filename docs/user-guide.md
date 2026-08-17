@@ -92,7 +92,7 @@ the platform will not ask you to.
 Use the tabs in journey order:
 
 ```text
-Documents -> Review -> Quality -> Policies -> Tests -> Regression
+Documents -> Review -> Quality -> Policies -> Validation
 ```
 
 Supporting tabs include Compare and Decision Log.
@@ -199,6 +199,10 @@ every approved version.
 
 ### Decide
 
+Set your name in the application header before approving or rejecting; the review
+queue asks for it until a name is set, so every decision has an attributable
+author.
+
 - **Approve** when the candidate is correct and publishable.
 - **Reject** when it should not enter policy.
 - **Edit/Revise** when logic or wording must change.
@@ -259,7 +263,7 @@ and publishing another version.
 
 ## 9. Prove behavior with blind tests
 
-Open **Tests**.
+Open **Validation**.
 
 ![Policy validation lab with selected policies and scenario generator](images/user-guide/08-policy-tests.png)
 
@@ -282,9 +286,10 @@ AI may draft scenarios. Only the deterministic evaluator decides pass/fail.
 
 ## 10. Preserve representative regression guards
 
-After a scenario passes, select **Add passing to regression suite**.
+After a scenario passes, select **Add passing to regression suite**. A
+regression guard is simply that sealed passing scenario kept active.
 
-Open **Regression** to:
+The same **Validation** surface also lets you:
 
 - run active guards against a retained version;
 - inspect exact versioned policy evidence;
@@ -342,7 +347,7 @@ Use the readiness docket to:
 - schedule the next review;
 - resolve missing source evidence;
 - clear the review backlog;
-- rerun Quality and Regression after changes.
+- rerun Quality and regression guards after changes.
 
 Use **Compare** for exact rule-level changes between versions and **Decision Log**
 for runtime evidence.
