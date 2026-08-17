@@ -30,7 +30,6 @@ from policy_platform.api.app import create_app  # noqa: E402
 from policy_platform.domain.models import (  # noqa: E402
     Clause,
     DocumentVersion,
-    ExtractionStage,
     SourceDocument,
 )
 from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
@@ -63,7 +62,6 @@ async def client():
             SourceDocument.__table__,
             DocumentVersion.__table__,
             Clause.__table__,
-            ExtractionStage.__table__,
         ):
             await connection.run_sync(lambda c, t=table: t.create(c, checkfirst=True))
 
@@ -212,50 +210,6 @@ class TestCoverage:
         body = (await http.get(f"/api/extraction/{version_id}/coverage")).json()
 
         assert all(entry["reason"] for entry in body["elements"])
-
-
-class TestStages:
-    async def test_stages_are_listed_for_a_version(self, client) -> None:
-        http, version_id, maker = client
-
-        async with maker() as session:
-            session.add(
-                ExtractionStage(
-                    document_version_id=version_id,
-                    idempotency_key="k" * 64,
-                    stage_name="docling_converted",
-                    sequence=1,
-                    status="ok",
-                    detail="3 elements",
-                )
-            )
-            await session.commit()
-
-        body = (await http.get(f"/api/extraction/{version_id}/stages")).json()
-
-        assert len(body["stages"]) == 1
-        assert body["stages"][0]["stage_name"] == "docling_converted"
-
-    async def test_stages_can_be_scoped_to_one_run(self, client) -> None:
-        http, version_id, maker = client
-
-        async with maker() as session:
-            for key in ("k" * 64, "j" * 64):
-                session.add(
-                    ExtractionStage(
-                        document_version_id=version_id,
-                        idempotency_key=key,
-                        stage_name="converted",
-                        sequence=1,
-                    )
-                )
-            await session.commit()
-
-        body = (
-            await http.get(f"/api/extraction/{version_id}/stages?idempotency_key={'k' * 64}")
-        ).json()
-
-        assert len(body["stages"]) == 1
 
 
 class TestSurfaceDiscipline:
