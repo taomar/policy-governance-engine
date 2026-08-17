@@ -81,7 +81,8 @@ evidence, edit, request an AI rewrite, approve, reject, or apply a bulk decision
 Manager-only request-change and override actions require the manager persona.
 
 All evidence-creating actions use the shared actor identity from the application
-header.
+header. A reviewer name must be set there before approving or rejecting, so
+every decision carries an attributable author.
 
 ## 4. Publish an immutable version
 
@@ -102,8 +103,7 @@ version.
 | Workspace | Purpose |
 |---|---|
 | **Quality** | Confirm structural defects and review AI-raised potential gaps, conflicts, and risks against exact versioned evidence. |
-| **Tests** | Generate or author sealed scenarios, run them blind, and compare expected to actual behavior. |
-| **Regression** | Preserve representative passing scenarios and re-run them across later published versions. |
+| **Validation** | Generate or author sealed scenarios, run them blind, compare expected to actual behavior, and preserve representative passing scenarios as guards that re-run across later published versions. |
 | **Compare** | Compute an exact rule-level diff between two published snapshots, with an optional AI narrative. |
 
 AI may propose findings or scenarios. Python validation and the deterministic
@@ -147,7 +147,7 @@ projects. Inside a project, tabs follow the lifecycle:
 ```text
 Author:   Overview -> Documents -> Review
 Publish:  Policies -> Compare
-Assure:   Quality -> Tests -> Regression
+Assure:   Quality -> Validation
 Operate:  Decision Log
 ```
 
