@@ -33,3 +33,61 @@
   color: var(--brand-600, #7c3aed);
   flex: 0 0 auto;
 }
+
+/* The route split each drafted rule is assigned — Deterministic or AI Ready —
+ * decided per rule during the run. A breakdown of the "Rules drafted" box, so
+ * it sits just under the chain rather than in the trailing results region.
+ *
+ * The whole visual language here is deliberately flat: both routes carry one
+ * weight and one colour, joined by a middot, with no bar, fill or percentage.
+ * On a real corpus the split is heavily one-sided (most policy states its test
+ * in words), and any "one filling, the other lagging" treatment would draw the
+ * smaller route as a shortfall against the larger. It is not one: AI Ready is
+ * what the source states. So the readout ranks neither and totals nothing into
+ * a scale — it just states two counts, and a third when they leave a remainder.
+ *
+ * Colour is Secondary Ink throughout (DESIGN.md: captions and metadata lines),
+ * the same ink the counters line and the skipped dropout use — this is a
+ * caption under the chain, not another headline count. */
+.extract-routes {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding-inline-start: 22px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.extract-routes-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+
+.extract-routes-items {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* One rule for every route: same weight, same colour. Nothing here says one is
+ * the target and the other the fallback. */
+.extract-route {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* Step the count down from the box figure (Body Ink, 15px) to this caption's
+ * Secondary Ink at 13px — the same de-emphasis the skipped dropout takes. The
+ * inherited 600 weight still sets the number apart from its name, so no second
+ * colour is needed, and both routes share this rule exactly. */
+.extract-route .extract-stage-value {
+  font-size: 13px;
+  color: #64748b;
+}
+

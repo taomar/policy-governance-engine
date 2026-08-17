@@ -226,6 +226,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     processed_pages: donePages = 0,
     passages_found: passages = 0,
     rules_drafted: drafted = 0,
+    // Left undefined-if-absent on purpose: a server older than these counters
+    // sends neither, and `?? 0` here would turn "the server has no split" into
+    // "the split is zero" — two different facts (constraint: absent ≠ empty).
+    rules_deterministic: routeDeterministic,
+    rules_ai_ready: routeAiReady,
     rules_committed: committed = 0,
     skipped = 0,
     linked = 0,
@@ -320,6 +325,31 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   // over nothing would imply one happened.
   const deltaTotal = deltaNew + deltaChanged + deltaUnchanged + deltaRemoved;
 
+  // The route each drafted rule was assigned as it was drafted — Deterministic
+  // where the source states a test the engine computes over named facts, AI
+  // Ready where it states its test in words for a judge to read against the
+  // case. This is the product's central split, decided per rule during the run,
+  // and it is read straight from the server's own tally: `policy.py` keeps the
+  // mode derived rather than stored so a second copy cannot disagree with the
+  // condition it describes, and recomputing it here would be exactly that second
+  // copy. So the panel only ever shows what the run reported.
+  //
+  // `hasRouteData` gates on the fields being present at all, not on their value:
+  // an older server carries neither, and a fabricated 0 would be a claim nobody
+  // made. `showRoutes` additionally waits for the first drafted rule — there is
+  // nothing to split before that, and "0 · 0" over no rules would read as a
+  // found result. Past both gates, a 0 in the readout can only mean "no rule
+  // took this route", never "not reached yet".
+  const hasRouteData = routeDeterministic !== undefined || routeAiReady !== undefined;
+  const routeDet = routeDeterministic ?? 0;
+  const routeAi = routeAiReady ?? 0;
+  // Not assumed to sum to `drafted`: a rule whose mode is absent, or a route
+  // added to the model after this was written, is counted by neither. That
+  // remainder is shown, not charged to a side or hidden, so the figures
+  // reconcile in view rather than appearing to lose rules.
+  const routeUnrouted = Math.max(0, drafted - routeDet - routeAi);
+  const showRoutes = hasRouteData && drafted > 0;
+
   // Counters joined into one line with a separator rather than stacked, so the
   // readout stays a fixed height no matter how many counters exist.
   const counters = [
@@ -390,6 +420,52 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         </div>
       )}
 
+      {showRoutes && (
+        // The product's central split, shown as it is decided. Both routes get
+        // one weight and one colour and sit as plain counts joined by a middot,
+        // the same neutral form the project register uses ("N Deterministic · M
+        // AI Ready"). Deliberately NOT a bar or a percentage: on a real corpus
+        // the split is heavily one-sided, and a bar would draw the smaller route
+        // as a shortfall against the larger. AI Ready is what the source states,
+        // not a lesser outcome, so neither route is drawn as filling or lagging.
+        <div className="extract-routes" aria-label="How the drafted rules divide by route">
+          <span className="extract-routes-label">By route</span>
+          <div className="extract-routes-items">
+            <Tooltip title="Rules whose test the source states as a comparison the engine computes over named facts.">
+              <span className="extract-route">
+                <StageValue text={String(routeDet)} />
+                <span className="extract-route-name">Deterministic</span>
+              </span>
+            </Tooltip>
+            <span className="extract-route-sep" aria-hidden>
+              ·
+            </span>
+            <Tooltip title="Rules whose test the source states in words, read by a judge against each case — how most policy text is written.">
+              <span className="extract-route">
+                <StageValue text={String(routeAi)} />
+                <span className="extract-route-name">AI Ready</span>
+              </span>
+            </Tooltip>
+            {routeUnrouted > 0 && (
+              // Only when the two routes leave a remainder. Kept visible so the
+              // counts reconcile against the rules drafted rather than appearing
+              // to lose some — the gap is information, not a rounding error.
+              <>
+                <span className="extract-route-sep" aria-hidden>
+                  ·
+                </span>
+                <Tooltip title="Drafted rules the run placed in neither route — its route is not set, or a route added after this readout was built. Shown so the two counts need not add up to the rules drafted.">
+                  <span className="extract-route">
+                    <StageValue text={String(routeUnrouted)} />
+                    <span className="extract-route-name">unrouted</span>
+                  </span>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="extract-progress-line">
         {done ? (
           <CheckCircleFilled style={{ color: "var(--success)" }} />
@@ -423,10 +499,14 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         status={failed ? "exception" : done ? "success" : "active"}
         strokeColor={failed ? undefined : "var(--brand-600)"}
       />
-      {!done && !failed && (
+      {!chainSettled && !failed && (
         // Extraction continues server-side, so the one thing a reviewer needs
         // to know before walking away is that they may. Without it the honest
-        // assumption is that closing the tab cancels the run.
+        // assumption is that closing the tab cancels the run. Gated on
+        // `chainSettled`, not just `done`: once the run is comparing, every
+        // batch has already committed, so "rules appear as each batch commits"
+        // describes work that has stopped — the same "says it is still doing X
+        // when it is not" defect the comparison indicator below exists to avoid.
         <div className="extract-progress-line extract-progress-hint">
           <Text type="secondary">
             This keeps running if you navigate away — rules appear in the review queue as each

@@ -212,3 +212,122 @@ describe("a stage not reached reads apart from a stage that found nothing", () =
     expect(boxValue("Rules drafted")).toBe("190");
   });
 });
+
+describe("the route each drafted rule takes is shown, and a route's 0 reads apart from no rules yet", () => {
+  /**
+   * Every drafted rule is assigned one of two routes as it is drafted:
+   * Deterministic (the source states a test the engine computes over named
+   * facts) or AI Ready (the source states its test in words, for a judge to read
+   * against the case). The service now carries a run-scoped tally of each —
+   * `rules_deterministic` and `rules_ai_ready` — read against `rules_drafted`.
+   *
+   * Three things this readout must get right, and one it must never do:
+   *   - it must not appear before a rule is drafted (nothing to split yet);
+   *   - once rules are drafted, a route's 0 is a real "no rule took this one",
+   *     not "not reached" — the same trap the stage boxes have, one level down;
+   *   - the two counts need not sum to the rules drafted (a rule with no mode is
+   *     in neither), and that remainder is information, not to be absorbed;
+   *   - neither route may be drawn as a shortfall: no bar, no percentage,
+   *     nothing that turns an ordinary 7-to-190 split into a deficiency.
+   */
+
+  /** A batch-4 drafting payload carrying the route split. */
+  const drafting = (over: Partial<ExtractionProgress> = {}): ExtractionProgress =>
+    payload({
+      stage: "Formulating rules from batch 4 of 38 — 6 policy statement(s) found",
+      processed_batches: 3,
+      processed_clauses: 40,
+      processed_pages: 12,
+      passages_found: 24,
+      rules_drafted: 20,
+      rules_deterministic: 1,
+      rules_ai_ready: 19,
+      ...over,
+    });
+
+  function routeRegion(): HTMLElement | null {
+    return document.querySelector(".extract-routes");
+  }
+
+  /** The count rendered on the route chip whose name contains `name`. */
+  function routeValue(name: string): string {
+    const region = routeRegion();
+    if (!region) throw new Error("no route region");
+    const chip = Array.from(region.querySelectorAll(".extract-route")).find((c) =>
+      c.textContent?.includes(name),
+    );
+    if (!chip) throw new Error(`no route chip for "${name}"`);
+    return chip.querySelector(".extract-stage-value")?.textContent ?? "";
+  }
+
+  it("shows the Deterministic and AI Ready counts once rules are drafted", async () => {
+    await renderWith(drafting({ rules_drafted: 20, rules_deterministic: 1, rules_ai_ready: 19 }));
+    expect(routeRegion()).not.toBeNull();
+    expect(routeValue("Deterministic")).toBe("1");
+    expect(routeValue("AI Ready")).toBe("19");
+  });
+
+  it("does not show a route split before any rule is drafted", async () => {
+    // The counters are present and zero, but nothing has been drafted — so there
+    // is nothing to split, and a "0 · 0" here would read as a found result.
+    await renderWith(
+      drafting({
+        stage: "Reading batch 1 of 38 · pages 1–4 — finding policy statements",
+        processed_batches: 0,
+        rules_drafted: 0,
+        rules_deterministic: 0,
+        rules_ai_ready: 0,
+      }),
+    );
+    expect(routeRegion()).toBeNull();
+  });
+
+  it("shows a real 0 for a route no rule took, distinct from not-yet-drafted", async () => {
+    // Rules drafted, all of them AI Ready: "0 Deterministic" is now a fact about
+    // the run so far, not "not reached". It must render 0, and the split must be
+    // present — which is what tells it apart from the not-yet case above.
+    await renderWith(drafting({ rules_drafted: 19, rules_deterministic: 0, rules_ai_ready: 19 }));
+    expect(routeRegion()).not.toBeNull();
+    expect(routeValue("Deterministic")).toBe("0");
+    expect(routeValue("AI Ready")).toBe("19");
+  });
+
+  it("keeps the split off entirely when the server carries no route counters", async () => {
+    // Rules drafted, but neither route field is on the payload (a server older
+    // than the counters). The split is a server fact; absent it, the client must
+    // show nothing rather than reconstruct or zero-fill it.
+    await renderWith(
+      payload({
+        stage: "Formulating rules from batch 4 of 38 — 6 policy statement(s) found",
+        processed_batches: 3,
+        rules_drafted: 20,
+        // rules_deterministic / rules_ai_ready deliberately absent
+      }),
+    );
+    expect(routeRegion()).toBeNull();
+  });
+
+  it("shows the unrouted remainder when the routes do not add up to the rules drafted", async () => {
+    // 200 drafted, 7 + 190 routed → 3 in neither. That gap is information: it
+    // must be visible, not charged to one side or hidden.
+    await renderWith(drafting({ rules_drafted: 200, rules_deterministic: 7, rules_ai_ready: 190 }));
+    expect(routeValue("unrouted")).toBe("3");
+  });
+
+  it("shows no remainder when the routes account for every drafted rule", async () => {
+    await renderWith(drafting({ rules_drafted: 20, rules_deterministic: 1, rules_ai_ready: 19 }));
+    const region = routeRegion();
+    expect(region).not.toBeNull();
+    expect(region!.textContent).not.toMatch(/unrouted/i);
+  });
+
+  it("draws neither route as a bar or a percentage", async () => {
+    // A bar or a percentage turns a 1-to-19 split into one route filling and the
+    // other lagging. AI Ready is what the source states, not a lesser outcome.
+    await renderWith(drafting());
+    const region = routeRegion();
+    expect(region).not.toBeNull();
+    expect(region!.querySelector(".ant-progress")).toBeNull();
+    expect(region!.textContent ?? "").not.toMatch(/%/);
+  });
+});
