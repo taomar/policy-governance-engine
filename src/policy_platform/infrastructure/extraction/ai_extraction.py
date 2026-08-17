@@ -54,6 +54,7 @@ from policy_platform.contracts.policy import (
     AmbiguityStatus,
     CandidateRelationship,
     CanonicalRule,
+    EvaluationMode,
 )
 from policy_platform.domain.models import (
     CandidateRule,
@@ -347,6 +348,33 @@ def _render_passages(passages: list[PolicyPassage]) -> str:
     return "\n\n".join(p.text.strip() for p in passages if p.text.strip())
 
 
+def _route_tally(rules: list[CanonicalRule]) -> tuple[int, int]:
+    """Count just-drafted rules by the route the mapping already assigned each.
+
+    Returns `(deterministic, ai_ready)`. The mode is read off each rule, never
+    recomputed: the mapping set it at construction from the rule's own condition
+    (`formulation_mapping` calls `evaluation_mode_from`), and `contracts/policy`
+    keeps that value derived-not-stored precisely so a second copy cannot
+    disagree with the tree it describes. This is a run-scoped count of that
+    value — it reads what is there and stores nothing.
+
+    The two counts need not sum to `len(rules)`. A rule whose mode is absent, or
+    is a route this code does not name — one added to the model later — is
+    counted by neither, so the difference between the counts and the drafted
+    total stays visible as a gap rather than being folded into one side.
+    """
+
+    deterministic = sum(
+        1
+        for rule in rules
+        if getattr(rule, "evaluation_mode", None) == EvaluationMode.DETERMINISTIC
+    )
+    ai_ready = sum(
+        1
+        for rule in rules
+        if getattr(rule, "evaluation_mode", None) == EvaluationMode.AI_READY
+    )
+    return deterministic, ai_ready
 
 
 async def _document_run_ids(
@@ -1087,7 +1115,19 @@ async def extract_candidate_rules(
                     identity=entry.get("identity"),
                     occurrences=entry.get("occurrences", 1),
                 )
-            extraction_progress.advance(progress_key, drafted=len(rules), skipped=len(batch_skipped))
+            # Read the route the mapping assigned each rule as it was drafted,
+            # and report the split beside the drafted count. `_route_tally`
+            # reads the value, never recomputing it, and its two counts need not
+            # sum to `len(rules)` — a rule with an absent or unrecognised mode
+            # is in neither, so the difference stays visible as a gap.
+            drafted_deterministic, drafted_ai_ready = _route_tally(rules)
+            extraction_progress.advance(
+                progress_key,
+                drafted=len(rules),
+                skipped=len(batch_skipped),
+                deterministic=drafted_deterministic,
+                ai_ready=drafted_ai_ready,
+            )
 
             # Persist and commit per batch rather than once at the end. These
             # runs are long (tens of model calls over tens of minutes), so an
