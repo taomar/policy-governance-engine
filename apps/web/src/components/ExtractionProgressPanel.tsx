@@ -38,17 +38,23 @@ const POLL_MS = 2000;
 const MIN_BATCHES_FOR_ETA = 2;
 
 /** How long a "running" run may go without writing before the panel stops
- * presenting it as live and says so.
+ * presenting it as live and says so — a policy, not a measurement.
  *
- * This is a policy, not a measurement: it is the line past which continued
- * silence is worth surfacing, chosen — not observed. Healthy in-batch silence
- * on the live corpus reached ~64s (a formulate step between server writes); a
- * genuinely abandoned run sat unchanged for 175s and, by construction, would
- * sit so indefinitely. 90s clears the healthy gap with headroom and still flags
- * a true stall inside a minute and a half. The copy states only the fact ("No
- * update for N"), so if a slow batch ever crosses the line the readout is still
- * true and clears itself the moment the next write lands. */
-const STALL_AFTER_SECONDS = 90;
+ * The unit is minutes, and deliberately so. A batch is formulated in a single
+ * model call with no intermediate write, so a healthy, advancing run's
+ * updated_at legitimately sits still for the whole length of a batch — measured
+ * at 45–64s on the live corpus, and confirmed by polling a healthy run 45s apart
+ * and seeing updated_at byte-identical. A threshold in the tens of seconds would
+ * therefore call working runs dead constantly — a worse and far more frequent
+ * error than the abandoned run it is trying to catch. 240s is ~4× the longest
+ * healthy gap observed, clearing a slow batch with wide margin. Erring high costs
+ * little: an abandoned run's record is pruned only when the next extraction
+ * starts, so it persists indefinitely — there is no deadline to beat, only a few
+ * minutes before it is surfaced. Paired with a two-consecutive-polls guard (a run
+ * is never flagged on a single first reading) and copy that states the fact, not
+ * a verdict — so a slow batch that does cross the line still reads true and
+ * clears itself the moment the next write lands. */
+const QUIET_AFTER_SECONDS = 240;
 
 /** The only two statuses finish() is ever called with (ai_extraction.py): a run
  * in either has stopped for good. Polling continuation keys on this rather than
@@ -181,10 +187,23 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   // and a stale closure over `running` would leave a timer running forever.
   const runningRef = useRef(running);
   runningRef.current = running;
+  // Whether the run's server write-time (updated_at) held steady across the two
+  // most recent polls. The quiet read requires this on top of the minutes
+  // threshold, so a run is never called quiet on a single first reading — it may
+  // have mounted part-way through one long batch, which writes nothing until it
+  // returns. `lastUpdatedAtRef` holds the previous poll's write-time to diff.
+  const [updatedAtStable, setUpdatedAtStable] = useState(false);
+  const lastUpdatedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+
+    // Re-arm the freeze tracking for this document: the first poll of a fresh
+    // mount (or a newly-viewed document) has no prior write-time to compare
+    // against, so it can never read as quiet on that first reading.
+    lastUpdatedAtRef.current = null;
+    setUpdatedAtStable(false);
 
     // One poll loop that runs regardless of `running`, so a run is discoverable
     // by any viewer of the document and not only by the tab that started it —
@@ -197,6 +216,20 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       try {
         const next = await aiApi.extractionProgress(documentVersionId);
         if (cancelled) return;
+        // Did the run's write-time move since the previous poll? A frozen
+        // write-time across consecutive polls is the cross-poll evidence the
+        // quiet read needs on top of the minutes threshold; any movement clears
+        // it. Read from the payload's own server-stamped updated_at via a narrow
+        // cast (api.ts, which omits it, is off-limits — as in render).
+        const nextUpdatedAt =
+          typeof (next as { updated_at?: number }).updated_at === "number"
+            ? ((next as { updated_at?: number }).updated_at ?? null)
+            : null;
+        const prevUpdatedAt = lastUpdatedAtRef.current;
+        setUpdatedAtStable(
+          prevUpdatedAt !== null && nextUpdatedAt !== null && prevUpdatedAt === nextUpdatedAt,
+        );
+        lastUpdatedAtRef.current = nextUpdatedAt;
         setProgress(next);
         setChecked(true);
         // Reschedule while either this tab has an extract in flight (the
@@ -324,17 +357,21 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       ? Math.max(0, elapsed - (clock.updated_at - clock.started_at))
       : null;
   // A run the server still calls "running" but has not written to in longer than
-  // the stall policy. Such a run keeps its record — elapsed_seconds still
-  // climbing — indefinitely, because the record is pruned only when the next
-  // extraction starts; without this the panel would animate an abandoned run as
-  // live forever ("animate a corpse"). Only meaningful mid-run: a settled or
-  // failed run has legitimately stopped writing, and finish() stamps updated_at
-  // so it cannot false-trip this.
-  const stalled =
+  // the minutes-scale quiet policy, confirmed across two consecutive polls
+  // (updatedAtStable) so a single first reading never trips it. Such a run keeps
+  // its record — elapsed_seconds still climbing — indefinitely, because the
+  // record is pruned only when the next extraction starts; without this the panel
+  // would animate an abandoned run as live forever ("animate a corpse"). Only
+  // meaningful mid-run: a settled or failed run has legitimately stopped writing,
+  // and finish() stamps updated_at so it cannot false-trip this. The rendering is
+  // deliberately not a verdict of death (see the quiet row below): a healthy run's
+  // write-time freezes for the length of each batch, so this states a fact.
+  const goneQuiet =
     !chainSettled &&
     !failed &&
     secondsSinceUpdate !== null &&
-    secondsSinceUpdate >= STALL_AFTER_SECONDS;
+    secondsSinceUpdate >= QUIET_AFTER_SECONDS &&
+    updatedAtStable;
 
   // Extrapolated from batches actually finished, not from a fixed per-batch
   // guess: batch cost varies with how much policy a page carries, so the only
@@ -445,7 +482,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   return (
     <div
       className={`extract-progress${failed ? " extract-progress--failed" : ""}${
-        stalled ? " extract-progress--stalled" : ""
+        goneQuiet ? " extract-progress--quiet" : ""
       }`}
     >
       <div className="extract-pipeline" aria-label="Extraction pipeline">
@@ -553,13 +590,13 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <CheckCircleFilled style={{ color: "var(--success)" }} />
         ) : failed ? (
           <CloseCircleFilled style={{ color: "var(--danger)" }} />
-        ) : stalled ? (
+        ) : goneQuiet ? (
           // Not a spinner: a run that has gone quiet must not carry the same
           // "work in progress" motion as one that is writing. A still clock in
           // neutral ink reads "as of the last update" without implying failure —
-          // the run may resume — and stall is operational state, which the
+          // the run may resume — and this is operational state, which the
           // reserved-hue rule keeps off the policy palette (so no amber or red).
-          <ClockCircleOutlined className="extract-stall-icon" />
+          <ClockCircleOutlined className="extract-quiet-icon" />
         ) : (
           <LoadingOutlined spin />
         )}
@@ -573,15 +610,18 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <span className="extract-progress-pct">{pct}%</span>
         )}
       </div>
-      {stalled && secondsSinceUpdate !== null && (
+      {goneQuiet && secondsSinceUpdate !== null && (
         // States the silence as a plain fact, next to the last stage the run
-        // reported. Deliberately not a verdict of failure: the run may resume,
-        // and if it does the next server write clears this. role="status" so
-        // assistive tech hears that the figures above are now the last reported.
-        <div className="extract-progress-line extract-stall" role="status">
-          <Text className="extract-stall-text">
-            No update for {duration(secondsSinceUpdate)}. This run may have stalled &mdash; the
-            figures above are the last it reported.
+        // reported, and explains why the gap is ambiguous rather than ruling the
+        // run dead: a batch is one model call, so a healthy run legitimately
+        // writes nothing for the length of a batch. If the run resumes, the next
+        // server write clears this. role="status" so assistive tech hears that
+        // the figures above are now the last the run reported.
+        <div className="extract-progress-line extract-quiet" role="status">
+          <Text className="extract-quiet-text">
+            No update for {duration(secondsSinceUpdate)} &mdash; the figures above are the last this
+            run reported. A batch is drafted in a single step, so a gap like this can be a slow
+            batch rather than a stopped run.
           </Text>
         </div>
       )}
@@ -597,10 +637,10 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         percent={done ? 100 : pct}
         size="small"
         showInfo={false}
-        status={failed ? "exception" : done ? "success" : stalled ? "normal" : "active"}
+        status={failed ? "exception" : done ? "success" : goneQuiet ? "normal" : "active"}
         strokeColor={failed ? undefined : "var(--brand-600)"}
       />
-      {!chainSettled && !failed && !stalled && (
+      {!chainSettled && !failed && !goneQuiet && (
         // Extraction continues server-side, so the one thing a reviewer needs
         // to know before walking away is that they may. Without it the honest
         // assumption is that closing the tab cancels the run. Gated on
@@ -608,7 +648,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         // batch has already committed, so "rules appear as each batch commits"
         // describes work that has stopped — the same "says it is still doing X
         // when it is not" defect the comparison indicator below exists to avoid.
-        // Also suppressed while stalled: a run that has gone quiet is not
+        // Also suppressed once gone quiet: a run that has stopped writing is not
         // committing batches either, so the sentence would describe stopped work.
         <div className="extract-progress-line extract-progress-hint">
           <Text type="secondary">

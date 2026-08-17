@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
+import { act, cleanup, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import type { ExtractionProgress } from "../api";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 
@@ -350,11 +350,11 @@ describe("the route each drafted rule takes is shown, and a route's 0 reads apar
  * navigate-away-and-back, rendered as nothing: the server held a complete record
  * and no consumer read it.
  *
- * Three of constraint 5's four discovery states are pinned here (the fourth,
- * "running but not moving", is the stall block below):
+ * Three of constraint 5's four discovery states are pinned here:
  *   - not-asked-yet must not render as asked-and-idle;
  *   - a run this tab did not start must render;
  *   - an idle document must settle after one read, not poll on forever.
+ * The fourth, "running but not moving", is the gone-quiet block below.
  */
 describe("the panel finds a run it did not start, and settles when there is none", () => {
   it("renders a running extraction discovered on mount with running=false", async () => {
@@ -449,24 +449,36 @@ describe("the panel finds a run it did not start, and settles when there is none
 
 /**
  * The fourth discovery state: the server still calls the run "running", but has
- * not written to it in longer than the stall policy allows. finish() stamps
- * updated_at, so a completed or failed run never looks stalled; an abandoned one
- * keeps its record (pruned only when the next extraction starts) reading
- * active:true, status running, with elapsed_seconds climbing while updated_at
- * stays frozen. The panel must not animate that as a live run — the same class
- * of lie as a chain that reads finished mid-work.
+ * not written to it in longer than the quiet policy allows. finish() stamps
+ * updated_at, so a completed or failed run never reads as quiet; an abandoned
+ * one keeps its record (pruned only when the next extraction starts) reading
+ * active:true, status running, elapsed_seconds climbing while updated_at stays
+ * frozen. The panel must not animate that as a live run — the same class of lie
+ * as a chain that reads finished mid-work.
+ *
+ * But the inverse error is worse and more common. A batch is one model call with
+ * no intermediate write, so a *healthy* run's updated_at legitimately sits still
+ * for the length of a batch — 45–64s on the live corpus. A threshold in the tens
+ * of seconds would accuse working runs constantly, so the policy is in minutes
+ * and two guards keep it off a slow batch: the silence must cross the minutes
+ * policy, and the frozen write-time must be seen on two consecutive polls, so no
+ * run is flagged on a single first reading. The copy states the fact ("No update
+ * for N"), never a verdict of death — so a slow batch that does cross the line
+ * still reads true and clears itself when the next write lands.
  *
  * The silence is computed only from server-stamped values —
- * elapsed_seconds − (updated_at − started_at) — so it is right on the very first
- * poll, before any cross-poll diff exists, and no client clock enters it.
+ * elapsed_seconds − (updated_at − started_at) — so no client clock enters it.
  */
 describe("a run that stopped writing reads as gone quiet, not as working", () => {
   type WireProgress = ExtractionProgress & { started_at?: number; updated_at?: number };
 
-  /** A running payload whose last write was `silence` seconds of server time ago. */
+  /** A running payload whose last write was `silence` seconds of server time ago.
+   * updated_at is deterministic in `silence`, so two calls with the same silence
+   * return the same frozen write-time — what a stopped run looks like across
+   * polls — and a different silence returns a fresh write-time. */
   const withSilence = (silence: number, over: Partial<ExtractionProgress> = {}): WireProgress => {
     const started = 1_000_000;
-    const elapsed = 300;
+    const elapsed = 600;
     // now = started + elapsed, and silence = elapsed − (updated − started),
     // so updated = started + elapsed − silence.
     const updated = started + elapsed - silence;
@@ -487,47 +499,127 @@ describe("a run that stopped writing reads as gone quiet, not as working", () =>
     };
   };
 
-  it("stops the spinner and states the silence when a running run has gone quiet", async () => {
-    extractionProgress.mockResolvedValue(withSilence(200));
-    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
-    await screen.findByText("RUN-TEST");
-    // The plain fact, stated — not a verdict of failure.
-    expect(screen.getByText(/no update for/i)).toBeTruthy();
-    // Nothing animates as alive: no spinner anywhere, and the progress bar is
-    // out of its "active" (animated) state.
-    expect(document.querySelector(".anticon-loading")).toBeNull();
-    expect(document.querySelector(".ant-progress-status-active")).toBeNull();
-    expect(document.querySelector(".extract-progress--stalled")).not.toBeNull();
-    // Not failed: the run may yet resume, so it must not read as an error.
-    expect(document.querySelector(".anticon-close-circle")).toBeNull();
+  it("does not flag a run on a single reading, even one already over the policy", async () => {
+    vi.useFakeTimers();
+    try {
+      // 400s of silence — over the policy — but seen only once. A run must never
+      // be called quiet on first sight: it may have mounted mid-long-batch, and a
+      // batch has no intermediate write to prove otherwise yet.
+      extractionProgress.mockResolvedValue(withSilence(400));
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1); // flush the mount read only
+      });
+      expect(screen.queryByText(/no update for/i)).toBeNull();
+      expect(document.querySelector(".extract-progress--quiet")).toBeNull();
+      // Still presented as working until a second reading confirms the freeze.
+      expect(document.querySelector(".anticon-loading")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("keeps animating a run that is merely between writes, not stalled", async () => {
-    // 10s of silence — a normal gap mid-batch, well under the policy. The panel
-    // must keep presenting it as working: spinner on, not stalled.
-    extractionProgress.mockResolvedValue(withSilence(10));
-    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
-    await screen.findByText("RUN-TEST");
-    expect(screen.queryByText(/no update for/i)).toBeNull();
-    expect(document.querySelector(".anticon-loading")).not.toBeNull();
-    expect(document.querySelector(".extract-progress--stalled")).toBeNull();
+  it("reads as gone quiet once a frozen write-time persists across two polls", async () => {
+    vi.useFakeTimers();
+    try {
+      extractionProgress.mockResolvedValue(withSilence(400));
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1); // poll 1: first sight, not yet quiet
+      });
+      expect(document.querySelector(".extract-progress--quiet")).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_MS); // poll 2: same frozen write-time
+      });
+      // The plain fact, stated — not a verdict of failure.
+      expect(screen.getByText(/no update for/i)).toBeTruthy();
+      // Nothing animates as alive: no spinner anywhere, and the progress bar is
+      // out of its "active" (animated) state.
+      expect(document.querySelector(".anticon-loading")).toBeNull();
+      expect(document.querySelector(".ant-progress-status-active")).toBeNull();
+      expect(document.querySelector(".extract-progress--quiet")).not.toBeNull();
+      // Not failed: the run may yet resume, so it must not read as an error.
+      expect(document.querySelector(".anticon-close-circle")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("never reads a finished run as stalled, however long since its last write", async () => {
-    // A completed run whose updated_at is ancient. The done state must win: the
-    // stall affordance is for running runs only.
-    extractionProgress.mockResolvedValue(
-      withSilence(9999, {
-        status: "completed",
-        stage: "Done — no changes.",
-        processed_batches: 38,
-        rules_committed: 20,
-        delta_unchanged: 20,
-      }),
-    );
-    render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
-    await screen.findByText("RUN-TEST");
-    expect(screen.queryByText(/no update for/i)).toBeNull();
-    expect(document.querySelector(".extract-progress--stalled")).toBeNull();
+  it("never reads the 45-second healthy gap as quiet, however many polls", async () => {
+    vi.useFakeTimers();
+    try {
+      // The producer's own measurement: a healthy, advancing run whose updated_at
+      // sat still for 45s+ because a batch is one model call. Even with the
+      // write-time frozen across many polls, 45s is far under the minutes policy,
+      // so this must never read as quiet — the false accusation that would
+      // otherwise fire on every real run.
+      extractionProgress.mockResolvedValue(withSilence(45));
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_MS * 6 + 100);
+      });
+      expect(screen.queryByText(/no update for/i)).toBeNull();
+      expect(document.querySelector(".extract-progress--quiet")).toBeNull();
+      expect(document.querySelector(".anticon-loading")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never reads a finished run as quiet, however long since its last write", async () => {
+    vi.useFakeTimers();
+    try {
+      // A completed run whose updated_at is ancient (finish() stamped it, then the
+      // 15-minute retention window kept elapsed_seconds climbing — exactly the live
+      // shape: ~32 min of "silence" on a run that is simply done). done must win:
+      // the quiet affordance is for running runs only.
+      extractionProgress.mockResolvedValue(
+        withSilence(9999, {
+          status: "completed",
+          stage: "Done — no changes.",
+          processed_batches: 38,
+          rules_committed: 20,
+          delta_unchanged: 20,
+        }),
+      );
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 100);
+      });
+      expect(screen.queryByText(/no update for/i)).toBeNull();
+      expect(document.querySelector(".extract-progress--quiet")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the quiet read the moment the run writes again", async () => {
+    vi.useFakeTimers();
+    try {
+      // Frozen over the policy for two polls → quiet; then a fresh write (a new
+      // updated_at, silence reset) → back to working. Quiet is a snapshot of the
+      // last two readings, not a latch: recovery is visible, so a slow batch that
+      // briefly crossed the line is not stuck reading dead once it resumes.
+      extractionProgress
+        .mockResolvedValueOnce(withSilence(400))
+        .mockResolvedValueOnce(withSilence(400))
+        .mockResolvedValue(withSilence(5));
+      render(<ExtractionProgressPanel documentVersionId="v1" running={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1); // poll 1: first sight
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_MS); // poll 2: frozen → quiet
+      });
+      expect(document.querySelector(".extract-progress--quiet")).not.toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_MS); // poll 3: fresh write → working
+      });
+      expect(document.querySelector(".extract-progress--quiet")).toBeNull();
+      expect(document.querySelector(".anticon-loading")).not.toBeNull();
+      expect(screen.queryByText(/no update for/i)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
