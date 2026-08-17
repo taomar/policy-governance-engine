@@ -127,6 +127,50 @@ gets the better answer for free.
 
 ---
 
+## The live progress strip
+
+While a document is read, a strip in the extraction panel
+(`ExtractionProgressPanel.tsx`) shows the run advancing through
+**Document → Policy statements → Rules drafted → Linked → In review queue**. A
+sixth figure hangs off the chain rather than sitting in it — `N not turned into
+rules` — because those statements left the pipeline with a recorded reason instead
+of arriving in the queue; it is the live face of the same skip ledger that decides
+coverage above.
+
+Several of its behaviours are load-bearing.
+
+**`—` and `0` are different claims.** A stage the run has not reached shows an em
+dash; a stage that ran and produced none shows `0`. Collapsing the two would let
+"not started" and "found none" read alike, which is the conflation the coverage
+status refuses, one stage finer.
+
+**Each rule is tallied by its route as it is drafted**, shown as
+`N Deterministic · M AI Ready`. On real documents this is heavily one-sided — a
+recent GMU run drafted 3 against 410 — and the tally records how each rule is
+decided, not how good it is; a rule is AI Ready because that is what its source
+states. The two counters are not built to sum to the drafted total: a rule whose
+mode is absent belongs to neither, and a small `neither` figure keeps that
+remainder on screen instead of folding it into one side.
+
+**Comparison is a real stage, not a finished one.** After linking, the run's last
+act is to compare against the previous extraction. During that pass the chain reads
+as settled with a separate "comparing" indicator, because lighting the first box
+again made a run that had read every clause look as though it had restarted.
+
+**The strip finds a run it did not start.** One poll loop runs for any viewer of the
+document, so opening the page mid-run — from another tab, or after a reload — picks
+the run up and follows it to the final line. The earlier version polled only in the
+tab that launched the run, which made the promise that a run survives navigation
+true of the work and false of the interface.
+
+**A run that stops writing reads as having gone quiet.** After about four minutes
+with no server-side write, confirmed across two consecutive polls, the strip marks
+the run quiet and states that plainly rather than declaring an outcome — a healthy
+run writes nothing for the length of one batch, which is a single model call, and a
+shorter fuse would cry wolf on every long batch.
+
+---
+
 ## What this does not fix
 
 **A partial run is still shown to the reviewer as a delta.** The status stops it

@@ -129,6 +129,7 @@ the document itself ("This template is provided as a tool…") is tagged
 | Test proposal | Selected canonical rules, optionally retrieved clauses |
 | Ask AI | Approved rules, optional focused candidate, and retrieved clauses |
 | Summary | Deterministic package statistics |
+| Policy case | One policy's lean payload: rules by ID, verbatim source, and the facts the case supplies |
 
 Only Ask AI and test proposal use Azure AI Search retrieval. Other AI functions
 receive database records selected by the application.
@@ -170,6 +171,39 @@ index and query vectors.
 - Extraction evidence is rechecked in Python.
 - Quality and test proposals reject unsupported rule IDs.
 - Published rule evidence keeps document-version and clause references.
+
+## Putting a case to a policy
+
+`POST /api/ai/policy-case/answer` answers a plain-English case put to one policy.
+The dialog behind it — **Put a case to this policy**, reached from a policy's view
+and from any rule's row — takes a provision and a described situation, never a
+caller-supplied rule set, so the answer can only ever be attributed to what the
+policy already holds. The case is grounded on the same lean payload the
+[`policy-payload`](api.md) endpoint serves: each rule by ID, its verbatim source,
+and the facts the case states.
+
+The endpoint sorts the question before it answers, and the two kinds are answered
+differently:
+
+- an **informational** question asks after a quantity the rules themselves state —
+  a limit, a rate, an eligibility line — and is answered from what the policy holds,
+  quoting each rule the answer rests on by ID and source sentence;
+- a **determination** supplies the facts and asks for the outcome, and is settled
+  one rule at a time by the same deterministic engine or judge a live evaluation
+  would use — the endpoint classifies and answers at the policy level; it does not
+  stand up a second decider of its own.
+
+Classification is deterministic: a temperature-0 read on the fast deployment, keyed
+on the shape of the question rather than trigger words, in English or Arabic.
+
+A determination a reviewer confirms can be **kept as a guard** from the dialog. That
+write lands in this policy's tests (`policy_tests`) and runs first on the next
+publish, flagging the case under Quality if the outcome ever moves. It is never
+written to the evaluation audit trail, which records what calling systems asked of
+a published policy; a reviewer keeping a guard must not read as production traffic.
+An informational answer reports the value a determination would otherwise be handed,
+so there is nothing separate to keep, and the dialog says as much rather than
+offering a guard with nothing to test.
 
 ## Quality and correlation
 

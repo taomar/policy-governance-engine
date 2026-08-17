@@ -136,6 +136,15 @@ Nothing is published automatically. A long extraction uses many model calls. If
 the API restarts, the run is marked failed and already committed candidates stay
 available.
 
+While the run works, a progress strip tracks it through
+**Document → Policy statements → Rules drafted → Linked → In review queue**, with
+any statements that did not become rules shown to the side as `N not turned into
+rules`. A stage the run has not reached yet shows `—`; a stage that ran and found
+none shows `0`. Each drafted rule is also counted by its route —
+`N Deterministic · M AI Ready` — which records how each rule is decided, not how
+good it is. See [Extraction run coverage](extraction-run-coverage.md) for what the
+strip's figures mean once the run ends.
+
 ## 5. Review candidate rules against source evidence
 
 Open **Review**.
@@ -260,6 +269,30 @@ Use the workspace to:
 
 Published versions are read-only. Change live behavior by revising a candidate
 and publishing another version.
+
+### Put a case to this policy
+
+From the Policies workspace — on a policy, or on a single rule's row — select
+**Put a case to this policy**. Describe a situation or ask a question in plain
+words, and the policy answers it as a whole, naming the rules the answer rests on
+so you can read each yourself. This is grounded on the policy's own extracted
+rules, not on anything you supply beyond the situation.
+
+The dialog first sorts what you asked:
+
+- an **informational** question — "how many days of leave does a new joiner
+  accrue?" — is answered from the quantity the policy already states, quoted from
+  its rules;
+- a **determination** — "someone has worked here four months; how many days do
+  they have?" — supplies the facts and asks for the outcome, decided one rule at a
+  time by the same deterministic evaluator a live decision would use.
+
+A determination you confirm can be **kept as a guard**, which re-runs on every later
+published version and flags the case if the outcome ever changes. That keeps it with
+this policy's tests; it is not recorded as live evaluation traffic. An informational
+answer reports the value a determination would otherwise be given, so there is
+nothing separate to keep — the dialog offers a guard only where one can mean
+something.
 
 ## 9. Prove behavior with blind tests
 
