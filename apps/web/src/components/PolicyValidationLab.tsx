@@ -62,9 +62,12 @@ function displayEvaluationStatus(value: string): string {
 
 export function PolicyValidationLab({
   policySetKey,
-  mode = "tests",
 }: {
   policySetKey: string;
+  // Accepted for the interim while ProjectWorkspace still mounts a second
+  // "regression" tab against this component; both tabs now render the one merged
+  // Validation surface, so the value is not read. Removing the redundant tab is
+  // the last step of the merge and lives in ProjectWorkspace.
   mode?: "tests" | "regression";
 }) {
   const { message } = App.useApp();
@@ -462,36 +465,38 @@ export function PolicyValidationLab({
 
   return (
     <div className="validation-lab">
-      {mode === "regression" ? (
-        <>
-          <header className="page-header-row validation-lab-header validation-regression-header">
-            <div>
-              <Title level={3}>Regression suite</Title>
-              <Text type="secondary">
-                Manage active scenario guards, run the complete suite against any published policy version, and inspect
-                immutable evidence from every run.
-              </Text>
-            </div>
-            <div className={`validation-regression-header-state${regressionFailing + regressionErrors > 0 ? " is-risk" : ""}`}>
-              <span>
-                {regressionFailing + regressionErrors > 0 ? <WarningOutlined /> : <SafetyCertificateOutlined />}
-              </span>
-              <div>
-                <strong>{regressionTests.length} active guards</strong>
-                <small>
-                  {regressionFailing + regressionErrors > 0
-                    ? `${regressionFailing + regressionErrors} need review`
-                    : "No failing guard evidence"}
-                </small>
-              </div>
-            </div>
-          </header>
+      <header className="page-header-row validation-lab-header validation-regression-header">
+        <div>
+          <Title level={3}>Validation</Title>
+          <Text type="secondary">
+            Prove a policy behaves as written, and keep the proofs you trust as guards that re-run on every future
+            published version.
+          </Text>
+        </div>
+        <div className={`validation-regression-header-state${regressionFailing + regressionErrors > 0 ? " is-risk" : ""}`}>
+          <span>
+            {regressionFailing + regressionErrors > 0 ? <WarningOutlined /> : <SafetyCertificateOutlined />}
+          </span>
+          <div>
+            <strong>{regressionTests.length} active guard{regressionTests.length === 1 ? "" : "s"}</strong>
+            <small>
+              {regressionTests.length === 0
+                ? "No guard protects this policy yet"
+                : regressionFailing + regressionErrors > 0
+                  ? `${regressionFailing + regressionErrors} need review`
+                  : regressionNeverRun > 0
+                    ? `${regressionNeverRun} awaiting a first run`
+                    : "All guards passing"}
+            </small>
+          </div>
+        </div>
+      </header>
 
           {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
           {!actor.name.trim() && (
             <div className="validation-actor-warning">
               <WarningOutlined />
-              <span>Set your name in the application header to run or manage regression evidence.</span>
+              <span>Set your name in the application header to run or keep validation evidence.</span>
             </div>
           )}
 
@@ -674,15 +679,12 @@ export function PolicyValidationLab({
               </details>
             )}
           </section>
-        </>
-      ) : (
-        <>
-      <header className="page-header-row validation-lab-header">
+      <header className="page-header-row validation-lab-header validation-lab-build-header">
         <div>
-          <Title level={3}>Policy validation lab</Title>
+          <Title level={4}>Build and verify a scenario</Title>
           <Text type="secondary">
             Select exact published policies, generate sealed scenarios, run them blind through the deterministic engine,
-            then reveal and preserve the comparison.
+            then reveal and preserve the comparison — and keep the ones that pass as guards above.
           </Text>
         </div>
         <div className="validation-version-control">
@@ -697,8 +699,6 @@ export function PolicyValidationLab({
           />
         </div>
       </header>
-
-      {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
 
       <div className="validation-steps" aria-label="Validation workflow">
         <div className={selectedRuleIds.size > 0 ? "is-complete" : "is-current"}>
@@ -1194,8 +1194,6 @@ export function PolicyValidationLab({
           </div>
         </div>
       </section>
-        </>
-      )}
 
       <Drawer
         open={policyPreview !== null}
