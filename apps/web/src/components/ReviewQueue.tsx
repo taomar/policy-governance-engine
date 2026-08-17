@@ -74,6 +74,7 @@ import {
   reviewBandCardTitle,
 } from "../reviewBands";
 import { approvedReadyPolicies, approvedReadyScale } from "../approvedReadyDrawer";
+import { refreshQueueAndStrip } from "../reviewReload";
 import { ReviewIdentityNotice } from "./ReviewIdentityNotice";
 import { reviewTabCounts } from "../reviewTabCounts";
 import {
@@ -554,7 +555,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         }
       }
       setSelectedIds(new Set());
-      await loadCandidates();
+      // A decision moves rows AND changes the whole-set tally the strip counts
+      // from; refresh both together so the strip cannot drift from the list or
+      // fall back to its rules-only "count not measured" state on a live commit.
+      await refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets });
     } catch (e) {
       const detail = describeApiFailure(e);
       setError(detail);
@@ -1125,7 +1129,9 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         is_active: true,
       });
       setPublishResult(version);
-      await loadCandidates();
+      // Publishing moves approved -> published, restating every band on the
+      // strip; refresh its facets alongside the rows, not the rows alone.
+      await refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets });
     } catch (e) {
       setError(describeApiFailure(e));
     }
