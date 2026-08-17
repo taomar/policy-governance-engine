@@ -1417,6 +1417,15 @@ export interface ExtractionProgress {
   processed_pages?: number;
   passages_found?: number;
   rules_drafted?: number;
+  /** Drafted rules whose route is a test the engine computes over named facts.
+   *  Read against `rules_drafted`: 0 while the run has drafted nothing, then a
+   *  count of the rules assigned this route. The two route counters need not
+   *  sum to `rules_drafted` — a rule with no mode, or a route added later, is
+   *  in neither. */
+  rules_deterministic?: number;
+  /** Drafted rules whose route is a test the source states in words for a judge
+   *  to read against a case. Read against `rules_drafted` the same way. */
+  rules_ai_ready?: number;
   rules_committed?: number;
   skipped?: number;
   /** Rules that gained at least one confirmed relationship. */
