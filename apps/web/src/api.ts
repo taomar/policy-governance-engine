@@ -801,6 +801,33 @@ export interface SourceDocument {
   policy_set_name?: string | null;
 }
 
+/** One prior registration of the exact bytes just uploaded, returned by the
+ *  upload endpoint under a title/owner/project other than the one just used.
+ *
+ *  The register's dedup is project-scoped on (title, policy_set, content_hash),
+ *  so a second registration of the same source is legitimate — an archived
+ *  snapshot, a re-parse under a new parser, or one source serving two projects —
+ *  and the upload proceeds. These entries travel back with the success so a
+ *  second registration is not silently reported as new content. An empty list
+ *  is a positive answer ("checked, this content is new to the register") and is
+ *  distinct from the field being absent. */
+export interface ContentAlreadyPresent {
+  document_id: string;
+  title: string;
+  owner: string;
+  document_version_id: string;
+  version_number: number;
+}
+
+/** The upload endpoint's success body. Only `content_already_present` is typed
+ *  structurally, because it is the one field this client branches on; the index
+ *  signature keeps `uploadOutcome`'s `Record<string, unknown>` read valid for
+ *  the rest (version_number, clause_count, …). */
+export type DocumentUploadResponse = {
+  content_already_present?: ContentAlreadyPresent[];
+  [key: string]: unknown;
+};
+
 export interface CandidateRuleDraftRequest {
   rule: Record<string, unknown>;
 }
@@ -2804,7 +2831,12 @@ export const api = {
   getDocumentClauses: (documentVersionId: string) =>
     request<Clause[]>(`/api/documents/${encodeURIComponent(documentVersionId)}/clauses`),
 
-  uploadDocument: async (title: string, owner: string, file: File, policySetKey?: string) => {
+  uploadDocument: async (
+    title: string,
+    owner: string,
+    file: File,
+    policySetKey?: string
+  ): Promise<DocumentUploadResponse> => {
     const form = new FormData();
     form.append("file", file);
     const params = new URLSearchParams({ title, owner });

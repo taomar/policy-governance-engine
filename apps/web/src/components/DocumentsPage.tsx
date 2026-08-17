@@ -22,7 +22,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
-import { aiApi, api, PolicyPlatformApiError, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
+import { aiApi, api, PolicyPlatformApiError, type ContentAlreadyPresent, type ExtractResult, type PolicySet, type SourceDocument } from "../api";
 import { DocumentBodyDrawer } from "./DocumentBodyDrawer";
 import { uploadOutcome, uploadWaitState } from "../uploadFeedback";
 import { ingestionOutcome } from "../ingestionOutcome";
@@ -35,6 +35,17 @@ const { Dragger } = Upload;
 
 function formatBytes(hash: string): string {
   return hash.slice(0, 12) + "…";
+}
+
+/** How a prior registration's title reads in the "already registered" note.
+ *
+ * The register still holds one document with an empty heading — it predates the
+ * required-title enforcement added in 0ffd06d — so a blank title must read as an
+ * explicit "Untitled document", a record a reviewer can still place by its
+ * owner, never as an empty gap that looks like a rendering fault. That is
+ * constraint 5 on a field rather than a state. */
+function registrationTitle(entry: ContentAlreadyPresent): string {
+  return entry.title.trim() === "" ? "Untitled document" : entry.title;
 }
 
 /** The ingestion fields the register reads off each version.
@@ -77,6 +88,11 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProblem, setUploadProblem] = useState<string | null>(null);
   const [uploadNotes, setUploadNotes] = useState<string[]>([]);
+  // Other registrations of the exact bytes just uploaded, returned by the
+  // endpoint. Non-empty means the upload succeeded AND the register already held
+  // this source under another name; [] means it was checked and is new. This is
+  // a distinct fact from the success line, so it renders as its own note.
+  const [uploadCopies, setUploadCopies] = useState<ContentAlreadyPresent[]>([]);
 
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [extractOpenFor, setExtractOpenFor] = useState<string | null>(null);
@@ -137,6 +153,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
     setUploadMessage(null);
     setUploadProblem(null);
     setUploadNotes([]);
+    setUploadCopies([]);
     // Title and Owner are marked required (the `*` on their fields); enforce
     // that promise before sending, or a blank title becomes a nameless document
     // in the register — worse than a refused upload, because a reviewer cannot
@@ -165,6 +182,10 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
       setUploadMessage(outcome.message);
       setUploadProblem(outcome.problem);
       setUploadNotes(outcome.notes);
+      // [] vs non-empty is the whole signal; the endpoint always sends the field
+      // on success, and an older server that omits it is treated as "new" rather
+      // than claiming a duplicate it never checked for.
+      setUploadCopies(Array.isArray(result?.content_already_present) ? result.content_already_present : []);
       setTitle("");
       setOwner("");
       setFile(null);
@@ -256,6 +277,28 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                 ))}
               </Space>
             ) : undefined
+          }
+        />
+      )}
+      {uploadCopies.length > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          title="This document's contents are already in the register under another name"
+          description={
+            <Space orientation="vertical" size={2}>
+              <Text type="secondary">
+                The upload was recorded. A second registration of the same source is legitimate — an archived
+                snapshot, a re-parse, or one source filed into two projects — so this is not a problem to fix. It is
+                flagged so two registrations of one source are not mistaken for two sources. The same contents are
+                already held as:
+              </Text>
+              {uploadCopies.map((copy) => (
+                <Text key={copy.document_version_id}>
+                  {registrationTitle(copy)} — owned by {copy.owner} (version {copy.version_number})
+                </Text>
+              ))}
+            </Space>
           }
         />
       )}
