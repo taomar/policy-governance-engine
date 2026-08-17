@@ -107,13 +107,17 @@ inventory and commands.
   property, gives a reason, and reads as settled, while the behaviour it
   describes lives in another module that a reader has no cause to open.
 
-- **Drawing the largest policy costs about six seconds.** The Review and
-  Policies rule card gained a per-rule name and inline detail, and rendering the
-  largest measured policy now takes roughly six seconds on a developer machine —
-  enough that `apps/web/src/nothingIsBehindAClick.test.tsx` states its own raised
-  time limit and records the cost rather than reporting a fault that is not there.
-  The cost is real, not a test artefact: a reviewer scrolling a queue of large
-  policies feels the same delay.
+- **Opening the largest policy renders every rule at once.** The Review and
+  Policies rule card draws a policy's whole body — each rule with its name and
+  inline detail — into the DOM in a single render, with no pagination or
+  windowing, so the largest measured policy (72 rules) is the heaviest single
+  render the build performs. In a queue that cost is bounded: a list draws
+  collapsed heads, and a card's full body only when a reviewer opens it, not for
+  every card scrolled past. The completeness test in
+  `apps/web/src/nothingIsBehindAClick.test.tsx` draws that whole policy and
+  carries a deliberately generous time budget, so a slow render is recorded as
+  cost rather than tripping a stopwatch and reporting rules that are all present
+  as missing.
 
 - **A corrected extraction artefact survives in records already extracted.**
   `infrastructure/extraction/quantity_projection.py` used to borrow a comparison
