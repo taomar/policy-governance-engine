@@ -74,6 +74,7 @@ import {
   reviewBandCardTitle,
 } from "../reviewBands";
 import { approvedReadyPolicies, approvedReadyScale } from "../approvedReadyDrawer";
+import { ReviewIdentityNotice } from "./ReviewIdentityNotice";
 import { reviewTabCounts } from "../reviewTabCounts";
 import {
   policyUnitCount,
@@ -572,7 +573,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     // long scrolling list, and an error rendered off-screen is indistinguishable
     // from the button not working — which is exactly how this was reported.
     if (!identity.trim()) {
-      message.warning("Set your name in the header before approving or rejecting.");
+      message.warning("Set your name in the application header before approving or rejecting.");
       return;
     }
     if (ids.length === 0) {
@@ -2254,6 +2255,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 {selectionNote}
               </Text>
             )}
+
+            <ReviewIdentityNotice
+              identity={identity}
+              hasDecisionWork={selectableIds.length > 0}
+            />
 
             {selectableIds.length > 0 && (
               <div className="bulk-bar">

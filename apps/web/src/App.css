@@ -3460,6 +3460,15 @@
   margin-bottom: 10px;
 }
 
+/* The review queue's standing "set your name" notice, shown above the decision
+   controls while no reviewer is recorded. Same shape as the publish hint above,
+   so one requirement reads one way in both places; the margin matches the
+   queue's own selection-note rhythm rather than the publish form's. */
+.review-identity-warning {
+  max-width: 520px;
+  margin-bottom: 12px;
+}
+
 .publish-effective-field {
   max-width: 320px;
   margin-bottom: 12px;
