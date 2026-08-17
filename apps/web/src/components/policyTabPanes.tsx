@@ -1320,6 +1320,18 @@ export function policyTestRows(
     const runs = covering
       .map((item) => item.latest_run)
       .filter((run): run is NonNullable<typeof run> => run != null);
+    // An active guard is the test that re-runs on every publish — the rule's
+    // actual protection. If one covers this rule and has never run, the rule is
+    // not verified, however many drafts passed: a draft has no teeth, runs
+    // nothing, and its pass cannot stand in for a guard that has claimed
+    // nothing. Filtering the unrun guard out of `runs` above would let exactly
+    // that collapse happen — "Passing" resting on drafts while the test that
+    // runs on publish has never run. So an unrun active guard blocks passing,
+    // matching the validation lab, which reads the guard as "awaiting a first
+    // run" rather than counting the drafts around it.
+    const activeGuardNeverRun = covering.some(
+      (item) => item.test.is_active && item.latest_run == null,
+    );
     let state: RuleTestState = "untested";
     if (covering.length === 0) state = "untested";
     else if (runs.length === 0) state = "unverified";
@@ -1327,7 +1339,7 @@ export function policyTestRows(
     // it is unverified. Folding it into failing would report a defect in the
     // policy where the defect is in the run.
     else if (runs.some((run) => run.status === "fail")) state = "failing";
-    else if (runs.every((run) => run.status === "pass")) state = "passing";
+    else if (runs.every((run) => run.status === "pass") && !activeGuardNeverRun) state = "passing";
     else state = "unverified";
 
     return {
@@ -1484,6 +1496,24 @@ function RuleTestDetail({ items }: { items: PolicyTestListItem[] }) {
                   asks for, not a result to celebrate, and colouring it would rank
                   one governance outcome above another. */}
               <Text>{expected}</Text>
+            </div>
+
+            <div className="rule-test-detail-field">
+              <Text type="secondary" className="rule-test-detail-label">
+                Regression suite
+              </Text>
+              {/* The teeth axis, drawn from is_active and never before shown on
+                  this table. An active guard is what runs on publish — the
+                  protection; a draft runs nothing until a human accepts it. The
+                  words are the validation lab's own, verbatim, so the two
+                  surfaces cannot drift into two accounts of the same fact. This
+                  is why a rule can read "Not yet run" while a draft beside it
+                  passed: the draft is not the thing that runs. */}
+              <Text>
+                {test.is_active
+                  ? "Active — automatically re-runs on every future publish"
+                  : "Not active — this scenario only runs when requested"}
+              </Text>
             </div>
 
             <div className="rule-test-detail-field">
