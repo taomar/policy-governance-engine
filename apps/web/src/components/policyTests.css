@@ -1,0 +1,109 @@
+/*
+ * The Tests tab, and specifically the per-test detail a rule's row opens.
+ *
+ * This file is owned by the Tests pane alone. It exists so the detail that draws
+ * what a test says — its situation, the facts it supplies, the outcome it
+ * expects, and what its last run returned — has somewhere to live without
+ * reaching into the shared pane stylesheet. The vocabulary of the fact chips
+ * deliberately echoes the validation lab's register, so a fact reads the same
+ * in both places.
+ */
+
+.rule-test-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 8px 8px;
+}
+
+.rule-test-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+}
+
+.rule-test-detail-item + .rule-test-detail-item {
+  margin-top: 0;
+}
+
+.rule-test-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * A quiet two-column read: a fixed label on the left, the value on the right, so
+ * the four fields line up and a reviewer's eye can run down them. It collapses
+ * to stacked rows on a narrow modal rather than crushing the value.
+ */
+.rule-test-detail-field {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.rule-test-detail-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rule-test-detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rule-test-detail-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
+  font-size: 12px;
+}
+
+.rule-test-detail-fact code {
+  font-size: 12px;
+}
+
+.rule-test-detail-fact b {
+  opacity: 0.5;
+}
+
+.rule-test-detail-fact em {
+  font-style: normal;
+  font-weight: 600;
+}
+
+.rule-test-detail-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rule-test-detail-note {
+  grid-column: 2;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+  .rule-test-detail-field {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .rule-test-detail-note {
+    grid-column: 1;
+  }
+}

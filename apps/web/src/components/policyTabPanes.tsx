@@ -69,6 +69,7 @@ import {
   type PolicyTesting,
 } from "./policyTesting";
 import "./policyTabPanes.css";
+import "./policyTests.css";
 
 const { Text, Paragraph } = Typography;
 
@@ -1234,6 +1235,13 @@ export interface RuleTestRow {
   /** The tests covering this rule, so a row can run its own without the pane
    *  having to re-derive which ones they were. */
   testIds: string[];
+  /** The full test records covering this rule, kept so the row can render what
+   *  each test actually says — its scenario, the facts it supplies, the outcome
+   *  it expects, and what its last run returned — rather than a bare count. The
+   *  count was standing in for its own content: a reviewer saw "2 · Passing" and
+   *  had no way to reach what those two tests assert. The information was already
+   *  in hand on the list item; it was simply never drawn. */
+  items: PolicyTestListItem[];
   /** How many of them this app proposed and nobody has accepted yet.
    *
    *  Kept separate from `state` rather than folded into it. A proposed test is
@@ -1328,6 +1336,7 @@ export function policyTestRows(
       state,
       tests: covering.length,
       testIds: covering.map((item) => item.test.id),
+      items: covering,
       awaitingReview: covering.filter((item) => item.test.review_status === "pending_review").length,
       engineEvaluates: engineDecidesRule(entry.rule),
       decider: ruleDecider(entry.rule),
@@ -1343,6 +1352,164 @@ export type PolicyTestingVerbs = Pick<
   PolicyTesting,
   "generate" | "run" | "target" | "busy" | "working" | "error" | "dismissError"
 >;
+
+/**
+ * A value from a test's supplied facts, drawn so a reviewer can read it.
+ *
+ * A small copy of the validation lab's helper of the same name, kept in step
+ * with it deliberately: a fact rendered one way there and another way here would
+ * be two accounts of the same value, free to drift. It is not exported from the
+ * lab, so this is the narrowest possible restatement rather than a second idea.
+ */
+function displayFactValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null) return "null";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/** An evaluation status read as words, not as an enum. The lab's `SATISFIED`
+ *  becomes `SATISFIED`; a compound like `NOT_SATISFIED` loses its underscores.
+ *  The same one-line transform the lab applies, so the two never disagree. */
+function displayEvaluationStatus(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+/**
+ * What one run of a test amounts to, told in four separate answers so the one
+ * this pane exists to forbid — a never-run test reading as a passed one — cannot
+ * happen. `error` is not folded into `fail`: a run that could not complete has
+ * claimed nothing about the policy, so it is reported as not having settled
+ * rather than as a defect in the rule. That mirrors the row's own reading, where
+ * an errored run keeps the rule unverified rather than failing it.
+ */
+function lastRunAccount(run: PolicyTestListItem["latest_run"]): {
+  color?: string;
+  label: string;
+  /** Said in full so "not run" can never be mistaken for "run, and passed". */
+  note: string;
+  actual: string | null;
+} {
+  if (!run) {
+    return {
+      label: "Not run",
+      note: "This test has not been run yet — nothing is known about its outcome.",
+      actual: null,
+    };
+  }
+  const actual = run.actual_response_json?.overall_status
+    ? displayEvaluationStatus(run.actual_response_json.overall_status)
+    : null;
+  if (run.status === "pass") {
+    return { color: "green", label: "Passed", note: run.explanation ?? "", actual };
+  }
+  if (run.status === "fail") {
+    return { color: "red", label: "Failed", note: run.explanation ?? "", actual };
+  }
+  return { color: "orange", label: "Could not run", note: run.explanation ?? "", actual };
+}
+
+/**
+ * What a rule's tests actually say, drawn in the table beside the count instead
+ * of behind a click.
+ *
+ * The pane used to render "2 · Passing" and stop. A reviewer was then asked to
+ * trust a green tag without ever seeing the scenario it summarised — which is
+ * the click-to-discover shape constraint 6 exists to prevent, arriving as a
+ * count that stands in for its own content. Everything here was already on the
+ * list item the row was built from; this only draws it.
+ *
+ * It is read-only on purpose. The row already carries every verb (Run, Put a
+ * case); repeating them per test would be two controls for one action and a
+ * second place for them to disagree. Reading a test is not a decision, so
+ * nothing here decides.
+ */
+function RuleTestDetail({ items }: { items: PolicyTestListItem[] }) {
+  return (
+    <div className="rule-test-detail">
+      {items.map((item) => {
+        const test = item.test;
+        const facts = Object.entries(test.input_facts ?? {});
+        const expected = displayEvaluationStatus(test.expected_overall_status ?? "Any status");
+        const outcome = lastRunAccount(item.latest_run);
+        const scenario = test.scenario_text || test.description;
+        return (
+          <div key={test.id} className="rule-test-detail-item" data-testid={`rule-test-${test.id}`}>
+            <div className="rule-test-detail-head">
+              <Text strong>
+                <DirectionalText>{test.name || "An unnamed test"}</DirectionalText>
+              </Text>
+              {test.review_status === "pending_review" ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  ✦ Awaiting your review
+                </Text>
+              ) : null}
+            </div>
+
+            <div className="rule-test-detail-field">
+              <Text type="secondary" className="rule-test-detail-label">
+                Situation
+              </Text>
+              {scenario ? (
+                <DirectionalText>{scenario}</DirectionalText>
+              ) : (
+                <Text type="secondary">No situation was written for this test.</Text>
+              )}
+            </div>
+
+            <div className="rule-test-detail-field">
+              <Text type="secondary" className="rule-test-detail-label">
+                Facts it supplies
+              </Text>
+              {facts.length > 0 ? (
+                <span className="rule-test-detail-facts">
+                  {facts.map(([fact, value]) => (
+                    <span key={fact} className="rule-test-detail-fact">
+                      <code>{fact}</code>
+                      <b>=</b>
+                      <em>{displayFactValue(value)}</em>
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <Text type="secondary">No facts are supplied; the case is the situation above.</Text>
+              )}
+            </div>
+
+            <div className="rule-test-detail-field">
+              <Text type="secondary" className="rule-test-detail-label">
+                Expects
+              </Text>
+              {/* Plain, not a coloured tag: the expected verdict is what the test
+                  asks for, not a result to celebrate, and colouring it would rank
+                  one governance outcome above another. */}
+              <Text>{expected}</Text>
+            </div>
+
+            <div className="rule-test-detail-field">
+              <Text type="secondary" className="rule-test-detail-label">
+                Last run
+              </Text>
+              <span className="rule-test-detail-outcome">
+                <Tag color={outcome.color}>{outcome.label}</Tag>
+                {outcome.actual ? (
+                  <Text type="secondary">
+                    returned <Text>{outcome.actual}</Text>
+                  </Text>
+                ) : null}
+              </span>
+              {outcome.note ? (
+                <div className="rule-test-detail-note">
+                  <DirectionalText>{outcome.note}</DirectionalText>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function PolicyTestsPane({
   record,
@@ -1378,6 +1545,15 @@ export function PolicyTestsPane({
   const target = testing?.target ?? DRAFT_TARGET;
   const [caseRuleId, setCaseRuleId] = useState<string | null>(null);
   const [policyCaseOpen, setPolicyCaseOpen] = useState(false);
+  // A rule's tests are shown open by default, because the whole point is that a
+  // reviewer sees what the tests say without having to ask. This tracks only the
+  // rows a reviewer has chosen to fold away, keyed by rule id so the choice
+  // survives the rows being rebuilt when tests load — a new covered row arrives
+  // open, and one the reviewer collapsed stays collapsed.
+  const [collapsedRuleIds, setCollapsedRuleIds] = useState<Set<string>>(new Set());
+  const expandedRuleIds = rows
+    .filter((row) => row.items.length > 0 && !collapsedRuleIds.has(row.ruleId))
+    .map((row) => row.ruleId);
   const caseRule = caseRuleId
     ? (record.rules.find((entry) => entry.rule_id === caseRuleId)?.rule ?? null)
     : null;
@@ -1496,6 +1672,23 @@ export function PolicyTestsPane({
         dataSource={rows}
         pagination={false}
         locale={{ emptyText: <Empty description="This policy states no rules to test." /> }}
+        expandable={{
+          // Only a rule that has tests has anything to open. A rule with none
+          // shows no expander, so an empty disclosure never implies content that
+          // was not produced — the "No test" tag on its row is the whole story.
+          rowExpandable: (row) => row.items.length > 0,
+          expandedRowKeys: expandedRuleIds,
+          onExpand: (expanded, row) => {
+            setCollapsedRuleIds((previous) => {
+              const next = new Set(previous);
+              if (expanded) next.delete(row.ruleId);
+              else next.add(row.ruleId);
+              return next;
+            });
+          },
+          expandedRowRender: (row) =>
+            row.items.length > 0 ? <RuleTestDetail items={row.items} /> : null,
+        }}
         columns={[
           {
             title: "Rule",
