@@ -42,7 +42,7 @@
  * trail records the second only, never either of these.
  */
 import { useState } from "react";
-import { Alert, Button, Empty, Progress, Select, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Progress, Select, Space, Table, Tag, Typography } from "antd";
 import { ReadOutlined, SaveOutlined } from "@ant-design/icons";
 import { Input } from "antd";
 import {
@@ -797,12 +797,7 @@ export function PolicyCaseRunner({
         answer rests on so you can read each yourself.
       </Paragraph>
 
-      <Paragraph type="secondary" data-testid="policy-case-target">
-        The case is put to <Text strong>{targetLabel(target)}</Text>.
-        {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
-      </Paragraph>
-
-      <Paragraph>
+      <Paragraph style={{ marginBottom: 8 }}>
         <Text strong>Describe a case in plain English</Text>
       </Paragraph>
       <TextArea
@@ -812,18 +807,15 @@ export function PolicyCaseRunner({
         placeholder="e.g. Someone in the situation this policy governs asks whether they may proceed"
         data-testid="policy-case-scenario"
       />
-      <Space style={{ marginTop: 12, marginBottom: 16 }} wrap>
-        <Text type="secondary">Reasoning effort</Text>
-        <Select<ReasoningEffort>
-          value={reasoningEffort}
-          onChange={setReasoningEffort}
-          style={{ width: 120 }}
-          options={[
-            { value: "low", label: "Low" },
-            { value: "medium", label: "Medium" },
-            { value: "high", label: "High" },
-          ]}
-        />
+      <div style={{ marginTop: 16 }}>
+        <Paragraph
+          type="secondary"
+          data-testid="policy-case-target"
+          style={{ fontSize: 12, marginBottom: 8 }}
+        >
+          The case is put to <Text strong>{targetLabel(target)}</Text>.
+          {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
+        </Paragraph>
         <Button
           type="primary"
           icon={<ReadOutlined />}
@@ -840,7 +832,45 @@ export function PolicyCaseRunner({
               : "Reading the case…"
             : "Put this case to this policy"}
         </Button>
-      </Space>
+      </div>
+
+      {/* Reasoning effort is a tuning dial, not a co-equal of the action it sat
+          beside. It decides nothing about what the policy says — only how hard the
+          model works to read the case. Drawn at the button's weight with no hint of
+          what it changed, it read as a decision the reviewer was being asked to make
+          and given no grounds to make. Demoted to a quiet line and given, in a few
+          words, the one reason a reviewer would ever touch it. The control is
+          unchanged; only its prominence and its silence are. */}
+      <div
+        data-testid="policy-case-effort"
+        style={{
+          marginTop: 12,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Reasoning effort
+        </Text>
+        <Select<ReasoningEffort>
+          size="small"
+          value={reasoningEffort}
+          onChange={setReasoningEffort}
+          style={{ width: 104 }}
+          options={[
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" },
+          ]}
+        />
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          How hard the model reasons before it answers — raise it for a subtle case, at the cost of
+          speed.
+        </Text>
+      </div>
 
       {running && intent === "decision" ? (
         <Progress percent={Math.round((asked / Math.max(rules.length, 1)) * 100)} size="small" />
@@ -874,69 +904,87 @@ export function PolicyCaseRunner({
       ) : null}
 
       {!showInformational ? (
-        <Table<CaseAnswer>
-        size="small"
-        rowKey="ruleId"
-        dataSource={answers ?? []}
-        pagination={false}
-        style={{ marginTop: 12 }}
-        locale={{
-          emptyText: (
-            <Empty
-              description={
-                rules.length === 0
-                  ? "This policy states no rules to put a case to."
-                  : "Describe a case above, and this policy will answer it."
-              }
-            />
-          ),
-        }}
-        columns={[
-          {
-            title: "Rule",
-            dataIndex: "title",
-            render: (title: string) => <DirectionalText>{title}</DirectionalText>,
-          },
-          {
-            title: "Decided by",
-            dataIndex: "decidedBy",
-            width: 130,
-            render: (decidedBy: CaseAnswer["decidedBy"]) => (
-              <Tag color={DECIDED_BY[decidedBy].color}>{DECIDED_BY[decidedBy].label}</Tag>
-            ),
-          },
-          {
-            title: "Answer",
-            key: "answer",
-            render: (_: unknown, row: CaseAnswer) => (
-              <Space direction="vertical" size={2}>
-                {row.label ? (
-                  <Tag color={row.color}>{row.label}</Tag>
-                ) : (
-                  <Text type="secondary">{row.unanswered}</Text>
-                )}
-                {row.account ? (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    <DirectionalText>{row.account}</DirectionalText>
-                  </Text>
-                ) : null}
-                {row.missing.length > 0 ? (
-                  <Space wrap size={4}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      The case would have to state:
-                    </Text>
-                    {row.missing.map((fact) => (
-                      <Tag key={fact} color="gold">
-                        {fact}
-                      </Tag>
-                    ))}
+        answers && answers.length > 0 ? (
+          <Table<CaseAnswer>
+            size="small"
+            rowKey="ruleId"
+            dataSource={answers}
+            pagination={false}
+            style={{ marginTop: 12 }}
+            columns={[
+              {
+                title: "Rule",
+                dataIndex: "title",
+                render: (title: string) => <DirectionalText>{title}</DirectionalText>,
+              },
+              {
+                title: "Decided by",
+                dataIndex: "decidedBy",
+                width: 130,
+                render: (decidedBy: CaseAnswer["decidedBy"]) => (
+                  <Tag color={DECIDED_BY[decidedBy].color}>{DECIDED_BY[decidedBy].label}</Tag>
+                ),
+              },
+              {
+                title: "Answer",
+                key: "answer",
+                render: (_: unknown, row: CaseAnswer) => (
+                  <Space direction="vertical" size={2}>
+                    {row.label ? (
+                      <Tag color={row.color}>{row.label}</Tag>
+                    ) : (
+                      <Text type="secondary">{row.unanswered}</Text>
+                    )}
+                    {row.account ? (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        <DirectionalText>{row.account}</DirectionalText>
+                      </Text>
+                    ) : null}
+                    {row.missing.length > 0 ? (
+                      <Space wrap size={4}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          The case would have to state:
+                        </Text>
+                        {row.missing.map((fact) => (
+                          <Tag key={fact} color="gold">
+                            {fact}
+                          </Tag>
+                        ))}
+                      </Space>
+                    ) : null}
                   </Space>
-                ) : null}
-              </Space>
-            ),
-          },
-        ]}
-      />
+                ),
+              },
+            ]}
+          />
+        ) : running ? null : (
+          /* No rows to frame, so no table is drawn. A three-column header over an
+             empty body would draw a structure the run has not produced yet — the
+             very "skeleton framing nothing" this restyle removes. The two silences
+             are told apart below: a case not yet put (nothing has been asked), and
+             a case put that no rule answered (asked, and the answer was empty). */
+          <div
+            data-testid="policy-case-empty"
+            style={{ marginTop: 12, padding: "24px 16px", textAlign: "center" }}
+          >
+            {rules.length === 0 ? (
+              <Text type="secondary" data-testid="policy-case-empty-norules">
+                This policy states no rules to put a case to.
+              </Text>
+            ) : answers ? (
+              <Text type="secondary" data-testid="policy-case-empty-answered">
+                The case was put to this policy, but no rule produced an answer to it.
+              </Text>
+            ) : (
+              <div data-testid="policy-case-empty-unasked">
+                <ReadOutlined style={{ fontSize: 22, opacity: 0.35 }} aria-hidden />
+                <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Describe a case above, and this policy will answer it.
+                </Paragraph>
+              </div>
+            )}
+          </div>
+        )
       ) : null}
 
       {(showInformational && informational) || (answers && answers.length > 0) ? (

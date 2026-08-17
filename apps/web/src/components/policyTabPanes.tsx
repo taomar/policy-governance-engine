@@ -1560,7 +1560,7 @@ export function PolicyTestsPane({
 
   return (
     <div className="policy-pane">
-      <Paragraph type="secondary">
+      <Paragraph data-testid="policy-tests-coverage" style={{ fontSize: 15, marginBottom: 12 }}>
         {tests == null && !loading
           ? "The tests for this policy set have not been loaded."
           : covered === 0
@@ -1636,20 +1636,30 @@ export function PolicyTestsPane({
         </Space>
       ) : null}
 
-      {testing && readDecided > 0 ? (
-        <Paragraph type="secondary" data-testid="policy-tests-instrument">
-          A rule stating a comparison is checked by writing a scenario the engine computes, and the
-          result is kept. A rule stating its test in words is checked by putting a case to the judge
-          that reads it — from its row, or to the whole policy at once — and what comes back is an
-          answer to look at rather than a record to keep.
-        </Paragraph>
-      ) : null}
-
       {testing ? (
-        <Paragraph type="secondary" data-testid="policy-tests-target">
-          Everything on this tab is put to <Text strong>{targetLabel(target)}</Text>.
-          {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
-        </Paragraph>
+        <div data-testid="policy-tests-fineprint" style={{ marginBottom: 12 }}>
+          {readDecided > 0 ? (
+            <Paragraph
+              type="secondary"
+              data-testid="policy-tests-instrument"
+              style={{ fontSize: 12, marginBottom: 6 }}
+            >
+              A rule stating a comparison is checked by writing a scenario the engine computes, and
+              the result is kept. A rule stating its test in words is checked by putting a case to
+              the judge that reads it — from its row, or to the whole policy at once — and what comes
+              back is an answer to look at rather than a record to keep.
+            </Paragraph>
+          ) : null}
+
+          <Paragraph
+            type="secondary"
+            data-testid="policy-tests-target"
+            style={{ fontSize: 12, marginBottom: 0 }}
+          >
+            Everything on this tab is put to <Text strong>{targetLabel(target)}</Text>.
+            {target.kind === "draft" ? ` ${RESULT_DOES_NOT_CARRY_OVER}` : ""}
+          </Paragraph>
+        </div>
       ) : null}
 
       {testing?.error ? (
