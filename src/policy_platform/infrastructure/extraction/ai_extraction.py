@@ -1341,12 +1341,22 @@ async def extract_candidate_rules(
                     batch, batch_index, page_label, record_unread=False
                 )
 
-            await _retry_unread_batches(
+            recovered = await _retry_unread_batches(
                 skipped=skipped,
                 batch_by_identity=unread_batches,
                 read_batch=_reread,
                 recovery_note=_RECOVERED_NOTE,
             )
+            # A recovered batch was read and turned into rules on this pass, so
+            # it is no longer a skip. Move it out of the live `skipped` counter
+            # (undoing the forward-pass advance(skipped=1) each unread batch made)
+            # and into `recovered`, so the strip's dropout box — which asserts
+            # those items were not turned into rules — agrees with the durable
+            # ledger that `mark_recovered` just corrected, and a recovered run
+            # still reads differently from one that never failed. `len(recovered)`
+            # is a fact this run produced, not a written-in count.
+            if recovered:
+                extraction_progress.recover(progress_key, count=len(recovered))
 
         extraction_progress.update(
             progress_key,
