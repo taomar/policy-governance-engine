@@ -123,8 +123,13 @@ inventory and commands.
   states what the quantity *is*, not a test, so it takes the `NO_COMPARISON`
   refusal — fixed at source in `18ca0e4`. The fix is forward-looking: rules
   extracted before it keep the wrong text until their document is re-extracted,
-  so the artefact can still be read on a published policy even though the defect
-  is closed. Re-extraction is the only thing that rewrites an existing record.
+  so the artefact can still be read on a live record even though the defect is
+  closed. Every surviving instance is in the `ais-employee-handbook` set — none
+  in the GMU corpus — and some have already been approved or published, which is
+  the part that catches people. Re-extraction alone does not clear an approved or
+  published record: the corrected draft has to be reviewed, approved and
+  republished before it replaces the live one — a governance act, not a technical
+  one, and the only thing that rewrites an existing record.
 
 - **The bulk-selection counter names no unit.** On both the Review and Policies
   panes the selection counter reads `N selected` without naming that the unit is
