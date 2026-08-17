@@ -18,10 +18,10 @@ exercised only from `tests/` is a capability the product never performs.
 
 The analyser resolves method calls to a class where it honestly can, because
 name matching alone cannot tell `EvaluationRepository.record` (called every
-evaluation) from `ExtractionStageRepository.record` (called by nothing). Four
-classes here define `record`. Where a receiver cannot be resolved the analyser
-assumes the call *could* land anywhere, which loses findings rather than
-inventing them: this guard is meant to be believed when it fires.
+evaluation) from the same method name on a class that nothing calls. More than
+one class here defines `record`. Where a receiver cannot be resolved the
+analyser assumes the call *could* land anywhere, which loses findings rather
+than inventing them: this guard is meant to be believed when it fires.
 """
 
 from __future__ import annotations
@@ -374,10 +374,6 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/docling/pipeline.py::run_extraction": "structured converter; test call sites only",
     "infrastructure/docling/handoff.py::submit_package": "package submission path; no production caller",
     "infrastructure/docling/handoff.py::preview_handoff": "same path, preview half",
-    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.record": "stage write; table has migration, model and endpoint, and no writer -- the UI tab that read it was removed once the table was measured empty across every run",
-    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.latest_status": "same repository",
-    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.next_attempt": "same repository",
-    "infrastructure/persistence/extraction_stage_repository.py::ExtractionStageRepository.completed_stage_names": "same repository",
     "infrastructure/ingestion/document_extraction.py::extract_clauses": "reached from scripts only; owned by another workstream",
     # Added 2026-06 with the canonical-fidelity check (verbatim-anchor-source).
     # This is a deferral, not a design decision. The check is built to run on the
@@ -392,7 +388,7 @@ _QUARANTINE: dict[str, str] = {
     # free. If this entry still exists after that, the check is not protecting
     # anything and the honest move is to delete the module, not keep the excuse.
     "infrastructure/ingestion/canonical_fidelity.py::verify_element_text": "built and measured, wiring deferred past the comparison runs -- see the note above; not a permanent exemption",
-    "domain/models.py::OutboxMessage": "outbox table and ORM model; nothing constructs a row -- same shape as the stage repository",
+    "domain/models.py::OutboxMessage": "outbox table and ORM model; nothing constructs a row",
     "infrastructure/docling/dependency_provenance.py::require_dependency_integrity": "its own docstring calls it 'the raising variant used by gates'; no gate calls it",
     "infrastructure/docling/graph_runtime.py::build_runtime": "graph runtime construction; test call sites only",
     "infrastructure/docling/graph_runtime.py::DoclingGraphRuntime.pipeline_config": "same runtime",

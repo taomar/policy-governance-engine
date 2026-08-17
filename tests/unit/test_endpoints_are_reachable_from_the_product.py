@@ -61,12 +61,6 @@ FRAMEWORK_PATHS = {
 #: moment one of these acquires a caller -- so the list cannot quietly outlive
 #: what it describes.
 KNOWN_UNREACHABLE = {
-    "GET /api/extraction/*/stages": (
-        "Served the run-stages tab, which described nine designed stages while "
-        "production runs twenty-four steps. The tab was removed rather than "
-        "left misdescribing the pipeline; the endpoint outlived it. Reported, "
-        "not fixed, pending a decision on whether the real path wants a surface."
-    ),
     "GET /api/policy-exceptions/*": (
         "Single-exception fetch. The product lists exceptions and edits them "
         "from the list, so it never needs one by id. Reported, not fixed."

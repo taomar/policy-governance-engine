@@ -950,59 +950,6 @@ class OutboxMessage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class ExtractionStage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """One recorded stage of a document-extraction run.
-
-    Extraction is long and multi-phase: PDF conversion alone takes roughly three
-    minutes before any model is called. A run that reports only a final value
-    tells an operator nothing when it dies in the middle, and gives no basis for
-    deciding whether a retry is safe. Each stage therefore records what it
-    consumed, what it produced, and how it ended.
-
-    `input_hash` and `output_hash` are what make a retry decidable rather than
-    hopeful: a stage whose inputs hash the same as a previous successful run
-    produced the same output, so it can be skipped instead of repeated.
-
-    `idempotency_key` is the run-level key derived from the source bytes,
-    canonical artifact, template and configuration. It is stored on every stage
-    of the run so a partially completed run can be found by key alone, without
-    first knowing which stage it reached.
-
-    Deliberately *not* a second review or approval state machine. These rows
-    describe extraction bookkeeping; the stages that observe the application's
-    own decisions record references to them rather than duplicating their state.
-    """
-
-    __tablename__ = "extraction_stages"
-    __table_args__ = (
-        UniqueConstraint(
-            "idempotency_key", "stage_name", "attempt", name="uq_extraction_stages_key_stage_attempt"
-        ),
-    )
-
-    document_version_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("document_versions.id"), nullable=False, index=True
-    )
-    #: Nullable: the early stages run before an ExtractionRun row exists, and
-    #: forcing one to be created first would mean recording a run that may never
-    #: get past conversion.
-    extraction_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("extraction_runs.id"), nullable=True
-    )
-    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    stage_name: Mapped[str] = mapped_column(String(80), nullable=False)
-    #: Position in the pipeline, stored rather than inferred from `created_at`:
-    #: several stages of one run routinely complete inside the same clock tick.
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ok")
-    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
-    diagnostics_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
-
 class Note(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """A human-authored, append-only note attached to a governed entity.
 

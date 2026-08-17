@@ -32,9 +32,6 @@ from policy_platform.infrastructure.ingestion.canonical_rebuild import (
     canonical_from_clauses,
 )
 from policy_platform.infrastructure.persistence.db import get_session
-from policy_platform.infrastructure.persistence.extraction_stage_repository import (
-    ExtractionStageRepository,
-)
 
 router = APIRouter(prefix="/api/extraction", tags=["extraction"])
 
@@ -233,52 +230,6 @@ async def get_reading_plan(
                 ],
             }
             for unit in plan.units
-        ],
-    }
-
-
-@router.get("/{document_version_id}/stages")
-async def list_extraction_stages(
-    document_version_id: uuid.UUID,
-    idempotency_key: str | None = Query(default=None),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Recorded stages for this document's extraction runs.
-
-    Without `idempotency_key` this returns every run's stages, which is what an
-    operator asking "has this document ever been extracted, and how did it go"
-    needs — a single run's view requires already knowing its key.
-    """
-
-    await _load_version(session, document_version_id)
-
-    if idempotency_key:
-        stages = await ExtractionStageRepository(session).list_for_run(idempotency_key)
-    else:
-        from policy_platform.domain.models import ExtractionStage
-
-        result = await session.execute(
-            select(ExtractionStage)
-            .where(ExtractionStage.document_version_id == document_version_id)
-            .order_by(ExtractionStage.idempotency_key, ExtractionStage.sequence)
-        )
-        stages = list(result.scalars().all())
-
-    return {
-        "document_version_id": str(document_version_id),
-        "stages": [
-            {
-                "idempotency_key": stage.idempotency_key,
-                "stage_name": stage.stage_name,
-                "sequence": stage.sequence,
-                "status": stage.status,
-                "attempt": stage.attempt,
-                "detail": stage.detail,
-                "duration_seconds": stage.duration_seconds,
-                "input_hash": stage.input_hash,
-                "output_hash": stage.output_hash,
-            }
-            for stage in stages
         ],
     }
 
