@@ -810,6 +810,13 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
             </div>
           );
         }}
+        /* The Overview roster's per-rule "Details" opens the rule the reader
+         * pointed at. `handleSelectRule` is the published surface's own rule
+         * opener — the same terminal the inspector, the flat list and the rule
+         * actions below already funnel through — and it takes the rule object
+         * the panel hands back, not an id. The button is drawn only because
+         * this handler reaches it; absent otherwise, by design. */
+        onSelectRule={handleSelectRule}
         ruleActions={(ruleId) => {
           const entry = openPolicyCard.rules.find((r) => r.rule_id === ruleId);
           if (!entry) return {};

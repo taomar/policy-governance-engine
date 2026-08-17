@@ -43,7 +43,7 @@ import {
   type PolicySightingView,
   type PolicyTestingVerbs,
 } from "./policyTabPanes";
-import type { PolicyTestListItem, ReviewFacetRun } from "../api";
+import type { CanonicalRule, PolicyTestListItem, ReviewFacetRun } from "../api";
 import "./policyHeaderActions.css";
 
 const { Text, Title } = Typography;
@@ -124,6 +124,7 @@ export function PolicyDetailPanel({
   policyVersionId,
   policyActions,
   ruleActions,
+  onSelectRule,
   actions,
   tests,
   testsLoading,
@@ -170,6 +171,19 @@ export function PolicyDetailPanel({
   policyActions?: RecordActionHandlers;
   /** What the host can do to one of this policy's rules, given its id. */
   ruleActions?: (ruleId: string) => RecordActionHandlers;
+  /** Opens one of this policy's rules on the surface that owns navigation.
+   *
+   *  Takes the rule the reader pointed at — the object the Overview roster row
+   *  was built from — not its id. `rule_id` is a content hash, so two rules a
+   *  passage states in identical words share one; resolving a click by that id
+   *  here could open a different rule than the one clicked. The panel forwards
+   *  what it was handed and lets the host decide what opening a rule means.
+   *
+   *  Opening a rule is a read: it is offered the same on a sealed, published
+   *  record as on a draft under review, and is not gated on any permission or
+   *  status. Absent when the host wires no handler, so the row shows no way
+   *  onward rather than one that leads nowhere. */
+  onSelectRule?: (rule: CanonicalRule) => void;
   /** Panel chrome supplied by the host (hide, fullscreen, close). */
   actions?: React.ReactNode;
   /** Every test in this policy set, from which this policy's are picked.
@@ -525,6 +539,7 @@ export function PolicyDetailPanel({
             children: (
               <PolicyOverviewPane
                 record={record}
+                onSelectRule={onSelectRule}
                 runs={extractionRuns}
                 sightings={history ?? null}
                 sightingsLoading={historyLoading}
