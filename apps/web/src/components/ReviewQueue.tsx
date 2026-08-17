@@ -1256,7 +1256,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       await api.draftCandidateRule(selectedKey, { rule });
       setShowDraftForm(false);
       resetDraftForm();
-      await loadCandidates();
+      // Drafting adds a candidate, so the whole-set tally the strip counts from
+      // moves, not just the rows. Refresh both through the one shared helper so a
+      // new draft cannot leave the strip a rule behind.
+      await refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets });
     } catch (e) {
       setDraftError(describeApiFailure(e));
     }
@@ -2613,7 +2616,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       )}
 
       {rewriteTarget && (
-        <RewriteModal candidate={rewriteTarget} onClose={() => setRewriteTarget(null)} onApplied={() => void loadCandidates()} />
+        <RewriteModal candidate={rewriteTarget} onClose={() => setRewriteTarget(null)} onApplied={() => void refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets })} />
       )}
       {editTarget && (
         <EditRuleModal
@@ -2621,7 +2624,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           candidate={editTarget}
           allRules={activeVersionRules ?? []}
           onClose={() => setEditTarget(null)}
-          onApplied={() => void loadCandidates()}
+          onApplied={() => void refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets })}
         />
       )}
       {managerAction && (
@@ -2630,7 +2633,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           candidate={managerAction.candidate}
           mode={managerAction.mode}
           onClose={() => setManagerAction(null)}
-          onApplied={() => void loadCandidates()}
+          onApplied={() => void refreshQueueAndStrip({ candidates: loadCandidates, facets: loadFacets })}
         />
       )}
       {askTarget && (

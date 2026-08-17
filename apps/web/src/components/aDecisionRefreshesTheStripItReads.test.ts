@@ -27,11 +27,32 @@
  *
  * Nothing in this repository renders the whole `<ReviewQueue>` under test — its
  * behaviour is pinned through the pure modules it is assembled from, and the
- * wiring that joins them is pinned by reading the source. This reads the two
- * decision-commit funnels and asserts each routes its post-commit reload through
- * the one shared refresh, so neither can quietly drop the facet refetch again.
- * The end-to-end proof — approve, and watch the strip agree with the database
- * without a reload — is taken in the browser, where the defect was found.
+ * wiring that joins them is pinned by reading the source. This reads every funnel
+ * that commits a change the strip counts and asserts each routes its post-commit
+ * reload through the one shared refresh, so none can quietly drop the facet
+ * refetch again. The end-to-end proof — approve, and watch the strip agree with
+ * the database without a reload — is taken in the browser, where the defect was
+ * found.
+ *
+ * WHICH FUNNELS (and why this grew from two to six)
+ *
+ * The first cut pinned the two funnels the browser defect was seen through —
+ * `runReview` and `handlePublish`. But four more commit a change to what the
+ * strip counts, in the same file, through the same rows-only reload, and leaving
+ * them was leaving located instances of the very class this guard names:
+ *
+ *   - `handleDraft` — drafts a new candidate rule, which raises the candidate
+ *     tally the strip reads;
+ *   - the RewriteModal and EditRuleModal `onApplied` hooks — a rewrite or edit
+ *     can move a rule's policy grouping or its decidability, either of which
+ *     moves the per-status policy/rule split the strip shows;
+ *   - the ManagerActionModal `onApplied` hook — a manager override changes
+ *     review_status outright (approve / reject / send-back), moving the tally as
+ *     directly as `runReview` does.
+ *
+ * All six now refresh through the one shared helper. Pure loads — the initial
+ * effect and the manual Refresh button — are not commits and already fetch both
+ * rows and facets, so they are left alone.
  */
 import { describe, expect, it } from "vitest";
 
@@ -53,7 +74,15 @@ function slice(from: string, to: string): string {
 
 const runReview = slice("const runReview = async", "const requestReview");
 const handlePublish = slice("const handlePublish = async", "Copy a composer-generated rule");
+const handleDraft = slice("const handleDraft = async", "const addConditionRow");
 const loadFacets = slice("const loadFacets = async", "};");
+
+// The three modal hooks that refresh the queue after a mutation. Sliced from
+// their opening tag to the self-closing `/>` so the assertion reads exactly the
+// `onApplied` each one is wired with.
+const rewriteModal = slice("<RewriteModal", "/>");
+const editModal = slice("<EditRuleModal", "/>");
+const managerModal = slice("<ManagerActionModal", "/>");
 
 describe("a committed decision refreshes the figures the strip reads", () => {
   it("routes the decision funnel's reload through the shared refresh", () => {
@@ -66,6 +95,22 @@ describe("a committed decision refreshes the figures the strip reads", () => {
     // Publish does not go through runReview; it is its own funnel and moves
     // approved -> published, so it stales the strip the same way.
     expect(handlePublish).toContain("refreshQueueAndStrip");
+  });
+
+  it("routes drafting a new candidate through the same shared refresh", () => {
+    // Drafting adds a candidate, raising the tally the strip counts from; the
+    // rows-only reload left that new rule uncounted on the strip.
+    expect(handleDraft).toContain("refreshQueueAndStrip");
+  });
+
+  it("routes the rewrite, edit and manager-override modals through the same shared refresh", () => {
+    // Each modal commits a change the strip counts — a rewrite or edit can move
+    // a rule's policy grouping or decidability, a manager override changes
+    // review_status outright — so each onApplied refreshes the strip, not the
+    // rows alone.
+    expect(rewriteModal).toContain("refreshQueueAndStrip");
+    expect(editModal).toContain("refreshQueueAndStrip");
+    expect(managerModal).toContain("refreshQueueAndStrip");
   });
 
   it("refreshes the strip's facets and the queue's rows together, not the rows alone", () => {
@@ -82,10 +127,13 @@ describe("a committed decision refreshes the figures the strip reads", () => {
     expect(loadFacets).toContain("api.reviewFacets");
   });
 
-  it("no longer reloads only the rows in either funnel", () => {
-    // Anti-drift: neither funnel may reach back to a bare row reload, which is
-    // the shape that left the strip stale.
-    expect(runReview).not.toMatch(/await\s+loadCandidates\(\)\s*;/);
-    expect(handlePublish).not.toMatch(/await\s+loadCandidates\(\)\s*;/);
+  it("lets no funnel — decision, publish, draft or modal — reload the rows alone", () => {
+    // Anti-drift, file-wide and stronger than the per-funnel checks it replaces:
+    // after a commit nothing may reach back to a bare row reload, the shape that
+    // left the strip stale. No awaited funnel may `await loadCandidates()`, and
+    // no modal may refresh with `void loadCandidates()`. Every post-commit
+    // refresh — present and future — goes through the shared helper or this fails.
+    expect(source).not.toMatch(/await\s+loadCandidates\(\)\s*;/);
+    expect(source).not.toMatch(/onApplied=\{\(\)\s*=>\s*void\s+loadCandidates\(\)\s*\}/);
   });
 });
