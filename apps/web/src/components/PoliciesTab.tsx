@@ -119,6 +119,19 @@ interface PoliciesTabProps {
 }
 
 /**
+ * The label the bulk-selection bar shows once policies are ticked: how many
+ * policies, and — kept beside it, never instead of it — how many rules they
+ * state. Built from `policyUnit`/`ruleUnit`, the two words the rest of this bar
+ * already counts in, so its singular is right at one ("1 policy selected · 1
+ * rule") and it cannot drift from the vocabulary around it. The string it
+ * returns is the one the review queue words this same control with, so the two
+ * panes teach one phrase for one act rather than two that slowly diverge.
+ */
+export function bulkSelectionLabel(policyCount: number, ruleCount: number): string {
+  return `${policyUnit(policyCount)} selected · ${ruleUnit(ruleCount)}`;
+}
+
+/**
  * Read-oriented view of a project's *published* policies. A published version is a sealed
  * snapshot, so nothing here decides anything: no approve, no reject, no edit, no drafting.
  * What it does offer is the same reading the review queue offers, because a policy does not
@@ -707,6 +720,17 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   );
 
   /**
+   * The rules those chosen policies state, totalled — the second number on the
+   * selection bar. A policy is picked whole here, so every rule under it is
+   * swept up with it; the count keeps that visible rather than leaving a reader
+   * who thinks in rules to guess how many they just selected. Summed from the
+   * same `selectedPolicies` the export writes, so the bar and the file agree. */
+  const selectedRuleCount = useMemo(
+    () => selectedPolicies.reduce((total, card) => total + card.rules.length, 0),
+    [selectedPolicies],
+  );
+
+  /**
    * Write the chosen policies out, one policy per line.
    *
    * The shape and the wording both come from `policyExport`, so the file, the
@@ -1060,7 +1084,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                     Select all {policyUnit(cards.length)} in this filter
                   </Checkbox>
                   <span className="policy-export-count">
-                    {selectedPolicyKeys.size} selected
+                    {bulkSelectionLabel(selectedPolicyKeys.size, selectedRuleCount)}
                   </span>
                   <span className="policy-export-spacer" />
                   {/* The unit is named on the button, before it is pressed. A

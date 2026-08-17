@@ -2284,7 +2284,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     {selectedIds.size > 0
                       ? grouped
                         ? `${selectedPolicyCount} ${selectedPolicyCount === 1 ? "policy" : "policies"} selected · ${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"}`
-                        : `${selectedIds.size} selected`
+                        : `${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"} selected`
                       : grouped
                         ? `Select all ${listCards.length} ${listCards.length === 1 ? "policy" : "policies"} in this filter`
                         : `Select all ${selectableIds.length} in this filter`}
