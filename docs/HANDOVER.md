@@ -697,10 +697,17 @@ Two independent agents reached this defect separately, which is the only reason 
 treated it as confirmed rather than as one agent's opinion.
 
 **Defence:** when a count crosses a boundary, put the **unit** in the identifier
-(`policy_rules` / `active_policy_count`, never a bare `policies`) and assert the
+(`policy_rules` / `published_policies`, never a bare `policies`) and assert the
 unit in a test. A name that merely restates the label it will be rendered under is
 not evidence about what it holds. The correct idiom already existed two hundred
 lines above in the same file — `review_pending_policies` — and was not copied.
+
+Those two names are what actually shipped, verified on the live endpoint:
+`policy_rules: 28, published_policies: 2` for the headline set, and
+`policy_rules: 40, published_policies: 8` for the second. An earlier draft of this
+entry gave an invented name as the example, which a documentation agent caught by
+checking the illustration against the running app — the same class of drift this
+entry exists to warn about, committed inside the warning itself.
 
 
 ### 9.10 An invariant's premise can expire while the invariant still reads as true
