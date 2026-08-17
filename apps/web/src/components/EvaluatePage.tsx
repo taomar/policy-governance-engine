@@ -218,6 +218,15 @@ export function EvaluatePage() {
         />
       </div>
 
+      <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 16, maxWidth: 780 }}>
+        This is the evaluation API&apos;s surface — the decision path a calling system invokes. A calling system
+        sends the facts of one case and gets back a determination for each rule, and those requests are what the
+        evaluation audit trail records. Run the same request here by hand to preview the determination a calling
+        system would receive. To ask a policy a question in plain words — what it says, or whether a described case
+        settles — open the &ldquo;Put a case&rdquo; dialog on the policy instead; that is a reviewer&apos;s tool, and
+        nothing it answers is written to this audit trail.
+      </Paragraph>
+
       {error && <Alert type="error" showIcon message={error} />}
 
       <Card
