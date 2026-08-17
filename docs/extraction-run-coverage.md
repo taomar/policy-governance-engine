@@ -151,7 +151,12 @@ retryable set is snapshotted first, so it is one pass and not a loop). A
 recovered batch is relabelled `batch_recovered` and keeps its first-attempt
 reason with a note appended (`mark_recovered`), so the retry stays visible in the
 ledger rather than being erased, and the run summary reports the document was
-covered in full on a retry instead of staying silent. Two things are still never
+covered in full on a retry instead of staying silent. Recovery runs before
+linking, so a recovered batch's rules are drafted, persisted and linked exactly
+like any other's — not second-class; and because those rules now exist, the
+run's live count of what was *not* turned into rules is corrected downward by the
+number recovered (`extraction_progress.recover`), rather than still counting
+batches whose rules are already in the review queue. Two things are still never
 re-read: a batch that fails that single attempt keeps its skip and the run still
 reports it should be repeated; and a judgement — a sentence read and not
 extracted — is left as it is, because the model answered and re-asking it would
