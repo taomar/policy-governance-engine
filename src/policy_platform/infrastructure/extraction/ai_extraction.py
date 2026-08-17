@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,10 +73,13 @@ from policy_platform.infrastructure.extraction.provision_linking import (
 )
 from policy_platform.infrastructure.projection import rule_delta
 from policy_platform.infrastructure.extraction.formulation_mapping import (
+    SKIP_BATCH_RECOVERED,
     SKIP_BATCH_UNREAD,
     SKIP_DISCARDED,
     SKIP_NOT_EXTRACTED,
     formulation_to_candidate_rules,
+    is_retryable_skip,
+    mark_recovered,
     record_skip,
     skip_breaks_coverage,
     skip_counts,
@@ -375,6 +379,108 @@ def _route_tally(rules: list[CanonicalRule]) -> tuple[int, int]:
         if getattr(rule, "evaluation_mode", None) == EvaluationMode.AI_READY
     )
     return deterministic, ai_ready
+
+
+#: Written onto a recovered batch's ledger entry, in front of the original
+#: reason, so the record shows the run recovered from a transient failure rather
+#: than hiding that it happened. Kept here, beside the run that composes the
+#: summary, rather than in the ledger helper, so the helper stays free of any
+#: particular run's wording.
+_RECOVERED_NOTE = "re-read on a second attempt after a transient failure to reach the extractor"
+
+
+def _coverage_notes(skipped: list[dict]) -> list[str]:
+    """The sentences that qualify a run summary when its reading was not plain.
+
+    Four run outcomes read differently to a reviewer and are said separately
+    (constraint 5). A batch never read is a coverage shortfall and the run should
+    be repeated. A batch lost to a transient failure and re-read is not a
+    shortfall — the document was covered — but it is still reported, because a
+    run that had to recover is not the same as one that never failed. A sentence
+    read and judged non-normative is a recall fact the reviewer may want to
+    check. A whole, first-pass reading says none of these.
+
+    Kept out of the summary block itself so the exact wording of each state can
+    be exercised without standing up a whole run.
+    """
+
+    unread_items = [s for s in skipped if skip_breaks_coverage(s)]
+    recovered_items = [s for s in skipped if s.get("kind") == SKIP_BATCH_RECOVERED]
+    # A recovered batch was read and extracted, so it is neither an unread batch
+    # nor a read-but-dropped sentence — it gets its own note and is kept out of
+    # both other buckets on purpose.
+    read_but_dropped = [
+        s
+        for s in skipped
+        if not skip_breaks_coverage(s) and s.get("kind") != SKIP_BATCH_RECOVERED
+    ]
+    notes: list[str] = []
+    if unread_items:
+        notes.append(
+            f"{len(unread_items)} batch(es) could not be read, so this run did not "
+            "cover the whole document and should be repeated."
+        )
+    if recovered_items:
+        notes.append(
+            f"{len(recovered_items)} batch(es) did not reach the extractor on the first "
+            "attempt and were read on a retry, so the document was covered in full."
+        )
+    if read_but_dropped:
+        notes.append(
+            f"{len(read_but_dropped)} sentence(s) were read and not extracted; "
+            "see the skip list to check that judgement."
+        )
+    return notes
+
+
+async def _retry_unread_batches(
+    *,
+    skipped: list[dict],
+    batch_by_identity: dict[str, object],
+    read_batch: Callable[[object], Awaitable[bool]],
+    recovery_note: str,
+) -> list[str]:
+    """Re-read, once, the batches lost to a transient failure earlier in the run.
+
+    A batch can be recorded unread for a reason that has nothing to do with the
+    batch — a DNS or transport blip the per-call retries could not outlast. By
+    the time a long run ends the blip is usually long over, so this makes one
+    more attempt at those batches before coverage is judged, instead of forcing a
+    re-run of the whole document to recover a handful.
+
+    It re-reads *only* skips `is_retryable_skip` accepts — batches that were
+    never read. A judgement is never re-read: it was answered, and re-asking it
+    would be re-rolling the dice. The retryable list is snapshotted before the
+    loop, so this is exactly one pass; a batch that fails its re-read keeps its
+    skip and the run keeps saying, honestly, that it should be repeated.
+
+    A re-read that raises is caught and treated as a batch still unread. This is
+    a recovery attempt, not a new failure mode, and must never be the thing that
+    fails a run that had otherwise finished (the same hazard the
+    `canonical_fidelity` quarantine was deferred for).
+
+    Returns the identities recovered, for logging. A recovered batch's rules are
+    drafted, persisted and linked by the same path as any other's — how many
+    attempts a batch took is a fact about the network, not about the policy.
+    """
+
+    recovered: list[str] = []
+    for skip in [s for s in skipped if is_retryable_skip(s)]:
+        identity = skip.get("identity")
+        if identity is None or identity not in batch_by_identity:
+            continue
+        try:
+            was_read = await read_batch(batch_by_identity[identity])
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "re-read of unread batch %s raised; leaving it recorded as unread",
+                identity,
+                exc_info=True,
+            )
+            was_read = False
+        if was_read and mark_recovered(skipped, identity=identity, note=recovery_note):
+            recovered.append(identity)
+    return recovered
 
 
 async def _document_run_ids(
@@ -950,6 +1056,252 @@ async def extract_candidate_rules(
     )
     extraction_progress.update(progress_key, run_reference=run.reference)
     seen_pages: set[int] = set()
+    unread_batches: dict[str, object] = {}
+
+    async def _read_batch(
+        batch,
+        batch_index: int,
+        page_label: str,
+        *,
+        record_unread: bool = True,
+    ) -> bool:
+        """Read one batch: identify passages, formulate rules, persist them.
+
+        Returns True when the batch was read (including the legitimate empty
+        reading of pure boilerplate) and False when it could not be read at
+        all. On the first pass `record_unread` is True, so an unreadable batch
+        records its skip; the end-of-run recovery pass calls it again with
+        `record_unread=False` so a re-read does not double-record the skip it
+        is trying to resolve.
+        """
+
+        nonlocal superseded, superseded_done
+        batch_ref = batch[0].clause_ref if batch else ""
+
+        clause_texts = {c.clause_ref: c.text for c in batch}
+        clause_order = [c.clause_ref for c in batch]
+
+        # Stage 1 (identify): decide which spans of this batch are actually
+        # policy-bearing and copy them verbatim. Without this the formulator
+        # sees every sentence in the document and, having no instruction to
+        # reject anything, turns contents pages, translation conventions and
+        # legislative amendment instructions into obligations.
+        try:
+            passages, fabricated = await passage_agent.extract(
+                _render_batch(batch),
+                document_id=str(document_version_id),
+                document_name=document_name,
+                # Hand the agent's own addressing table back to the extractor
+                # so a passage that points at a real clause but transcribes it
+                # imperfectly can be repaired by copying, rather than lost.
+                clause_texts=clause_texts,
+                clause_order=clause_order,
+            )
+        except PassageExtractionError as exc:
+            if record_unread:
+                record_skip(
+                    skipped,
+                    item=batch_ref,
+                    reason=f"passage extractor failed for this batch: {exc}",
+                    kind=SKIP_BATCH_UNREAD,
+                    identity=f"batch:{batch_ref}",
+                )
+                extraction_progress.advance(progress_key, skipped=1)
+            return False
+
+        for bad in fabricated:
+            # Identified by the clause it claimed to come from. Where it
+            # named none there is nothing to be the same as, so it is left
+            # unidentified and counted on its own rather than merged with
+            # the other unattributed passages of this batch.
+            record_skip(
+                skipped,
+                item=bad.source.clause_ref or batch_ref,
+                reason="passage discarded: not a verbatim substring of the source",
+                kind=SKIP_DISCARDED,
+                identity=(
+                    f"clauses:{bad.source.clause_ref}" if bad.source.clause_ref else None
+                ),
+            )
+        extraction_progress.advance(progress_key, skipped=len(fabricated))
+
+        if not passages:
+            # A batch of pure boilerplate legitimately yields nothing. This
+            # is the desired outcome, not a failure, so it is not recorded
+            # as a skip — it would otherwise bury real problems in noise.
+            return True
+
+        # Whole-batch evidence: the fallback used only when a specific rule
+        # can't be matched back to the passage(s) it came from (see below).
+        # Also drives `cited` for the human-facing note on that fallback
+        # path.
+        cited_refs = {clean_clause_ref(p.source.clause_ref) for p in passages}
+        cited_refs |= {clean_clause_ref(p.source.end_clause_ref) for p in passages}
+        cited_refs.discard(None)
+        cited = [c for c in batch if c.clause_ref in cited_refs] or batch
+
+        # Per-clause evidence lookup, keyed by ref, covering every clause in
+        # the batch (not just `cited`) so a multi-clause passage span
+        # resolves fully even when its middle clauses cited no passage
+        # boundary directly.
+        clause_evidence_by_ref = {
+            c.clause_ref: {
+                "document_version_id": str(document_version_id),
+                "source_hash": doc_version.content_hash,
+                "page": c.page,
+                "section": c.section,
+                "clause_id": str(c.id),
+            }
+            for c in batch
+        }
+
+        # Per-passage clause spans: which clause(s) each individual Stage-1
+        # passage actually came from. A batch commonly bundles passages
+        # from several unrelated clauses (a document is walked in
+        # fixed-size windows, not one topic at a time), so this is what
+        # lets each rule below cite only the clause(s) it was actually
+        # formulated from, instead of every clause anywhere in the batch.
+        passage_clause_refs = [
+            span_clause_refs(p.source, clause_texts, clause_order) or [] for p in passages
+        ]
+
+        # Stage 2 (formulate): the agent's job. Only the verbatim policy
+        # text is piped to it. Extraction owns no prompt.
+        extraction_progress.advance(progress_key, passages=len(passages))
+        extraction_progress.update(
+            progress_key,
+            stage=(
+                f"Formulating rules from batch {batch_index} of {len(batches)}"
+                f"{page_label} — {len(passages)} policy statement(s) found"
+            ),
+        )
+        try:
+            formulation = await formulator.formulate(_render_passages(passages))
+        except PolicyFormulationError as exc:
+            if record_unread:
+                record_skip(
+                    skipped,
+                    item=batch_ref,
+                    reason=f"formulator agent failed for this batch: {exc}",
+                    kind=SKIP_BATCH_UNREAD,
+                    identity=f"batch:{batch_ref}",
+                )
+                extraction_progress.advance(progress_key, skipped=1)
+            return False
+
+        batch_evidence = [
+            {
+                "document_version_id": str(document_version_id),
+                "source_hash": doc_version.content_hash,
+                "page": clause.page,
+                "section": clause.section,
+                "clause_id": str(clause.id),
+            }
+            for clause in cited
+        ]
+        rules, batch_skipped = formulation_to_candidate_rules(
+            formulation,
+            policy_set_id=str(policy_set.id),
+            extraction_run_id=str(run.id),
+            deployment_name=settings.azure_openai_deployment,
+            prompt_version=PROMPT_VERSION,
+            parser_version=PARSER_VERSION,
+            evidence=batch_evidence,
+            passages=passages,
+            passage_clause_refs=passage_clause_refs,
+            clause_evidence_by_ref=clause_evidence_by_ref,
+            clause_texts_by_ref=clause_texts,
+            source_note="; ".join(c.clause_ref for c in cited),
+        )
+        drafted.extend(rules)
+        # Merged rather than extended: the ledger's "one entry per declined
+        # passage" invariant belongs to the ledger, not to a single batch.
+        # Extending would let the same passage appear twice if two batches
+        # ever declined it, which is the defect this fixes reappearing at
+        # the seam.
+        for entry in batch_skipped:
+            record_skip(
+                skipped,
+                item=entry["item"],
+                reason=entry["reason"],
+                kind=entry["kind"],
+                identity=entry.get("identity"),
+                occurrences=entry.get("occurrences", 1),
+            )
+        # Read the route the mapping assigned each rule as it was drafted,
+        # and report the split beside the drafted count. `_route_tally`
+        # reads the value, never recomputing it, and its two counts need not
+        # sum to `len(rules)` — a rule with an absent or unrecognised mode
+        # is in neither, so the difference stays visible as a gap.
+        drafted_deterministic, drafted_ai_ready = _route_tally(rules)
+        extraction_progress.advance(
+            progress_key,
+            drafted=len(rules),
+            skipped=len(batch_skipped),
+            deterministic=drafted_deterministic,
+            ai_ready=drafted_ai_ready,
+        )
+
+        # Persist and commit per batch rather than once at the end. These
+        # runs are long (tens of model calls over tens of minutes), so an
+        # all-or-nothing transaction would discard every completed batch on
+        # a late failure and leave reviewers staring at an empty queue with
+        # no way to tell progress from failure. Candidates are drafts under
+        # review, not authoritative rules, so partial results are a valid
+        # intermediate state.
+        if rules and not superseded_done:
+            # First real output of this run. Clear the previous run's
+            # unreviewed candidates in the *same transaction* as this
+            # batch's inserts, so the queue never contains both runs at once
+            # and never loses the old set without gaining a new one.
+            superseded = await _supersede_prior_candidates(
+                session, document_version_id, policy_set.id, exclude_run_id=run.id
+            )
+            superseded_done = True
+            extraction_progress.update(progress_key, superseded=superseded)
+        for rule in rules:
+            candidate = await candidate_repo.create(
+                policy_set_id=policy_set.id,
+                extraction_run_id=run.id,
+                rule_type=rule.rule_type.value,
+                payload_json=rule.model_dump(mode="json"),
+            )
+            # Step 13a: attach the rule to the policy its passage states, in
+            # the same transaction as the insert, so a rule and its policy
+            # link commit or roll back together. The provision row itself is
+            # a fact about the document and is never superseded or deleted —
+            # a run that fails after this point leaves it in place, and the
+            # next run's upsert finds it unchanged.
+            provision = provision_for(
+                rule.lineage.source_elements,
+                [
+                    ref
+                    for ref in (
+                        clause_ref_by_id.get(str(reference.clause_id))
+                        for reference in rule.evidence
+                    )
+                    if ref is not None
+                ],
+                provision_index,
+            )
+            if provision is not None:
+                row = await provision_row(
+                    session,
+                    provision_rows,
+                    provision,
+                    policy_set_id=policy_set.id,
+                    document_version_id=document_version_id,
+                )
+                candidate.provision_id = row.id
+            created_ids.append(str(candidate.id))
+            persisted[rule.rule_id] = candidate
+        await session.commit()
+        # Published only after the commit succeeds: this counter is the
+        # answer to "how many rules are in my review queue right now", and
+        # a batch that drafts rules but fails to persist them must not
+        # inflate it. It is deliberately distinct from `rules_drafted`.
+        extraction_progress.update(progress_key, rules_committed=len(created_ids))
+        return True
 
     try:
         for batch_index, batch in enumerate(batches, start=1):
@@ -961,233 +1313,40 @@ async def extract_candidate_rules(
                 processed_batches=batch_index - 1,
                 stage=f"Reading batch {batch_index} of {len(batches)}{page_label} — finding policy statements",
             )
-            # Count the batch's clauses as processed here rather than at the end
-            # of the body: several paths below `continue`, and a clause that was
-            # sent to the agents has been processed regardless of whether it
-            # yielded a rule.
+            # Count the batch's clauses as processed here, before the read is
+            # attempted: a batch can end without drafting a rule, or be recorded
+            # unread, and a clause that was sent to the agents has been processed
+            # regardless of whether it yielded a rule. The recovery pass re-reads
+            # through `_read_batch` directly, not through this loop, so a clause
+            # is counted here exactly once.
             extraction_progress.advance(progress_key, clauses=len(batch), pages=len(seen_pages))
 
-            clause_texts = {c.clause_ref: c.text for c in batch}
-            clause_order = [c.clause_ref for c in batch]
+            read = await _read_batch(batch, batch_index, page_label)
+            if not read:
+                # Stash the batch under the same identity its skip carries so
+                # the recovery pass can find and resolve that ledger entry.
+                unread_batches[f"batch:{batch_ref}"] = (batch_index, page_label, batch)
 
-            # Stage 1 (identify): decide which spans of this batch are actually
-            # policy-bearing and copy them verbatim. Without this the formulator
-            # sees every sentence in the document and, having no instruction to
-            # reject anything, turns contents pages, translation conventions and
-            # legislative amendment instructions into obligations.
-            try:
-                passages, fabricated = await passage_agent.extract(
-                    _render_batch(batch),
-                    document_id=str(document_version_id),
-                    document_name=document_name,
-                    # Hand the agent's own addressing table back to the extractor
-                    # so a passage that points at a real clause but transcribes it
-                    # imperfectly can be repaired by copying, rather than lost.
-                    clause_texts=clause_texts,
-                    clause_order=clause_order,
+        if unread_batches:
+            # A batch can be recorded unread for a reason that has nothing to
+            # do with the batch itself -- a transient failure to reach the
+            # extractor. Make one recovery pass before coverage is judged, so
+            # a whole run need not be repeated to recover a handful of batches
+            # lost to a blip that is over long before a long run ends. This
+            # runs before the linking pass below, so a recovered batch's rules
+            # are linked exactly like any other batch's.
+            async def _reread(item: object) -> bool:
+                batch_index, page_label, batch = item
+                return await _read_batch(
+                    batch, batch_index, page_label, record_unread=False
                 )
-            except PassageExtractionError as exc:
-                record_skip(
-                    skipped,
-                    item=batch_ref,
-                    reason=f"passage extractor failed for this batch: {exc}",
-                    kind=SKIP_BATCH_UNREAD,
-                    identity=f"batch:{batch_ref}",
-                )
-                extraction_progress.advance(progress_key, skipped=1)
-                continue
 
-            for bad in fabricated:
-                # Identified by the clause it claimed to come from. Where it
-                # named none there is nothing to be the same as, so it is left
-                # unidentified and counted on its own rather than merged with
-                # the other unattributed passages of this batch.
-                record_skip(
-                    skipped,
-                    item=bad.source.clause_ref or batch_ref,
-                    reason="passage discarded: not a verbatim substring of the source",
-                    kind=SKIP_DISCARDED,
-                    identity=(
-                        f"clauses:{bad.source.clause_ref}" if bad.source.clause_ref else None
-                    ),
-                )
-            extraction_progress.advance(progress_key, skipped=len(fabricated))
-
-            if not passages:
-                # A batch of pure boilerplate legitimately yields nothing. This
-                # is the desired outcome, not a failure, so it is not recorded
-                # as a skip — it would otherwise bury real problems in noise.
-                continue
-
-            # Whole-batch evidence: the fallback used only when a specific rule
-            # can't be matched back to the passage(s) it came from (see below).
-            # Also drives `cited` for the human-facing note on that fallback
-            # path.
-            cited_refs = {clean_clause_ref(p.source.clause_ref) for p in passages}
-            cited_refs |= {clean_clause_ref(p.source.end_clause_ref) for p in passages}
-            cited_refs.discard(None)
-            cited = [c for c in batch if c.clause_ref in cited_refs] or batch
-
-            # Per-clause evidence lookup, keyed by ref, covering every clause in
-            # the batch (not just `cited`) so a multi-clause passage span
-            # resolves fully even when its middle clauses cited no passage
-            # boundary directly.
-            clause_evidence_by_ref = {
-                c.clause_ref: {
-                    "document_version_id": str(document_version_id),
-                    "source_hash": doc_version.content_hash,
-                    "page": c.page,
-                    "section": c.section,
-                    "clause_id": str(c.id),
-                }
-                for c in batch
-            }
-
-            # Per-passage clause spans: which clause(s) each individual Stage-1
-            # passage actually came from. A batch commonly bundles passages
-            # from several unrelated clauses (a document is walked in
-            # fixed-size windows, not one topic at a time), so this is what
-            # lets each rule below cite only the clause(s) it was actually
-            # formulated from, instead of every clause anywhere in the batch.
-            passage_clause_refs = [
-                span_clause_refs(p.source, clause_texts, clause_order) or [] for p in passages
-            ]
-
-            # Stage 2 (formulate): the agent's job. Only the verbatim policy
-            # text is piped to it. Extraction owns no prompt.
-            extraction_progress.advance(progress_key, passages=len(passages))
-            extraction_progress.update(
-                progress_key,
-                stage=(
-                    f"Formulating rules from batch {batch_index} of {len(batches)}"
-                    f"{page_label} — {len(passages)} policy statement(s) found"
-                ),
+            await _retry_unread_batches(
+                skipped=skipped,
+                batch_by_identity=unread_batches,
+                read_batch=_reread,
+                recovery_note=_RECOVERED_NOTE,
             )
-            try:
-                formulation = await formulator.formulate(_render_passages(passages))
-            except PolicyFormulationError as exc:
-                record_skip(
-                    skipped,
-                    item=batch_ref,
-                    reason=f"formulator agent failed for this batch: {exc}",
-                    kind=SKIP_BATCH_UNREAD,
-                    identity=f"batch:{batch_ref}",
-                )
-                extraction_progress.advance(progress_key, skipped=1)
-                continue
-
-            batch_evidence = [
-                {
-                    "document_version_id": str(document_version_id),
-                    "source_hash": doc_version.content_hash,
-                    "page": clause.page,
-                    "section": clause.section,
-                    "clause_id": str(clause.id),
-                }
-                for clause in cited
-            ]
-            rules, batch_skipped = formulation_to_candidate_rules(
-                formulation,
-                policy_set_id=str(policy_set.id),
-                extraction_run_id=str(run.id),
-                deployment_name=settings.azure_openai_deployment,
-                prompt_version=PROMPT_VERSION,
-                parser_version=PARSER_VERSION,
-                evidence=batch_evidence,
-                passages=passages,
-                passage_clause_refs=passage_clause_refs,
-                clause_evidence_by_ref=clause_evidence_by_ref,
-                clause_texts_by_ref=clause_texts,
-                source_note="; ".join(c.clause_ref for c in cited),
-            )
-            drafted.extend(rules)
-            # Merged rather than extended: the ledger's "one entry per declined
-            # passage" invariant belongs to the ledger, not to a single batch.
-            # Extending would let the same passage appear twice if two batches
-            # ever declined it, which is the defect this fixes reappearing at
-            # the seam.
-            for entry in batch_skipped:
-                record_skip(
-                    skipped,
-                    item=entry["item"],
-                    reason=entry["reason"],
-                    kind=entry["kind"],
-                    identity=entry.get("identity"),
-                    occurrences=entry.get("occurrences", 1),
-                )
-            # Read the route the mapping assigned each rule as it was drafted,
-            # and report the split beside the drafted count. `_route_tally`
-            # reads the value, never recomputing it, and its two counts need not
-            # sum to `len(rules)` — a rule with an absent or unrecognised mode
-            # is in neither, so the difference stays visible as a gap.
-            drafted_deterministic, drafted_ai_ready = _route_tally(rules)
-            extraction_progress.advance(
-                progress_key,
-                drafted=len(rules),
-                skipped=len(batch_skipped),
-                deterministic=drafted_deterministic,
-                ai_ready=drafted_ai_ready,
-            )
-
-            # Persist and commit per batch rather than once at the end. These
-            # runs are long (tens of model calls over tens of minutes), so an
-            # all-or-nothing transaction would discard every completed batch on
-            # a late failure and leave reviewers staring at an empty queue with
-            # no way to tell progress from failure. Candidates are drafts under
-            # review, not authoritative rules, so partial results are a valid
-            # intermediate state.
-            if rules and not superseded_done:
-                # First real output of this run. Clear the previous run's
-                # unreviewed candidates in the *same transaction* as this
-                # batch's inserts, so the queue never contains both runs at once
-                # and never loses the old set without gaining a new one.
-                superseded = await _supersede_prior_candidates(
-                    session, document_version_id, policy_set.id, exclude_run_id=run.id
-                )
-                superseded_done = True
-                extraction_progress.update(progress_key, superseded=superseded)
-            for rule in rules:
-                candidate = await candidate_repo.create(
-                    policy_set_id=policy_set.id,
-                    extraction_run_id=run.id,
-                    rule_type=rule.rule_type.value,
-                    payload_json=rule.model_dump(mode="json"),
-                )
-                # Step 13a: attach the rule to the policy its passage states, in
-                # the same transaction as the insert, so a rule and its policy
-                # link commit or roll back together. The provision row itself is
-                # a fact about the document and is never superseded or deleted —
-                # a run that fails after this point leaves it in place, and the
-                # next run's upsert finds it unchanged.
-                provision = provision_for(
-                    rule.lineage.source_elements,
-                    [
-                        ref
-                        for ref in (
-                            clause_ref_by_id.get(str(reference.clause_id))
-                            for reference in rule.evidence
-                        )
-                        if ref is not None
-                    ],
-                    provision_index,
-                )
-                if provision is not None:
-                    row = await provision_row(
-                        session,
-                        provision_rows,
-                        provision,
-                        policy_set_id=policy_set.id,
-                        document_version_id=document_version_id,
-                    )
-                    candidate.provision_id = row.id
-                created_ids.append(str(candidate.id))
-                persisted[rule.rule_id] = candidate
-            await session.commit()
-            # Published only after the commit succeeds: this counter is the
-            # answer to "how many rules are in my review queue right now", and
-            # a batch that drafts rules but fails to persist them must not
-            # inflate it. It is deliberately distinct from `rules_drafted`.
-            extraction_progress.update(progress_key, rules_committed=len(created_ids))
 
         extraction_progress.update(
             progress_key,
@@ -1481,32 +1640,22 @@ async def extract_candidate_rules(
         summary = " ".join([summary, *comparison_caveats])
     if skipped:
         # Every sentence built above describes the delta, and the delta is
-        # computed only over what was actually read. Left alone, a partial
-        # reading reports itself in the same words as a whole one — including
-        # "no longer found", which reads as a statement about the document when
-        # it is really a statement about how much of the document we reached.
+        # computed only over what was actually read. Left alone, a reading that
+        # was not plain reports itself in the same words as a whole one —
+        # including "no longer found", which reads as a statement about the
+        # document when it is really a statement about how much of the document
+        # we reached.
         #
-        # The two kinds are said separately because they ask the reviewer for
-        # different things. An unread batch means the document was not covered
-        # and the run should be repeated. A sentence read and not extracted
-        # means coverage was complete and a judgement was made that the
-        # reviewer may want to check. Reporting them in one number told a clean
-        # run it had a hole in it, which is the fastest way to teach someone to
-        # ignore the warning.
-        unread_items = [s for s in skipped if skip_breaks_coverage(s)]
-        read_but_dropped = [s for s in skipped if not skip_breaks_coverage(s)]
-        notes = []
-        if unread_items:
-            notes.append(
-                f"{len(unread_items)} batch(es) could not be read, so this run did not "
-                "cover the whole document and should be repeated."
-            )
-        if read_but_dropped:
-            notes.append(
-                f"{len(read_but_dropped)} sentence(s) were read and not extracted; "
-                "see the skip list to check that judgement."
-            )
-        summary = " ".join([summary, *notes])
+        # The distinct outcomes are said separately because they ask the
+        # reviewer for different things: a batch never read means the document
+        # was not covered and the run should be repeated; a batch lost to a
+        # transient failure and re-read means coverage is whole but a recovery
+        # happened; a sentence read and not extracted means a judgement was made
+        # that the reviewer may want to check. Reporting them in one number told
+        # a clean run it had a hole in it, which is the fastest way to teach
+        # someone to ignore the warning. `_coverage_notes` composes them; its
+        # contract explains why each stays in its own bucket.
+        summary = " ".join([summary, *_coverage_notes(skipped)])
     if divided_provisions:
         # Said outside the `skipped` block on purpose. A divided provision is
         # not a skip: nothing was missed, and the run needs no repeating. It is
