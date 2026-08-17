@@ -236,7 +236,6 @@ from the outside.
 | `GET /{document_version_id}/structure` | `api/routers/extraction.py::get_structural_graph` | The structural graph |
 | `GET /{document_version_id}/reading-plan` | `api/routers/extraction.py::get_reading_plan` | `contracts/reading_plan.py::build_reading_plan` |
 | `GET /{document_version_id}/coverage` | `api/routers/extraction.py::get_coverage` | The same reading plan |
-| `GET /{document_version_id}/stages` | `api/routers/extraction.py::list_extraction_stages` | Recorded stage rows |
 
 `build_reading_plan` is genuinely reached in production, by the two endpoints
 that display it. It never reaches a model. The coverage report is truthful about
@@ -246,6 +245,14 @@ a plan that nothing extracts from.
 Step 4a reads it to persist provisions and step 13a files every candidate under
 one, so the graph now changes what is stored rather than only what is drawn.
 That is one item off this list; the rest of it still stands.
+
+A fifth row used to sit here too — a read-only reader of recorded stage rows —
+and it is gone (`c5c06de`): nothing ever wrote a stage, so it returned
+`200 {"stages":[]}` even for a document with real runs, which made *"this run
+recorded no stages"* and *"nothing here records a stage"* the same answer. The
+`extraction_stages` table it read is kept deliberately; only the reader was
+retired. It is not the designed pipeline of the next section — that is a
+different mechanism, still unreached.
 
 `_canonical_from_clauses` (`api/routers/extraction.py`) rebuilds pages with
 `raw_text=""`, which is why fragment offsets cannot be resolved against what it
