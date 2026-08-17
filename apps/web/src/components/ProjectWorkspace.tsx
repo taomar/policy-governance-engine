@@ -62,7 +62,6 @@ type WorkspaceTabKey =
   | "quality"
   | "correlation"
   | "tests"
-  | "regression"
   | "exceptions"
   | "attestations"
   | "decision-log";
@@ -167,18 +166,10 @@ const TAB_META: TabMeta[] = [
   },
   {
     key: "tests",
-    label: "Tests",
+    label: "Validation",
     group: "assure",
     icon: <ExperimentOutlined />,
-    hint: "Worked examples pinned as regression tests against the evaluator.",
-    count: "tests",
-  },
-  {
-    key: "regression",
-    label: "Regression",
-    group: "assure",
-    icon: <HistoryOutlined />,
-    hint: "Active guard scenarios, versioned suite runs and immutable result history.",
+    hint: "Prove a policy behaves as written, and keep the proofs you trust as guards that re-run on every published version.",
     count: "regression_tests",
   },
   {
@@ -321,7 +312,12 @@ export function ProjectWorkspace({
   const [reviewForm] = Form.useForm();
 
   const handleNavigate = (page: string) => {
-    if ((VISIBLE_TAB_KEYS as string[]).includes(page)) setActiveTab(page as WorkspaceTabKey);
+    // "Regression" was merged into the Validation surface, which is now the
+    // "tests" tab. Redirect the retired key so any lingering link — a saved
+    // navigation, a child tab's onNavigate — lands on the merged surface
+    // instead of dead-ending on a tab that no longer exists.
+    const target = page === "regression" ? "tests" : page;
+    if ((VISIBLE_TAB_KEYS as string[]).includes(target)) setActiveTab(target as WorkspaceTabKey);
   };
 
   const openEdit = () => {
@@ -422,7 +418,6 @@ export function ProjectWorkspace({
     quality: <QualityPage policySetKey={policySet.key} />,
     correlation: <CorrelationPage policySetKey={policySet.key} />,
     tests: <PolicyValidationLab policySetKey={policySet.key} />,
-    regression: <PolicyValidationLab policySetKey={policySet.key} mode="regression" />,
     exceptions: <PolicyExceptionsPage policySetKey={policySet.key} />,
     attestations: <PolicyAttestationsPage policySetKey={policySet.key} />,
     "decision-log": <DecisionLogPage policySetKey={policySet.key} />,

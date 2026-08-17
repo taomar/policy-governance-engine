@@ -65,11 +65,6 @@ export function PolicyValidationLab({
   policySetKey,
 }: {
   policySetKey: string;
-  // Accepted for the interim while ProjectWorkspace still mounts a second
-  // "regression" tab against this component; both tabs now render the one merged
-  // Validation surface, so the value is not read. Removing the redundant tab is
-  // the last step of the merge and lives in ProjectWorkspace.
-  mode?: "tests" | "regression";
 }) {
   const { message } = App.useApp();
   const { actor } = useActor();
