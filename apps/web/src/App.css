@@ -3750,6 +3750,25 @@
   overflow: hidden;
 }
 
+/* The list column takes the height of what it holds, not of the workspace.
+   The row holds the list and the inspector at a fixed height (see
+   `.review-workspace--desktop`), and `align-items: stretch` would grow this
+   bordered box to that height whatever its content. That was invisible while
+   the cards were tall and always overflowed; once they collapse to their heads
+   a short column left the rest of the box blank, which a reader reported as
+   broken. `align-self: flex-start` stops the stretch so the box hugs its
+   content, and `max-height: 100%` caps it at the workspace height so a long
+   list scrolls inside `.candidate-list` (its scrollbar is guarded in
+   theListScrollsSoThePanelIsSeen) rather than growing the page and pushing the
+   inspector off screen. Short: no blank. Long: unchanged. The list and the
+   inspector now share a top edge rather than a height — the alignment worth
+   keeping. Desktop-only: the narrow layout has no fixed height to strand a
+   blank against and must keep flowing with the page. */
+.review-workspace--desktop .review-workspace-list {
+  align-self: flex-start;
+  max-height: 100%;
+}
+
 .review-workspace--list .review-workspace-list {
   max-width: none;
   flex: 1 1 100%;
