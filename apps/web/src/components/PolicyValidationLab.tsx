@@ -31,6 +31,7 @@ import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { PolicyInspector } from "./PolicyInspector";
 import { JsonView } from "./JsonView";
 import { ruleDecisionSummary } from "../ruleDisplay";
+import { resolveGuardRule, guardRuleHeadline, guardRuleDetail } from "./guardRuleResolution";
 import { resolveClausesById } from "../clauseCache";
 import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
@@ -578,12 +579,19 @@ export function PolicyValidationLab({
                 </div>
                 {regressionTests.map((item) => {
                   const latest = item.latest_run;
-                  const version = versions.find((entry) => entry.id === latest?.policy_version_id);
-                  const evidenceRules = latest?.policy_version_id
-                    ? exactRulesForVersion(latest.policy_version_id)
-                    : null;
-                  const rule = evidenceRules?.find((entry) => entry.rule_id === item.test.expected_rule_id);
-                  const decision = rule ? ruleDecisionSummary(rule) : null;
+                  const runVersion =
+                    versions.find((entry) => entry.id === latest?.policy_version_id) ?? null;
+                  const ruleView = resolveGuardRule({
+                    expectedRuleId: item.test.expected_rule_id,
+                    runVersionId: latest?.policy_version_id ?? null,
+                    activeVersionId: versionId,
+                    rulesByVersionId,
+                    versions,
+                    loading,
+                    errored: Boolean(error),
+                  });
+                  const decision =
+                    ruleView.kind === "resolved" ? ruleDecisionSummary(ruleView.rule) : null;
                   return (
                     <div
                       key={item.test.id}
@@ -594,20 +602,19 @@ export function PolicyValidationLab({
                         <small>{item.test.scenario_text || item.test.description}</small>
                       </span>
                       <span>
-                        <strong>
-                          {rule?.title ??
-                            (evidenceRules ? item.test.expected_rule_id : "Policy record loading…") ??
-                            "Policy subset"}
-                        </strong>
-                        <small>
-                          {decision?.text ??
-                            `${item.test.expected_rule_id ?? "Multiple policies"} · v${version?.version_number ?? "?"}`}
-                        </small>
+                        <strong>{guardRuleHeadline(ruleView)}</strong>
+                        <small>{guardRuleDetail(ruleView, decision?.text ?? null)}</small>
                       </span>
                       <Tag color={!latest ? "default" : latest.status === "pass" ? "green" : latest.status === "fail" ? "red" : "orange"}>
                         {latest?.status.toUpperCase() ?? "NEVER RUN"}
                       </Tag>
-                      <span>v{version?.version_number ?? "—"}</span>
+                      <span>
+                        {runVersion ? (
+                          `v${runVersion.version_number}`
+                        ) : (
+                          <Text type="secondary">Not yet run</Text>
+                        )}
+                      </span>
                       <span>{latest ? new Date(latest.run_at).toLocaleString() : "—"}</span>
                       <span className="validation-suite-row-actions">
                         <Button
