@@ -141,8 +141,22 @@ typed as `"running" | "completed" | "failed"` in `apps/web/src/api.ts`, which
 belongs to another workstream. The shortfall travels in that record's free-text
 stage instead. The durable status on the run is the one to trust.
 
-**Nothing re-reads what was skipped.** A gap is recorded, reported, and left.
-Closing it means running extraction again.
+**A gap that remains after one automatic recovery is still closed only by
+re-running extraction.** A batch lost to a *transient* failure to reach the
+extractor — a DNS or transport blip the per-call retries could not outlast — now
+earns exactly one re-read at the end of the run, before coverage is judged, so a
+whole document need not be re-extracted to recover a handful of batches
+(`_retry_unread_batches` in `infrastructure/extraction/ai_extraction.py`; the
+retryable set is snapshotted first, so it is one pass and not a loop). A
+recovered batch is relabelled `batch_recovered` and keeps its first-attempt
+reason with a note appended (`mark_recovered`), so the retry stays visible in the
+ledger rather than being erased, and the run summary reports the document was
+covered in full on a retry instead of staying silent. Two things are still never
+re-read: a batch that fails that single attempt keeps its skip and the run still
+reports it should be repeated; and a judgement — a sentence read and not
+extracted — is left as it is, because the model answered and re-asking it would
+be rolling the dice until the answer changed (`is_retryable_skip`). Closing
+either of those means running extraction again.
 
 ---
 
