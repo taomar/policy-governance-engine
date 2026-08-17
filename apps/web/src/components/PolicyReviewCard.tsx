@@ -78,7 +78,7 @@ const { Text } = Typography;
  *
  * Rules from different sentences are still from different sentences. Each
  * passage of the section is its own block, named by its own words and quoting
- * its own text once, with its rules beneath it — so a reviewer scanning a long
+ * its own text once, with the rules read from it — so a reviewer scanning a long
  * card can always see which words an obligation came from.
  *
  * SAID ONCE IF SHARED, SHOWN PER RULE IF IT DIFFERS
@@ -101,10 +101,10 @@ const { Text } = Typography;
  * says only what the quotation does not: its statement, what narrows it, and
  * its outcome where the statement does not already contain it (which, measured,
  * it does for 86% of AIS rules and 91% of GMU's). Where a rule's statement is
- * the marked sentence word for word, the row says so instead of setting the
- * same words a second time. Nothing is elided and nothing moves behind a
- * control: every word withheld from a row is on screen, marked, directly above
- * it.
+ * the marked sentence word for word, the row names it as the marked sentence in
+ * the passage instead of setting the same words a second time. Nothing is elided
+ * and nothing moves behind a control: every word withheld from a row is on
+ * screen, marked, in the passage it was read from.
  *
  * ROUTE IS PER RULE
  *
@@ -123,7 +123,7 @@ const { Text } = Typography;
  * THE PASSAGE BOUNDARY WITHOUT A PASSAGE TITLE
  *
  * Each passage of the section is still its own block, quoting its own text
- * once, with its rules beneath it. It no longer gets a title of its own: the
+ * once, with the rules read from it. It no longer gets a title of its own: the
  * card is named by the heading, and a passage's opening sentence promoted to a
  * label was a third piece of prose competing with the two that matter. A table
  * row lost a duplicate that way — its first cell was the block's name *and* was
@@ -658,11 +658,12 @@ export function PolicyReviewCard({
                             statement exactly as they did before this existed. */}
                         {(() => {
                           const statement = read.statementIsMarkedWhole ? (
-                            // The words are on screen, marked, immediately above.
-                            // Printing them again is the third reading of one
-                            // sentence that this card was rebuilt to stop.
+                            // The words are on screen, marked, in the passage this
+                            // row was read from. Printing them again is the third
+                            // reading of one sentence that this card was rebuilt to
+                            // stop.
                             <Text type="secondary" className="policy-card__rule-restated">
-                              This rule is the highlighted sentence above, word for word.
+                              This rule is the highlighted sentence in the passage, word for word.
                             </Text>
                           ) : (
                             <span className="policy-card__rule-title">
