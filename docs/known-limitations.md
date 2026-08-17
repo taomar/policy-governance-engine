@@ -69,14 +69,16 @@ inventory and commands.
 ## Structural debt
 
 - **Routers issue SQL directly.** The repository layer exists so that query
-  construction lives in one place, and it does not hold. **17** `session.execute`
+  construction lives in one place, and it does not hold. **16** `session.execute`
   calls remain across **6** files under `api/`: `ai.py` (6), `documents.py` (5),
-  `extraction.py` (2), `policy_sets.py` (2), `app.py` (1), `audit.py` (1).
+  `extraction.py` (1), `policy_sets.py` (2), `app.py` (1), `audit.py` (1).
 
   It was 20 across 7. The largest single instance — 133 lines of aggregation
   behind `/review-facets` — moved into
   `infrastructure/persistence/review_facets.py`, which took `candidate_rules.py`
-  from three direct queries to none.
+  from three direct queries to none. Retiring the extraction-stages read endpoint
+  (`c5c06de`) removed one more, taking `extraction.py` from two calls to one — the
+  query went because the surface it served went, not because it was rewritten.
 
   This is containment, not a resolution. Each remaining call is small on its own,
   which is exactly why the pattern spread: no individual one looks like a
