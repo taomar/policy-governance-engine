@@ -93,6 +93,19 @@ class ExtractionProgress:
     #: visible rather than hidden behind one optimistic number.
     rules_committed: int = 0
     skipped: int = 0
+    #: Batches recorded skipped on the first pass — never read, for a reason with
+    #: nothing to do with the batch, such as a transient failure to reach the
+    #: extractor — that were re-read on the end-of-run recovery pass and turned
+    #: into rules. `recover()` moves each out of `skipped` and into here, so the
+    #: live count agrees with the durable ledger (where `mark_recovered` relabels
+    #: the same entry) instead of still counting a batch that was in fact read.
+    #: Kept as its own counter rather than folded back into the processed totals
+    #: so a run that recovered from a blip does not read as one that never hit it:
+    #: recovered is a fourth state, distinct from never-skipped, still-unread, and
+    #: a judgement that was never eligible for re-reading. It is a run-scoped tally
+    #: of the ledger fact, not a second copy of it — `recover()` is its only
+    #: writer and moves the two counters together.
+    recovered: int = 0
     #: Rules that gained at least one confirmed relationship — a table row tied
     #: to its table, a subsection tied to the rule it qualifies. Reported
     #: because the linking pass runs after every batch and was otherwise
@@ -194,6 +207,31 @@ def advance(
     # would multiply the count by the number of batches.
     if linked:
         record.linked = linked
+    record.updated_at = time.time()
+
+
+def recover(document_version_id: str, *, count: int) -> None:
+    """Move `count` batches from `skipped` to `recovered`.
+
+    A batch recorded skipped because it could not be read on the first pass, then
+    read on the end-of-run recovery pass, is no longer a skip: it was drafted,
+    persisted and linked by the same path as any other. Its earlier
+    `advance(skipped=1)` is undone here — `skipped` is a plain running count, not
+    a monotonic one, so it is correctable downward — and counted as a recovery
+    instead. The live `skipped` counter then agrees with the durable ledger the
+    run's `mark_recovered` just relabelled, rather than over-reporting a batch
+    that was in fact read.
+
+    The event is not erased in the correcting: `recovered` keeps the fact that
+    the run hit a transient failure and got past it, so a recovered run does not
+    read as one that never failed. Total and side-effect-free on an unknown run,
+    per this module's reporting-must-not-fail-a-run invariant.
+    """
+    record = _RUNS.get(document_version_id)
+    if record is None:
+        return
+    record.skipped -= count
+    record.recovered += count
     record.updated_at = time.time()
 
 
