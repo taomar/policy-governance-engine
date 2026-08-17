@@ -1,0 +1,35 @@
+/* Styles owned by ExtractionProgressPanel.tsx.
+ *
+ * The shared App.css already styles the pipeline chain, the counters line and
+ * the finished delta. This file carries only what this component added and that
+ * shared sheet does not: the trailing "comparison in progress" row. It is
+ * imported by the component itself, so the markup and its styling travel
+ * together and neither can be shipped without the other.
+ */
+
+/* The run's final act is a comparison against the previous extraction. It
+ * produces no new throughput — every rule is already drafted, linked and in the
+ * review queue — so it is drawn below the settled chain rather than as a sixth
+ * box in it, in the same slot the delta will fill once the run finishes.
+ * "Comparing…" then resolves in place into "since the previous extraction, N
+ * changed". Muted, with a spinner, so it reads as work still happening and never
+ * as a finished result. Mirrors .extract-delta's placement (a separating rule
+ * above, tabular text) so the two read as one evolving region. */
+.extract-compare {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border, #f0f0f0);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The spinner sits on the first text line, not centred against a two-line
+ * paragraph, so the eye lands on it first and reads the sentence from there. */
+.extract-compare .anticon {
+  margin-top: 2px;
+  color: var(--brand-600, #7c3aed);
+  flex: 0 0 auto;
+}

@@ -12,6 +12,7 @@ import {
   SolutionOutlined,
 } from "@ant-design/icons";
 import { aiApi, type ExtractionProgress } from "../api";
+import "./extractionProgressPanel.css";
 
 const { Text } = Typography;
 
@@ -239,6 +240,18 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
   const pct = totalBatches > 0 ? Math.min(100, Math.round((doneBatches / totalBatches) * 100)) : 0;
   const failed = status === "failed";
   const done = status === "completed";
+  // The run's last act is a comparison against the previous extraction. The
+  // service emits it ("Comparing against the previous extraction…") while the
+  // run's status is still "running", deliberately after every rule has been
+  // drafted, linked and committed — classifying earlier would fingerprint a
+  // payload the run had not finished writing. So the throughput chain is
+  // genuinely settled by this point, but the run is NOT done, and "comparing"
+  // is its own state that must read apart from "finished".
+  const comparing = !done && !failed && stage.startsWith("Comparing");
+  // Nothing more moves through the chain once the run is done or in that
+  // trailing comparison pass, so both light every box as complete. `comparing`
+  // keeps its own indicator below the chain so it is never mistaken for done.
+  const chainSettled = done || comparing;
 
   // Extrapolated from batches actually finished, not from a fixed per-batch
   // guess: batch cost varies with how much policy a page carries, so the only
@@ -264,8 +277,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
 
   // Which stage is lit is read from the backend's own stage sentence rather
   // than inferred from counters, which lag a batch behind what is happening.
+  // Once the chain is settled nothing in it is active: `done` and `comparing`
+  // both light every box as complete. On failure the last-touched box is left
+  // lit so the reader sees roughly how far the run got.
   const activeStage: StageKey =
-    done || failed
+    chainSettled || failed
       ? "review"
       : stage.startsWith("Formulating")
         ? "formulate"
@@ -275,15 +291,29 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
             ? "link"
             : "intake";
 
-  const stageValue: Record<StageKey, string> = {
+  const activeIndex = STAGES.findIndex((s) => s.key === activeStage);
+
+  // A stage counter of 0 says two different things and the strip must not let
+  // them blur: "the run reached this stage and found nothing" is a result,
+  // "the run has not reached this stage" is not. So a stage the run has not yet
+  // reached shows an em dash, and only a reached stage shows a number —
+  // including a genuine 0. A settled or failed run counts every stage as
+  // reached: its figures are the final or partial record, not a dash.
+  const reached = (index: number): boolean =>
+    chainSettled || failed || index <= activeIndex;
+
+  const stageCount: Record<StageKey, string> = {
+    // Intake carries its own em dash for "totals not published yet", so it is
+    // never gated on `reached` — it is stage zero and always reached once a run
+    // has begun.
     intake: totalClauses > 0 ? `${doneClauses}/${totalClauses}` : "—",
     scan: String(passages),
     formulate: String(drafted),
     link: String(linked),
     review: String(committed),
   };
-
-  const activeIndex = STAGES.findIndex((s) => s.key === activeStage);
+  const stageValue = (key: StageKey, index: number): string =>
+    key === "intake" || reached(index) ? stageCount[key] : "—";
 
   // Shown only when a previous extraction exists to compare against. On a first
   // run every counter is zero, and a "since the previous extraction" heading
@@ -308,8 +338,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     <div className={`extract-progress${failed ? " extract-progress--failed" : ""}`}>
       <div className="extract-pipeline" aria-label="Extraction pipeline">
         {STAGES.map((s, i) => {
-          const isActive = !done && !failed && s.key === activeStage;
-          const isPast = done || i < activeIndex;
+          // Nothing in the chain is active once it is settled (done, or the
+          // trailing comparison pass) or has failed; every box before the lit
+          // one, and every box once settled, reads as complete.
+          const isActive = !chainSettled && !failed && s.key === activeStage;
+          const isPast = chainSettled || i < activeIndex;
           return (
             <div key={s.key} className="extract-pipeline-item">
               <Tooltip title={s.hint}>
@@ -319,14 +352,14 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
                   }`}
                 >
                   <span className="extract-stage-icon">{s.icon}</span>
-                  <StageValue text={stageValue[s.key]} />
+                  <StageValue text={stageValue(s.key, i)} />
                   <span className="extract-stage-label">{s.label}</span>
                 </div>
               </Tooltip>
               {i < STAGES.length - 1 && (
                 <div
                   className={`extract-flow${
-                    !done && !failed && i === activeIndex - 1 ? " extract-flow--moving" : ""
+                    !chainSettled && !failed && i === activeIndex - 1 ? " extract-flow--moving" : ""
                   }${isPast ? " extract-flow--done" : ""}`}
                   aria-hidden
                 >
@@ -398,6 +431,23 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           <Text type="secondary">
             This keeps running if you navigate away — rules appear in the review queue as each
             batch commits.
+          </Text>
+        </div>
+      )}
+      {comparing && (
+        // The run's final act: every box in the chain is settled, but the
+        // service is still classifying this run against the previous extraction
+        // (see ai_extraction.py — emitted while status is still "running").
+        // Without this the strip would read as finished mid-work. Placed where
+        // the delta lands once the run completes, so "comparing…" resolves in
+        // place into "since the previous extraction, N changed" rather than the
+        // story jumping elsewhere. role="status" so assistive tech hears that
+        // work continues past the settled chain.
+        <div className="extract-compare" role="status">
+          <LoadingOutlined spin />
+          <Text type="secondary">
+            Every rule above is drafted, linked and in the review queue. Now checking this run
+            against the previous extraction of this document to see what changed.
           </Text>
         </div>
       )}
