@@ -32,22 +32,29 @@
  * rules there are; it does not say what they are. So the rule that survives is
  * narrower than the one it replaces: a decision may never be *offered* on a
  * collapsed card. The rules are one obvious expander away, and that expander is
- * the only route to the decision — reveal the rules, then decide them.
+ * the only route to the decision — reveal the rules, then decide them. The open
+ * card is no exception now that it too defaults collapsed: its Approve and Reject
+ * are withheld until its body is shown, exactly like the thirty-one beside it.
  *
  * WHAT IS ASSERTED, AND WHY IT IS A RENDER AND NOT A READ OF THE SOURCE
  *
- * A card that is not the open one renders collapsed: the head — heading, census,
- * route, status, selection — is whole, and the rule body is behind an expander
- * that is a real button carrying `aria-expanded`. Collapsed, it offers no Approve
- * or Reject; expanded in place, without opening the detail panel, it offers both.
- * The head states the rule count whether or not the body is shown, so "collapsed"
- * can never read as "this policy has no rules". And nothing is *stored* behind the
- * expander: the body it reveals holds every rule the policy has, drawn in full,
- * never a slice or a page — checked by rendering the open card, which is the same
- * card fully shown, and by counting the rules the closed one still holds. A
- * source-level check ("no `useState` named collapsed") is not enough, because the
- * thing forbidden is not a mechanism but an outcome: a decision reachable without
- * reading, or a rule the reviewer cannot learn is there.
+ * Every list card renders collapsed — the open one too. (Round 2: the open card
+ * used to force its body open and drew no toggle, so clicking a card to read it in
+ * the panel left a full-height copy of it in the list with no control to shrink it
+ * again. The open card is now a list card like any other; `open` only styles it
+ * and mirrors it in the detail panel, which is the surface actually reading it.)
+ * The head — heading, census, route, status, selection — is whole, and the rule
+ * body is behind an expander that is a real button carrying `aria-expanded`,
+ * present on every card whatever its status, because it is a reading control and
+ * not a decision one. Collapsed, a card offers no Approve or Reject; expanded in
+ * place, without opening the detail panel, a decidable one offers both. The head
+ * states the rule count whether or not the body is shown, so "collapsed" can never
+ * read as "this policy has no rules". And nothing is *stored* behind the expander:
+ * the body holds every rule the policy has, drawn in full, never a slice or a page
+ * — checked by counting the rules a collapsed, unclicked card already holds in the
+ * DOM. A source-level check ("no `useState` named collapsed") is not enough,
+ * because the thing forbidden is not a mechanism but an outcome: a decision
+ * reachable without reading, or a rule the reviewer cannot learn is there.
  *
  * Every count below is paired with a control that fails when nothing renders,
  * because `expect(missing).toHaveLength(0)` is also what a blank page returns.
@@ -205,8 +212,13 @@ function renderCard(
     onOpen?: () => void;
     onApprove?: () => void;
     onReject?: () => void;
+    // A record with no way to decide it — the sealed/approved case. When false, no
+    // Approve/Reject handlers are wired, as a call site leaves them off a record
+    // that permits no decision. The reading control must never depend on it.
+    decision?: boolean;
   } = {},
 ) {
+  const decision = opts.decision ?? true;
   const [card] = buildPolicyCards([policy], candidates);
   const { container } = render(
     <PolicyReviewCard
@@ -219,8 +231,8 @@ function renderCard(
       findingsFor={() => 0}
       onToggleSelect={() => {}}
       onOpen={opts.onOpen ?? (() => {})}
-      onApprove={opts.onApprove ?? (() => {})}
-      onReject={opts.onReject ?? (() => {})}
+      onApprove={decision ? opts.onApprove ?? (() => {}) : undefined}
+      onReject={decision ? opts.onReject ?? (() => {}) : undefined}
     />,
   );
   return { card, container };
@@ -233,7 +245,7 @@ function articleOf(container: HTMLElement): HTMLElement {
   return article;
 }
 
-describe("a list card opens collapsed, and hides no rule once it is open", () => {
+describe("a list card opens collapsed — the open one too — and hides no rule once it is shown", () => {
   // WHY THE COMPLETENESS TESTS CARRY AN EXPLICIT BUDGET
   //
   // Some of these draw the largest policy anyone has measured and then look for
@@ -333,13 +345,13 @@ describe("a list card opens collapsed, and hides no rule once it is open", () =>
     DRAWS_A_WHOLE_LARGE_POLICY,
   );
 
-  // ---- once shown, nothing is stored behind the click ----
+  // ---- nothing is stored behind the click: the body is a reveal, not a fetch ----
 
   it(
-    "draws every one of a large policy's rules when it is the open card",
+    "holds every one of a large policy's rules in the DOM, collapsed and unclicked",
     () => {
       const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-      const { card } = renderCard(policy, candidates, { open: true });
+      const { card } = renderCard(policy, candidates);
 
       // CONTROL. If the fixture or the builder collapsed, the loop below would
       // iterate over nothing and the test would pass on an empty page.
@@ -351,18 +363,18 @@ describe("a list card opens collapsed, and hides no rule once it is open", () =>
 
       expect(
         missing,
-        `${missing.length} of ${card.rules.length} rules are missing from the open ` +
-          "card. Opening a card reveals its rules; it does not fetch or slice them.",
+        `${missing.length} of ${card.rules.length} rules are missing from a collapsed, ` +
+          "unclicked card. Collapse hides the body with CSS; it does not fetch or slice the rules.",
       ).toEqual([]);
     },
     DRAWS_A_WHOLE_LARGE_POLICY,
   );
 
   it(
-    "draws every passage of a large policy when it is open",
+    "holds every passage block of a large policy in the DOM, collapsed and unclicked",
     () => {
       const { policy, candidates } = bigPolicy(LARGEST_MEASURED_POLICY, MERGED_REPEATS);
-      const { card } = renderCard(policy, candidates, { open: true });
+      const { card } = renderCard(policy, candidates);
 
       expect(card.passages.length).toBe(MERGED_REPEATS);
       // Each passage draws its own block, so the count of blocks is the count of
@@ -373,35 +385,96 @@ describe("a list card opens collapsed, and hides no rule once it is open", () =>
     DRAWS_A_WHOLE_LARGE_POLICY,
   );
 
-  it("reveals every rule the open card shows when a closed card is expanded", () => {
-    // The renegotiated form of "renders the same rules whether or not open": the
-    // open card and the expanded-in-place card are the same card fully shown, so
-    // they hold the same rules. What changed is only whether the reviewer had to
-    // ask to see them.
+  it("draws the same rule rows whether or not it is the open card", () => {
+    // `open` styles the card and mirrors it in the detail panel; it never changes
+    // which rules the card holds. Both draw all twelve. (The renegotiated form of
+    // "renders the same rules whether or not open": there is now one body path, and
+    // this guards that `open` did not grow a second one that slices.)
     const { policy, candidates } = bigPolicy(12, 3);
 
     renderCard(policy, candidates, { open: true });
-    const shownOpen = screen.getAllByTestId("policy-card-rule").length;
+    const openRows = screen.getAllByTestId("policy-card-rule").length;
     cleanup();
 
     renderCard(policy, candidates);
-    fireEvent.click(screen.getByTestId("policy-card-expand"));
-    const shownExpanded = screen.getAllByTestId("policy-card-rule").length;
+    const closedRows = screen.getAllByTestId("policy-card-rule").length;
 
-    expect(shownOpen).toBe(12);
-    expect(shownExpanded).toBe(shownOpen);
+    expect(openRows).toBe(12);
+    expect(closedRows).toBe(openRows);
   });
 
-  it("renders the open card expanded, with its decision and no expander", () => {
-    // Point 2: the open card is shown exactly as before — full, decidable, and
-    // with no expander to collapse the record currently under consideration.
+  it("draws the disclosure on the open card too, and defaults its list copy collapsed", () => {
+    // THE ROUND-2 DEFECT, made red. Before this the open card forced its body open
+    // and drew no toggle, so clicking a card to inspect it left the tallest possible
+    // copy in the list with no control to shrink it — beside a detail panel already
+    // showing the same record in full. The open card is now a list card like the
+    // rest: collapsed by default, one toggle to open it in place. `open` styles it
+    // and mirrors it in the panel; it no longer forces the body.
     const { policy, candidates } = bigPolicy(12, 3);
     const { container } = renderCard(policy, candidates, { open: true });
 
-    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(false);
-    expect(container.querySelector('[data-testid="policy-card-expand"]')).toBeNull();
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(true);
+    const expander = container.querySelector('[data-testid="policy-card-expand"]');
+    expect(expander, "the open card must carry the toggle too").not.toBeNull();
+    expect(expander?.getAttribute("aria-expanded")).toBe("false");
+    // The head is whole while collapsed, so the collapse is honest even here.
+    const head = articleOf(container).querySelector(".policy-card__head");
+    expect(head?.textContent ?? "").toContain("12 rules");
+  });
+
+  it("withholds the open card's decision until its body is shown, then offers it", () => {
+    // Constraint 6, kept exactly through the fix: a decision may not be taken on a
+    // card whose rules are not shown, and the open card is no exception now that it
+    // defaults collapsed. Expanding it in place brings the rules into view and the
+    // decision with them.
+    const { policy, candidates } = bigPolicy(6, 2);
+    const { container } = renderCard(policy, candidates, { open: true });
+
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+
     expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
-    expect(screen.getAllByTestId("policy-card-rule")).toHaveLength(12);
+    expect(screen.getByRole("button", { name: /reject/i })).toBeTruthy();
+    expect(articleOf(container).classList.contains("policy-card--collapsed")).toBe(false);
+    expect(screen.getByTestId("policy-card-expand").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("draws the disclosure whatever the status — even on an open card with no decision to take", () => {
+    // The screenshot's card 2: open, Approved, and before this fix it carried no
+    // toggle at all. The toggle is a reading control, not a decision one, so a
+    // record with no Approve/Reject wired must still be collapsible. Status has
+    // nothing to do with whether it draws.
+    const { policy, candidates } = bigPolicy(6, 2);
+    const { container } = renderCard(policy, candidates, { open: true, decision: false });
+
+    expect(container.querySelector('[data-testid="policy-card-expand"]')).not.toBeNull();
+    // Nothing to decide, collapsed or shown — the reading control is all there is.
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    fireEvent.click(screen.getByTestId("policy-card-expand"));
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject/i })).toBeNull();
+  });
+
+  it("labels the toggle for the count of rules, singular for one and plural for many", () => {
+    // req 4: 'Show rule' for a one-rule policy, 'Show rules' for many, and both the
+    // label and aria-expanded track the state across a click.
+    const many = bigPolicy(6, 2);
+    const { container: c1 } = renderCard(many.policy, many.candidates);
+    const t1 = () => c1.querySelector('[data-testid="policy-card-expand"]')!;
+    expect(t1().textContent).toContain("Show rules");
+    expect(t1().getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(t1());
+    expect(t1().textContent).toContain("Hide rules");
+    expect(t1().getAttribute("aria-expanded")).toBe("true");
+    cleanup();
+
+    const one = bigPolicy(1, 1);
+    const { container: c2 } = renderCard(one.policy, one.candidates);
+    const t2 = c2.querySelector('[data-testid="policy-card-expand"]')!;
+    expect(t2.textContent).toContain("Show rule");
+    expect(t2.textContent).not.toContain("Show rules");
   });
 
   it("collapses a one-rule policy the same way, its head still stating the one rule", () => {

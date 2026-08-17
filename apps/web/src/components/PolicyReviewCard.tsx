@@ -52,23 +52,27 @@ const { Text } = Typography;
  *
  * A bigger card must not mean fewer rules — but thirty-two policies of
  * full-height rules is a scroll, not a workload, and the head now says how big
- * each one is without drawing it. So a card in a list opens collapsed: its head
- * is whole — heading, the rule count, the make-up, route, status, selection —
- * and its rules wait behind one labelled control. The card in the detail panel,
- * and any card the reviewer expands in place, is shown in full: every rule of
- * the section with its title, condition and outcome, seventy-two showing
- * seventy-two. Nothing is stored behind the control — the body stays in the DOM,
- * hidden by CSS and revealed without a fetch — and nothing the reviewer needs to
- * judge the record is moved off the head to get there.
+ * each one is without drawing it. So every card in a list opens collapsed: its
+ * head is whole — heading, the rule count, the make-up, route, status, selection
+ * — and its rules wait behind one labelled control that is drawn on every card,
+ * whatever its status. The open card — the one the detail panel is mirroring —
+ * collapses like the rest: the panel is already reading that record in full, so a
+ * second full-height copy of it in the list is redundancy, not reassurance, and
+ * `open` now only styles the card. Any card the reviewer expands in place is shown
+ * in full: every rule of the section with its title, condition and outcome,
+ * seventy-two showing seventy-two. Nothing is stored behind the control — the body
+ * stays in the DOM, hidden by CSS and revealed without a fetch — and nothing the
+ * reviewer needs to judge the record is moved off the head to get there.
  *
  * A DECISION IS NEVER OFFERED ON A COLLAPSED CARD
  *
  * The head says how many rules there are; it does not say what they are. So the
  * one thing the collapse withholds along with the body is Approve and Reject: a
- * reviewer cannot decide a policy they have not read. The control that opens the
- * body is the only route to the decision — the rules come into view first, and
- * the decision with them. `showBody` gates both, so neither can be reached past
- * the other.
+ * reviewer cannot decide a policy they have not read, the open card included. The
+ * control that opens the body is the only route to the decision — the rules come
+ * into view first, and the decision with them. `showBody` gates both, so neither
+ * can be reached past the other. The toggle itself is a reading control and is
+ * never withheld; only the decision behind it is.
  *
  * THE PASSAGE BOUNDARY SURVIVES
  *
@@ -243,16 +247,20 @@ export function PolicyReviewCard({
   const decidable = card.rules.some(
     (rule) => candidateEditability(rule.reviewStatus).canReview,
   );
-  // A card in a list opens collapsed: its head is whole and its rule body waits
-  // behind one control. `open` is the card in the detail panel and is read from
-  // the surface; `expanded` is this card's own, so opening one card in place
-  // leaves the other thirty-one collapsed. `showBody` is what the two come to:
-  // it draws the body, and — because a decision may never be taken on a policy
-  // no one has read — it is also what lets the decision controls be drawn. The
-  // head, and the census that makes the collapse honest, are outside it and show
-  // either way.
+  // Every card in a list opens collapsed — the open one too. Its head is whole
+  // and its rule body waits behind one control. `open` marks the card the detail
+  // panel is mirroring; it styles the card and nothing more, because that panel is
+  // already reading the record in full and a second full-height copy in the list
+  // is the redundancy the reviewer asked us to remove. `expanded` is this card's
+  // own reveal, so opening one card in place leaves the other thirty-one
+  // collapsed. `showBody` is that reveal: it draws the body, and — because a
+  // decision may never be taken on a policy no one has read — it is also what lets
+  // the decision controls be drawn. The head, and the census that makes the
+  // collapse honest, are outside it and show either way.
   const [expanded, setExpanded] = useState(false);
-  const showBody = open || expanded;
+  const showBody = expanded;
+  // Singular when the card holds one rule, so a one-rule policy reads "Show rule".
+  const ruleNoun = card.rules.length === 1 ? "rule" : "rules";
   // Numbered across the whole card, so "rule 9 of 14" means the same thing in
   // the list, in the detail panel and in conversation — the passage blocks
   // group the rules, they do not restart them.
@@ -503,30 +511,34 @@ export function PolicyReviewCard({
               </Tooltip>
             </>
           )}
-          {/* The card in a list opens collapsed, and this is the one control
-              that opens it — in place, without opening the detail panel, and
-              never opening a decision the reviewer has not read the rules for:
-              the body it reveals brings Approve and Reject with it, because
-              `showBody` gates both. Not drawn on the open card, which the detail
-              panel already shows in full. Its click is stopped so it does not
-              also fire the card's own open. */}
-          {!open && (
-            <Tooltip title={showBody ? "Hide this policy's rules" : "Show this policy's rules"}>
-              <Button
-                size="small"
-                type="text"
-                data-testid="policy-card-expand"
-                aria-expanded={showBody}
-                icon={showBody ? <UpOutlined /> : <DownOutlined />}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpanded((value) => !value);
-                }}
-              >
-                {showBody ? "Hide rules" : "Show rules"}
-              </Button>
-            </Tooltip>
-          )}
+          {/* Every list card opens collapsed, and this is the one control that
+              opens it — in place, without opening the detail panel, and never
+              opening a decision the reviewer has not read the rules for: the body
+              it reveals brings Approve and Reject with it, because `showBody` gates
+              both. It is drawn on every card whatever its status, the open one
+              included: it is a reading control, not a decision one, and on the open
+              card collapsing the list copy hides nothing the detail panel is not
+              already showing in full. Its click is stopped so it does not also fire
+              the card's own open. */}
+          <Tooltip
+            title={
+              showBody ? `Hide this policy's ${ruleNoun}` : `Show this policy's ${ruleNoun}`
+            }
+          >
+            <Button
+              size="small"
+              type="text"
+              data-testid="policy-card-expand"
+              aria-expanded={showBody}
+              icon={showBody ? <UpOutlined /> : <DownOutlined />}
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpanded((value) => !value);
+              }}
+            >
+              {showBody ? `Hide ${ruleNoun}` : `Show ${ruleNoun}`}
+            </Button>
+          </Tooltip>
           <Tooltip title={open ? "Shown in the detail panel" : "Open this policy in the detail panel"}>
             <Button
               size="small"
