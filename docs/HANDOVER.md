@@ -786,3 +786,81 @@ implementations, not by noticing that the words fit together. A tidy architectur
 story is the most persuasive kind of unverified claim.
 
 
+### 9.12 A count can be right on load and wrong immediately after the action that changed it
+
+The review status strip was verified correct against the database on a fresh load:
+`4 policies Needs review 10 rules · 2 policies Approved 2 rules`, matching the rows
+exactly. One approval later, in the same session without a reload, it read:
+
+```
+10 rules Needs review        <- unchanged; truth was 8
+2 rules Approved             <- unchanged; truth was 4
+```
+
+Two failures at once. The figures were **stale by exactly the amount the reviewer had
+just changed**, and every tab **dropped its policy count** and fell back to rules.
+
+Both are worse than they look. A count is wrong at the moment it is being read most
+carefully — a reviewer looks at that strip precisely to confirm their decision
+landed. And the fallback to rules is the *honest* documented behaviour for "the
+policy figure cannot be vouched for", so a routine action silently pushed the surface
+into a degraded-but-truthful mode, which reads as the surface simply changing its
+mind about the unit.
+
+Cause: `review-facets` was fetched before the review POST and never after. The
+candidates reloaded; the facets that feed the strip did not.
+
+**Defence:** test a count **after** the mutation that changes it, not only on load. A
+load-time assertion cannot see this class at all. And when a refresh is missed, make
+sure the failure is not absorbed by an honest fallback — "not refreshed" must not be
+able to masquerade as "not vouchable".
+
+
+### 9.13 Scoping an agent's test ownership too narrowly makes it unable to fix what it breaks
+
+`card-collapse` changed `PolicyReviewCard` so a decision cannot be taken on a
+collapsed card. Correct, and exactly what was asked for. It broke
+`aDecisionIsAPropertyOfTheRecord.test.tsx`, which draws a card and asserts Approve is
+offered without expanding it first.
+
+The agent could not have fixed it: the brief granted it three named test files and
+that was not among them. It did not silently reach outside its ownership, which was
+the right call. A second agent independently spotted the breakage and also correctly
+declined to touch it. So two agents behaved perfectly and the defect still reached
+the closing gate.
+
+**This was a producer error, not an agent error.** The ownership list was written by
+thinking about which tests were *about* the component, not which tests *render* it.
+
+**Defence:** when an agent changes a component's contract, grant it every test file
+that renders that component — find them by grep, not by memory — or expect the gate
+to catch the breakage late. State the rule to the agent too: if your change breaks a
+file you do not own, stop and report it rather than working around it. Both agents
+did that unprompted here, which is why the miss cost one gate cycle and not a
+regression.
+
+
+### 9.14 A precondition announced only by failure reads as a broken feature
+
+Approving refused when no reviewer name was set, and refused **correctly** — an
+approval with no attributable author is not an audit trail. The refusal was reported,
+by a toast that auto-dismisses in about three seconds.
+
+The result: a reviewer clicks Approve, glances away, and sees a button that did
+nothing. It was reported to this session as *"Approve is a silent no-op"*, and the
+first investigation — mine — nearly confirmed that, because the network showed no
+POST and the database was unchanged. Both observations were true and the conclusion
+would have been wrong.
+
+Two details made it worse. Nothing on the card, the button, or the queue stated the
+requirement in advance; and the **publish** action already stated the same
+requirement persistently. So one action explained itself up front and the other, far
+more frequent one, explained itself only after you had already failed at it.
+
+**Defence:** a precondition that gates an action must be visible **before** the
+action, not only when it fires. Keep the failure notice as well — the two answer
+different questions. And when the same precondition governs two actions, state it the
+same way in both places; an inconsistency here is how a working system comes to look
+broken.
+
+
