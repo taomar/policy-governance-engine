@@ -218,7 +218,8 @@ Run the evaluation before approving a large batch. Review:
 - affected policy records;
 - exact source evidence;
 - acceptable and unacceptable conditions;
-- reviewer questions and suggested correction.
+- reviewer questions and suggested correction;
+- the route-applicability disclosure — which checks did not apply because a rule's route asks a different question (an empty list when every check applied; absent only for runs that predate the record).
 
 Quality does not modify rules. Fix the candidate in Review, then run Quality
 again.
