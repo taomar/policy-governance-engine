@@ -67,6 +67,25 @@ class ExtractionProgress:
     processed_pages: int = 0
     passages_found: int = 0
     rules_drafted: int = 0
+    #: The drafted rules, tallied by the route the mapping assigned each as it
+    #: was drafted: `rules_deterministic` where the source states a test the
+    #: engine computes over named facts, `rules_ai_ready` where the source
+    #: states its test in words and a judge reads the rule against a case. This
+    #: is a run-scoped count of a value each rule already carries — `policy.py`
+    #: keeps `evaluation_mode` derived rather than stored so a second copy
+    #: cannot disagree with the condition it describes, and these honour that by
+    #: counting what the mapping produced and persisting nothing.
+    #:
+    #: They are NOT assumed to sum to `rules_drafted`. A rule whose mode is
+    #: absent, or is a route added to the model after this code was written, is
+    #: counted by neither, so the difference between the two counters and
+    #: `rules_drafted` stays visible as a gap rather than being charged to one
+    #: side. A reader tells "the run has drafted nothing yet" (`rules_drafted`
+    #: is 0) from "no rule took this route" (`rules_drafted` above 0 with the
+    #: counter at 0) by reading each counter against `rules_drafted`, so 0 is
+    #: never the only signal either counter carries.
+    rules_deterministic: int = 0
+    rules_ai_ready: int = 0
     #: Rules actually committed to the review queue. Distinct from
     #: `rules_drafted`: a rule is drafted by the formulator, but only counts as
     #: reviewable once its insert has committed. The two diverge whenever a
@@ -152,6 +171,8 @@ def advance(
     drafted: int = 0,
     skipped: int = 0,
     linked: int = 0,
+    deterministic: int = 0,
+    ai_ready: int = 0,
 ) -> None:
     """Increment cumulative counters."""
     record = _RUNS.get(document_version_id)
@@ -162,6 +183,12 @@ def advance(
     record.passages_found += passages
     record.rules_drafted += drafted
     record.skipped += skipped
+    # Accumulated like `drafted`, and reported beside it: each batch passes the
+    # route split of the rules it just drafted. Not assumed to sum to `drafted`
+    # — a rule with an absent or unrecognised mode is added to neither, so the
+    # caller can hand in fewer than it drafted and the difference stays a gap.
+    record.rules_deterministic += deterministic
+    record.rules_ai_ready += ai_ready
     # Assigned, not accumulated: the linking pass runs over every rule in the
     # run each time, so its result is a total rather than a delta. Adding it
     # would multiply the count by the number of batches.
