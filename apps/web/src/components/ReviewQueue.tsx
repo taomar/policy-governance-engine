@@ -2078,7 +2078,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 reviewedCount,
                 totalCandidates,
               )}
-              readyToPublish={approvedUnpublished.length}
+              readyToPublishPolicies={approvedDrawerPolicies.length}
+              readyToPublishDetail={approvedReadyScale(
+                approvedDrawerPolicies.length,
+                approvedUnpublished.length,
+              )}
               quality={qualityScan}
             />
 

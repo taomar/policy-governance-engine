@@ -1,15 +1,25 @@
 /**
  * What the queue summary is allowed to say, and what it must never say.
  *
- * The summary line replaced four stat cards plus a publish bar. Two of the facts
- * it carries are load-bearing in a way a tidy-up could quietly break, so they are
- * pinned here:
+ * The summary line replaced four stat cards plus a publish bar. Three of the
+ * facts it carries are load-bearing in a way a tidy-up could quietly break, so
+ * they are pinned here:
  *
  *   - the quality scan has FOUR states, and an *absent* scan must render as "—"
  *     with "Scan not run" — never as "0". A scan that ran and found nothing is a
- *     different fact, and it is the one allowed to show "0" (constraint 5); and
+ *     different fact, and it is the one allowed to show "0" (constraint 5);
  *   - decided progress keeps both units — policies and rules — because a policy
- *     is what gets decided and rules are what it is made of (constraint 2).
+ *     is what gets decided and rules are what it is made of (constraint 2); and
+ *   - "Ready to publish" leads in POLICIES and keeps the rule count beside it.
+ *
+ * That last fact was deliberately RE-CUT, not relaxed. This block used to pin a
+ * rules-led headline ("Approved rules, not live", a bare rule count) from a time
+ * when the summary reasoned in rules. Every other surface — the banner, the
+ * bands, the status strip, the project badges — now leads in policies and keeps
+ * rules beside, because a policy is what a reviewer decides and publishes
+ * (constraint 2), and a KPI still asserting the rules-led wording was the last
+ * holdout pinning the behaviour the user rejected. The contract is rewritten to
+ * the new intent; the rule figure is kept, never dropped (constraint 11).
  *
  * The component is pure, so each state is rendered directly rather than by
  * driving a live queue into it.
@@ -35,7 +45,8 @@ describe("decision progress is stated once, in both units", () => {
       <ReviewQueueSummary
         decisionPercent={25}
         progressDetail="4 of 32 policies · 40 of 398 rules"
-        readyToPublish={0}
+        readyToPublishPolicies={0}
+        readyToPublishDetail="0 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: null })}
       />,
     );
@@ -54,16 +65,18 @@ describe("ready to publish is the next-action count", () => {
       <ReviewQueueSummary
         decisionPercent={80}
         progressDetail="26 of 32 policies · 320 of 398 rules"
-        readyToPublish={7}
+        readyToPublishPolicies={2}
+        readyToPublishDetail="2 policies · 7 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: 0 })}
       />,
     );
     const ready = item("Ready to publish");
-    expect(within(ready).getByText("7")).toBeTruthy();
-    // Names its unit: this is a rules metric (you publish rules into a version),
-    // so it must say so rather than leave a bare number whose unit is a guess
-    // (constraint 2 — never let a count's unit go unstated).
-    expect(within(ready).getByText(/approved rules/i)).toBeTruthy();
+    // Leads in policies — the unit a decision is taken in (constraint 2).
+    expect(within(ready).getByText("2")).toBeTruthy();
+    // Keeps the rule figure beside it and still says it is not live; the unit
+    // never silently narrows to a single number (constraint 11 — both units,
+    // neither traded for tidiness).
+    expect(within(ready).getByText("2 policies · 7 rules, not live")).toBeTruthy();
     expect(ready.classList.contains("review-operation-attention")).toBe(true);
   });
 
@@ -72,7 +85,8 @@ describe("ready to publish is the next-action count", () => {
       <ReviewQueueSummary
         decisionPercent={0}
         progressDetail="0 of 32 policies · 0 of 398 rules"
-        readyToPublish={0}
+        readyToPublishPolicies={0}
+        readyToPublishDetail="0 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: 3 })}
       />,
     );
@@ -88,7 +102,8 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
       <ReviewQueueSummary
         decisionPercent={50}
         progressDetail="16 of 32 policies · 200 of 398 rules"
-        readyToPublish={4}
+        readyToPublishPolicies={1}
+        readyToPublishDetail="1 policy · 4 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: null })}
       />,
     );
@@ -104,7 +119,8 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
       <ReviewQueueSummary
         decisionPercent={50}
         progressDetail="16 of 32 policies · 200 of 398 rules"
-        readyToPublish={4}
+        readyToPublishPolicies={1}
+        readyToPublishDetail="1 policy · 4 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: 0 })}
       />,
     );
@@ -120,7 +136,8 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
       <ReviewQueueSummary
         decisionPercent={50}
         progressDetail="16 of 32 policies · 200 of 398 rules"
-        readyToPublish={4}
+        readyToPublishPolicies={1}
+        readyToPublishDetail="1 policy · 4 rules"
         quality={qualityScanSummary({ loading: false, failed: false, count: 5 })}
       />,
     );
@@ -133,7 +150,8 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
       <ReviewQueueSummary
         decisionPercent={50}
         progressDetail="16 of 32 policies · 200 of 398 rules"
-        readyToPublish={4}
+        readyToPublishPolicies={1}
+        readyToPublishDetail="1 policy · 4 rules"
         quality={qualityScanSummary({ loading: true, failed: false, count: null })}
       />,
     );

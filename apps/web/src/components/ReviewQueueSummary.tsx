@@ -16,7 +16,9 @@
  *
  *   1. **Decision progress** — how much of the queue is decided. The aggregate
  *      the per-status tabs do not state on their own.
- *   2. **Ready to publish** — the next thing to act on: approved, not yet live.
+ *   2. **Ready to publish** — the next thing to act on: policies approved but
+ *      not yet live. It leads in policies, the unit a decision is taken in, and
+ *      keeps the rule count beside it (constraints 2 and 11).
  *   3. **Quality findings** — the standing of the last scan.
  *
  * WHAT IT DELIBERATELY DOES NOT DO (constraint 11 — de-duplicate, never delete a
@@ -46,8 +48,18 @@ interface ReviewQueueSummaryProps {
    * "4 of 32 policies · 40 of 398 rules". Kept in both units on purpose.
    */
   readonly progressDetail: string;
-  /** Approved-but-not-live records — the next thing to act on. */
-  readonly readyToPublish: number;
+  /**
+   * Approved-but-not-live *policies* — the next thing to act on, in the unit a
+   * reviewer decides and publishes in (constraint 2). This is the headline
+   * figure and the one that flags the card for attention.
+   */
+  readonly readyToPublishPolicies: number;
+  /**
+   * Pre-formatted scale for the same staging set, e.g. "1 policy · 4 rules".
+   * Carried beside the headline so the rule figure is never dropped
+   * (constraint 11 — both units, neither traded for tidiness).
+   */
+  readonly readyToPublishDetail: string;
   /**
    * Four-state quality summary. Rendered verbatim: the component must not
    * second-guess `display`, so "—" for an absent scan stays "—".
@@ -58,7 +70,8 @@ interface ReviewQueueSummaryProps {
 export function ReviewQueueSummary({
   decisionPercent,
   progressDetail,
-  readyToPublish,
+  readyToPublishPolicies,
+  readyToPublishDetail,
   quality,
 }: ReviewQueueSummaryProps) {
   return (
@@ -70,14 +83,14 @@ export function ReviewQueueSummary({
       </div>
       <div
         className={
-          readyToPublish > 0
+          readyToPublishPolicies > 0
             ? "review-queue-summary__item review-operation-attention"
             : "review-queue-summary__item"
         }
       >
         <dt>Ready to publish</dt>
-        <dd>{readyToPublish}</dd>
-        <small>Approved rules, not live</small>
+        <dd>{readyToPublishPolicies}</dd>
+        <small>{readyToPublishDetail}, not live</small>
       </div>
       <div className="review-queue-summary__item">
         <dt>Quality findings</dt>
