@@ -67,6 +67,12 @@ import { candidateEditability } from "../candidateEditability";
 import { buildVariationClusters, clusterColor, clusterIdentity } from "../ruleDisplay";
 import { computeBandGeometry } from "../bandGeometry";
 import { buildPolicyCards, policyTitle, unplacedRules, type PolicyCard } from "../policyCards";
+import {
+  bandScalesFromTabCounts,
+  partitionReviewBands,
+  reviewBandCardKey,
+  reviewBandCardTitle,
+} from "../reviewBands";
 import { approvedReadyPolicies, approvedReadyScale } from "../approvedReadyDrawer";
 import { reviewTabCounts } from "../reviewTabCounts";
 import {
@@ -714,6 +720,30 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   );
 
   /**
+   * The three bands the queue sorts into — under review, approved, published —
+   * from one place, so a policy lands in exactly one and two lists of the same
+   * records can never drift apart (handover §4.2). Derived from the cards each
+   * render, never maintained on the side.
+   *
+   * `banded` is when the banding is meaningful: the cards are grouped, and no
+   * status tab is already narrowing the view. A tab narrows to one status; the
+   * bands organise the whole. Doing both at once would band a view that is
+   * already a single status, so under a tab the list is left flat and the
+   * staging drawers stand down — the tab strip still carries every count, so
+   * nothing about the other bands becomes unreachable (constraint 10).
+   */
+  const reviewBands = useMemo(() => partitionReviewBands(policyCards), [policyCards]);
+  const banded = policiesState === "ready" && statusFilter === "all";
+  /**
+   * What the working list shows. By default that is the under-review band — the
+   * policies still to decide, which is why a reviewer is on this page. The
+   * approved and published policies are not filtered away; they move to their own
+   * staging drawers above, each stating its count, so the list is the work and
+   * the decided policies are one disclosure away, never hidden.
+   */
+  const listCards = banded ? reviewBands.under_review.cards : policyCards;
+
+  /**
    * What the document a policy was read out of is called.
    *
    * Read off the run facets, which already carry a title for every document
@@ -749,8 +779,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   // boundary — which is the failure the old per-rule pagination could produce
   // and then had to describe with a "continues below" band.
   const pagedPolicyCards = useMemo(
-    () => policyCards.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [policyCards, page]
+    () => listCards.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [listCards, page]
   );
 
   // The ungrouped fallback, used only when the assembly is unavailable: the
@@ -762,7 +792,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   );
 
   const grouped = policiesState === "ready";
-  const listTotal = grouped ? policyCards.length : filteredCandidates.length;
+  const listTotal = grouped ? listCards.length : filteredCandidates.length;
 
   /**
    * What the current rule-level filters are called, in the words the controls
@@ -1374,6 +1404,26 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     ],
   );
   const policyCountsShown = tabCounts.policyCounts !== null;
+  /**
+   * The three browsing bands, counted the way the strip is.
+   *
+   * A band and its tab are read on one screen, so their figures have to be one
+   * fact told once, not two. "Under review 30" beside "Needs review 30" is the
+   * same measurement; "29" beside "30" reads as a policy that went missing. The
+   * card partition that fills each band's list counts cards, and a policy unit
+   * not yet placed in a passage has no card though it is still a policy under
+   * review — so the counts come instead from `tabCounts`, the same resolved
+   * source the strip renders, and band and tab cannot drift apart. `policyCounts`
+   * is null when a scope makes it dishonest; the band then leads with rules just
+   * as the strip does, never printing a policy figure nobody measured
+   * (constraint 5). Rules carry one status each so they sum cleanly; the policy
+   * sum can overcount a unit that straddles two open states, the same latitude
+   * the per-status tabs already take, and the "All" tab stays the honest total.
+   */
+  const bandScales = useMemo(
+    () => bandScalesFromTabCounts(tabCounts.counts, tabCounts.policyCounts),
+    [tabCounts],
+  );
   /** Policies with nothing left to decide: no rule of theirs is still open. */
   const decidedPolicyCount = useMemo(() => {
     const open = new Set<string>();
@@ -2025,63 +2075,98 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               quality={qualityScan}
             />
 
-            {/* The approved-but-not-yet-live staging list, at the top of the
-                queue beside the "Ready to publish" figure it expands. Approving
-                a policy moves it out of the working queue (the Needs-review view)
-                and into here, where the next action — publishing — is taken.
+            {/* The two staging bands — Approved and Published — that sit above
+                the working list. Approving a policy moves it out of the
+                under-review list and into Approved, ready to publish; publishing
+                moves it on to Published, already live. Together with the
+                under-review list below the filter bar, these are the three groups
+                a reviewer asked to see: the work, the cleared, and the live.
 
-                It always renders: "nothing approved yet" and "the drawer is
-                collapsed" are different facts (constraint 5), so the empty state
-                is said, not vanished. Its count is in policies, with rules named
-                beside it (constraint 2); the list holds one row per policy and
-                every approved rule falls in exactly one, so a reviewer is never
-                shown fewer policies than there are. Native `<details>`, the same
-                disclosure the source pane and tests guide already use. */}
-            <details className="review-approved-drawer" data-testid="approved-ready-drawer">
-              <summary className="review-approved-drawer__summary">
-                <span className="review-approved-drawer__label">Approved, ready to publish</span>
-                {approvedDrawerPolicies.length > 0 ? (
-                  <Tag color="gold" className="review-approved-drawer__count">
-                    {recordScaleLabel(approvedDrawerPolicies.length, approvedUnpublished.length)}
-                  </Tag>
-                ) : (
-                  <Tag className="review-approved-drawer__count">none yet</Tag>
-                )}
-              </summary>
-              <div className="review-approved-drawer__body">
-                {approvedDrawerPolicies.length > 0 ? (
-                  <>
-                    <Text type="secondary" className="review-approved-drawer__note">
-                      Cleared and waiting to go live. Approving a policy moves it
-                      here and out of the Needs-review queue; publishing creates
-                      the numbered version the Policies tab shows.
-                    </Text>
-                    <ul className="review-approved-drawer__list">
-                      {approvedDrawerPolicies.map((policy) => (
-                        <li
-                          key={policy.key}
-                          className="review-approved-drawer__item"
-                          data-testid="approved-ready-item"
-                        >
-                          <DirectionalText>{policy.title}</DirectionalText>
-                          {policy.ruleCount > 1 && (
-                            <Text type="secondary" className="review-approved-drawer__item-rules">
-                              {policy.ruleCount} rules
-                            </Text>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <Text type="secondary">
-                    Nothing has been approved yet. When you approve a policy it
-                    leaves the Needs-review queue and appears here, ready to
-                    publish.
-                  </Text>
-                )}
-              </div>
-            </details>
+                Derived from one partition (`reviewBands`) with the working list,
+                so a policy is in exactly one place and the three can never
+                disagree. Each band always renders its summary while banding is on:
+                "nothing approved yet" and "the drawer is collapsed" are different
+                facts (constraint 5), and the count on the summary means a reviewer
+                sees how much a band holds without opening it, so a collapsed band
+                is never mistaken for an absent one (constraint 10). Counts lead
+                with the policy and keep the rule (constraint 2). They stand down
+                only under an active status tab, where the tab has already narrowed
+                to one status and its strip still carries every count. Native
+                `<details>`, the same disclosure the rest of the app uses. */}
+            {banded &&
+              [
+                {
+                  band: reviewBands.approved,
+                  scale: bandScales.approved,
+                  testid: "approved-ready-drawer",
+                  itemTestid: "approved-ready-item",
+                  label: "Approved, ready to publish",
+                  color: "gold" as const,
+                  note:
+                    "Cleared and waiting to go live. Approving a policy moves it here and out of the under-review list; publishing creates the numbered version the Policies tab shows.",
+                  empty:
+                    "Nothing has been approved yet. When you approve a policy it leaves the under-review list and appears here, ready to publish.",
+                },
+                {
+                  band: reviewBands.published,
+                  scale: bandScales.published,
+                  testid: "published-band-drawer",
+                  itemTestid: "published-band-item",
+                  label: "Published",
+                  color: "green" as const,
+                  note:
+                    "Already live in a numbered version. Shown for reference; the next decision is not taken on these.",
+                  empty:
+                    "Nothing has been published from this project yet. Approved policies appear here once you publish them.",
+                },
+              ].map((cfg) => (
+                <details
+                  key={cfg.testid}
+                  className="review-approved-drawer"
+                  data-testid={cfg.testid}
+                >
+                  <summary className="review-approved-drawer__summary">
+                    <span className="review-approved-drawer__label">{cfg.label}</span>
+                    {cfg.scale.rules > 0 ? (
+                      <Tag color={cfg.color} className="review-approved-drawer__count">
+                        {recordScaleLabel(cfg.scale.policies, cfg.scale.rules)}
+                      </Tag>
+                    ) : (
+                      <Tag className="review-approved-drawer__count">none yet</Tag>
+                    )}
+                  </summary>
+                  <div className="review-approved-drawer__body">
+                    {cfg.scale.rules > 0 ? (
+                      <>
+                        <Text type="secondary" className="review-approved-drawer__note">
+                          {cfg.note}
+                        </Text>
+                        <ul className="review-approved-drawer__list">
+                          {cfg.band.cards.map((card) => (
+                            <li
+                              key={reviewBandCardKey(card)}
+                              className="review-approved-drawer__item"
+                              data-testid={cfg.itemTestid}
+                            >
+                              <DirectionalText>{reviewBandCardTitle(card)}</DirectionalText>
+                              {card.rules.length > 1 && (
+                                <Text
+                                  type="secondary"
+                                  className="review-approved-drawer__item-rules"
+                                >
+                                  {card.rules.length} rules
+                                </Text>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <Text type="secondary">{cfg.empty}</Text>
+                    )}
+                  </div>
+                </details>
+              ))}
 
             <ReviewFilterBar
               facets={facets}
@@ -2182,7 +2267,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         ? `${selectedPolicyCount} ${selectedPolicyCount === 1 ? "policy" : "policies"} selected · ${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"}`
                         : `${selectedIds.size} selected`
                       : grouped
-                        ? `Select all ${policyCards.length} ${policyCards.length === 1 ? "policy" : "policies"} in this filter`
+                        ? `Select all ${listCards.length} ${listCards.length === 1 ? "policy" : "policies"} in this filter`
                         : `Select all ${selectableIds.length} in this filter`}
                   </Checkbox>
                   <Space>
@@ -2233,6 +2318,34 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                       role="listbox"
                       aria-label={grouped ? "Policies" : "Candidate rules"}
                     >
+                      {banded && grouped && (
+                        <div className="review-band-header" data-testid="under-review-band-header">
+                          <span className="review-band-header__label">Under review</span>
+                          <Tag className="review-band-header__count">
+                            {recordScaleLabel(
+                              bandScales.under_review.policies,
+                              bandScales.under_review.rules,
+                            )}
+                          </Tag>
+                          <Text type="secondary" className="review-band-header__note">
+                            The policies still to decide. Approved and published policies wait in the
+                            groups above.
+                          </Text>
+                        </div>
+                      )}
+                      {banded &&
+                        grouped &&
+                        bandScales.under_review.rules === 0 &&
+                        filteredCandidates.length > 0 && (
+                          <div className="review-empty-state" data-testid="under-review-empty">
+                            <Empty description="Nothing is left under review — every policy here has been decided.">
+                              <Text type="secondary">
+                                See the Approved and Published groups above for what has been cleared and
+                                what is live.
+                              </Text>
+                            </Empty>
+                          </div>
+                        )}
                       {grouped &&
                         pagedPolicyCards.map((card) => {
                           const selectedCount = card.reviewableIds.filter((id) => selectedIds.has(id)).length;

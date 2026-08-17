@@ -3606,6 +3606,35 @@
   color: #9a6700;
 }
 
+/* ---------- Under-review band header (review queue working list) ----------
+   The label above the working list, naming the band the list is showing and its
+   size. The staging drawers above carry Approved and Published; this names the
+   third band — the work still to decide — so a reviewer always knows which of
+   the three they are looking at and how much it holds. */
+.review-band-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-band-header__label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.review-band-header__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.review-band-header__note {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
 /* ---------- Approved-ready drawer (review queue staging list) ----------
    A quiet disclosure in the queue spine, between the summary and the filter
    bar, listing the policies approved but not yet live. Modelled on the
