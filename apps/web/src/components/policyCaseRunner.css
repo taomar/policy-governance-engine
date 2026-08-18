@@ -113,3 +113,54 @@
 .policy-case-all-rules__body {
   margin-top: 10px;
 }
+
+.project-case-wait {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.project-case-json {
+  white-space: pre-wrap;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.project-case-verdict {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.project-case-citation__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.project-case-grounding-warning {
+  margin-top: 10px;
+}
+
+.project-case-raw {
+  margin-top: 12px;
+}
+
+.project-case-raw > summary {
+  cursor: pointer;
+  color: rgba(15, 23, 42, 0.65);
+}
+
+.project-case-raw .project-case-json {
+  margin-top: 8px;
+}

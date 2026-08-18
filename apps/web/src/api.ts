@@ -1133,6 +1133,110 @@ export interface RuleNameGenerationResult {
   prompt_version: string;
 }
 
+export type ProjectCaseRetrievalStatus =
+  | "narrowed"
+  | "no_match"
+  | "index_empty"
+  | "no_published_version"
+  | "index_not_built"
+  | "index_stale"
+  | "unavailable"
+  | "failed"
+  | "empty"
+  | "bypassed";
+
+export interface ProjectCaseRetrieval {
+  status: ProjectCaseRetrievalStatus;
+  method?: string;
+  reason?: string;
+  clause_budget?: number;
+  clause_scan?: number;
+  clauses_retrieved?: number;
+  policies_considered?: number;
+  policies_retained?: number;
+  policies_discarded?: number;
+  policies_untestable?: number;
+  policy_budget?: number;
+  policy_scan?: number;
+}
+
+export interface ProjectCasePolicyCandidate {
+  provision_id?: string | null;
+  provision_key: string;
+  heading_path: string[];
+  rules: number;
+  retained?: boolean;
+  best_rank?: number | null;
+  best_score?: number | null;
+  matched_clauses?: number | null;
+  discard_reason?: string | null;
+  reason?: string | null;
+}
+
+export interface ProjectCaseSize {
+  combined_chars: number;
+  budget_chars: number;
+  oversize: boolean;
+}
+
+export interface ProjectCaseCitation {
+  rule_id: string;
+  policy?: { provision_key?: string; heading_path?: string[] };
+  source?: { state?: string; text?: string; page?: number | null; section?: string | null };
+}
+
+export interface ProjectCaseGrounding {
+  prompt_version?: string;
+  rules_available?: number;
+  citations_requested?: number;
+  rules_cited?: number;
+  fabricated_citations?: string[];
+  oversize?: boolean;
+  policies_grounded?: number;
+}
+
+export interface ProjectCaseJudgement {
+  status: string;
+  verdict?: string;
+  answer?: string;
+  missing_required_facts?: string[];
+  citations?: ProjectCaseCitation[];
+  note?: string | null;
+  grounding?: ProjectCaseGrounding;
+}
+
+export interface ProjectCaseEvaluation {
+  intent?: "informational" | "decision";
+  classification_reasoning?: string;
+  informational?: ProjectCaseJudgement | null;
+  decision?: ProjectCaseJudgement | null;
+  judgement?: ProjectCaseJudgement | null;
+  status?: string;
+  verdict?: string;
+  answer?: string;
+  missing_required_facts?: string[];
+  citations?: ProjectCaseCitation[];
+  note?: string | null;
+  grounding?: ProjectCaseGrounding;
+}
+
+export interface ProjectCaseAnswer {
+  scope: "project" | "single";
+  policy_set_key: string;
+  provision?: ProjectCasePolicyCandidate;
+  retrieval: ProjectCaseRetrieval;
+  considered?: ProjectCasePolicyCandidate[];
+  excluded?: ProjectCasePolicyCandidate[];
+  evaluation: ProjectCaseEvaluation | null;
+  size: ProjectCaseSize;
+}
+
+export interface ProjectCaseAnswerRequest {
+  scenario: string;
+  provision_id?: string;
+  reasoning_effort?: string;
+}
+
 /** One section of the source, carrying every passage stated under it.
  *
  *  A policy holding one rule is the ordinary case and is built exactly like a
@@ -2940,6 +3044,12 @@ export const api = {
         versionId,
       )}/policies`,
     ),
+
+  answerProjectCase: (key: string, body: ProjectCaseAnswerRequest) =>
+    request<ProjectCaseAnswer>(`/api/ai/policy-sets/${encodeURIComponent(key)}/case-answer`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   /**
    * Every version this policy has been seen in, oldest first.

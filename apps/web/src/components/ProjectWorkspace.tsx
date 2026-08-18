@@ -50,6 +50,7 @@ import { PolicyExceptionsPage } from "./PolicyExceptionsPage";
 import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
 import { recordScaleBadge, reviewBacklogBadge } from "../policyRecordFacts";
+import { ProjectCaseRunner } from "./ProjectCaseRunner";
 
 const { Text, Paragraph } = Typography;
 
@@ -310,6 +311,7 @@ export function ProjectWorkspace({
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewForm] = Form.useForm();
+  const [caseRunnerOpen, setCaseRunnerOpen] = useState(false);
 
   const handleNavigate = (page: string) => {
     // "Regression" was merged into the Validation surface, which is now the
@@ -486,6 +488,9 @@ export function ProjectWorkspace({
             <Button size="small" onClick={openReview}>
               Mark Reviewed
             </Button>
+            <Button size="small" icon={<ExperimentOutlined />} onClick={() => setCaseRunnerOpen(true)}>
+              Test a Case
+            </Button>
           </div>
         </div>
 
@@ -566,6 +571,12 @@ ${GROUP_DIVIDER_CSS.split(",\n")
       <div className="ws-tab-panel" key={policySet.key}>
         {TAB_CONTENT[activeTab]}
       </div>
+
+      <ProjectCaseRunner
+        policySetKey={policySet.key}
+        open={caseRunnerOpen}
+        onClose={() => setCaseRunnerOpen(false)}
+      />
 
       <Modal
         title="Edit Project"
