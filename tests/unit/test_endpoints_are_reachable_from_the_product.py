@@ -65,12 +65,13 @@ KNOWN_UNREACHABLE = {
         "Single-exception fetch. The product lists exceptions and edits them "
         "from the list, so it never needs one by id. Reported, not fixed."
     ),
-    "POST /api/ai/policy-sets/*/case-answer": (
-        "Project-level case answering: retrieves the published policies bearing "
-        "on a question and evaluates only those. The backend contract was built "
-        "and proven against the live API first; the product client is a separate "
-        "agent's to wire against that contract. Recorded until it does -- the rot "
-        "check below deletes this line the moment the product calls it."
+    "POST /api/policy-sets/*/policy-index/rebuild": (
+        "Rebuilds a project's policy index. The build normally happens on publish "
+        "and is best effort, so this is the repair path for the case where that "
+        "build failed and the index is stale or absent. `policy_index_states` "
+        "records enough to detect that, so the product could show it and offer "
+        "this -- until it does, a failed build is only repairable by an operator. "
+        "Recorded as a gap, not as a design."
     ),
 }
 
