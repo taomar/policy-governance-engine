@@ -105,6 +105,15 @@ class _StubClient:
         "declined": False,
         "note": "",
     }
+    decision_reply: dict[str, Any] = {
+        "status": "answered",
+        "answer": "The supplied facts are outside the policy limit.",
+        "verdict": "not compliant",
+        "cited_rule_ids": ["R-CAP"],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "",
+    }
     fail: bool = False
     #: Fail only the informational gather, letting classification succeed. This
     #: is the shape that proves a *known* informational request whose answer did
@@ -120,7 +129,14 @@ class _StubClient:
         is_classify = "sort one question" in system
         if type(self).fail or (type(self).fail_info and not is_classify):
             raise RuntimeError("the model call failed")
-        reply = type(self).classify_reply if is_classify else type(self).info_reply
+        is_decision = "asked for a judgement" in system
+        reply = (
+            type(self).classify_reply
+            if is_classify
+            else type(self).decision_reply
+            if is_decision
+            else type(self).info_reply
+        )
         return json.dumps(reply, ensure_ascii=False)
 
 
@@ -134,6 +150,15 @@ def stubbed(monkeypatch: pytest.MonkeyPatch) -> type[_StubClient]:
         "bears": False,
         "answer": "",
         "cited_rule_ids": [],
+        "declined": False,
+        "note": "",
+    }
+    _StubClient.decision_reply = {
+        "status": "answered",
+        "answer": "The supplied facts are outside the policy limit.",
+        "verdict": "not compliant",
+        "cited_rule_ids": ["R-CAP"],
+        "missing_required_facts": [],
         "declined": False,
         "note": "",
     }
@@ -371,10 +396,12 @@ async def test_an_informational_request_reports_what_a_rule_states_not_a_demand(
     assert "missing" not in blob
 
 
-async def test_a_determination_is_left_to_the_deciders_that_already_exist(stubbed):
-    """The server never turns a determination into a composed answer. For a
-    decision case it classifies and stops, so the per-rule deciders — the ones
-    that correctly demand an unmet fact — run unchanged on the caller's side."""
+async def test_a_determination_gets_a_grounded_decision_answer(stubbed):
+    """A decision case is answered from the same lean record, with citations.
+
+    The decision branch is not a second ungrounded decider: the model sees only
+    the policy payload, cites by rule id, and the backend resolves the citation to
+    the document's verbatim sentence exactly as the informational path does."""
 
     stubbed.classify_reply = {"intent": "decision", "reasoning": "Describes a situation."}
 
@@ -385,9 +412,70 @@ async def test_a_determination_is_left_to_the_deciders_that_already_exist(stubbe
 
     assert out["intent"] == "decision"
     assert out["informational"] is None
-    # Only the classify call was made; the informational gatherer never ran.
+    decision = out["decision"]
+    assert decision["status"] == "answered"
+    assert decision["verdict"] == "not compliant"
+    assert decision["citations"][0]["rule_id"] == "R-CAP"
+    assert decision["citations"][0]["source"]["text"] == VERBATIM_EN
+    assert decision["grounding"]["rules_available"] == 1
+    assert decision["grounding"]["rules_cited"] == 1
+    # The classify and decision calls ran; the informational gatherer did not.
     systems = [call["messages"][0]["content"] for call in stubbed.calls]
-    assert systems and all("sort one question" in system for system in systems)
+    assert any("sort one question" in system for system in systems)
+    assert any("asked for a judgement" in system for system in systems)
+    assert not any("asked what a governance policy provides" in system for system in systems)
+
+
+async def test_a_decision_with_a_missing_required_fact_is_its_own_state(stubbed):
+    """Bearing rules that need a fact the scenario did not supply are not guessed.
+
+    The response cites the rule that bears on the case and names the missing fact,
+    so a compliance reader sees why no verdict was made."""
+
+    stubbed.decision_reply = {
+        "status": "missing_required_facts",
+        "answer": "I cannot decide this from the policy until the weekly hours are supplied.",
+        "verdict": "",
+        "cited_rule_ids": ["R-CAP"],
+        "missing_required_facts": ["weekly-hours"],
+        "declined": False,
+        "note": "",
+    }
+
+    result = await ai_case_intent.answer_decision(
+        _payload(_cap_rule()),
+        scenario="A part-time employee asks whether their schedule is compliant.",
+    )
+
+    assert result["status"] == ai_case_intent.MISSING_REQUIRED_FACTS
+    assert result["verdict"] == ""
+    assert result["missing_required_facts"] == ["weekly-hours"]
+    assert result["citations"][0]["rule_id"] == "R-CAP"
+
+
+async def test_a_decision_with_no_bearing_rule_is_not_a_hedged_verdict(stubbed):
+    """No retained rule bears is a non-answer state, not a cautious-sounding
+    compliance verdict."""
+
+    stubbed.decision_reply = {
+        "status": "no_rule_bears",
+        "answer": "",
+        "verdict": "",
+        "cited_rule_ids": [],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "No rule in this policy speaks to the situation.",
+    }
+
+    result = await ai_case_intent.answer_decision(
+        _payload(_bystander_rule()),
+        scenario="Was the travel reimbursement compliant?",
+    )
+
+    assert result["status"] == ai_case_intent.NO_RULE_BEARS
+    assert result["verdict"] == ""
+    assert result["answer"] == ""
+    assert result["citations"] == []
 
 
 # --------------------------------------------------------------------------- #

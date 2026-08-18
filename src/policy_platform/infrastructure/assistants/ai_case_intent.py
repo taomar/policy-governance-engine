@@ -51,17 +51,18 @@ answer matters more here than a deeper one.
 
 WHAT THIS DOES NOT DO
 
-It does not decide anything. A determination is still the deterministic engine's
-or the judge's to make, one rule at a time, through the paths that already exist
-and are already audited. This module classifies, and — for an informational
-request only — gathers and states what the policy holds. The words it composes
-are its own and are marked as its own by the caller; it cites the rules its
-answer rests on by id, and carries with each citation that rule's *verbatim
-source sentence* — resolved here by following the rule's ``evidence_refs`` into
-the payload's ``spans`` — so the document's own words reach the reader
-unrewritten, untranslated, and untrimmed. Only the display *name* is left for the
-reader's surface to resolve from the id, because a generated name is this app's
-and must not cross the wire dressed as the document's (constraint 8).
+It does not run the deterministic engine, and it does not invent a formal audit
+run. It answers the reviewer's case from the retained lean policy records only:
+for an informational request it states what the policy holds; for a decision
+request it applies the policy's own cited rules to the supplied situation when
+the retained rules settle it, and otherwise says which non-answer state it is in.
+The words it composes are its own and are marked as its own by the caller; it
+cites the rules its answer rests on by id, and carries with each citation that
+rule's *verbatim source sentence* — resolved here by following the rule's
+``evidence_refs`` into the payload's ``spans`` — so the document's own words reach
+the reader unrewritten, untranslated, and untrimmed. Only the display *name* is
+left for the reader's surface to resolve from the id, because a generated name is
+this app's and must not cross the wire dressed as the document's (constraint 8).
 """
 from __future__ import annotations
 
@@ -116,6 +117,15 @@ DECLINED = "declined"
 #: would answer a different question than the one that was asked.
 FAILED = "failed"
 
+#: Decision-only states. They deliberately share ``answered`` and
+#: ``no_rule_bears`` with the informational path where the fact is the same, and
+#: add the two ways a relevant policy can still not settle the case: a required
+#: fact was not supplied, or the cited retained rules bear on the scenario but do
+#: not themselves determine the requested judgement.
+MISSING_REQUIRED_FACTS = "missing_required_facts"
+NOT_SETTLED_BY_RULES = "not_settled_by_rules"
+_DECISION_STATUSES = (ANSWERED, MISSING_REQUIRED_FACTS, NOT_SETTLED_BY_RULES, NO_RULE_BEARS, DECLINED)
+
 #: The states a citation's source sentence can be in, kept apart for the same
 #: reason the answer's four states are (constraint 5): an empty quote must never
 #: stand in for the document's words, and a reader is told which case it is.
@@ -144,6 +154,9 @@ one of the tested facts, and it does not turn a request into a case.
 number, a date, an event, a state of affairs — and wants to know how the policy comes out on it: \
 whether something is permitted, required, in breach, or within a limit. What marks this kind is that a \
 fact the governing rule tests is already present in the question, offered as an input to be applied.
+If the question gives a concrete value or state of affairs and asks whether that supplied value is \
+allowed, compliant, within the limit, or otherwise acceptable, that is a decision: the value is an input \
+to test, not the policy fact being asked after.
 
 The reliable test is what the reviewer has done with the tested fact at issue. Two questions can name \
 the same category and differ only here: one asks what value the policy sets for that category — asking \
@@ -201,6 +214,57 @@ do not present it as a direct quotation of the document.
 rule you did not, and only ids that appear in `rules`. Empty array if none bears.
 - "declined": true only if you cannot compose an answer from the record for a reason other than no \
 rule bearing on it — for example the question is unintelligible. Normally false.
+- "note": optional one-sentence caveat, e.g. that the record is partial or points elsewhere. Empty \
+string if you have nothing to add."""
+
+_DECISION_SYSTEM_PROMPT = """A reviewer has described a situation and asked for a judgement under \
+one governance policy. You are given the reviewer's question and one policy as a lean JSON record, \
+`grounding_projection_v1`. Apply only this record's rules to the situation. Do not use outside law, \
+ordinary workplace knowledge, or assumptions not present in the question or the record.
+
+The record has four parts:
+- `envelope`: the policy's identity and the values every rule shares.
+- `spans`: the exact sentences from the source document, each stored once under an id, in the \
+document's own words and uncut. A rule points at the sentences it was drawn from by id.
+- `facts`: the terms and quantities the rules are measured against, each stored once under an id.
+- `rules`: the policy's rules. Each carries a `rule_id`, a `rule_type` and an `evaluation_mode` of \
+either deterministic or ai_ready, an `effect`, the attributes and facts it turns on, its \
+`required_facts`, and `evidence_refs` — the ids of the `spans` it was drawn from.
+
+This is the whole set you may draw on: answer only from this record, and cite only `rule_id`s that \
+appear in `rules`.
+
+A rule bears on the situation when its condition, required facts, effect, or source sentence speaks \
+to the judgement the reviewer asks for. For every bearing rule, check `required_facts`: if the \
+scenario does not supply a fact the rule needs to decide the case, do not guess. Return \
+`missing_required_facts` and name the missing facts. If no retained rule bears on the situation, \
+return `no_rule_bears`. If rules bear but even with the supplied facts they do not settle the \
+requested judgement, return `not_settled_by_rules`. Only return `answered` when the cited rules, \
+read from this record, settle the judgement. Do not over-refuse because of a harmless label variation: \
+if the scenario names a category by an equivalent ordinal or severity label and the record supplies the \
+matching category on that same scale, with no competing category equally plausible, apply that rule and \
+state the mapping you used in your answer. If a general question can be answered for the categories or \
+conditions the record itself names, return `answered` with a conditional judgement for those categories \
+and name any remaining unstated facts in the answer; reserve `missing_required_facts` for cases where no \
+policy-grounded judgement can be made until the missing fact is supplied.
+
+Write in the language the reviewer asked in. The answer is your own wording; do not present it as a \
+direct quotation of the document. Every load-bearing statement must rest on cited rules.
+
+Return ONLY a JSON object:
+- "status": "answered", "missing_required_facts", "not_settled_by_rules", "no_rule_bears", or \
+"declined".
+- "answer": your plain-language judgement or non-answer explanation. Empty only for no_rule_bears \
+or declined.
+- "verdict": a short plain-language verdict when status is "answered" (for example "compliant", \
+"not compliant", "allowed", "not allowed"). Empty otherwise.
+- "cited_rule_ids": the `rule_id`s of the rules your answer or non-answer explanation draws on. \
+Every rule you relied on, no rule you did not, and only ids that appear in `rules`. Empty only if no \
+rule bears or you declined.
+- "missing_required_facts": a list of required facts that the scenario did not supply. Empty unless \
+status is "missing_required_facts".
+- "declined": true only if you cannot read the question or compose a grounded response for a reason \
+other than the policy not settling the case. Normally false.
 - "note": optional one-sentence caveat, e.g. that the record is partial or points elsewhere. Empty \
 string if you have nothing to add."""
 
@@ -527,6 +591,121 @@ def _citations(cited_ids: list[str], rules_by_id: dict[str, dict], spans: dict) 
     ]
 
 
+def _checked_citation_ids(raw_ids: object, available_ids: set[str]) -> tuple[list[str], list[str], list[str]]:
+    """Split requested citation ids into requested, grounded, and fabricated.
+
+    This is the fabrication guard shared by informational and decision answers,
+    single-policy and multi-policy. A model may ask to cite any string; only ids
+    present in the closed record set are kept, first occurrence wins, and refused
+    ids are reported in grounding rather than disappearing.
+    """
+
+    if not isinstance(raw_ids, list):
+        raw_ids = []
+    requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
+    cited_ids = [rid for rid in requested if rid in available_ids]
+    fabricated = [rid for rid in requested if rid not in available_ids]
+    return requested, cited_ids, fabricated
+
+
+def _decision_from_parsed(
+    parsed: dict,
+    *,
+    rules: list[dict],
+    spans: dict,
+    policies_grounded: int | None = None,
+    rule_to_policy: dict[str, dict] | None = None,
+) -> dict:
+    """Materialise the decision states from one parsed model response.
+
+    The same post-processing does the grounding work for single-policy and
+    multi-policy decisions: citation fabrication is checked against the closed
+    rule set, citations are resolved to verbatim source spans, and states that
+    require bearing rules cannot stand without at least one valid citation.
+    """
+
+    available_ids = {str(rule.get("rule_id")) for rule in rules if rule.get("rule_id")}
+    requested, cited_ids, fabricated = _checked_citation_ids(parsed.get("cited_rule_ids"), available_ids)
+    grounding = _grounding(
+        rules_available=len(rules),
+        citations_requested=len(requested),
+        cited_ids=cited_ids,
+        fabricated=fabricated,
+        oversize=False,
+    )
+    if policies_grounded is not None:
+        grounding["policies_grounded"] = policies_grounded
+
+    note = str(parsed.get("note") or "")
+    if parsed.get("declined"):
+        return {
+            "status": DECLINED,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": note,
+            "grounding": grounding,
+        }
+
+    status = str(parsed.get("status") or "").strip().lower()
+    if status not in _DECISION_STATUSES:
+        missing = parsed.get("missing_required_facts")
+        if isinstance(missing, list) and missing:
+            status = MISSING_REQUIRED_FACTS
+        elif cited_ids and str(parsed.get("answer") or "").strip():
+            status = ANSWERED
+        else:
+            status = NO_RULE_BEARS
+
+    answer = str(parsed.get("answer") or "").strip()
+    verdict = str(parsed.get("verdict") or "").strip() if status == ANSWERED else ""
+    raw_missing = parsed.get("missing_required_facts") or []
+    missing_required_facts = [str(item).strip() for item in raw_missing if str(item).strip()] if isinstance(raw_missing, list) else []
+
+    if status == NO_RULE_BEARS or not cited_ids:
+        return {
+            "status": NO_RULE_BEARS,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": note,
+            "grounding": grounding,
+        }
+
+    if status == MISSING_REQUIRED_FACTS and not missing_required_facts:
+        status = DECLINED
+    if status in (ANSWERED, MISSING_REQUIRED_FACTS, NOT_SETTLED_BY_RULES) and not answer:
+        status = DECLINED
+
+    if status == DECLINED:
+        return {
+            "status": DECLINED,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": note,
+            "grounding": grounding,
+        }
+
+    citations = _citations(cited_ids, _rules_by_id(rules), spans)
+    if rule_to_policy is not None:
+        for citation in citations:
+            citation["policy"] = rule_to_policy.get(citation["rule_id"], {})
+
+    return {
+        "status": status,
+        "verdict": verdict,
+        "answer": answer,
+        "missing_required_facts": missing_required_facts if status == MISSING_REQUIRED_FACTS else [],
+        "citations": citations,
+        "note": note,
+        "grounding": grounding,
+    }
+
+
 async def answer_informational(
     payload: dict, *, scenario: str, reasoning_effort: str = "medium"
 ) -> dict:
@@ -605,17 +784,12 @@ async def answer_informational(
 
     note = str(parsed.get("note") or "")
 
-    raw_ids = parsed.get("cited_rule_ids") or []
-    if not isinstance(raw_ids, list):
-        raw_ids = []
     # Split what the model asked to cite into ids that name a rule in the payload
     # and ids that do not, keeping first-seen order and dropping repeats. A
     # citation to a rule not in the closed set is a fabrication: it is not a
     # citation, and — rather than vanish in silence — it is reported below so the
     # check that refused it can be seen to have refused something.
-    requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
-    cited_ids = [rid for rid in requested if rid in available_ids]
-    fabricated = [rid for rid in requested if rid not in available_ids]
+    requested, cited_ids, fabricated = _checked_citation_ids(parsed.get("cited_rule_ids"), available_ids)
 
     grounding = _grounding(
         rules_available=len(rules),
@@ -657,29 +831,70 @@ async def answer_informational(
     return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
 
 
-async def answer_policy_case(
-    payload: dict, *, scenario: str, reasoning_effort: str = "medium"
-) -> dict:
-    """Classify the case, and — for an informational request only — gather the
-    answer the policy holds.
+async def answer_decision(payload: dict, *, scenario: str, reasoning_effort: str = "medium") -> dict:
+    """Apply one policy's retained rules to a decision case.
+
+    Returns one of the decision states, all with grounding:
+
+      - answered: the cited rules settle the judgement.
+      - missing_required_facts: bearing rules need facts the scenario did not supply.
+      - not_settled_by_rules: cited rules bear on the situation but do not determine it.
+      - no_rule_bears: no rule in this policy bears on the judgement.
+      - declined: the model could not compose a grounded response.
+
+    A failed request is raised, and the caller materialises it as ``failed`` after
+    intent is known, mirroring the informational path.
+    """
+
+    rules = payload.get("rules") or []
+    transport = to_compact(payload)
+    if len(transport) > _MAX_RECORD_CHARS:
+        return {
+            "status": DECLINED,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": (
+                "This policy's record is larger than can be read in one grounded pass, so no judgement "
+                "was composed from it. The rules are listed below to read directly."
+            ),
+            "grounding": _grounding(
+                rules_available=len(rules),
+                citations_requested=0,
+                cited_ids=[],
+                fabricated=[],
+                oversize=True,
+            ),
+        }
+
+    user_content = f"Question: {scenario}\n\nPolicy record (grounding_projection_v1 JSON):\n{transport}"
+    parsed = await _chat_json(
+        _DECISION_SYSTEM_PROMPT,
+        user_content,
+        reasoning_effort=reasoning_effort,
+    )
+    return _decision_from_parsed(parsed, rules=rules, spans=payload.get("spans") or {})
+
+
+async def answer_policy_case(payload: dict, *, scenario: str, reasoning_effort: str = "medium") -> dict:
+    """Classify the case, then gather the matching informational or decision answer.
 
     ``payload`` is the lean ``grounding_projection_v1`` record for one policy,
     built by :func:`case_payload_for_provision`. Returns
-    ``{"intent", "classification_reasoning", "informational", "reasoning_effort"}``.
-    ``informational`` is populated only when the intent is informational; for a
-    determination it is ``None`` and the caller runs the per-rule deciders it
-    already has, unchanged. This module never runs those deciders itself, so
-    there is one implementation of a determination and this is not a second.
+    ``{"intent", "classification_reasoning", "informational", "decision",
+    "reasoning_effort"}``. ``informational`` is populated only when the intent is
+    informational; ``decision`` is populated only when the intent is decision.
 
     Two kinds of failure are kept apart, because they are not the same fact. A
     classification that does not complete leaves the intent *unknown*: there is
     no honest answer to compose, so it is raised for the endpoint to turn into a
     503 the product degrades on — never guessed into one intent or the other. A
-    gather that does not complete on a case already read as informational leaves
-    the intent *known*: that is the fourth informational state, reported as
-    ``{"status": "failed"}`` rather than raised, so the reader is told the answer
-    for their question did not come back rather than being handed a determination
-    of a different question.
+    gather that does not complete on a case already read as informational or
+    decision leaves the intent *known*: that is the fourth materialised state,
+    reported as ``{"status": "failed"}`` rather than raised, so the reader is
+    told the answer for their question did not come back rather than being handed
+    an answer to a different question.
     """
 
     effort = _normalise_effort(reasoning_effort)
@@ -690,6 +905,7 @@ async def answer_policy_case(
     intent = classification["intent"]
 
     informational = None
+    decision = None
     if intent == INFORMATIONAL:
         try:
             informational = await answer_informational(
@@ -716,11 +932,32 @@ async def answer_policy_case(
                     oversize=False,
                 ),
             }
+    else:
+        try:
+            decision = await answer_decision(payload, scenario=scenario, reasoning_effort=effort)
+        except RuntimeError:
+            rules = payload.get("rules") or []
+            decision = {
+                "status": FAILED,
+                "verdict": "",
+                "answer": "",
+                "missing_required_facts": [],
+                "citations": [],
+                "note": "",
+                "grounding": _grounding(
+                    rules_available=len(rules),
+                    citations_requested=0,
+                    cited_ids=[],
+                    fabricated=[],
+                    oversize=False,
+                ),
+            }
 
     return {
         "intent": intent,
         "classification_reasoning": classification["reasoning"],
         "informational": informational,
+        "decision": decision,
         "reasoning_effort": effort,
     }
 
@@ -791,6 +1028,60 @@ rule you relied on, no rule you did not, and only ids that appear in some record
 array if none bears.
 - "declined": true only if you cannot compose an answer from the records for a reason other than no \
 rule bearing on it — for example the question is unintelligible. Normally false.
+- "note": optional one-sentence caveat, e.g. that the records are partial or point elsewhere. Empty \
+string if you have nothing to add."""
+
+_DECISION_MULTI_SYSTEM_PROMPT = """A reviewer has described a situation and asked for a judgement under \
+a project's retained policies. You are given the reviewer's question and one or more policies. The \
+policies arrive as a JSON list under `policies`; each entry is `{"policy": <its identity>, "record": <the \
+policy>}`, and each `record` is one lean `grounding_projection_v1`. Apply only these records' rules to \
+the situation. Do not use outside law, ordinary workplace knowledge, or assumptions not present in the \
+question or the records.
+
+Each `record` has four parts:
+- `envelope`: the policy's identity and the values every rule shares.
+- `spans`: the exact sentences from the source document, each stored once under an id, in the \
+document's own words and uncut. A rule points at the sentences it was drawn from by id.
+- `facts`: the terms and quantities the rules are measured against, each stored once under an id.
+- `rules`: the policy's rules. Each carries a `rule_id`, a `rule_type` and an `evaluation_mode` of \
+either deterministic or ai_ready, an `effect`, the attributes and facts it turns on, its \
+`required_facts`, and `evidence_refs` — the ids of the `spans` it was drawn from.
+
+These records together are the whole set you may draw on: answer only from them, and cite only \
+`rule_id`s that appear in some record's `rules`. A `rule_id` is unique across the records, so a citation \
+names exactly one rule in exactly one policy.
+
+A rule bears on the situation when its condition, required facts, effect, or source sentence speaks to \
+the judgement the reviewer asks for. For every bearing rule, check `required_facts`: if the scenario \
+does not supply a fact the rule needs to decide the case, do not guess. Return \
+`missing_required_facts` and name the missing facts. If no retained rule bears on the situation, return \
+`no_rule_bears`. If rules bear but even with the supplied facts they do not settle the requested \
+judgement, return `not_settled_by_rules`. Only return `answered` when the cited rules, read from these \
+records, settle the judgement. Do not over-refuse because of a harmless label variation: if the \
+scenario names a category by an equivalent ordinal or severity label and the records supply the matching \
+category on that same scale, with no competing category equally plausible, apply that rule and state the \
+mapping you used in your answer. If a general question can be answered for the categories or conditions \
+the retained records themselves name, return `answered` with a conditional judgement for those categories \
+and name any remaining unstated facts in the answer; reserve `missing_required_facts` for cases where no \
+policy-grounded judgement can be made until the missing fact is supplied.
+
+Write in the language the reviewer asked in. The answer is your own wording; do not present it as a \
+direct quotation of the document. Every load-bearing statement must rest on cited rules.
+
+Return ONLY a JSON object:
+- "status": "answered", "missing_required_facts", "not_settled_by_rules", "no_rule_bears", or \
+"declined".
+- "answer": your plain-language judgement or non-answer explanation. Empty only for no_rule_bears \
+or declined.
+- "verdict": a short plain-language verdict when status is "answered" (for example "compliant", \
+"not compliant", "allowed", "not allowed"). Empty otherwise.
+- "cited_rule_ids": the `rule_id`s of the rules your answer or non-answer explanation draws on, from \
+any of the records. Every rule you relied on, no rule you did not, and only ids that appear in some \
+record's `rules`. Empty only if no rule bears or you declined.
+- "missing_required_facts": a list of required facts that the scenario did not supply. Empty unless \
+status is "missing_required_facts".
+- "declined": true only if you cannot read the question or compose a grounded response for a reason \
+other than the retained policies not settling the case. Normally false.
 - "note": optional one-sentence caveat, e.g. that the records are partial or point elsewhere. Empty \
 string if you have nothing to add."""
 
@@ -922,12 +1213,7 @@ async def answer_informational_over_policies(
 
     note = str(parsed.get("note") or "")
 
-    raw_ids = parsed.get("cited_rule_ids") or []
-    if not isinstance(raw_ids, list):
-        raw_ids = []
-    requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
-    cited_ids = [rid for rid in requested if rid in available_ids]
-    fabricated = [rid for rid in requested if rid not in available_ids]
+    requested, cited_ids, fabricated = _checked_citation_ids(parsed.get("cited_rule_ids"), available_ids)
 
     grounding = _grounding(
         rules_available=rules_available,
@@ -960,10 +1246,65 @@ async def answer_informational_over_policies(
     return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
 
 
+async def answer_decision_over_policies(
+    records: list[dict], *, scenario: str, reasoning_effort: str = "medium"
+) -> dict:
+    """Apply the retained policies to a decision case in one grounded gather.
+
+    This mirrors :func:`answer_informational_over_policies`: the retained records
+    are read together, never one policy at a time, and all grounding and citation
+    checks run over the union of their rules. Each citation carries the policy it
+    came from.
+    """
+
+    all_rules, merged_spans, rule_to_policy, policies_view = _union_over_records(records)
+    policies_grounded = len(records)
+    transport = to_compact({"policies": policies_view})
+    if len(transport) > _MAX_RECORD_CHARS:
+        grounding = _grounding(
+            rules_available=len(all_rules),
+            citations_requested=0,
+            cited_ids=[],
+            fabricated=[],
+            oversize=True,
+        )
+        grounding["policies_grounded"] = policies_grounded
+        return {
+            "status": DECLINED,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": (
+                "The retained policies' records together are larger than can be read in one grounded "
+                "pass, so no judgement was composed from them. The policies are listed to read directly."
+            ),
+            "grounding": grounding,
+        }
+
+    user_content = (
+        f"Question: {scenario}\n\n"
+        f"Policies (a JSON list, each entry a policy's identity and its grounding_projection_v1 "
+        f"record):\n{transport}"
+    )
+    parsed = await _chat_json(
+        _DECISION_MULTI_SYSTEM_PROMPT,
+        user_content,
+        reasoning_effort=reasoning_effort,
+    )
+    return _decision_from_parsed(
+        parsed,
+        rules=all_rules,
+        spans=merged_spans,
+        policies_grounded=policies_grounded,
+        rule_to_policy=rule_to_policy,
+    )
+
+
 async def answer_case_over_policies(
     records: list[dict], *, scenario: str, reasoning_effort: str = "medium"
 ) -> dict:
-    """Classify a case put to several policies, and — informational only — gather.
+    """Classify a case put to several policies, then gather the matching answer.
 
     The mirror of :func:`answer_policy_case` for the retained set. The intent is
     read by the same :func:`classify_case_intent`, handed the tested quantities of
@@ -972,12 +1313,9 @@ async def answer_case_over_policies(
     retained set rather than one policy's. There is no second classifier and no
     second rule for what an intent is.
 
-    For a determination this returns the classification and nothing composed — the
-    caller runs the per-rule deciders it already has, one policy's rule at a time,
-    exactly as the single-policy endpoint does. A gather that does not complete on
-    a case already read as informational is the fourth state, reported rather than
-    raised, so a known informational request never falls through to a
-    determination of a different question.
+    A gather that does not complete on a case already read as informational or
+    decision is reported as the fourth materialised state rather than raised, so
+    a known request never falls through to a different question.
     """
 
     effort = _normalise_effort(reasoning_effort)
@@ -994,6 +1332,7 @@ async def answer_case_over_policies(
     intent = classification["intent"]
 
     informational = None
+    decision = None
     if intent == INFORMATIONAL:
         try:
             informational = await answer_informational_over_policies(
@@ -1016,10 +1355,35 @@ async def answer_case_over_policies(
                 "note": "",
                 "grounding": grounding,
             }
+    else:
+        try:
+            decision = await answer_decision_over_policies(
+                records, scenario=scenario, reasoning_effort=effort
+            )
+        except RuntimeError:
+            all_rules, _, _, _ = _union_over_records(records)
+            grounding = _grounding(
+                rules_available=len(all_rules),
+                citations_requested=0,
+                cited_ids=[],
+                fabricated=[],
+                oversize=False,
+            )
+            grounding["policies_grounded"] = len(records)
+            decision = {
+                "status": FAILED,
+                "verdict": "",
+                "answer": "",
+                "missing_required_facts": [],
+                "citations": [],
+                "note": "",
+                "grounding": grounding,
+            }
 
     return {
         "intent": intent,
         "classification_reasoning": classification["reasoning"],
         "informational": informational,
+        "decision": decision,
         "reasoning_effort": effort,
     }

@@ -125,6 +125,15 @@ class _StubClient:
 
     classify_reply: dict[str, Any] = {"intent": "informational", "reasoning": "asks what the policy provides"}
     info_reply: dict[str, Any] = dict(_ANSWERING_INFO_REPLY)
+    decision_reply: dict[str, Any] = {
+        "status": "answered",
+        "answer": "The supplied case exceeds the policy cap.",
+        "verdict": "not compliant",
+        "cited_rule_ids": [_RULE_IDS[0]],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "",
+    }
 
     def __init__(self, settings: Any) -> None:  # noqa: D107 - shape only
         self._settings = settings
@@ -132,7 +141,14 @@ class _StubClient:
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         system = messages[0]["content"]
         is_classify = _CLASSIFY_MARKER in system
-        reply = type(self).classify_reply if is_classify else type(self).info_reply
+        is_decision = "asked for a judgement" in system
+        reply = (
+            type(self).classify_reply
+            if is_classify
+            else type(self).decision_reply
+            if is_decision
+            else type(self).info_reply
+        )
         return json.dumps(reply, ensure_ascii=False)
 
 
@@ -149,6 +165,15 @@ async def client(monkeypatch):
     monkeypatch.setattr(ai_case_intent, "AzureOpenAIClient", _StubClient)
     _StubClient.classify_reply = {"intent": "informational", "reasoning": "asks what the policy provides"}
     _StubClient.info_reply = dict(_ANSWERING_INFO_REPLY)
+    _StubClient.decision_reply = {
+        "status": "answered",
+        "answer": "The supplied case exceeds the policy cap.",
+        "verdict": "not compliant",
+        "cited_rule_ids": [_RULE_IDS[0]],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "",
+    }
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -301,11 +326,9 @@ async def test_a_fabricated_citation_is_refused_at_the_http_boundary(client) -> 
     assert info["grounding"]["rules_cited"] == 0
 
 
-async def test_a_determination_returns_only_the_classification(client) -> None:
-    """When the case is a determination, the endpoint never runs it. It returns
-    the classification and a null informational answer, so the caller runs the
-    per-rule deciders it already has and this endpoint cannot become a second,
-    drifting decider."""
+async def test_a_determination_returns_a_grounded_decision(client) -> None:
+    """When the case is a determination, the endpoint returns a sibling decision
+    answer grounded to the same projected policy record."""
 
     _StubClient.classify_reply = {"intent": "decision", "reasoning": "states facts and asks for a ruling"}
 
@@ -322,6 +345,12 @@ async def test_a_determination_returns_only_the_classification(client) -> None:
     assert body["intent"] == "decision"
     # No informational answer is synthesised for a determination.
     assert body["informational"] is None
+    decision = body["decision"]
+    assert decision["status"] == "answered"
+    assert decision["verdict"] == "not compliant"
+    citation = decision["citations"][0]
+    assert citation["rule_id"] == _RULE_IDS[0]
+    assert citation["source"]["text"] == _CAP_SOURCE
 
 
 async def test_an_unknown_provision_is_a_404_not_an_empty_answer(client) -> None:

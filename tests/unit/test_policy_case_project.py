@@ -273,6 +273,15 @@ class _StubClient:
         "declined": False,
         "note": "",
     }
+    decision_reply: dict[str, Any] = {
+        "status": "answered",
+        "answer": "the decision",
+        "verdict": "compliant",
+        "cited_rule_ids": [],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "",
+    }
 
     def __init__(self, settings: Any) -> None:
         self._settings = settings
@@ -281,7 +290,14 @@ class _StubClient:
         type(self).calls.append({"messages": messages, "kwargs": kwargs})
         system = messages[0]["content"]
         is_classify = "sort one question" in system
-        reply = type(self).classify_reply if is_classify else type(self).info_reply
+        is_decision = "asked for a judgement" in system
+        reply = (
+            type(self).classify_reply
+            if is_classify
+            else type(self).decision_reply
+            if is_decision
+            else type(self).info_reply
+        )
         return json.dumps(reply, ensure_ascii=False)
 
 
@@ -295,6 +311,15 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> type[_StubClient]:
         "bears": True,
         "answer": "the answer",
         "cited_rule_ids": [],
+        "declined": False,
+        "note": "",
+    }
+    _StubClient.decision_reply = {
+        "status": "answered",
+        "answer": "the decision",
+        "verdict": "compliant",
+        "cited_rule_ids": [],
+        "missing_required_facts": [],
         "declined": False,
         "note": "",
     }
@@ -371,12 +396,9 @@ async def test_multi_policy_citations_name_the_policy_they_came_from(
     assert citation["policy"]["provision_id"] == "prov-b"
 
 
-async def test_multi_policy_reuses_the_shared_classifier(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_multi_policy_reuses_the_shared_classifier(monkeypatch: pytest.MonkeyPatch) -> None:
     """The intent is read by the one shared classifier, not a second copy. A
-    determination returns the classification and gathers nothing — the caller runs
-    the deciders it already has."""
+    determination then gathers once over the retained records."""
 
     seen: dict[str, Any] = {}
 
@@ -386,6 +408,21 @@ async def test_multi_policy_reuses_the_shared_classifier(
         return {"intent": ai_case_intent.DECISION, "reasoning": "supplies a tested fact"}
 
     monkeypatch.setattr(ai_case_intent, "classify_case_intent", _spy_classify)
+    decision_calls: list[list[dict]] = []
+
+    async def _spy_decision(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
+        decision_calls.append(records)
+        return {
+            "status": ai_case_intent.ANSWERED,
+            "verdict": "compliant",
+            "answer": "grounded decision",
+            "missing_required_facts": [],
+            "citations": [],
+            "note": "",
+            "grounding": {},
+        }
+
+    monkeypatch.setattr(ai_case_intent, "answer_decision_over_policies", _spy_decision)
 
     record = _record("prov-a", "A", ["C-a"])
     result = await ai_case_intent.answer_case_over_policies(
@@ -395,6 +432,38 @@ async def test_multi_policy_reuses_the_shared_classifier(
     assert seen, "the shared classifier was not called"
     assert result["intent"] == ai_case_intent.DECISION
     assert result["informational"] is None
+    assert result["decision"]["status"] == ai_case_intent.ANSWERED
+    assert len(decision_calls) == 1
+
+
+async def test_multi_policy_decision_citations_name_the_policy_they_came_from(
+    stub_model: type[_StubClient],
+) -> None:
+    """A project-scope decision is one gather over retained records, with
+    per-policy citations."""
+
+    record_a = _record("prov-a", "A", ["C-a"])
+    record_b = _record("prov-b", "B", ["C-b"])
+    rule_from_b = record_b["payload"]["rules"][0]["rule_id"]
+    stub_model.decision_reply = {
+        "status": "answered",
+        "answer": "Policy B settles the supplied case.",
+        "verdict": "compliant",
+        "cited_rule_ids": [rule_from_b],
+        "missing_required_facts": [],
+        "declined": False,
+        "note": "",
+    }
+
+    result = await ai_case_intent.answer_decision_over_policies(
+        [record_a, record_b], scenario="a supplied fact, is it compliant?"
+    )
+
+    assert result["status"] == ai_case_intent.ANSWERED
+    assert result["citations"][0]["rule_id"] == rule_from_b
+    assert result["citations"][0]["policy"]["provision_id"] == "prov-b"
+    gathers = [c for c in stub_model.calls if "asked for a judgement" in c["messages"][0]["content"]]
+    assert len(gathers) == 1
 
 
 # --- the orchestrator: scope, and the honest retrieval states ------------------
