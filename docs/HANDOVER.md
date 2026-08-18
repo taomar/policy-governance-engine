@@ -965,8 +965,16 @@ current rows, the index still held the superseded ones.
 
 The live symptom was `clauses_retrieved: 40`, `policies_considered: 38`,
 `policies_retained: 0`, `evaluation: null`, `status: "no_match"`, reason *"no published
-policy matched this question"* — for a plain annual-leave question against a staff
-handbook that answers it. **A user cannot tell that from an irrelevant question.**
+policy matched this question"*. With an intersection of zero, **no question could ever
+have matched** — the reported reason was structurally incapable of being true. A user
+cannot tell that from a genuinely irrelevant question.
+
+(Worth recording how this was nearly mis-stated: the illustrating question first chosen
+was about annual leave, described as one the handbook plainly answers. The agent doing
+the fix checked and refuted it — the active published version covers recruitment,
+probation, salaries and working hours, and holds nothing on annual-leave entitlement, so
+`no_rule_bears` would have been the correct answer to that question. The defect is real
+and the example was wrong. An intersection of zero is the claim that needs no example.)
 
 Three things are worth carrying forward.
 
