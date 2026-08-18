@@ -62,6 +62,13 @@ from policy_platform.infrastructure.persistence.provision_snapshot import (
     snapshots_for_candidates,
 )
 from policy_platform.infrastructure.persistence.review_facets import build_review_facets
+from policy_platform.infrastructure.projection.published_case_payload import published_case_payloads_for_policy_set
+from policy_platform.infrastructure.search.policy_index import (
+    failed_policy_index_build_outcome,
+    policy_index_build_outcome_payload,
+    rebuild_project_policy_index,
+    record_policy_index_build_state,
+)
 from policy_platform.infrastructure.assembly.policy_assembly import assemble
 from policy_platform.infrastructure.assembly.provision_lookup import provision_groupings
 from policy_platform.infrastructure.assembly.topic_label_lookup import (
@@ -807,6 +814,26 @@ async def publish_approved_candidates(
 
     await session.commit()
 
+    try:
+        policy_index_build = await rebuild_project_policy_index(
+            policy_set_key=key,
+            version_number=version.version_number,
+            projections=await published_case_payloads_for_policy_set(session, policy_set.id),
+        )
+    except Exception as exc:  # noqa: BLE001 - publish already succeeded; report the stale index instead
+        logger.warning("policy index projection failed after publish for policy set '%s': %s", key, exc)
+        policy_index_build = failed_policy_index_build_outcome(
+            policy_set_key=key,
+            version_number=version.version_number,
+            error=str(exc),
+        )
+    await record_policy_index_build_state(
+        session,
+        policy_set_id=policy_set.id,
+        outcome=policy_index_build,
+    )
+    await session.commit()
+
     # Section 9.11 step 6: publishing a new version must re-run every active
     # PolicyTest for this policy set against it. Additive and best-effort —
     # the publish itself is already committed above, so a problem re-running
@@ -835,4 +862,5 @@ async def publish_approved_candidates(
         approved_by=version.approved_by,
         approved_at=version.approved_at,
         rule_count=len(rules),
+        policy_index_build=policy_index_build_outcome_payload(policy_index_build),
     )

@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.ext.compiler import compiles  # noqa: E402
 
 from policy_platform.api.app import create_app  # noqa: E402
+from policy_platform.api.routers import candidate_rules as candidate_rules_router  # noqa: E402
 from policy_platform.contracts.conditions import AllCondition  # noqa: E402
 from policy_platform.domain.models import (  # noqa: E402
     Base,
@@ -56,11 +57,13 @@ from policy_platform.domain.models import (  # noqa: E402
     DocumentVersion,
     ExtractionRun,
     PolicySet,
+    PolicyIndexState,
     PolicyTest,
     PolicyTestRun,
     SourceDocument,
 )
 from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
+from policy_platform.infrastructure.search.policy_index import PolicyIndexBuildOutcome, policy_index_name  # noqa: E402
 from tests.fixtures.factories import make_rule  # noqa: E402
 
 
@@ -166,6 +169,23 @@ async def published(monkeypatch):
         session.add(_guard(_RETIRED_TEST_ID, is_active=False, name="Retired guard"))
         await session.commit()
 
+    async def _fake_rebuild_project_policy_index(*, policy_set_key, version_number, projections, **_kw):
+        projection_list = list(projections)
+        return PolicyIndexBuildOutcome(
+            state="built",
+            policy_set_key=policy_set_key,
+            index_name=policy_index_name(policy_set_key),
+            version_number=version_number,
+            document_count=len(projection_list),
+            indexed_at="2026-08-18T12:00:00+00:00",
+        )
+
+    monkeypatch.setattr(
+        candidate_rules_router,
+        "rebuild_project_policy_index",
+        _fake_rebuild_project_policy_index,
+    )
+
     app = create_app()
 
     async def _override():
@@ -216,6 +236,36 @@ async def test_publishing_reruns_the_active_guard_and_records_an_on_publish_run(
     assert run.run_trigger == "on_publish"
     assert run.triggered_by == _PUBLISHER
     assert str(run.policy_version_id) == version_id
+
+
+async def test_publishing_reports_and_persists_policy_index_rebuild_outcome(published) -> None:
+    """Publishing must leave an operator-visible index outcome, not a silent stale index."""
+
+    http, maker = published
+
+    response = await http.post(
+        f"/api/policy-sets/{_KEY}/publish",
+        json={"approved_by": _PUBLISHER, "effective_from": date(2024, 1, 1).isoformat(), "is_active": True},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["policy_index_build"] == {
+        "state": "built",
+        "policy_set_key": _KEY,
+        "index_name": policy_index_name(_KEY),
+        "version_number": 1,
+        "document_count": 1,
+        "indexed_at": "2026-08-18T12:00:00Z",
+        "error": None,
+    }
+
+    async with maker() as session:
+        state = (await session.execute(select(PolicyIndexState))).scalar_one()
+        assert state.index_name == policy_index_name(_KEY)
+        assert state.indexed_version_number == 1
+        assert state.document_count == 1
+        assert state.status == "built"
 
 
 async def test_publishing_does_not_rerun_a_retired_guard(published) -> None:

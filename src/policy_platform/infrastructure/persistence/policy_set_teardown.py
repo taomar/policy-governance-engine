@@ -14,7 +14,7 @@ FastAPI.
 
 Three kinds of thing hang off a policy set, and they fail differently
 --------------------------------------------------------------------
-1. **Twenty-one tables reachable by foreign key.** Every one of them is
+1. **Twenty-two tables reachable by foreign key.** Every one of them is
    `ON DELETE NO ACTION` -- there is not a single `CASCADE` in the schema. That
    is the *safe* failure: Postgres refuses the delete rather than orphaning the
    children. It is also why this module exists, because the caller has to do the
@@ -225,6 +225,7 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     ("policy_exceptions", "DELETE FROM policy_exceptions WHERE policy_set_id = :sid"),
     ("policy_attestations", "DELETE FROM policy_attestations WHERE policy_set_id = :sid"),
     ("policy_aggregate_limits", "DELETE FROM policy_aggregate_limits WHERE policy_set_id = :sid"),
+    ("policy_index_states", "DELETE FROM policy_index_states WHERE policy_set_id = :sid"),
     ("approved_policy_versions", "DELETE FROM approved_policy_versions WHERE policy_set_id = :sid"),
 )
 
@@ -246,6 +247,9 @@ class DeletionOutcome:
     search_documents_identified: int = 0
     search_documents_deleted: int | None = None
     search_index_error: str | None = None
+    policy_index_name: str | None = None
+    policy_index_deleted: bool | None = None
+    policy_index_error: str | None = None
 
     @property
     def total_rows(self) -> int:
@@ -263,6 +267,16 @@ class DeletionOutcome:
         if self.search_index_error is not None:
             return "orphaned"
         if self.search_documents_deleted is None:
+            return "skipped"
+        return "clean"
+
+    @property
+    def policy_index_state(self) -> str:
+        """`clean`, `skipped`, or `orphaned` for the per-project policy index."""
+
+        if self.policy_index_error is not None:
+            return "orphaned"
+        if self.policy_index_deleted is None:
             return "skipped"
         return "clean"
 

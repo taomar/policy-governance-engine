@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import UTC, datetime
+from json import JSONDecodeError
 from types import SimpleNamespace
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
+
+from policy_platform.domain.models import Base, PolicyIndexState, PolicySet
 from policy_platform.infrastructure.search.policy_index import (
     PolicyIndexBuildOutcome,
     build_policy_document,
     policy_index_definition,
     policy_index_name,
     rebuild_project_policy_index,
+    record_policy_index_build_state,
 )
 
 
@@ -87,6 +96,21 @@ class ExplodingSearch(FakeSearch):
         raise RuntimeError("search unavailable")
 
 
+class EmptySuccessSearch(FakeSearch):
+    async def create_index(self, definition):
+        raise JSONDecodeError("Expecting value", "", 0)
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb(_type, _compiler, **_kw) -> str:
+    return "JSON"
+
+
+@compiles(UUID, "sqlite")
+def _compile_uuid(_type, _compiler, **_kw) -> str:
+    return "CHAR(36)"
+
+
 def test_policy_index_name_is_valid_and_defensive():
     cases = [
         "ais-employee-handbook",
@@ -150,6 +174,35 @@ def test_build_policy_document_indexes_ids_and_retrieval_text_not_payload():
     assert "Unused leave may be carried over" in document["retrieval_text"]
     assert "rules" not in document
     assert "grounding_projection_v1" not in document
+
+
+def test_build_policy_document_accepts_published_payload_envelope_shape():
+    document = build_policy_document(
+        policy_set_key="ais-employee-handbook",
+        projection={
+            "envelope": {
+                "policy_version_id": "version-6",
+                "version_number": 6,
+                "provision_key": "conduct",
+                "heading_path": ["Handbook", "Conduct"],
+            },
+            "spans": {"s1": {"text": "Employees must disclose conflicts."}},
+            "facts": {"employee": {"name": "employee", "source_phrase": "Employees"}},
+            "rules": [
+                {
+                    "rule_id": "AI-1",
+                    "attributes": {"applies": [{"text": "Employees"}], "outcome": [{"text": "disclose"}]},
+                    "effect": {"action": "must disclose"},
+                }
+            ],
+        },
+        vector=[0.1, 0.2, 0.3],
+    )
+
+    assert document["policy_version_id"] == "version-6"
+    assert document["version_number"] == 6
+    assert document["provision_key"] == "conduct"
+    assert "Employees must disclose conflicts." in document["retrieval_text"]
 
 
 def test_rebuild_reports_skipped_when_search_is_disabled():
@@ -222,3 +275,73 @@ def test_rebuild_reports_failed_without_raising_when_search_fails():
     assert outcome.state == "failed"
     assert outcome.document_count == 0
     assert "search unavailable" in (outcome.error or "")
+
+
+def test_rebuild_accepts_empty_success_response_from_index_create():
+    outcome = _run(
+        rebuild_project_policy_index(
+            policy_set_key="ais-employee-handbook",
+            version_number=7,
+            projections=[_projection()],
+            settings=_settings(),
+            search_client=EmptySuccessSearch(),
+            openai_client=FakeOpenAI(),
+            indexed_at=datetime(2026, 8, 18, tzinfo=UTC),
+        )
+    )
+
+    assert outcome.state == "built"
+    assert outcome.document_count == 1
+
+
+def test_record_policy_index_build_state_keeps_last_successful_version_when_next_build_fails():
+    async def _case():
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with maker() as session:
+                policy_set = PolicySet(
+                    id=uuid.UUID("00000000-0000-4000-8000-000000000201"),
+                    key="handbook",
+                    name="Handbook",
+                    owner="policy",
+                )
+                session.add(policy_set)
+                await session.flush()
+                await record_policy_index_build_state(
+                    session,
+                    policy_set_id=policy_set.id,
+                    outcome=PolicyIndexBuildOutcome(
+                        state="built",
+                        policy_set_key="handbook",
+                        index_name=policy_index_name("handbook"),
+                        version_number=6,
+                        document_count=10,
+                        indexed_at="2026-08-18T12:00:00+00:00",
+                    ),
+                )
+                await record_policy_index_build_state(
+                    session,
+                    policy_set_id=policy_set.id,
+                    outcome=PolicyIndexBuildOutcome(
+                        state="failed",
+                        policy_set_key="handbook",
+                        index_name=policy_index_name("handbook"),
+                        version_number=7,
+                        document_count=0,
+                        indexed_at="2026-08-18T13:00:00+00:00",
+                        error="search unavailable",
+                    ),
+                )
+                state = (await session.execute(select(PolicyIndexState))).scalar_one()
+                assert state.status == "failed"
+                assert state.attempted_version_number == 7
+                assert state.indexed_version_number == 6
+                assert state.document_count == 10
+                assert state.error == "search unavailable"
+        finally:
+            await engine.dispose()
+
+    _run(_case())

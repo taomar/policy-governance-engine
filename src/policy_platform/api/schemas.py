@@ -194,6 +194,16 @@ class ImportPolicyVersionRequest(BaseModel):
     rules: list[CanonicalRule]
 
 
+class PolicyIndexBuildResponse(BaseModel):
+    state: str
+    policy_set_key: str
+    index_name: str
+    version_number: int | None
+    document_count: int
+    indexed_at: datetime
+    error: str | None = None
+
+
 class ApprovedPolicyVersionResponse(BaseModel):
     id: str
     policy_set_id: str
@@ -204,6 +214,7 @@ class ApprovedPolicyVersionResponse(BaseModel):
     approved_by: str
     approved_at: datetime
     rule_count: int
+    policy_index_build: PolicyIndexBuildResponse | None = None
 
 
 class CandidateRuleDraftRequest(BaseModel):

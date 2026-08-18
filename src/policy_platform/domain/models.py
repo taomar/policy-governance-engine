@@ -111,6 +111,35 @@ class PolicySet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class PolicyIndexState(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Durable freshness marker for a project's per-policy Search index.
+
+    Azure Search can say whether an index exists and how many documents it holds,
+    but it cannot tell which approved policy version those documents represent if
+    a best-effort rebuild failed after publish. This row is the app's record of
+    the last attempt and, separately, the last version actually indexed.
+    """
+
+    __tablename__ = "policy_index_states"
+    __table_args__ = (
+        UniqueConstraint("policy_set_id", name="uq_policy_index_states_policy_set"),
+        CheckConstraint(
+            "status IN ('built', 'skipped', 'failed')",
+            name="ck_policy_index_states_status",
+        ),
+    )
+
+    policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False, index=True)
+    index_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    indexed_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    attempted_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class PolicyAuthority(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """Authority level + owner + rank used for deterministic precedence (Section 15.4)."""
 

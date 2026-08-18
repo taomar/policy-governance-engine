@@ -43,6 +43,7 @@ uses different profile names, that cannot be determined from this repo alone.
 from __future__ import annotations
 
 import hashlib
+from json import JSONDecodeError
 import logging
 import re
 from collections.abc import Iterable, Sequence
@@ -50,6 +51,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from policy_platform.domain.models import PolicyIndexState
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
 from policy_platform.infrastructure.settings import Settings, get_settings
@@ -195,12 +200,13 @@ def build_policy_document(
 ) -> dict:
     """Build one Azure Search document from one policy's grounding projection."""
 
-    policy_version_id = str(projection["policy_version_id"])
-    version_number = int(projection["version_number"])
-    provision_key = str(projection["provision_key"])
-    heading_parts = _strings(projection.get("heading_path", []))
-    rules = [rule for rule in projection.get("rules", []) if isinstance(rule, dict)]
-    retrieval_text = build_retrieval_text(heading_parts=heading_parts, rules=rules)
+    metadata = _projection_metadata(projection)
+    policy_version_id = str(metadata["policy_version_id"])
+    version_number = int(metadata["version_number"])
+    provision_key = str(metadata["provision_key"])
+    heading_parts = _strings(metadata.get("heading_path", []))
+    rules = _projection_rules(projection)
+    retrieval_text = _retrieval_text_for_projection(projection)
     heading_path = " > ".join(heading_parts)
     heading = heading_parts[-1] if heading_parts else provision_key
 
@@ -243,7 +249,7 @@ def build_retrieval_text(*, heading_parts: Sequence[str], rules: Sequence[dict])
 async def rebuild_project_policy_index(
     *,
     policy_set_key: str,
-    version_number: int,
+    version_number: int | None,
     projections: Iterable[dict],
     settings: Settings | None = None,
     search_client: AzureSearchClient | None = None,
@@ -272,10 +278,7 @@ async def rebuild_project_policy_index(
         openai_client = openai_client or AzureOpenAIClient(settings)
         projection_list = list(projections)
         texts = [
-            build_retrieval_text(
-                heading_parts=_strings(projection.get("heading_path", [])),
-                rules=[rule for rule in projection.get("rules", []) if isinstance(rule, dict)],
-            )
+            _retrieval_text_for_projection(projection)
             for projection in projection_list
         ]
         vectors = await openai_client.embed(texts) if texts else []
@@ -284,11 +287,12 @@ async def rebuild_project_policy_index(
             for projection, vector in zip(projection_list, vectors)
         ]
 
-        await search_client.create_index(
+        await _create_index_accepting_empty_success(
+            search_client,
             policy_index_definition(
                 index_name,
                 vector_dimensions=settings.azure_openai_embedding_dimensions,
-            )
+            ),
         )
         await search_client.upload_documents(index_name, documents)
         indexed_ids = await search_client.find_ids_by_filter(
@@ -318,6 +322,81 @@ async def rebuild_project_policy_index(
             indexed_at=now,
             error=str(exc),
         )
+
+
+async def record_policy_index_build_state(
+    session: AsyncSession,
+    *,
+    policy_set_id: object,
+    outcome: PolicyIndexBuildOutcome,
+) -> PolicyIndexState:
+    """Persist the latest rebuild attempt without lying about stale content.
+
+    A failed rebuild updates the attempt status and error, but deliberately keeps
+    the previously indexed version/document count. That is the fact the retrieval
+    path needs to tell "stale relative to the active version" from "fresh but no
+    match".
+    """
+
+    result = await session.execute(
+        select(PolicyIndexState).where(PolicyIndexState.policy_set_id == policy_set_id)
+    )
+    state = result.scalar_one_or_none()
+    attempted_at = _parse_timestamp(outcome.indexed_at)
+    if state is None:
+        state = PolicyIndexState(
+            policy_set_id=policy_set_id,
+            index_name=outcome.index_name,
+            document_count=0,
+            status=outcome.state,
+            attempted_version_number=outcome.version_number,
+            attempted_at=attempted_at,
+        )
+        session.add(state)
+
+    state.index_name = outcome.index_name
+    state.status = outcome.state
+    state.attempted_version_number = outcome.version_number
+    state.attempted_at = attempted_at
+    state.error = outcome.error
+    if outcome.state == "built":
+        state.indexed_version_number = outcome.version_number
+        state.document_count = outcome.document_count
+        state.built_at = attempted_at
+    elif outcome.state == "skipped" and state.indexed_version_number is None:
+        state.document_count = 0
+        state.built_at = None
+    return state
+
+
+def policy_index_build_outcome_payload(outcome: PolicyIndexBuildOutcome) -> dict:
+    return {
+        "state": outcome.state,
+        "policy_set_key": outcome.policy_set_key,
+        "index_name": outcome.index_name,
+        "version_number": outcome.version_number,
+        "document_count": outcome.document_count,
+        "indexed_at": outcome.indexed_at,
+        "error": outcome.error,
+    }
+
+
+def failed_policy_index_build_outcome(
+    *,
+    policy_set_key: str,
+    version_number: int | None,
+    error: str,
+    indexed_at: datetime | None = None,
+) -> PolicyIndexBuildOutcome:
+    return PolicyIndexBuildOutcome(
+        state="failed",
+        policy_set_key=policy_set_key,
+        index_name=policy_index_name(policy_set_key),
+        version_number=version_number,
+        document_count=0,
+        indexed_at=_timestamp(indexed_at),
+        error=error,
+    )
 
 
 async def drop_project_policy_index(
@@ -384,9 +463,49 @@ def _text_items(values: object) -> list[str]:
     return items
 
 
+def _projection_metadata(projection: dict) -> dict:
+    envelope = projection.get("envelope")
+    return envelope if isinstance(envelope, dict) else projection
+
+
+def _projection_rules(projection: dict) -> list[dict]:
+    return [rule for rule in projection.get("rules", []) if isinstance(rule, dict)]
+
+
+def _retrieval_text_for_projection(projection: dict) -> str:
+    metadata = _projection_metadata(projection)
+    rules = _projection_rules(projection)
+    parts = [build_retrieval_text(heading_parts=_strings(metadata.get("heading_path", [])), rules=rules)]
+    spans = projection.get("spans")
+    if isinstance(spans, dict):
+        parts.extend(_strings(item.get("text") for item in spans.values() if isinstance(item, dict)))
+    facts = projection.get("facts")
+    if isinstance(facts, dict):
+        for item in facts.values():
+            if isinstance(item, dict):
+                parts.extend(_strings([item.get("name"), item.get("source_phrase")]))
+    return " \n".join(dict.fromkeys(part.strip() for part in parts if part and part.strip()))[
+        :_MAX_RETRIEVAL_TEXT_CHARS
+    ].rstrip()
+
+
+async def _create_index_accepting_empty_success(search_client: AzureSearchClient, definition: dict) -> None:
+    try:
+        await search_client.create_index(definition)
+    except JSONDecodeError:
+        # The live Search service may return a 2xx with an empty body for PUT.
+        # AzureSearchClient raises before JSON parsing for non-2xx responses, so
+        # this only accepts the already-successful empty-response variant.
+        return
+
+
 def _odata_string(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
 def _timestamp(value: datetime | None) -> str:
     return (value or datetime.now(UTC)).astimezone(UTC).isoformat()
+
+
+def _parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))

@@ -19,6 +19,7 @@ from policy_platform.api.schemas import (
     CreatePolicySetRequest,
     ImportPolicyVersionRequest,
     MarkPolicySetReviewedRequest,
+    PolicyIndexBuildResponse,
     PolicySetResponse,
     UpdatePolicySetRequest,
     UpdateTrustedConfigRequest,
@@ -38,6 +39,10 @@ from policy_platform.infrastructure.projection.export import (
     media_type_for,
     models_to_export,
 )
+from policy_platform.infrastructure.projection.published_case_payload import (
+    active_version_for_policy_set,
+    published_case_payloads_for_policy_set,
+)
 from policy_platform.infrastructure.persistence.mappers import approved_policy_version_to_package
 from policy_platform.infrastructure.persistence.policy_set_teardown import (
     RETAINED_TABLES,
@@ -45,6 +50,13 @@ from policy_platform.infrastructure.persistence.policy_set_teardown import (
 )
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
+from policy_platform.infrastructure.search.policy_index import (
+    drop_project_policy_index,
+    failed_policy_index_build_outcome,
+    policy_index_build_outcome_payload,
+    rebuild_project_policy_index,
+    record_policy_index_build_state,
+)
 from policy_platform.infrastructure.settings import get_settings
 from policy_platform.infrastructure.extraction.policy_formulator import check_trusted_config
 from policy_platform.infrastructure.persistence.repositories import (
@@ -397,6 +409,11 @@ async def delete_policy_set_endpoint(
         except Exception as exc:  # noqa: BLE001 - reported, never raised past the delete
             outcome.search_index_error = str(exc)
 
+    policy_index_drop = await drop_project_policy_index(policy_set_key=key, settings=settings)
+    outcome.policy_index_name = policy_index_drop.index_name
+    outcome.policy_index_deleted = policy_index_drop.deleted
+    outcome.policy_index_error = policy_index_drop.error
+
     return {
         "key": outcome.policy_set_key,
         "name": outcome.policy_set_name,
@@ -406,8 +423,48 @@ async def delete_policy_set_endpoint(
         "search_documents_identified": outcome.search_documents_identified,
         "search_documents_deleted": outcome.search_documents_deleted,
         "search_index_error": outcome.search_index_error,
+        "policy_index": outcome.policy_index_state,
+        "policy_index_name": outcome.policy_index_name,
+        "policy_index_deleted": outcome.policy_index_deleted,
+        "policy_index_error": outcome.policy_index_error,
         "retained": dict(RETAINED_TABLES),
     }
+
+
+@router.post("/{key}/policy-index/rebuild", response_model=PolicyIndexBuildResponse)
+async def rebuild_policy_index_endpoint(
+    key: str, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Repair a project's per-policy Search index after a best-effort failure.
+
+    The index contains only published policies from the active approved version.
+    A project with no active version is therefore a coherent empty build, not an
+    error: the response carries ``version_number: null`` and ``document_count: 0``.
+    """
+
+    repo = PolicySetRepository(session)
+    policy_set = await repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    active_version = await active_version_for_policy_set(session, policy_set.id)
+    version_number = active_version.version_number if active_version else None
+    try:
+        projections = await published_case_payloads_for_policy_set(session, policy_set.id)
+        outcome = await rebuild_project_policy_index(
+            policy_set_key=key,
+            version_number=version_number,
+            projections=projections,
+        )
+    except Exception as exc:  # noqa: BLE001 - repair endpoint reports failed, not "no matches"
+        outcome = failed_policy_index_build_outcome(
+            policy_set_key=key,
+            version_number=version_number,
+            error=str(exc),
+        )
+    await record_policy_index_build_state(session, policy_set_id=policy_set.id, outcome=outcome)
+    await session.commit()
+    return policy_index_build_outcome_payload(outcome)
 
 
 @router.get("/{key}/workspace-counts")
