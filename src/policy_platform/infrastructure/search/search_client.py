@@ -1,10 +1,11 @@
 """Thin async Azure AI Search client (direct httpx REST calls, no SDK dependency).
 
-Talks only to the two pre-existing indexes on the shared `myfoundryiqforscop`
-resource (`policy-authoring`, `policy-evidence`) — this client never creates
-or alters index schemas, it only reads/writes documents. See
-`infrastructure/search/indexing.py` for the scoping strategy that keeps our
-writes/reads isolated from the resource's pre-existing unrelated data.
+Talks to Azure AI Search directly. Most existing callers use the two shared
+indexes (`policy-authoring`, `policy-evidence`) and only read/write documents.
+Per-project policy indexes additionally use the management endpoints below.
+See `infrastructure/search/indexing.py` for the scoping strategy that keeps
+shared-index writes/reads isolated from the resource's pre-existing unrelated
+data.
 """
 from __future__ import annotations
 
@@ -32,6 +33,55 @@ class AzureSearchClient:
 
     def _headers(self) -> dict:
         return {"api-key": self._settings.azure_search_api_key, "Content-Type": "application/json"}
+
+    async def create_index(self, definition: dict) -> dict:
+        """Create or replace an index definition by name (Azure Search PUT semantics)."""
+
+        settings = self._require_enabled()
+        name = definition.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise AzureSearchError("Azure Search index definition must include a non-empty name")
+        url = (
+            f"{settings.azure_search_endpoint.rstrip('/')}/indexes/{name}"
+            f"?api-version={settings.azure_search_api_version}"
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.put(url, headers=self._headers(), json=definition)
+        if resp.status_code >= 400:
+            raise AzureSearchError(f"Azure Search index create failed ({resp.status_code}): {resp.text[:500]}")
+        return resp.json()
+
+    async def delete_index(self, name: str) -> bool:
+        """Delete an index by name. An index that is already absent is success."""
+
+        settings = self._require_enabled()
+        url = (
+            f"{settings.azure_search_endpoint.rstrip('/')}/indexes/{name}"
+            f"?api-version={settings.azure_search_api_version}"
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.delete(url, headers=self._headers())
+        if resp.status_code == 404:
+            return False
+        if resp.status_code >= 400:
+            raise AzureSearchError(f"Azure Search index delete failed ({resp.status_code}): {resp.text[:500]}")
+        return True
+
+    async def index_exists(self, name: str) -> bool:
+        """Return whether an index exists."""
+
+        settings = self._require_enabled()
+        url = (
+            f"{settings.azure_search_endpoint.rstrip('/')}/indexes/{name}"
+            f"?api-version={settings.azure_search_api_version}"
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers())
+        if resp.status_code == 404:
+            return False
+        if resp.status_code >= 400:
+            raise AzureSearchError(f"Azure Search index lookup failed ({resp.status_code}): {resp.text[:500]}")
+        return True
 
     async def upload_documents(self, index: str, documents: list[dict]) -> dict:
         """mergeOrUpload a batch of documents (safe to call repeatedly/idempotently)."""
