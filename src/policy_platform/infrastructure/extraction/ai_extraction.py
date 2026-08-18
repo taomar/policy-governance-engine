@@ -1442,11 +1442,23 @@ async def extract_candidate_rules(
                     continue
                 confirmed_links.setdefault(edge.source_rule_id, []).append(edge.target_rule_id)
                 confirmed_links.setdefault(edge.target_rule_id, []).append(edge.source_rule_id)
+            # Reached only if the anchor build and every deterministic tier above
+            # ran to completion. Recorded so a later `linked` of 0 reads as "the
+            # tiers found nothing" rather than "the tiers never ran".
+            extraction_progress.note_discovery(
+                progress_key, tier="deterministic", ok=True
+            )
         except Exception:
             # Discovery is additive. A failure here must not lose a run's rules,
             # which are the expensive part; the rules simply keep the links the
             # decision tables gave them.
             logger.exception("relationship discovery failed for run %s", run.id)
+            # The anchor build is this block's first statement, so a failure here
+            # can have skipped every deterministic tier. Record which tier fell
+            # so the strip shows the count as a floor, not a confirmed zero.
+            extraction_progress.note_discovery(
+                progress_key, tier="deterministic", ok=False
+            )
 
         if unresolved_stems:
             logger.info(
@@ -1486,7 +1498,7 @@ async def extract_candidate_rules(
                 ]
                 linked_rule_ids = set(confirmed_links)
                 resolved = {w.element_id for w in windows if w.rule_id in linked_rule_ids}
-                adjudicated = await discover_continuations(
+                adjudicated, windows_failed = await discover_continuations(
                     ai_client, settings, windows, resolved_element_ids=resolved
                 )
                 for edge in adjudicated:
@@ -1507,8 +1519,22 @@ async def extract_candidate_rules(
                         len(adjudicated),
                         sum(1 for e in adjudicated if e.state == "confirmed"),
                     )
+                # "ok" only if no window was swallowed inside the tier: a lost
+                # window is a link the run may be missing, and the adjudicator
+                # catches its own per-window failures, so the outer `except`
+                # below never sees them. Reading `windows_failed` is the only way
+                # the tier's degradation reaches the strip rather than the log.
+                extraction_progress.note_discovery(
+                    progress_key, tier="model", ok=(windows_failed == 0)
+                )
             except Exception:
                 logger.exception("continuation adjudication failed for run %s", run.id)
+                # A failure setting the tier up (before any window ran) lands
+                # here rather than in the per-window catch above; either way the
+                # model tier did not complete, so the count is a floor.
+                extraction_progress.note_discovery(
+                    progress_key, tier="model", ok=False
+                )
 
         extraction_progress.advance(progress_key, linked=len(confirmed_links))
 

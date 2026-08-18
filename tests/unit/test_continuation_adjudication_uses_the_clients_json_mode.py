@@ -112,12 +112,15 @@ async def test_the_model_tier_is_not_silently_dead_end_to_end() -> None:
     # returns the confirmed link.
     client = _ClientWithRealChatSignature(_reply_linking_parent_to_child())
 
-    edges = await discover_continuations(
+    edges, windows_failed = await discover_continuations(
         client, _SETTINGS, [_PARENT, _CHILD], resolved_element_ids=set()
     )
 
     assert [e.state for e in edges] == ["confirmed"]
     assert (edges[0].source_rule_id, edges[0].target_rule_id) == ("R-parent", "R-child")
+    # A window that adjudicated cleanly is not counted as failed: the success
+    # side of the count the caller reads to tell a clean tier from a degraded one.
+    assert windows_failed == 0
 
 
 async def test_a_rule_read_from_a_continuation_is_not_marked_second_class() -> None:

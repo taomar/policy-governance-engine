@@ -112,6 +112,26 @@ class ExtractionProgress:
     #: invisible: the UI showed the run stall on the last batch for as long as
     #: linking took, with nothing saying what it was doing.
     linked: int = 0
+    #: Per-tier outcome of relationship discovery — the pass that produces the
+    #: `linked` count above — so the reader tells a genuine `linked == 0` (the
+    #: document established no cross-rule relationships) from a discovery that
+    #: reported 0 only because it crashed before it could find any. Empty until
+    #: the pass runs. Each key is a tier that was *attempted* — "deterministic"
+    #: (structure, roles, ordering, referents, enumeration) or "model" (the
+    #: continuation adjudicator) — and its value is "ok" when that tier finished
+    #: with nothing swallowed, or "failed" when its guard caught an exception
+    #: (for "model", also when a window it tried to adjudicate was lost inside
+    #: the tier). An absent key is "not reached", which is a third state distinct
+    #: from both: the model tier is absent when no model is configured, and the
+    #: deterministic tier is absent only when the run failed before linking (a
+    #: run-level `status`/`error`, not a discovery outcome). `linked` is a
+    #: trustworthy total only while every present value is "ok"; any "failed"
+    #: makes it a floor, not a count. The tier is recorded, not just a flag, so
+    #: the two blast radii stay distinct — the deterministic guard losing the
+    #: anchor build takes every deterministic tier with it, while the model guard
+    #: loses only adjudication. This is a run-scoped view of a control-flow fact,
+    #: written by `note_discovery` alone and read by no logic here.
+    relationship_discovery: dict[str, str] = field(default_factory=dict)
     #: Unreviewed candidates from the previous run of this document that this
     #: run replaced. Zero until this run produces its first rule.
     superseded: int = 0
@@ -232,6 +252,34 @@ def recover(document_version_id: str, *, count: int) -> None:
         return
     record.skipped -= count
     record.recovered += count
+    record.updated_at = time.time()
+
+
+def note_discovery(document_version_id: str, *, tier: str, ok: bool) -> None:
+    """Record the outcome of one relationship-discovery tier for the strip.
+
+    `tier` is "deterministic" (the structural/role/ordering/referent/enumeration
+    pass) or "model" (the continuation adjudicator). `ok` is True when that tier
+    finished with nothing swallowed and False when its guard caught an exception
+    — for the model tier, also when a window it tried to adjudicate was lost
+    inside the tier, since that too leaves `linked` a floor rather than a total.
+
+    A tier is written here only once it has been *attempted*, so an absent key
+    stays meaningful: it is "not reached", which reads differently from both
+    "ran and was fine" and "ran and failed". That is the distinction the reader
+    needs — a `linked` of 0 under an all-"ok" record is a document with no
+    relationships, while the same 0 under a "failed" record is a pass that never
+    ran. Recording the tier rather than a single flag keeps the deterministic
+    and model failures apart, because they lose different amounts of the graph.
+
+    Total and side-effect-free on an unknown run, per this module's
+    reporting-must-not-fail-a-run invariant: the caller wraps nothing, so this
+    must never raise. `dict.__setitem__` on the record's own field cannot.
+    """
+    record = _RUNS.get(document_version_id)
+    if record is None:
+        return
+    record.relationship_discovery[tier] = "ok" if ok else "failed"
     record.updated_at = time.time()
 
 

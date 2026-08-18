@@ -244,11 +244,22 @@ async def discover_continuations(
     settings,
     clauses: list[ClauseWindow],
     resolved_element_ids: set[str] | None = None,
-) -> list[PolicyRelationship]:
-    """Adjudicate every window the deterministic tiers left unresolved."""
+) -> tuple[list[PolicyRelationship], int]:
+    """Adjudicate every window the deterministic tiers left unresolved.
+
+    Returns `(edges, windows_failed)`. `windows_failed` counts the windows whose
+    adjudication raised and was swallowed below — a link the run may be missing.
+    It is returned rather than logged-only because the caller reports the model
+    tier's outcome to the reviewer, and a tier that lost windows is not the same
+    as one that ran clean: both can yield the same edge count, so without the
+    count "the model tier finished" would over-state what happened. The edges of
+    the windows that did succeed are still returned; a lost window costs its own
+    links, not the tier's.
+    """
 
     remaining = unresolved_clauses(clauses, resolved_element_ids or set())
     edges: list[PolicyRelationship] = []
+    windows_failed = 0
     for start in range(0, len(remaining), WINDOW_SIZE):
         window = remaining[start : start + WINDOW_SIZE]
         if len(window) < 2 or not should_adjudicate(window):
@@ -258,6 +269,8 @@ async def discover_continuations(
         except Exception:
             # One bad window must not cost the run its other links. Adjudication
             # is the last tier, so a failure here degrades to the structure the
-            # earlier tiers already found.
+            # earlier tiers already found. Counted, not just logged, so the tier
+            # can report itself degraded instead of the failure reaching nobody.
+            windows_failed += 1
             logger.exception("continuation adjudication failed for window at %d", start)
-    return edges
+    return edges, windows_failed
