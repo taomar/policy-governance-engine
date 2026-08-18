@@ -901,3 +901,44 @@ measuring the new precondition and has quietly stopped guarding what its name cl
 Grep by what a test **renders**, not by what it is named about.
 
 
+### 9.16 A failed hot reload silently serves the old module — the web twin of 4.4
+
+Section 4.4 records stale **API** servers: code on disk is not code in the running
+process. There is a web-side twin and it is worse, because nothing fails.
+
+The user reported: *"i see many implemented changes sometimes render older versions."*
+They were right, and the cause was in the browser console the whole time:
+
+```
+[vite] Failed to reload /src/components/PolicyValidationLab.tsx  (500)
+[vite] Failed to reload /src/components/policyTabPanes.tsx       (500)
+```
+
+**When an HMR reload fails, Vite logs it and leaves the previous module running.**
+The file on disk is new; the module in the browser is old; the page keeps working.
+Nothing on screen says the two have diverged, and a reviewer verifying a change sees
+the version it replaced.
+
+The dev server had been up **48.5 hours**. Every mid-edit syntax error in that window
+— and with several agents editing concurrently there were many — left a module
+pinned to its last good version. Individually transient; cumulatively a build that
+is current in some files and days old in others, with no marker distinguishing them.
+
+This is why "verify in the running app" is not sufficient on its own. It was relied
+on all session as the strongest form of evidence, and it is — but only against a
+process that is actually serving what is on disk.
+
+**Defences:**
+
+* Treat `[vite] Failed to reload` as a **build-invalidating event**, not console
+  noise. One is enough to make every later observation suspect.
+* **Restart the dev server on a schedule** during long multi-agent sessions, and
+  always before a verification pass that a decision will rest on. Clearing
+  `node_modules/.vite` with it costs seconds.
+* Prefer a **hard reload** over HMR when checking a change you are about to report
+  as landed.
+* When a user says a change did not appear, **check the server's uptime and the
+  console for reload failures before re-reading the code.** The code was right in
+  every instance here; the process serving it was not.
+
+
