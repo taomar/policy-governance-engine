@@ -65,6 +65,13 @@ KNOWN_UNREACHABLE = {
         "Single-exception fetch. The product lists exceptions and edits them "
         "from the list, so it never needs one by id. Reported, not fixed."
     ),
+    "POST /api/ai/policy-sets/*/case-answer": (
+        "Project-level case answering: retrieves the published policies bearing "
+        "on a question and evaluates only those. The backend contract was built "
+        "and proven against the live API first; the product client is a separate "
+        "agent's to wire against that contract. Recorded until it does -- the rot "
+        "check below deletes this line the moment the product calls it."
+    ),
 }
 
 

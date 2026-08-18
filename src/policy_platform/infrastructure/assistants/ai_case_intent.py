@@ -723,3 +723,303 @@ async def answer_policy_case(
         "informational": informational,
         "reasoning_effort": effort,
     }
+
+
+# --- the same case, put to several policies at once --------------------------
+#
+# A reviewer can put a case to one policy they have chosen, or to the project's
+# policies. The project path first *retrieves* the policies that bear on the
+# question and discards the rest (that narrowing is `ai_case_project`'s, not this
+# module's), then hands the survivors here. The two paths differ only in how many
+# records reach the gather: the intent is read by the one classifier above, and
+# the gather runs once over the retained records together — not once per policy —
+# so the model can relate what several policies hold to one another and to the
+# question. "u dont loop in code one policy after other, u have the json light
+# already to evaluate against."
+#
+# Everything that keeps the single-policy gather honest is kept here unchanged and
+# is *shared code*, not a second copy that could drift (a recorded failure
+# pattern): the fabrication check, the four answer states, the server-side
+# citation resolution, and the grounding report are the same helpers. Two things
+# are added because several policies are now in play: the closed set an answer may
+# draw on is the *union* of the retained records' rules, and each citation carries
+# the identity of the policy whose rule it names, because with more than one policy
+# a rule id alone is no longer traceable to a policy (constraint 8, extended).
+
+
+_INFORMATIONAL_MULTI_SYSTEM_PROMPT = """A reviewer has asked what a project's \
+policies provide on some subject. You are given the reviewer's question and one or more policies. The \
+policies arrive as a JSON list under `policies`; each entry is `{"policy": <its identity>, "record": <the \
+policy>}`, and each `record` is one lean `grounding_projection_v1`. Read the answer from these records \
+and nothing else.
+
+Each `record` has four parts:
+- `envelope`: the policy's identity and the values every rule shares — its ids, the authority behind \
+it, its effective dates, and the document's heading path.
+- `spans`: the exact sentences from the source document, each stored once under an id, in the \
+document's own words and uncut. A rule points at the sentences it was drawn from by id.
+- `facts`: the terms and quantities the rules are measured against, each stored once under an id, \
+with the unit it is counted in.
+- `rules`: the policy's rules. Each carries a `rule_id`, a `rule_type` and an `evaluation_mode` of \
+either deterministic or ai_ready, an `effect`, the attributes and facts it turns on (referenced by \
+id), its `required_facts`, and `evidence_refs` — the ids of the `spans` it was drawn from.
+
+These records together are the whole set you may draw on: answer only from them, and cite only \
+`rule_id`s that appear in some record's `rules`. A `rule_id` is unique across the records, so a \
+citation names exactly one rule in exactly one policy. Rules from different policies may bear on the \
+question together; relate them, and cite each one your answer rests on.
+
+A rule bears on the question when what it holds speaks to the subject the reviewer asked about — for \
+example, a rule whose source sentence states a notification deadline bears on a question about when a \
+breach must be reported, whether or not the reviewer supplied any date. The quantity a reviewer asks \
+after is usually in the rule's source sentence — follow its `evidence_refs` into that record's \
+`spans` — and may also be carried in its `facts` or `required_facts`; read them and report the value \
+the rule already holds rather than asking the reviewer to supply it.
+
+Judge by what each rule holds, not by any particular word in it, and answer in the language the \
+reviewer asked in; the records are bilingual and which subject a question is about is not a property \
+of the language it is written in.
+
+Return ONLY a JSON object:
+- "bears": true if at least one rule in any record speaks to the subject of the question, false if \
+none does.
+- "answer": your plain-language answer to the question, drawn only from the rules that bear on it. \
+Empty string if none bears. Write it in the language the reviewer asked in. This is your own wording; \
+do not present it as a direct quotation of the document.
+- "cited_rule_ids": the `rule_id`s of the rules your answer draws on, from any of the records. Every \
+rule you relied on, no rule you did not, and only ids that appear in some record's `rules`. Empty \
+array if none bears.
+- "declined": true only if you cannot compose an answer from the records for a reason other than no \
+rule bearing on it — for example the question is unintelligible. Normally false.
+- "note": optional one-sentence caveat, e.g. that the records are partial or point elsewhere. Empty \
+string if you have nothing to add."""
+
+
+def _policy_identity(record: dict) -> dict:
+    """The identity a citation carries, read from the record it was handed with.
+
+    The retrieval layer pairs each retained payload with its policy identity —
+    the provision id, its key, and the heading path the document wrote — so this
+    resolves it from that pairing rather than re-deriving it. When a record omits
+    an explicit identity, the payload's own envelope is the fallback: it holds the
+    same ids, so a citation is traceable to a policy either way.
+    """
+
+    policy = record.get("policy")
+    if isinstance(policy, dict) and policy.get("provision_id"):
+        return policy
+    envelope = (record.get("payload") or {}).get("envelope") or {}
+    identity: dict = {}
+    for key in ("provision_id", "provision_key", "heading_path"):
+        if key in envelope:
+            identity[key] = envelope[key]
+    return identity
+
+
+def _union_over_records(records: list[dict]) -> tuple[list[dict], dict, dict, list[dict]]:
+    """Fold the retained records into the one closed set an answer may draw on.
+
+    Returns the concatenated rules (the union an id is checked against), the
+    merged span dictionary the citation resolver follows, a map from each rule id
+    to the identity of the policy it belongs to, and the per-policy view sent to
+    the model. Span ids are content digests and rule ids are unique across the
+    corpus, so merging cannot collide two different sentences or two different
+    rules onto one id; the first policy to carry an id owns it.
+    """
+
+    all_rules: list[dict] = []
+    merged_spans: dict = {}
+    rule_to_policy: dict[str, dict] = {}
+    policies_view: list[dict] = []
+
+    for record in records:
+        payload = record.get("payload") or {}
+        identity = _policy_identity(record)
+        rules = payload.get("rules") or []
+        for rule in rules:
+            all_rules.append(rule)
+            rid = rule.get("rule_id")
+            if rid is not None and str(rid) not in rule_to_policy:
+                rule_to_policy[str(rid)] = identity
+        for span_id, span in (payload.get("spans") or {}).items():
+            merged_spans.setdefault(span_id, span)
+        policies_view.append({"policy": identity, "record": payload})
+
+    return all_rules, merged_spans, rule_to_policy, policies_view
+
+
+async def answer_informational_over_policies(
+    records: list[dict], *, scenario: str, reasoning_effort: str = "medium"
+) -> dict:
+    """Gather and state what the *retained* policies provide on the subject.
+
+    ``records`` is the list the retrieval layer kept — each entry a policy's
+    identity paired with its lean ``grounding_projection_v1`` payload. The gather
+    is one pass over all of them together, grounded on the union of their rules,
+    so the model reads the retained policies as one closed set and never one call
+    per policy.
+
+    The return is the single-policy gather's four states unchanged — answered,
+    no rule bears, declined, and (raised, not returned) failed — with two
+    additions a multi-policy answer needs and a reviewer can check:
+
+      - the fabrication check runs over the *union* of the retained rules, so a
+        cited id that names no rule in any retained policy is dropped and
+        reported in ``grounding.fabricated_citations`` exactly as before; and
+      - every citation carries, beside its ``rule_id`` and verbatim ``source``,
+        the ``policy`` it was drawn from, because with several policies in play a
+        rule id alone is no longer traceable to one.
+
+    ``grounding`` additionally reports ``policies_grounded`` — how many policies
+    were in the closed set — so the answer's scope reads in the currency the rest
+    of the platform counts in (policies, then rules).
+    """
+
+    all_rules, merged_spans, rule_to_policy, policies_view = _union_over_records(records)
+    available_ids = {str(rule.get("rule_id")) for rule in all_rules if rule.get("rule_id")}
+    rules_available = len(all_rules)
+    policies_grounded = len(records)
+
+    transport = to_compact({"policies": policies_view})
+    if len(transport) > _MAX_RECORD_CHARS:
+        # The retained policies together do not fit one grounded gather. Refuse
+        # rather than trim: an answer composed from some of the retained set and
+        # presented as the set's is the narrowing a reviewer cannot see. This is
+        # the retrieval cap's backstop — retrieval should keep the retained set
+        # inside the budget, and if it ever does not this says so rather than
+        # quietly answering over part of it.
+        grounding = _grounding(
+            rules_available=rules_available,
+            citations_requested=0,
+            cited_ids=[],
+            fabricated=[],
+            oversize=True,
+        )
+        grounding["policies_grounded"] = policies_grounded
+        return {
+            "status": DECLINED,
+            "answer": "",
+            "citations": [],
+            "note": (
+                "The retained policies' records together are larger than can be read in one grounded "
+                "pass, so no single answer was composed from them. The policies are listed to read "
+                "directly."
+            ),
+            "grounding": grounding,
+        }
+
+    user_content = (
+        f"Question: {scenario}\n\n"
+        f"Policies (a JSON list, each entry a policy's identity and its grounding_projection_v1 "
+        f"record):\n{transport}"
+    )
+
+    parsed = await _chat_json(
+        _INFORMATIONAL_MULTI_SYSTEM_PROMPT,
+        user_content,
+        reasoning_effort=reasoning_effort,
+    )
+
+    note = str(parsed.get("note") or "")
+
+    raw_ids = parsed.get("cited_rule_ids") or []
+    if not isinstance(raw_ids, list):
+        raw_ids = []
+    requested = list(dict.fromkeys(str(rid) for rid in raw_ids))
+    cited_ids = [rid for rid in requested if rid in available_ids]
+    fabricated = [rid for rid in requested if rid not in available_ids]
+
+    grounding = _grounding(
+        rules_available=rules_available,
+        citations_requested=len(requested),
+        cited_ids=cited_ids,
+        fabricated=fabricated,
+        oversize=False,
+    )
+    grounding["policies_grounded"] = policies_grounded
+
+    if parsed.get("declined"):
+        return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
+
+    bears = bool(parsed.get("bears"))
+    answer = str(parsed.get("answer") or "").strip()
+
+    if not bears or not cited_ids:
+        return {"status": NO_RULE_BEARS, "answer": "", "citations": [], "note": note, "grounding": grounding}
+
+    if not answer:
+        return {"status": DECLINED, "answer": "", "citations": [], "note": note, "grounding": grounding}
+
+    # Resolve each cited id to the document's verbatim sentence exactly as the
+    # single-policy path does — the same helper over the merged spans — then
+    # attach the policy the rule belongs to so the citation is traceable when more
+    # than one policy is in play.
+    citations = _citations(cited_ids, _rules_by_id(all_rules), merged_spans)
+    for citation in citations:
+        citation["policy"] = rule_to_policy.get(citation["rule_id"], {})
+    return {"status": ANSWERED, "answer": answer, "citations": citations, "note": note, "grounding": grounding}
+
+
+async def answer_case_over_policies(
+    records: list[dict], *, scenario: str, reasoning_effort: str = "medium"
+) -> dict:
+    """Classify a case put to several policies, and — informational only — gather.
+
+    The mirror of :func:`answer_policy_case` for the retained set. The intent is
+    read by the same :func:`classify_case_intent`, handed the tested quantities of
+    all the retained policies together (deduplicated, the document's own words), so
+    the cut keys on the same supplied-versus-asked structure over the whole
+    retained set rather than one policy's. There is no second classifier and no
+    second rule for what an intent is.
+
+    For a determination this returns the classification and nothing composed — the
+    caller runs the per-rule deciders it already has, one policy's rule at a time,
+    exactly as the single-policy endpoint does. A gather that does not complete on
+    a case already read as informational is the fourth state, reported rather than
+    raised, so a known informational request never falls through to a
+    determination of a different question.
+    """
+
+    effort = _normalise_effort(reasoning_effort)
+
+    tested: list[str] = []
+    seen: set[str] = set()
+    for record in records:
+        for item in _tested_quantities(record.get("payload") or {}):
+            if item not in seen:
+                seen.add(item)
+                tested.append(item)
+
+    classification = await classify_case_intent(scenario, tested_quantities=tested)
+    intent = classification["intent"]
+
+    informational = None
+    if intent == INFORMATIONAL:
+        try:
+            informational = await answer_informational_over_policies(
+                records, scenario=scenario, reasoning_effort=effort
+            )
+        except RuntimeError:
+            all_rules, _, _, _ = _union_over_records(records)
+            grounding = _grounding(
+                rules_available=len(all_rules),
+                citations_requested=0,
+                cited_ids=[],
+                fabricated=[],
+                oversize=False,
+            )
+            grounding["policies_grounded"] = len(records)
+            informational = {
+                "status": FAILED,
+                "answer": "",
+                "citations": [],
+                "note": "",
+                "grounding": grounding,
+            }
+
+    return {
+        "intent": intent,
+        "classification_reasoning": classification["reasoning"],
+        "informational": informational,
+        "reasoning_effort": effort,
+    }

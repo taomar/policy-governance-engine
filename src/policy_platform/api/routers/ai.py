@@ -29,6 +29,7 @@ from policy_platform.infrastructure.extraction import ai_extraction
 from policy_platform.infrastructure.quality import ai_quality
 from policy_platform.infrastructure.assistants import ai_rewrite
 from policy_platform.infrastructure.assistants import ai_case_intent
+from policy_platform.infrastructure.assistants import ai_case_project
 from policy_platform.infrastructure.assistants import ai_scenario_eval
 from policy_platform.infrastructure.assistants import ai_scenario_engine
 from policy_platform.infrastructure.assistants import ai_summary
@@ -786,6 +787,123 @@ async def answer_policy_case(
         return await ai_case_intent.answer_policy_case(
             payload, scenario=body.scenario, reasoning_effort=body.reasoning_effort
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class ProjectCaseAnswerRequest(BaseModel):
+    scenario: str
+    #: When set, the reviewer has chosen one policy and retrieval is bypassed
+    #: entirely — that provision is answered directly. When omitted, the case is
+    #: put to the project and the policies bearing on the question are retrieved
+    #: and the rest discarded before anything is evaluated.
+    provision_id: str | None = None
+    reasoning_effort: str = "medium"
+
+
+@router.post("/policy-sets/{key}/case-answer")
+async def answer_project_case(
+    key: str, body: ProjectCaseAnswerRequest, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Put a case to a *project's* policies: retrieve the ones that bear on the
+    question, discard the rest, and evaluate only the survivors — never the set.
+
+    The project counterpart of /policy-case/answer. That endpoint answers one
+    policy a reviewer already chose; this one answers a question the reviewer has
+    *not* narrowed, and the narrowing is the feature: "u never run against all
+    published, u must use AI search and any technique possible to retrieve highest
+    policies match before evaluation, non matching policies are discarded." So this
+    never evaluates against every policy. It embeds the question and runs the same
+    hybrid clause retrieval the Ask-AI chat uses (`ai_chat.ask`), scoped to this
+    project's own documents, maps the retrieved clauses back to the policies that
+    own them by the join the index and the projection already share, and keeps only
+    those. Reusing that one retrieval path rather than standing up a second is
+    deliberate — a second copy drifts.
+
+    WHAT RETRIEVAL DID IS REPORTED, NOT HIDDEN
+
+    The response's `retrieval` block and `considered` list name every candidate
+    policy, which were retained, which discarded, and on what basis, so a reviewer
+    can always see how much narrowing happened (constraint 10). Retrieval's outcome
+    is one of six distinct `status` values, none of which ever degrades to
+    "evaluate against all" (constraint 5):
+
+      - `narrowed`     — a subset was kept and evaluated; `evaluation` is present.
+      - `no_match`     — retrieval ran and the project is indexed, but nothing it
+                         surfaced bears; `evaluation` is null. A real answer.
+      - `index_empty`  — the project's policies are not in the grounding index, so
+                         retrieval cannot be relied on for it; `evaluation` null.
+      - `unavailable`  — search is not configured on this server; `evaluation` null.
+      - `failed`       — the search call raised; `evaluation` null.
+      - `empty`        — the project has no policy with live rules to test.
+
+    When `provision_id` is set the reviewer chose one policy: retrieval is bypassed
+    (`status: bypassed`, `scope: single`) and that policy is answered directly.
+
+    REQUEST
+
+        { "scenario": str,                 # required, the reviewer's question
+          "provision_id": str | null,      # optional; set = one policy, omit = project
+          "reasoning_effort": str }        # optional, default "medium"
+
+    RESPONSE (project scope)
+
+        { "scope": "project",
+          "policy_set_key": str,
+          "retrieval": { "status": str, "method": str, "clause_budget": int,
+                         "clause_scan": int, "clauses_retrieved": int,
+                         "policies_considered": int, "policies_retained": int,
+                         "policies_discarded": int, "policies_untestable": int,
+                         "reason": str? },
+          "considered": [ { "provision_id": str, "provision_key": str,
+                            "heading_path": [str], "rules": int, "retained": bool,
+                            "best_score": float?, "best_rank": int?,
+                            "matched_clauses": int?, "discard_reason": str? } ],
+          "excluded":   [ { "provision_id": str, "provision_key": str,
+                            "heading_path": [str], "reason": "no_live_rules" } ],
+          "evaluation": <case result> | null,
+          "size": { "combined_chars": int, "budget_chars": int, "oversize": bool } }
+
+    RESPONSE (single scope)
+
+        { "scope": "single", "policy_set_key": str,
+          "provision": { "provision_id", "provision_key", "heading_path", "rules" },
+          "retrieval": { "status": "bypassed", "reason": str },
+          "evaluation": <case result>,
+          "size": { ... } }
+
+    The `evaluation` object is the multi-policy case result: `intent`
+    (informational | decision), `classification_reasoning`, and — informational
+    only — `informational` with `status`, `answer`, `citations` (each carrying its
+    `rule_id`, verbatim `source`, and the `policy` it was drawn from), and a
+    `grounding` block reporting `rules_available`, `rules_cited`,
+    `fabricated_citations`, `policies_grounded`, and `oversize`. For a
+    determination `informational` is null and the caller runs the per-rule
+    deciders it already has, one policy's rule at a time.
+
+    An unknown project key is 404, as is a `provision_id` that names a policy in a
+    different project; a malformed id is 422; an unconfigured model is 503.
+    """
+    policy_set = await PolicySetRepository(session).get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    _require_ai_configured()
+    try:
+        return await ai_case_project.answer_project_case(
+            session,
+            policy_set=policy_set,
+            scenario=body.scenario,
+            provision_id=body.provision_id,
+            reasoning_effort=body.reasoning_effort,
+        )
+    except LookupError as exc:
+        # A named provision that is unknown or belongs to another project — the
+        # reviewer pointed at a policy this project does not hold. A 404, told
+        # apart from a malformed id (422) below.
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
