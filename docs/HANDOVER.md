@@ -942,3 +942,60 @@ process that is actually serving what is on disk.
   every instance here; the process serving it was not.
 
 
+### 9.17 A join can be correct in code and empty in fact — and report as "no match"
+
+The project-wide case answer narrows to relevant policies by retrieval, then maps the
+hits back to the policies that own them. The mapping is a set intersection: the search
+index keys every clause as `{document_version_id}_{clause_id}`, and the light JSON
+carries that same key on each span, so a retrieved clause identifies its policy without
+heading matching or title guessing. That design is sound and the code implements it
+correctly. It still returned nothing.
+
+Measured against the live system:
+
+| project | span ids in payloads | clauses indexed | intersection |
+| --- | --- | --- | --- |
+| `xx` — one extraction, never re-parsed | 16 | 25 | **16** |
+| `ais-employee-handbook` — six published versions | 193 | 355 | **0** |
+
+Both sides carried the **same** `document_version_id`. The clause UUIDs were entirely
+disjoint. Re-parsing had regenerated the `clauses` rows under the unchanged document
+version, and nothing re-indexes when that happens: the rules' evidence pointed at the
+current rows, the index still held the superseded ones.
+
+The live symptom was `clauses_retrieved: 40`, `policies_considered: 38`,
+`policies_retained: 0`, `evaluation: null`, `status: "no_match"`, reason *"no published
+policy matched this question"* — for a plain annual-leave question against a staff
+handbook that answers it. **A user cannot tell that from an irrelevant question.**
+
+Three things are worth carrying forward.
+
+**A feature can pass every test and work in a demo and still be broken for every real
+user.** It worked on `xx` because `xx` is pristine — one extraction, no re-parse. Every
+project with history failed. The demo project was the *least* representative one
+available, and it was the only one anyone tried.
+
+**Verifying a component is not verifying the join between two components.** Both halves
+were individually correct and individually verifiable: clauses were indexed (355 of
+362), spans carried their keys (384 of 384 evidence refs had both `clause_id` and
+`document_version_id`). Neither check could fail. Only intersecting the two id sets
+showed it, and nothing in the design made that the obvious thing to measure.
+
+**A shared key is a coupling even when it is only read.** Nothing declared that
+regenerating a clause row invalidates a search entry, because the dependency ran through
+a UUID rather than through a call. The fix is not to re-index harder — it is to stop
+keying retrieval on an identifier that churns for reasons retrieval has no interest in.
+The policy index is keyed on a policy at its published version: identity that survives
+re-parsing by construction.
+
+**Defences:**
+
+* When two components meet through a shared identifier, **test the intersection, not the
+  two sides.** "Both populated" is not "they agree".
+* **Never demonstrate a retrieval feature only on freshly created data.** Pristine data
+  hides every drift defect there is. Run it against the project with the most history.
+* A retrieval path must **distinguish an empty or stale index from a genuine non-match**.
+  Reporting "nothing matched" when the index cannot match is the lie that hid this for
+  an entire session.
+
+
