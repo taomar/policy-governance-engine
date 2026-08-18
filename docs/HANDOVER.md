@@ -1007,3 +1007,85 @@ re-parsing by construction.
   an entire session.
 
 
+## 10. Fourth session — the per-project policy index
+
+The project-wide case answer was built on the shared clause index and did not work
+(§9.17). The user's instruction settled the replacement design in one sentence: *"use
+the light json for the policy Index, make an index for each project (since project can
+be dropped, when project is dropped it needs to be dropped) and only published policies
+stays in the index, latest version only."*
+
+### The constraint that collapsed the maintenance surface
+
+The obvious reading of "keep an index in step with the policies" is six lifecycle hooks:
+extract, edit, review, publish, supersede, teardown. **Published-latest-only removes
+four of them.** Edits, approvals, rejections, supersessions and re-extractions all act
+on *candidates*, and candidates are by definition not in the index. Only two events can
+change a published-latest corpus:
+
+1. **publish** → rebuild that project's index
+2. **project teardown** → drop that project's index
+
+This is worth generalising: *a scope restriction can be a maintenance strategy.* The
+cheapest index to keep correct is one whose contents only one event can change.
+
+### The shape
+
+| decision | why |
+| --- | --- |
+| One index per project, `policy-cases-{key}` | dropping a project drops its index; no cross-project filtering to get wrong |
+| One document per **policy**, not per rule | the light JSON is already a policy with its rules nested (constraint 2), so what is ranked is exactly what is evaluated |
+| Index stores ids + retrieval text, **never the payload** | the payload is rebuilt from PostgreSQL at evaluation time, so the index never becomes a second authority on what a policy says |
+| Full rebuild, not incremental | the largest published project is 56 rules across 10 policies; a rebuild is less code than a diff and repairs drift instead of accumulating it |
+| Best effort on publish, recorded in `policy_index_states` | a search outage must not block a publish, but a stale index must never be invisible |
+
+`published_case_payload.py` is the published sibling of `case_payload_for_provision`.
+It resolves the active version (`is_active` is true for exactly one per set), rebuilds
+canonical rules from the approved snapshot, and groups them by the `provision_key`
+denormalised onto each approved rule — **not** by joining `DocumentProvision`, because
+an approved version is immutable and must not start reading differently when a live
+provision is re-parsed or renamed underneath it.
+
+### Two defects found by the repo's own guards, not by review
+
+**The reachability guard found an undeclared scope switch.** It failed on two
+capabilities with no production caller: `provision_search_ids`, dead since retrieval
+stopped mapping clause hits, and `published_case_payload_for_policy`, which existed for
+the single-policy bypass and was never wired to it. Those were the same defect from both
+ends — the bypass was still answering from **candidate** rules while the project scope
+answered from **published**, and nothing in the response said which you had got. A
+guard about dead code found a correctness bug about live code.
+
+**The endpoint register self-deleted, as designed.** `KNOWN_UNREACHABLE` carried the
+project case answer while its UI was unbuilt; the rot check removed the line the moment
+the product called it. A register with a rot check is a record. Without one it is a
+place to park things.
+
+### Half a feature can return 200
+
+`ai_case_intent` classified a case as informational or decision and answered only the
+informational half. A decision returned its classification, its reasoning, and no
+verdict — `informational: null` and nothing else. It looked deliberate, it never
+errored, and it was half of what the user asked for. **A feature that returns a
+well-formed response for a request it does not fulfil is harder to notice than one that
+fails.** Worth checking explicitly whenever a request is classified into branches: does
+every branch actually do something?
+
+### State to carry forward
+
+Published corpus is small — AIS 56 rules / 10 policies (v6), GMU 28 (v2), e2e 4 (v1),
+and **`xx` publishes nothing at all**. `xx` is therefore the wrong project to demo
+project-wide testing on, and the right one to test the `no_published_version` state
+with. Retrieval over ten policies is barely retrieval; it is correct and it scales, but
+do not claim it is doing heavy lifting at this size.
+
+### Open
+
+* **A failed index build is only repairable by an operator.** `policy_index_states`
+  records enough to detect a stale or absent index; the product does not surface it, and
+  the rebuild endpoint has no caller. Recorded in `KNOWN_UNREACHABLE` as a gap, not a
+  design.
+* The extraction strip still does not read `relationship_discovery` (§4.1 gap, from the
+  previous session).
+
+
