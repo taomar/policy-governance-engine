@@ -130,3 +130,161 @@
   color: #64748b;
 }
 
+/* ---- Phase grouping ---------------------------------------------------------
+ * The chain names the four phases the run performs — Reading, Drafting,
+ * Connecting, Comparing — rather than listing peer figure boxes for four of the
+ * run's seven internal steps and hiding the other three. Each phase is a
+ * labelled column of the figures that belong to it, and the flow connector sits
+ * between phases. The label above the figures is what lets a reviewer tell which
+ * phase a number belongs to, which is the readability the grouping is for:
+ * seven boxes across a card reads worse than four named phases.
+ *
+ * App.css owns the figure boxes themselves (.extract-stage and its states) and
+ * the flow line; this sheet owns only the phase scaffolding around them, so no
+ * edit to App.css is needed to regroup what it already styles. */
+.extract-phase-group {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The comparison phase has no trailing flow, so were it to grow it would leave a
+ * gap after it. It sizes to its content; the throughput phases share the slack. */
+.extract-phase-group:last-child {
+  flex: 0 0 auto;
+}
+
+.extract-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The phase name, above its figures. Secondary Ink, small and uppercase like the
+ * other captions on this surface (the routes label, the delta label) so it reads
+ * as a grouping caption, not a heading competing with the counts. */
+.extract-phase-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* The phase the run is in lifts its label to the brand ink so the eye lands on
+ * it; a finished phase's label takes success ink, matching its figure boxes.
+ * Operational colour only — the reserved policy hues are not spent here. */
+.extract-phase-group--active .extract-phase-label {
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+.extract-phase-group--done .extract-phase-label {
+  color: var(--success);
+}
+
+.extract-phase-figures {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/* App.css centres .extract-flow against a single box; here it must drop to sit
+ * against the figure boxes rather than the label+figures centre, since the phase
+ * label adds height above the boxes that a plain centre would split. */
+.extract-phase-group > .extract-flow {
+  margin-top: 14px;
+}
+
+/* ---- The comparison phase's node --------------------------------------------
+ * Comparison carries no count: it characterises the finished result (what
+ * changed since the last extraction) rather than passing throughput to a next
+ * box. So instead of a figure it shows a state — not yet reached, in progress,
+ * or done — as its own node in the chain. It is deliberately a chain member and
+ * not a footnote after the run ends: with the throughput chain settled, the run
+ * is still working, and a strip that read "finished" here would be lying by one
+ * phase. Shaped like a figure box so it reads as part of the chain, but dashed
+ * while pending to say "nothing has arrived here yet", the same off-chain
+ * language the skipped dropout uses. */
+.extract-compare-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 8px 10px;
+  min-width: 76px;
+  border: 1px dashed var(--slate-300, #cbd5e1);
+  border-radius: 8px;
+  background: #fff;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.extract-compare-node-caption {
+  font-size: 10.5px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Working: solid border and brand ink, so "the run is comparing now" reads the
+ * same as any other active phase in the chain. */
+.extract-compare-node--active {
+  border-style: solid;
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14);
+}
+
+.extract-compare-node--active .extract-stage-icon {
+  color: var(--brand-600);
+}
+
+/* Done: success border and ink, matching a figure box's done state. */
+.extract-compare-node--done {
+  border-style: solid;
+  border-color: var(--success-border);
+}
+
+.extract-compare-node--done .extract-stage-icon {
+  color: var(--success);
+}
+
+/* ---- Recovery chip ----------------------------------------------------------
+ * Off the chain, like the skipped dropout: recovered batches rejoin the reading
+ * they were briefly lost from and are already counted in the figures above, so
+ * this is an annotation on the run, not a box in the flow. Rendered only when
+ * the recovery sweep re-read something — a run that never lost a batch shows
+ * nothing here rather than a "0" that would imply a failure mode it never hit.
+ * Mirrors .extract-dropout's muted, offset placement. */
+.extract-recovered {
+  display: flex;
+  margin: -4px 0 10px;
+  padding-inline-start: 22px;
+}
+
+.extract-recovered-box {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px dashed var(--slate-300, #cbd5e1);
+  border-radius: 8px;
+  background: var(--app-surface-subtle, #f8fafc);
+}
+
+.extract-recovered-arrow {
+  color: #94a3b8;
+  line-height: 1;
+}
+
+.extract-recovered-box .extract-stage-value {
+  font-size: 13px;
+  color: #64748b;
+}
+

@@ -126,43 +126,75 @@ function StageValue({ text }: { text: string }) {
   return <span className="extract-stage-value">{numeric === null ? text : shown}</span>;
 }
 
-/** The pipeline a document actually travels, in order. Each stage shows the
- * count of what has passed through it, so the reviewer sees work moving rather
- * than one opaque percentage. */
-type StageKey = "intake" | "scan" | "formulate" | "link" | "review";
+/** The figures the chain shows — one count each of what has passed a point in
+ * the run. Grouped into phases (below) so the strip sees work moving through
+ * named phases rather than one opaque percentage. */
+type FigureKey = "intake" | "scan" | "formulate" | "review" | "link";
 
-const STAGES: { key: StageKey; label: string; icon: ReactNode; hint: string }[] = [
-  {
-    key: "intake",
+const FIGURES: Record<FigureKey, { label: string; icon: ReactNode; hint: string }> = {
+  intake: {
     label: "Document",
     icon: <FileTextOutlined />,
     hint: "Clauses read from the source document, in document order.",
   },
-  {
-    key: "scan",
+  scan: {
     label: "Policy statements",
     icon: <ScanOutlined />,
-    hint: "Stage 1 — spans of the document that actually carry policy, copied verbatim. Contents pages, boilerplate and amendment instructions are dropped here.",
+    hint: "Spans of the document that actually carry policy, copied verbatim. Contents pages, boilerplate and amendment instructions are dropped here.",
   },
-  {
-    key: "formulate",
+  formulate: {
     label: "Rules drafted",
     icon: <ExperimentOutlined />,
-    hint: "Stage 2 — the formulator agent turns each policy statement into a structured, testable rule.",
+    hint: "The formulator agent turns each policy statement into a structured, testable rule.",
   },
-  {
-    key: "link",
-    label: "Linked",
-    icon: <ApartmentOutlined />,
-    hint: "Rules tied to the others they belong with — rows of one table, a subsection and the rule it qualifies, an explicit cross-reference. Only relationships the document itself establishes are recorded here.",
-  },
-  {
-    key: "review",
+  review: {
     label: "In review queue",
     icon: <SolutionOutlined />,
-    hint: "Committed as candidate rules, waiting for a human decision. Nothing here is live policy yet.",
+    hint: "Committed as candidate rules as each batch is drafted, waiting for a human decision. Nothing here is live policy yet.",
   },
+  link: {
+    label: "Linked",
+    icon: <ApartmentOutlined />,
+    hint: "Rules tied to the others they belong with — rows of one table, a subsection and the rule it qualifies, an explicit cross-reference — plus governing stems stitched back together where one spans several batches (continuation adjudication). Runs once the whole document is drafted. Only relationships the document itself establishes are recorded here.",
+  },
+};
+
+/** The phases the run performs, in execution order, each grouping the figures
+ * that belong to it.
+ *
+ * The run has more internal steps than boxes: read a batch, formulate rules,
+ * commit them, re-read any batch a transient blip lost, discover relationships,
+ * adjudicate continuations that span batches, and compare against the previous
+ * extraction. Seven peer boxes across a card reads worse than four, so steps
+ * that share a purpose are grouped — but nothing is hidden. Recovery gets its
+ * own off-chain chip when it fires; continuation is folded into Connecting and
+ * named in its hint (the service reports no count of its own for it); comparison
+ * is the fourth phase rather than a footnote after the run ends. A reviewer can
+ * still tell which phase any number belongs to, which is the readability the
+ * grouping buys without spending information. */
+type PhaseKey = "reading" | "drafting" | "connecting" | "comparing";
+
+const PHASES: { key: PhaseKey; label: string; figures: FigureKey[] }[] = [
+  { key: "reading", label: "Reading", figures: ["intake", "scan"] },
+  { key: "drafting", label: "Drafting", figures: ["formulate", "review"] },
+  { key: "connecting", label: "Connecting", figures: ["link"] },
+  // No count: comparison characterises the finished result rather than passing
+  // throughput to a next box, so it is a state node, not a figure.
+  { key: "comparing", label: "Comparing", figures: [] },
 ];
+
+/** Which phase each figure's count belongs to, by execution order. `review`
+ * sits in drafting, not after linking: rules commit to the queue per batch as
+ * they are drafted, whereas linking runs once after every batch is drafted. So
+ * mid-run a filling queue and an as-yet-untouched Linked read apart — the queue
+ * shows its live count while Linked is still an em dash for "not reached". */
+const FIGURE_PHASE: Record<FigureKey, number> = {
+  intake: 0,
+  scan: 0,
+  formulate: 1,
+  review: 1,
+  link: 2,
+};
 
 /** Live status for a running extraction: a compact pipeline showing what is
  * moving where, plus a two-line status readout underneath.
@@ -321,6 +353,18 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     elapsed_seconds: elapsed = 0,
   } = progress;
 
+  // Batches a transient blip left unread on the first pass, re-read on the
+  // recovery sweep that runs before linking (ai_extraction.py's recover()).
+  // Read through a narrow local view of the payload, like updated_at below: the
+  // server carries the counter, api.ts's type omits it, and this file must not
+  // edit api.ts. Absent-or-non-numeric reads as 0 — a server without the counter
+  // ran no recovery this panel can report, which is the same as none recovered
+  // for display, and the chip is gated on `> 0` so neither shows a box.
+  const recovered =
+    typeof (progress as { recovered?: number }).recovered === "number"
+      ? ((progress as { recovered?: number }).recovered ?? 0)
+      : 0;
+
   const pct = totalBatches > 0 ? Math.min(100, Math.round((doneBatches / totalBatches) * 100)) : 0;
   const failed = status === "failed";
   const done = status === "completed";
@@ -395,45 +439,59 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       ? { value: (doneClauses / elapsed) * 60, unit: "clauses/min" }
       : null;
 
-  // Which stage is lit is read from the backend's own stage sentence rather
-  // than inferred from counters, which lag a batch behind what is happening.
-  // Once the chain is settled nothing in it is active: `done` and `comparing`
-  // both light every box as complete. On failure the last-touched box is left
-  // lit so the reader sees roughly how far the run got.
-  const activeStage: StageKey =
-    chainSettled || failed
-      ? "review"
-      : stage.startsWith("Formulating")
-        ? "formulate"
-        : stage.startsWith("Reading")
-          ? "scan"
-          : stage.startsWith("Linking")
-            ? "link"
-            : "intake";
+  // Which throughput phase is live is read from the backend's own stage sentence
+  // rather than inferred from counters, which lag a batch behind what is
+  // happening. reading=0, drafting=1, connecting=2. Only meaningful while the
+  // chain is live: once it is settled (done, or the trailing comparison) or
+  // failed, every throughput figure reads as reached and none is active.
+  const livePhaseIndex = stage.startsWith("Formulating")
+    ? 1
+    : stage.startsWith("Linking")
+      ? 2
+      : stage.startsWith("Reading")
+        ? 0
+        : 0;
 
-  const activeIndex = STAGES.findIndex((s) => s.key === activeStage);
+  // A figure of 0 says two different things and the strip must not let them
+  // blur: "the run reached this point and found nothing" is a result, "the run
+  // has not reached this point" is not. So a figure whose phase the run has not
+  // reached shows an em dash, and only a reached phase shows a number —
+  // including a genuine 0. A settled or failed run counts every throughput
+  // figure as reached: its figures are the final or partial record, not a dash.
+  const figureReached = (key: FigureKey): boolean =>
+    // Intake carries its own em dash for "totals not published yet" and is phase
+    // zero, so it is always reached once a run has begun.
+    key === "intake" || chainSettled || failed || FIGURE_PHASE[key] <= livePhaseIndex;
 
-  // A stage counter of 0 says two different things and the strip must not let
-  // them blur: "the run reached this stage and found nothing" is a result,
-  // "the run has not reached this stage" is not. So a stage the run has not yet
-  // reached shows an em dash, and only a reached stage shows a number —
-  // including a genuine 0. A settled or failed run counts every stage as
-  // reached: its figures are the final or partial record, not a dash.
-  const reached = (index: number): boolean =>
-    chainSettled || failed || index <= activeIndex;
-
-  const stageCount: Record<StageKey, string> = {
-    // Intake carries its own em dash for "totals not published yet", so it is
-    // never gated on `reached` — it is stage zero and always reached once a run
-    // has begun.
+  const figureCount: Record<FigureKey, string> = {
     intake: totalClauses > 0 ? `${doneClauses}/${totalClauses}` : "—",
     scan: String(passages),
     formulate: String(drafted),
-    link: String(linked),
     review: String(committed),
+    link: String(linked),
   };
-  const stageValue = (key: StageKey, index: number): string =>
-    key === "intake" || reached(index) ? stageCount[key] : "—";
+  const figureValue = (key: FigureKey): string =>
+    figureReached(key) ? figureCount[key] : "—";
+
+  // Figure box lighting. Nothing is active once the chain is settled or failed;
+  // a figure whose phase is below the live phase is complete, and when settled
+  // every throughput figure is complete.
+  const figureActive = (key: FigureKey): boolean =>
+    !chainSettled && !failed && FIGURE_PHASE[key] === livePhaseIndex;
+  const figureDone = (key: FigureKey): boolean =>
+    chainSettled || FIGURE_PHASE[key] < livePhaseIndex;
+
+  // The comparison is its own phase with three readings the strip must keep
+  // apart (constraint 5): a run still reading or drafting has NOT reached it
+  // (pending), a run whose service is emitting "Comparing…" is working it
+  // (active), and a completed run has settled it (done). Drawing it as done
+  // while the run is still drafting would be the same "says finished when it is
+  // not" defect the chain avoids one level up, so pending is not done.
+  const compareState: "pending" | "active" | "done" = done
+    ? "done"
+    : comparing
+      ? "active"
+      : "pending";
 
   // Shown only when a previous extraction exists to compare against. On a first
   // run every counter is zero, and a "since the previous extraction" heading
@@ -486,30 +544,82 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       }`}
     >
       <div className="extract-pipeline" aria-label="Extraction pipeline">
-        {STAGES.map((s, i) => {
-          // Nothing in the chain is active once it is settled (done, or the
-          // trailing comparison pass) or has failed; every box before the lit
-          // one, and every box once settled, reads as complete.
-          const isActive = !chainSettled && !failed && s.key === activeStage;
-          const isPast = chainSettled || i < activeIndex;
+        {PHASES.map((phase, pi) => {
+          const isComparePhase = phase.key === "comparing";
+          // Phase-group lighting. The three throughput phases derive from the
+          // live phase; the comparison phase derives from its own three-way
+          // state, so it is never drawn done while the run is still drafting.
+          const groupActive = isComparePhase
+            ? compareState === "active"
+            : !chainSettled && !failed && pi === livePhaseIndex;
+          const groupDone = isComparePhase
+            ? compareState === "done"
+            : chainSettled || pi < livePhaseIndex;
           return (
-            <div key={s.key} className="extract-pipeline-item">
-              <Tooltip title={s.hint}>
-                <div
-                  className={`extract-stage${isActive ? " extract-stage--active" : ""}${
-                    isPast ? " extract-stage--done" : ""
-                  }`}
-                >
-                  <span className="extract-stage-icon">{s.icon}</span>
-                  <StageValue text={stageValue(s.key, i)} />
-                  <span className="extract-stage-label">{s.label}</span>
+            <div
+              key={phase.key}
+              className={`extract-phase-group extract-phase-group--${phase.key}${
+                groupActive ? " extract-phase-group--active" : ""
+              }${groupDone ? " extract-phase-group--done" : ""}`}
+            >
+              <div className="extract-phase">
+                <span className="extract-phase-label">{phase.label}</span>
+                <div className="extract-phase-figures">
+                  {isComparePhase ? (
+                    <Tooltip title="The run's last act: once every rule is drafted, linked and queued, this run is compared against the previous extraction of this document to classify what changed. It is why a run can be past every figure above yet not finished.">
+                      <div
+                        className={`extract-compare-node${
+                          compareState === "active" ? " extract-compare-node--active" : ""
+                        }${compareState === "done" ? " extract-compare-node--done" : ""}`}
+                        role="img"
+                        aria-label={
+                          compareState === "done"
+                            ? "Comparison against the previous extraction: done"
+                            : compareState === "active"
+                              ? "Comparison against the previous extraction: in progress"
+                              : "Comparison against the previous extraction: not started"
+                        }
+                      >
+                        <span className="extract-stage-icon">
+                          {compareState === "done" ? (
+                            <CheckCircleFilled />
+                          ) : compareState === "active" ? (
+                            <LoadingOutlined spin />
+                          ) : (
+                            <ClockCircleOutlined />
+                          )}
+                        </span>
+                        <span className="extract-compare-node-caption">
+                          {compareState === "done"
+                            ? "done"
+                            : compareState === "active"
+                              ? "in progress"
+                              : "not yet"}
+                        </span>
+                      </div>
+                    </Tooltip>
+                  ) : (
+                    phase.figures.map((key) => (
+                      <Tooltip key={key} title={FIGURES[key].hint}>
+                        <div
+                          className={`extract-stage${
+                            figureActive(key) ? " extract-stage--active" : ""
+                          }${figureDone(key) ? " extract-stage--done" : ""}`}
+                        >
+                          <span className="extract-stage-icon">{FIGURES[key].icon}</span>
+                          <StageValue text={figureValue(key)} />
+                          <span className="extract-stage-label">{FIGURES[key].label}</span>
+                        </div>
+                      </Tooltip>
+                    ))
+                  )}
                 </div>
-              </Tooltip>
-              {i < STAGES.length - 1 && (
+              </div>
+              {pi < PHASES.length - 1 && (
                 <div
-                  className={`extract-flow${
-                    !chainSettled && !failed && i === activeIndex - 1 ? " extract-flow--moving" : ""
-                  }${isPast ? " extract-flow--done" : ""}`}
+                  className={`extract-flow${groupActive ? " extract-flow--moving" : ""}${
+                    groupDone ? " extract-flow--done" : ""
+                  }`}
                   aria-hidden
                 >
                   <span className="extract-flow-dot" />
@@ -519,6 +629,27 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
           );
         })}
       </div>
+
+      {recovered > 0 && (
+        // Off the chain, like the dropout: recovered batches do not go anywhere
+        // new — they rejoin the reading they were briefly lost from, and are
+        // already counted in the figures above. So this is an annotation on the
+        // run, not a box in the flow. It appears only when the recovery sweep
+        // actually re-read something, so a run that never lost a batch says
+        // nothing about recovery rather than showing a "0" that would invent a
+        // failure mode the run never hit.
+        <div className="extract-recovered">
+          <Tooltip title="Batches a transient blip left unread on the first pass, re-read on the recovery sweep that runs before linking. They are now counted in the figures above like any other batch.">
+            <span className="extract-recovered-box">
+              <span className="extract-recovered-arrow" aria-hidden>
+                ⟳
+              </span>
+              <StageValue text={String(recovered)} />
+              <span className="extract-stage-label">re-read after a transient blip</span>
+            </span>
+          </Tooltip>
+        </div>
+      )}
 
       {skipped > 0 && (
         // Rendered off the chain, not in it. Skipped statements do not pass

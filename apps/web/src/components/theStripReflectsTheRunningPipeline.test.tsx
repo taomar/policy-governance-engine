@@ -623,3 +623,152 @@ describe("a run that stopped writing reads as gone quiet, not as working", () =>
     }
   });
 });
+
+describe("the chain names every phase the run performs, in the order they run", () => {
+  /**
+   * The strip's boxes used to describe four of the run's seven phases. Traced
+   * against ai_extraction.py in execution order, the pipeline is:
+   *
+   *   1 read a batch and identify policy statements   ("Reading batch N of M…")
+   *   2 formulate rules from the batch                ("Formulating rules from…")
+   *   3 commit them to the review queue               (rules_committed, per batch)
+   *   4 recovery: re-read batches a transient blip lost (recovered; only if any)
+   *   5 relationship discovery                        ("Linking rule variations…")
+   *   6 continuation adjudication                     (folded into `linked`; only
+   *                                                    when governing stems span
+   *                                                    batches; no counter of its
+   *                                                    own on the record)
+   *   7 compare against the previous extraction       ("Comparing against the…")
+   *
+   * Phases 4, 6 and 7 had no representation, so a run doing them read as either
+   * finished (7) or as nothing-happening (4, 6). The chain now groups the work
+   * it does into four named phases — Reading, Drafting, Connecting, Comparing —
+   * so every phase is visible and the reviewer can tell which one a number
+   * belongs to, without the chain growing into seven peer boxes.
+   */
+  type WireRecovered = ExtractionProgress & { recovered?: number };
+
+  const compareNode = () => document.querySelector(".extract-compare-node");
+
+  it("names all four phases of the pipeline, always", async () => {
+    await renderWith(
+      payload({
+        stage: "Formulating rules from batch 9 of 38 — 11 policy statement(s) found",
+        processed_batches: 8,
+        rules_drafted: 20,
+        rules_committed: 20,
+      }),
+    );
+    for (const phase of ["Reading", "Drafting", "Connecting", "Comparing"]) {
+      expect(screen.getByText(phase)).toBeTruthy();
+    }
+  });
+
+  it("groups the drafting figures ahead of the connecting figure, in run order", async () => {
+    // Commit-to-queue happens per batch DURING drafting; linking runs once at
+    // the very end. So while the run is formulating, the review queue is filling
+    // and nothing has been linked yet — the queue count is live, Linked is an em
+    // dash for "not reached", and the two must not read alike.
+    await renderWith(
+      payload({
+        stage: "Formulating rules from batch 9 of 38 — 11 policy statement(s) found",
+        processed_batches: 8,
+        rules_drafted: 20,
+        rules_committed: 20,
+        linked: 0,
+      }),
+    );
+    expect(boxValue("In review queue")).toBe("20");
+    expect(boxValue("Linked")).toBe("—");
+    expect(boxValue("In review queue")).not.toBe(boxValue("Linked"));
+  });
+
+  it("shows the comparison as a phase not yet reached while the run is still reading", async () => {
+    await renderWith(
+      payload({
+        stage: "Reading batch 2 of 38 · pages 5–8 — finding policy statements",
+        processed_batches: 1,
+        passages_found: 0,
+      }),
+    );
+    const node = compareNode();
+    expect(node).not.toBeNull();
+    // Present but neither working nor settled: it is a phase the run will reach,
+    // drawn as pending, not as done (which would be the "says finished when it is
+    // not" defect one level up in the chain).
+    expect(node!.className).not.toContain("extract-compare-node--active");
+    expect(node!.className).not.toContain("extract-compare-node--done");
+  });
+
+  it("shows the comparison as the working phase while the run is comparing", async () => {
+    await renderWith(
+      payload({
+        status: "running",
+        stage: "Comparing against the previous extraction…",
+        processed_batches: 38,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 150,
+      }),
+    );
+    const node = compareNode();
+    expect(node).not.toBeNull();
+    expect(node!.className).toContain("extract-compare-node--active");
+    expect(node!.className).not.toContain("extract-compare-node--done");
+  });
+
+  it("shows the comparison as settled once the run is done", async () => {
+    await renderWith(
+      payload({
+        status: "completed",
+        stage: "Done — 3 new, 2 changed since the previous extraction.",
+        processed_batches: 38,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 150,
+        delta_new: 3,
+        delta_changed: 2,
+        delta_unchanged: 185,
+      }),
+    );
+    const node = compareNode();
+    expect(node).not.toBeNull();
+    expect(node!.className).toContain("extract-compare-node--done");
+    expect(node!.className).not.toContain("extract-compare-node--active");
+  });
+
+  it("says nothing about recovery when no batch needed re-reading", async () => {
+    // Recovery only fires after a transient failure loses a batch. On the common
+    // run where nothing was lost it must be absent, not a "0" that would invent a
+    // failure mode the run never hit (did-not-need-to-run ≠ ran-and-found-none).
+    await renderWith(
+      payload({
+        stage: "Linking rule variations across the document…",
+        processed_batches: 38,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 150,
+      }),
+    );
+    expect(document.querySelector(".extract-recovered")).toBeNull();
+  });
+
+  it("says how many batches were re-read after a transient blip, when any were", async () => {
+    extractionProgress.mockResolvedValue({
+      ...payload({
+        status: "completed",
+        stage: "Done — 190 rule(s).",
+        processed_batches: 38,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 150,
+      }),
+      recovered: 2,
+    } as WireRecovered);
+    render(<ExtractionProgressPanel documentVersionId="v1" running />);
+    await screen.findByText("RUN-TEST");
+    const chip = document.querySelector(".extract-recovered");
+    expect(chip).not.toBeNull();
+    expect(chip!.querySelector(".extract-stage-value")?.textContent).toBe("2");
+  });
+});
