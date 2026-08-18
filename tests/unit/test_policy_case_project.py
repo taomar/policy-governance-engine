@@ -1,6 +1,6 @@
-"""A case put to a *project* is answered against the policies retrieval keeps,
-never against the whole set, and what retrieval did is reported so a reviewer can
-see the narrowing.
+"""A case put to a *project* is answered against the published policies retrieval
+keeps, never against the whole set, and what retrieval did is reported so a
+reviewer can see the narrowing.
 
 WHY THIS FILE EXISTS
 
@@ -21,12 +21,13 @@ retrieval that retained everything, or the budget being ignored, both fail here.
 
 WHY THE STATES ARE TOLD APART
 
-"Retrieval narrowed to a subset", "retrieval matched nothing", "the project is not
-indexed", "search is not configured", "the search call failed", and "the project
-has no testable policy" are six different facts about a search (constraint 5). The
-one thing forbidden is degrading any of them silently to "answer against all"
-(constraint 10). The tests below assert the six read differently and that only a
-genuine narrowing reaches the evaluator.
+"Retrieval narrowed to a subset", "retrieval matched nothing", "the project has
+no published version", "the policy index is absent", "the policy index is stale
+or empty", "search is not configured", "the search call failed", and "the active
+published version has no policy rules" are different facts about a search
+(constraint 5). The one thing forbidden is degrading any of them silently to
+"answer against all" (constraint 10). The tests below assert the states read
+differently and that only a genuine narrowing reaches the evaluator.
 
 Nothing here names a domain: the fixtures state headings and sentences no document
 in this repository contains, so the behaviour must hold for any governance corpus
@@ -48,6 +49,7 @@ from policy_platform.infrastructure.assistants import ai_case_intent
 from policy_platform.infrastructure.assistants import ai_case_project
 from policy_platform.infrastructure.projection.policy_case_payload import build_case_payload
 from policy_platform.infrastructure.search.indexing import clause_search_document_id
+from policy_platform.infrastructure.search.policy_index import policy_document_id
 from tests.fixtures.factories import make_rule
 
 pytestmark = pytest.mark.anyio
@@ -58,6 +60,7 @@ pytestmark = pytest.mark.anyio
 #: key the search index writes and the projection's spans carry, so a fixture can
 #: predict the id a clause would surface under without touching Azure.
 _DV = "22222222-2222-2222-2222-222222222222"
+_PV = "33333333-3333-4333-8333-333333333333"
 
 
 def _clause_key(clause_id: str) -> str:
@@ -111,15 +114,27 @@ def _candidate(provision_id: str, provision_key: str, clause_ids: list[str]) -> 
         "provision_key": provision_key,
         "heading_path": [f"Heading of {provision_key}"],
         "rules": len(clause_ids),
-        "search_document_ids": {_clause_key(c) for c in clause_ids},
+        "policy_version_id": _PV,
+        "search_document_id": policy_document_id(policy_version_id=_PV, provision_key=provision_key),
         "payload": payload,
     }
 
 
 def _hit(clause_id: str, score: float) -> dict:
-    """One search hit in the shape `AzureSearchClient.vector_search` returns."""
+    """One legacy clause search hit, for the span-key helper tests."""
 
     return {"id": _clause_key(clause_id), "@search.score": score, "clause_id": clause_id}
+
+
+def _policy_hit(provision_key: str, score: float, *, version: str = _PV) -> dict:
+    """One policy-index search hit in the shape `AzureSearchClient.vector_search` returns."""
+
+    return {
+        "id": policy_document_id(policy_version_id=version, provision_key=provision_key),
+        "@search.score": score,
+        "policy_id": provision_key,
+        "document_version": version,
+    }
 
 
 def _ids(entries: list[dict]) -> set[str]:
@@ -143,11 +158,20 @@ def test_provision_search_ids_reads_every_span_key() -> None:
     assert keys == {_clause_key("C-a"), _clause_key("C-b")}
 
 
+def test_published_policy_search_id_uses_version_and_policy_identity() -> None:
+    payload = _payload_for("prov-1", "P1", ["C-a"])
+    payload["envelope"]["policy_version_id"] = _PV
+
+    key = ai_case_project.published_policy_search_id(payload)
+
+    assert key == policy_document_id(policy_version_id=_PV, provision_key="P1")
+
+
 # --- select_retained: retrieval narrows, and the budget does the narrowing -----
 
 
 def test_retrieval_retains_the_bearing_policy_and_discards_the_unrelated() -> None:
-    """A question whose retrieved clauses fall in two policies retains those two
+    """A question whose retrieved policy documents name two policies retains those two
     and discards the third — and the discarded one carries the honest reason that
     it never surfaced, told apart from a policy that surfaced but ranked out."""
 
@@ -156,8 +180,8 @@ def test_retrieval_retains_the_bearing_policy_and_discards_the_unrelated() -> No
     unrelated = _candidate("prov-c", "C", ["C-c1"])
     candidates = [bearing_a, bearing_b, unrelated]
 
-    # The retrieval surfaces A's and B's clauses; C's never appears.
-    hits = [_hit("C-a1", 0.90), _hit("C-b1", 0.55), _hit("C-a2", 0.30)]
+    # The retrieval surfaces A and B from the policy index; C never appears.
+    hits = [_policy_hit("A", 0.90), _policy_hit("B", 0.55)]
 
     selection = ai_case_project.select_retained(candidates, hits, budget=8)
 
@@ -181,7 +205,7 @@ def test_retrieval_retains_the_bearing_policy_and_discards_the_unrelated() -> No
 
 
 def test_the_budget_narrows_even_when_more_policies_surface() -> None:
-    """The clause budget is what narrows: a policy whose only clause ranks below
+    """The policy budget is what narrows: a policy whose document ranks below
     the budget is discarded even though it surfaced, and says so — proving the
     budget is load-bearing, not decoration."""
 
@@ -191,7 +215,7 @@ def test_the_budget_narrows_even_when_more_policies_surface() -> None:
     candidates = [top, below_1, below_2]
 
     # All three surface, in this rank order; the budget keeps only the first.
-    hits = [_hit("C-top", 0.9), _hit("C-x", 0.4), _hit("C-y", 0.2)]
+    hits = [_policy_hit("TOP", 0.9), _policy_hit("X", 0.4), _policy_hit("Y", 0.2)]
 
     selection = ai_case_project.select_retained(candidates, hits, budget=1)
 
@@ -213,7 +237,7 @@ def test_every_candidate_appears_in_considered_so_narrowing_is_visible() -> None
         _candidate("prov-a", "A", ["C-a"]),
         _candidate("prov-b", "B", ["C-b"]),
     ]
-    hits = [_hit("C-a", 0.9)]
+    hits = [_policy_hit("A", 0.9)]
 
     selection = ai_case_project.select_retained(candidates, hits, budget=8)
 
@@ -373,7 +397,7 @@ async def test_multi_policy_reuses_the_shared_classifier(
     assert result["informational"] is None
 
 
-# --- the orchestrator: scope, and the six honest retrieval states --------------
+# --- the orchestrator: scope, and the honest retrieval states ------------------
 
 
 class _NamespacePolicySet:
@@ -450,9 +474,11 @@ async def test_single_policy_scope_bypasses_retrieval(
 
 def _project_scope(candidates: list[dict], excluded: list[dict] | None = None) -> dict:
     return {
+        "has_published_version": True,
+        "active_version_id": _PV,
+        "active_version_number": 2,
         "candidates": candidates,
         "excluded": excluded or [],
-        "document_ids": ["doc-1"],
     }
 
 
@@ -511,6 +537,9 @@ async def test_failed_is_when_the_search_call_raises(
         def __init__(self, settings: Any) -> None:
             pass
 
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             raise RuntimeError("search backend is down")
 
@@ -522,12 +551,15 @@ async def test_failed_is_when_the_search_call_raises(
     assert result["evaluation"] is None
 
 
-async def test_index_empty_is_when_the_project_has_no_indexed_clauses(
+async def test_index_empty_is_when_the_project_policy_index_has_no_documents(
     monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
 ) -> None:
     class _EmptyIndexSearchClient:
         def __init__(self, settings: Any) -> None:
             pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
 
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             return []
@@ -543,6 +575,48 @@ async def test_index_empty_is_when_the_project_has_no_indexed_clauses(
     assert result["evaluation"] is None
 
 
+async def test_index_not_built_is_when_the_project_index_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
+) -> None:
+    class _MissingIndexSearchClient:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return False
+
+        async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
+            raise AssertionError("an unbuilt index must not be searched")
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _MissingIndexSearchClient)
+
+    result = await _run_project()
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_INDEX_NOT_BUILT
+    assert result["evaluation"] is None
+
+
+async def test_index_stale_is_when_only_superseded_policy_documents_exist(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
+) -> None:
+    class _StaleSearchClient:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
+        async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
+            return [_policy_hit("A", 0.7, version="44444444-4444-4444-8444-444444444444")]
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _StaleSearchClient)
+
+    result = await _run_project()
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_INDEX_STALE
+    assert result["evaluation"] is None
+
+
 async def test_no_match_is_when_search_ran_but_nothing_retained(
     monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
 ) -> None:
@@ -550,18 +624,41 @@ async def test_no_match_is_when_search_ran_but_nothing_retained(
         def __init__(self, settings: Any) -> None:
             pass
 
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
-            # A hit that belongs to no candidate provision's clauses.
-            return [{"id": _clause_key("C-unrelated"), "@search.score": 0.4}]
+            return []
 
         async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
-            return ["something"]  # the project IS indexed
+            return ["something"]  # the active version IS indexed
 
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _NoMatchSearchClient)
 
     result = await _run_project()
 
     assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_NO_MATCH
+    assert result["evaluation"] is None
+
+
+async def test_current_version_hits_outside_the_active_payload_are_stale(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
+) -> None:
+    class _OrphanHitSearchClient:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
+        async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
+            return [_policy_hit("unrelated", 0.4)]
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _OrphanHitSearchClient)
+
+    result = await _run_project()
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_INDEX_STALE
     assert result["evaluation"] is None
 
 
@@ -572,8 +669,11 @@ async def test_narrowed_is_when_a_policy_is_retained_and_only_then_is_it_evaluat
         def __init__(self, settings: Any) -> None:
             pass
 
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
-            return [{"id": _clause_key("C-a"), "@search.score": 0.7}]
+            return [_policy_hit("A", 0.7)]
 
     evaluated: list[list[dict]] = []
 
@@ -614,18 +714,46 @@ async def test_empty_project_is_its_own_state(
     assert result["evaluation"] is None
 
 
-def test_the_six_retrieval_states_are_distinct() -> None:
-    """Absent, empty, matched-nothing, unavailable, failed, and bypassed are six
+async def test_no_published_version_is_its_own_state(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings
+) -> None:
+    """A project with draft rules but no active approved version has no published
+    project scope yet. That must not be reported as a search no-match."""
+
+    async def _load(session: Any, policy_set_id: Any) -> dict:
+        return {
+            "has_published_version": False,
+            "active_version_id": None,
+            "active_version_number": None,
+            "candidates": [],
+            "excluded": [],
+        }
+
+    monkeypatch.setattr(ai_case_project, "load_project_scope", _load)
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _ExplodingSearchClient)
+
+    result = await _run_project()
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_NO_PUBLISHED_VERSION
+    assert result["evaluation"] is None
+    assert result["retrieval"]["status"] != ai_case_project.RETRIEVAL_NO_MATCH
+
+
+def test_the_retrieval_states_are_distinct() -> None:
+    """Absent, empty, matched-nothing, unavailable, failed, and bypassed are
     different facts and must not collapse into one another (constraint 5)."""
 
     states = {
         ai_case_project.RETRIEVAL_NARROWED,
         ai_case_project.RETRIEVAL_NO_MATCH,
         ai_case_project.RETRIEVAL_INDEX_EMPTY,
+        ai_case_project.RETRIEVAL_NO_PUBLISHED_VERSION,
+        ai_case_project.RETRIEVAL_INDEX_NOT_BUILT,
+        ai_case_project.RETRIEVAL_INDEX_STALE,
         ai_case_project.RETRIEVAL_UNAVAILABLE,
         ai_case_project.RETRIEVAL_FAILED,
         ai_case_project.RETRIEVAL_EMPTY_SET,
         ai_case_project.RETRIEVAL_BYPASSED,
     }
-    # Seven named states, none equal to another.
-    assert len(states) == 7
+    # Ten named states, none equal to another.
+    assert len(states) == 10

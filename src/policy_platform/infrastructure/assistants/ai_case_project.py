@@ -1,5 +1,5 @@
-"""Putting a case to a *project's* policies: retrieve the ones that bear on the
-question, discard the rest, and evaluate only the survivors.
+"""Putting a case to a *project's* published policies: retrieve the ones that
+bear on the question, discard the rest, and evaluate only the survivors.
 
 WHY THIS EXISTS
 
@@ -13,24 +13,13 @@ explicit and load-bearing:
      policies are discarded"
 
 So this module never evaluates against every policy. It *retrieves first*: it
-embeds the question and runs the same hybrid clause search the Ask-AI chat uses
-(`ai_chat.ask`), scoped to the project's own documents, then maps the retrieved
-clauses back to the policies that own them and keeps only those. The rest are
+embeds the question and searches the project's own policy index, whose unit is a
+published policy at the latest approved version. Retrieved policy documents are
+mapped back to the lean published payload by ``policy_version_id`` plus
+``provision_key`` — identity that survives clause re-parsing. The rest are
 discarded, and which were considered, retained, and discarded — and on what basis —
 is reported, because a reviewer must always be able to see that narrowing happened
-and how much (constraint 10). Reusing the chat's retrieval rather than standing up
-a second search path is deliberate: a second copy always drifts (a recorded failure
-pattern), so the one search machinery is shared.
-
-HOW A RETRIEVED CLAUSE IS MAPPED BACK TO A POLICY
-
-The search index keys every clause as ``{document_version_id}_{clause_id}``
-(`clause_search_document_id`), and the lean projection carries that same key on
-every span it holds (`policy_case_payload`). So a retrieved clause is mapped to the
-policy that owns it by the join those two already share — no heading match, no
-title guess, nothing tuned to a corpus. A policy is retained when one of its
-clauses ranks inside the retrieval budget; it is discarded otherwise, and told
-apart from a policy that never surfaced at all.
+and how much (constraint 10).
 
 WHY NO FAN-OUT
 
@@ -46,17 +35,17 @@ THE STATES A RETRIEVAL CAN BE IN, KEPT APART
 Six facts about a search are not one fact (constraint 5), and none of them may
 degrade silently to "answer against all" (constraint 10):
 
-  - ``narrowed``      — retrieval kept a subset; those are evaluated.
-  - ``no_match``      — retrieval ran and the project is indexed, but nothing it
-                        surfaced belongs to a testable policy. "No policy matched
-                        this question" — a real answer, not an absence.
-  - ``index_empty``   — the project has testable policies but none are indexed, so
-                        retrieval cannot be relied on for it. (Uploads can report
-                        ``clauses_indexed: 0`` while search is enabled; a document
-                        can be in Postgres and absent from the grounding index.)
-  - ``unavailable``   — search is not configured on this server at all.
-  - ``failed``        — the search call itself raised.
-  - ``empty``         — the project has no policy with live rules to test.
+  - ``narrowed``              — retrieval kept a subset; those are evaluated.
+  - ``no_match``              — retrieval ran on the current published policy
+                                index, but no policy matched this question.
+  - ``no_published_version``  — the project has no active approved version, so
+                                there is no published project scope to test.
+  - ``index_not_built``       — the project's policy index does not exist yet.
+  - ``index_stale``           — the index exists, but not for the active
+                                published version.
+  - ``unavailable``           — search is not configured on this server at all.
+  - ``failed``                — the search call itself raised.
+  - ``empty``                 — the active version has no published policy rules.
 
 The one thing forbidden — falling back to evaluating every policy — is never done
 in any of these states. When retrieval cannot be relied on, the reviewer is told,
@@ -64,56 +53,50 @@ and the escape hatch is the single-policy scope: naming a ``provision_id`` bypas
 retrieval entirely, because a reviewer who has chosen one policy has already done
 the narrowing.
 
-Nothing in this module names a domain. It works from the project's own provisions,
-its own document ids, and the document's own clause keys, so it holds for any
-governance corpus (constraint 1). The counts it reports are policies first, then
-rules (constraint 2).
+Nothing in this module names a domain. It works from the project's own published
+version and policy identity, so it holds for any governance corpus (constraint 1).
+The counts it reports are policies first, then rules (constraint 2).
 """
 from __future__ import annotations
 
 import logging
 import uuid
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from policy_platform.domain.models import CandidateRule, DocumentProvision, SourceDocument
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.assistants.ai_case_intent import (
     _MAX_RECORD_CHARS,
     answer_case_over_policies,
 )
-from policy_platform.infrastructure.projection.policy_case_payload import (
-    case_payload_for_provision,
-    to_compact,
+from policy_platform.infrastructure.projection.policy_case_payload import case_payload_for_provision, to_compact
+from policy_platform.infrastructure.projection.published_case_payload import (
+    active_version_for_policy_set,
+    published_case_payloads_for_policy_set,
 )
+from policy_platform.infrastructure.search.policy_index import policy_document_id, policy_index_name
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-#: How far down the ranked clause hits a policy may be found and still be retained.
-#: A budget, the same lever the Ask-AI chat spends on retrieval (`ai_chat.ask`
-#: takes the top 6), set a little wider because a project case can bear on more
-#: policies than a single-topic chat turn: a clause ranking in the top of the
-#: search is what keeps its policy in, and everything below it is discarded. Making
-#: this the retention threshold rather than a count of policies is what lets the
-#: narrowing *adapt* — a question whose bearing clauses cluster in one policy keeps
-#: one, a question that spreads keeps several — instead of always keeping a fixed
-#: number whether they bear or not. Over-keeping is the safe error here: the gather
-#: re-checks each rule's bearing and cites only those that speak to the question,
-#: so a policy retained but not bearing costs a little context, never a false
-#: citation; under-keeping would drop a policy that bears, which is the one outcome
-#: the user forbade. Named as a budget, not a measurement of any corpus.
-RETRIEVAL_CLAUSE_BUDGET = 8
+#: How far down the ranked policy hits a policy may be found and still be retained.
+#: A policy ranking in the top of the search is what keeps it in, and everything
+#: below it is discarded. Making this the retention threshold rather than a score
+#: threshold is deliberate: RRF-hybrid scores are close together, so rank is the
+#: discriminator. Over-keeping is the safe error here: the gather re-checks each
+#: rule's bearing and cites only those that speak to the question, so a policy
+#: retained but not bearing costs a little context, never a false citation;
+#: under-keeping would drop a policy that bears, which is the one outcome the user
+#: forbade. Named as a budget, not a measurement of any corpus.
+RETRIEVAL_POLICY_BUDGET = 5
 
-#: How many ranked clauses are examined at all, a cost bound on the search. Wider
+#: How many ranked policies are examined at all, a cost bound on the search. Wider
 #: than the retention budget so a policy that surfaced but ranked out is reported
 #: *with its score* — a reviewer sees it was seen and set aside, not that it never
-#: appeared — while policies beyond it are honestly "did not surface". A scan, not
-#: a corpus count.
-RETRIEVAL_CLAUSE_SCAN = 40
+#: appeared — while policies beyond it are honestly "did not surface".
+RETRIEVAL_POLICY_SCAN = 40
 
 #: The characters of the retained policies' combined record the gather may read in
 #: one pass — the same ceiling `ai_case_intent` applies to a single policy's
@@ -121,7 +104,7 @@ RETRIEVAL_CLAUSE_SCAN = 40
 PAYLOAD_BUDGET_CHARS = _MAX_RECORD_CHARS
 
 #: The retrieval method named in the response, so the reviewer knows which path
-#: produced the narrowing. Reuses the chat's hybrid keyword+vector clause search.
+#: produced the narrowing.
 RETRIEVAL_METHOD = "hybrid_vector_topk"
 
 #: The two scopes a case can be put in. Named, because a reviewer who chose one
@@ -130,13 +113,16 @@ RETRIEVAL_METHOD = "hybrid_vector_topk"
 SCOPE_SINGLE = "single"
 SCOPE_PROJECT = "project"
 
-#: The six honest states a retrieval can be in, plus the seventh — ``bypassed`` —
-#: for the single-policy scope where retrieval does not run at all. Kept apart on
-#: purpose (constraint 5); collapsing any pair reports one situation as another,
-#: and none of them is ever "evaluate against all" (constraint 10).
+#: The honest states a retrieval can be in, plus ``bypassed`` for the
+#: single-policy scope where retrieval does not run at all. Kept apart on purpose
+#: (constraint 5); collapsing any pair reports one situation as another, and none
+#: of them is ever "evaluate against all" (constraint 10).
 RETRIEVAL_NARROWED = "narrowed"
 RETRIEVAL_NO_MATCH = "no_match"
 RETRIEVAL_INDEX_EMPTY = "index_empty"
+RETRIEVAL_NO_PUBLISHED_VERSION = "no_published_version"
+RETRIEVAL_INDEX_NOT_BUILT = "index_not_built"
+RETRIEVAL_INDEX_STALE = "index_stale"
 RETRIEVAL_UNAVAILABLE = "unavailable"
 RETRIEVAL_FAILED = "failed"
 RETRIEVAL_EMPTY_SET = "empty"
@@ -145,7 +131,8 @@ RETRIEVAL_BYPASSED = "bypassed"
 #: Why a candidate policy was discarded, told apart so "seen and set aside" never
 #: reads the same as "never surfaced".
 DISCARD_OUTSIDE_BUDGET = "outside_budget"  # surfaced in the scan but ranked below the budget
-DISCARD_NO_MATCH = "no_retrieval_match"  # no clause of it surfaced in the scan at all
+DISCARD_NO_MATCH = "no_retrieval_match"  # it did not surface in the scan at all
+DISCARD_STALE_VERSION = "stale_index_version"  # surfaced, but not for the active version
 
 
 class ProvisionNotInProject(LookupError):
@@ -177,6 +164,17 @@ def provision_search_ids(payload: dict) -> set[str]:
     return keys
 
 
+def published_policy_search_id(payload: dict) -> str | None:
+    """The stable search key for a published policy document."""
+
+    envelope = payload.get("envelope") or {}
+    policy_version_id = envelope.get("policy_version_id")
+    provision_key = envelope.get("provision_key")
+    if not policy_version_id or not provision_key:
+        return None
+    return policy_document_id(policy_version_id=str(policy_version_id), provision_key=str(provision_key))
+
+
 def _max_score(scores: list) -> float | None:
     present = [s for s in scores if isinstance(s, (int, float))]
     return max(present) if present else None
@@ -193,16 +191,16 @@ def _identity(candidate: dict) -> dict:
 
 def select_retained(candidates: list[dict], hits: list[dict], *, budget: int) -> dict:
     """Split the candidate policies into the ones retrieval kept and the ones it
-    discarded, by mapping the ranked clause hits back to the policies that own them.
+    discarded, by mapping the ranked policy hits back to the published payloads.
 
-    ``candidates`` each carry their ``search_document_ids`` (from
-    :func:`provision_search_ids`); ``hits`` are the ranked search results, each an
-    ``id`` (a clause's search key) and its ``@search.score``. A policy is retained
-    when one of its clauses ranks inside ``budget``; otherwise it is discarded, and
-    a policy that surfaced lower in the scan is told apart from one that never
+    ``candidates`` each carry their ``search_document_id`` (from
+    :func:`published_policy_search_id`); ``hits`` are the ranked search results,
+    each an ``id`` (a policy search key) and its ``@search.score``. A policy is
+    retained when it ranks inside ``budget``; otherwise it is discarded, and a
+    policy that surfaced lower in the scan is told apart from one that never
     surfaced at all.
 
-    Returns ``{"retained", "discarded", "considered", "clauses_retrieved"}``.
+    Returns ``{"retained", "discarded", "considered", "policies_retrieved"}``.
     ``considered`` lists every candidate in document order with a ``retained`` flag,
     so the narrowing is fully visible (constraint 10); ``retained`` is ordered by
     how high the policy ranked. No payload rides in any of these entries — they are
@@ -221,7 +219,8 @@ def select_retained(candidates: list[dict], hits: list[dict], *, budget: int) ->
     considered: list[dict] = []
 
     for candidate in candidates:
-        keys = candidate.get("search_document_ids") or set()
+        key = candidate.get("search_document_id")
+        keys = {str(key)} if key else set()
         matches = [(rank, hid, score) for (rank, hid, score) in ranked if hid in keys]
         in_budget = [m for m in matches if m[0] < budget]
         identity = _identity(candidate)
@@ -232,7 +231,7 @@ def select_retained(candidates: list[dict], hits: list[dict], *, budget: int) ->
                 "retained": True,
                 "best_rank": min(m[0] for m in in_budget),
                 "best_score": _max_score([m[2] for m in matches]),
-                "matched_clauses": len({m[1] for m in in_budget}),
+                "matched_policies": len({m[1] for m in in_budget}),
             }
             retained.append(entry)
         else:
@@ -249,7 +248,7 @@ def select_retained(candidates: list[dict], hits: list[dict], *, budget: int) ->
                 "retained": False,
                 "best_rank": best_rank,
                 "best_score": best_score,
-                "matched_clauses": 0,
+                "matched_policies": 0,
                 "discard_reason": reason,
             }
             discarded.append(entry)
@@ -260,92 +259,82 @@ def select_retained(candidates: list[dict], hits: list[dict], *, budget: int) ->
         "retained": retained,
         "discarded": discarded,
         "considered": considered,
-        "clauses_retrieved": len(ranked),
+        "policies_retrieved": len(ranked),
     }
 
 
 async def load_project_scope(session: AsyncSession, policy_set_id) -> dict:
-    """Read a project's testable policies, its untestable ones, and its document ids.
+    """Read the project's active published policies.
 
-    A *testable* policy is a provision with at least one live rule
-    (``superseded_at IS NULL``) — the same "current set, drafts included" the
-    per-policy path answers over, so a project that has never published still has
-    policies whose rules state things. A provision with no live rule cannot be
-    retrieved (it owns no grounded clause) and cannot be answered from, so it is
-    reported as *untestable* rather than silently dropped: an empty policy and a
-    discarded one are different facts (constraint 5).
-
-    The document ids scope the search to this project's own documents, exactly as
-    `ai_chat.ask` scopes its retrieval, so a project case is never grounded in
-    another project's clauses.
+    Project-wide cases intentionally use published policies at the active approved
+    version only. A project with draft/live candidate rules but no active approved
+    version is therefore not an empty search result; it has no published project
+    scope to test yet.
     """
 
     psid = policy_set_id if isinstance(policy_set_id, uuid.UUID) else uuid.UUID(str(policy_set_id))
+    active_version = await active_version_for_policy_set(session, psid)
+    if active_version is None:
+        return {
+            "has_published_version": False,
+            "active_version_id": None,
+            "active_version_number": None,
+            "candidates": [],
+            "excluded": [],
+        }
 
-    provisions = list(
-        (
-            await session.execute(
-                select(DocumentProvision)
-                .where(DocumentProvision.policy_set_id == psid)
-                .order_by(DocumentProvision.first_sequence)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    live_counts: dict = {}
-    if provisions:
-        rows = await session.execute(
-            select(CandidateRule.provision_id, func.count())
-            .where(CandidateRule.provision_id.in_([p.id for p in provisions]))
-            .where(CandidateRule.superseded_at.is_(None))
-            .group_by(CandidateRule.provision_id)
-        )
-        live_counts = {row[0]: row[1] for row in rows.all()}
-
-    document_ids = [
-        str(row[0])
-        for row in (
-            await session.execute(select(SourceDocument.id).where(SourceDocument.policy_set_id == psid))
-        ).all()
-    ]
+    payloads = await published_case_payloads_for_policy_set(session, psid)
 
     candidates: list[dict] = []
     excluded: list[dict] = []
-    for provision in provisions:
-        rule_count = live_counts.get(provision.id, 0)
+    for payload in payloads:
+        envelope = payload.get("envelope") or {}
+        rule_count = len(payload.get("rules") or [])
+        provision_key = str(envelope.get("provision_key") or "")
         if rule_count <= 0:
             excluded.append(
                 {
-                    "provision_id": str(provision.id),
-                    "provision_key": provision.provision_key,
-                    "heading_path": provision.heading_path_json,
-                    "reason": "no_live_rules",
+                    "provision_id": None,
+                    "provision_key": provision_key,
+                    "heading_path": envelope.get("heading_path") or [],
+                    "reason": "no_published_rules",
                 }
             )
             continue
-        payload = await case_payload_for_provision(session, provision.id)
-        if payload is None:  # pragma: no cover - a live-count without a payload cannot occur
+        search_document_id = published_policy_search_id(payload)
+        if search_document_id is None:  # pragma: no cover - active published payloads carry this envelope
             continue
         candidates.append(
             {
-                "provision_id": str(provision.id),
-                "provision_key": provision.provision_key,
-                "heading_path": provision.heading_path_json,
+                "provision_id": envelope.get("provision_id"),
+                "provision_key": provision_key,
+                "heading_path": envelope.get("heading_path") or [],
                 "rules": rule_count,
-                "search_document_ids": provision_search_ids(payload),
+                "policy_version_id": str(envelope.get("policy_version_id")),
+                "version_number": envelope.get("version_number"),
+                "search_document_id": search_document_id,
                 "payload": payload,
             }
         )
 
-    return {"candidates": candidates, "excluded": excluded, "document_ids": document_ids}
+    return {
+        "has_published_version": True,
+        "active_version_id": str(active_version.id),
+        "active_version_number": active_version.version_number,
+        "candidates": candidates,
+        "excluded": excluded,
+    }
 
 
-def _index_filter(document_ids: list[str]) -> str:
-    if len(document_ids) == 1:
-        return f"policy_id eq '{document_ids[0]}'"
-    return f"search.in(policy_id, '{','.join(document_ids)}', ',')"
+def _odata_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _policy_index_filter(policy_set_key: str, policy_version_id: str | None = None) -> str:
+    clauses = [f"policy_set_key eq {_odata_string(policy_set_key)}"]
+    if policy_version_id:
+        clauses.append(f"policy_version_id eq {_odata_string(policy_version_id)}")
+    return " and ".join(clauses)
 
 
 def _size_report(records: list[dict]) -> dict:
@@ -380,15 +369,18 @@ def _retrieval_block(
     retained: list[dict],
     discarded: list[dict],
     excluded: list[dict],
-    clauses_retrieved: int,
+    policies_retrieved: int,
     reason: str | None = None,
 ) -> dict:
     block = {
         "status": status,
         "method": RETRIEVAL_METHOD,
-        "clause_budget": RETRIEVAL_CLAUSE_BUDGET,
-        "clause_scan": RETRIEVAL_CLAUSE_SCAN,
-        "clauses_retrieved": clauses_retrieved,
+        "policy_budget": RETRIEVAL_POLICY_BUDGET,
+        "policy_scan": RETRIEVAL_POLICY_SCAN,
+        "policies_retrieved": policies_retrieved,
+        # Kept temporarily for API compatibility with callers already reading the
+        # old field name; the value now counts policy documents, not clauses.
+        "clauses_retrieved": policies_retrieved,
         "policies_considered": len(considered),
         "policies_retained": len(retained),
         "policies_discarded": len(discarded),
@@ -407,7 +399,7 @@ def _project_response(
     retained: list[dict],
     discarded: list[dict],
     excluded: list[dict],
-    clauses_retrieved: int,
+    policies_retrieved: int,
     evaluation: dict | None,
     size: dict,
     reason: str | None = None,
@@ -421,7 +413,7 @@ def _project_response(
             retained=retained,
             discarded=discarded,
             excluded=excluded,
-            clauses_retrieved=clauses_retrieved,
+            policies_retrieved=policies_retrieved,
             reason=reason,
         ),
         "considered": considered,
@@ -486,9 +478,9 @@ async def _answer_project_scope(
     scope = await load_project_scope(session, policy_set.id)
     candidates = scope["candidates"]
     excluded = scope["excluded"]
-    document_ids = scope["document_ids"]
+    active_version_id = scope.get("active_version_id")
 
-    def respond(status: str, *, considered, retained, discarded, clauses_retrieved, evaluation, size, reason=None):
+    def respond(status: str, *, considered, retained, discarded, policies_retrieved, evaluation, size, reason=None):
         return _project_response(
             policy_set_key=policy_set.key,
             status=status,
@@ -496,7 +488,7 @@ async def _answer_project_scope(
             retained=retained,
             discarded=discarded,
             excluded=excluded,
-            clauses_retrieved=clauses_retrieved,
+            policies_retrieved=policies_retrieved,
             evaluation=evaluation,
             size=size,
             reason=reason,
@@ -505,15 +497,26 @@ async def _answer_project_scope(
     empty_size = _size_report([])
 
     if not candidates:
+        if not scope.get("has_published_version", True):
+            return respond(
+                RETRIEVAL_NO_PUBLISHED_VERSION,
+                considered=[],
+                retained=[],
+                discarded=[],
+                policies_retrieved=0,
+                evaluation=None,
+                size=empty_size,
+                reason="the project has no published version yet; publish a version before testing the whole project",
+            )
         return respond(
             RETRIEVAL_EMPTY_SET,
             considered=[],
             retained=[],
             discarded=[],
-            clauses_retrieved=0,
+            policies_retrieved=0,
             evaluation=None,
             size=empty_size,
-            reason="the project has no policy with live rules to test",
+            reason="the active published version has no policy rules to test",
         )
 
     settings = get_settings()
@@ -526,7 +529,7 @@ async def _answer_project_scope(
             considered=_bare_considered(candidates),
             retained=[],
             discarded=[],
-            clauses_retrieved=0,
+            policies_retrieved=0,
             evaluation=None,
             size=empty_size,
             reason=(
@@ -535,17 +538,30 @@ async def _answer_project_scope(
             ),
         )
 
-    index_name = settings.azure_search_authoring_index
+    index_name = policy_index_name(policy_set.key)
     try:
+        search_client = AzureSearchClient(settings)
+        if not await search_client.index_exists(index_name):
+            return respond(
+                RETRIEVAL_INDEX_NOT_BUILT,
+                considered=_bare_considered(candidates),
+                retained=[],
+                discarded=[],
+                policies_retrieved=0,
+                evaluation=None,
+                size=empty_size,
+                reason=(
+                    "this project's published-policy search index has not been built yet, so retrieval cannot be "
+                    "relied on for it; no evaluation was made. Republish or rebuild the policy index."
+                ),
+            )
         ai_client = AzureOpenAIClient(settings)
         [vector] = await ai_client.embed([scenario])
-        search_client = AzureSearchClient(settings)
         hits = await search_client.vector_search(
             index_name,
             query_text=scenario,
             vector=vector,
-            policy_ids=document_ids or None,
-            top=RETRIEVAL_CLAUSE_SCAN,
+            top=RETRIEVAL_POLICY_SCAN,
         )
     except Exception as exc:  # noqa: BLE001 - a failed search is its own reported state
         logger.warning("project-case retrieval failed for set %s: %s", policy_set.key, exc)
@@ -554,70 +570,132 @@ async def _answer_project_scope(
             considered=_bare_considered(candidates),
             retained=[],
             discarded=[],
-            clauses_retrieved=0,
+            policies_retrieved=0,
             evaluation=None,
             size=empty_size,
             reason=f"the search call failed: {exc}",
         )
 
     if not hits:
-        # Nothing came back. Tell apart a project whose clauses are not in the
-        # index at all (retrieval cannot be relied on for it) from one that is
-        # indexed but where the query genuinely matched nothing.
+        # Nothing came back. Tell apart a project whose active published version
+        # is absent from the index from one where the current index genuinely did
+        # not match the question.
         try:
-            indexed = await search_client.find_ids_by_filter(
-                index_name, filter_expr=_index_filter(document_ids), page_size=1
+            current_indexed = await search_client.find_ids_by_filter(
+                index_name, filter_expr=_policy_index_filter(policy_set.key, active_version_id), page_size=1
+            )
+            any_indexed = await search_client.find_ids_by_filter(
+                index_name, filter_expr=_policy_index_filter(policy_set.key), page_size=1
             )
         except Exception as exc:  # noqa: BLE001 - fall back to the honest weaker claim
             logger.warning("project-case index probe failed for set %s: %s", policy_set.key, exc)
-            indexed = []
-        if indexed:
+            current_indexed = []
+            any_indexed = []
+        if current_indexed:
             return respond(
                 RETRIEVAL_NO_MATCH,
                 considered=_bare_considered(candidates),
                 retained=[],
                 discarded=[],
-                clauses_retrieved=0,
+                policies_retrieved=0,
                 evaluation=None,
                 size=empty_size,
                 reason="no published policy matched this question",
+            )
+        if any_indexed:
+            return respond(
+                RETRIEVAL_INDEX_STALE,
+                considered=_bare_considered(candidates),
+                retained=[],
+                discarded=[],
+                policies_retrieved=0,
+                evaluation=None,
+                size=empty_size,
+                reason=(
+                    "this project's published-policy index has no documents for the active approved version, so "
+                    "retrieval cannot be relied on for it; no evaluation was made. Republish or rebuild the policy index."
+                ),
             )
         return respond(
             RETRIEVAL_INDEX_EMPTY,
             considered=_bare_considered(candidates),
             retained=[],
             discarded=[],
-            clauses_retrieved=0,
+            policies_retrieved=0,
             evaluation=None,
             size=empty_size,
             reason=(
-                "this project's policies are not in the grounding index, so retrieval cannot be "
-                "relied on for it; no evaluation was made. Choose a single policy to test it directly."
+                "this project's published-policy index is empty, so retrieval cannot be relied on for it; "
+                "no evaluation was made. Republish or rebuild the policy index."
             ),
         )
 
-    selection = select_retained(candidates, hits, budget=RETRIEVAL_CLAUSE_BUDGET)
+    stale_hits = [hit for hit in hits if str(hit.get("document_version")) != str(active_version_id)]
+    current_hits = [hit for hit in hits if str(hit.get("document_version")) == str(active_version_id)]
+    if hits and not current_hits:
+        stale_considered = []
+        for candidate in candidates:
+            entry = {
+                **_identity(candidate),
+                "retained": False,
+                "best_rank": None,
+                "best_score": None,
+                "matched_policies": 0,
+                "discard_reason": DISCARD_STALE_VERSION,
+            }
+            stale_considered.append(entry)
+        return respond(
+            RETRIEVAL_INDEX_STALE,
+            considered=stale_considered,
+            retained=[],
+            discarded=stale_considered,
+            policies_retrieved=len(stale_hits),
+            evaluation=None,
+            size=empty_size,
+            reason=(
+                "the policy index returned only documents from a superseded published version, so retrieval cannot "
+                "be relied on for the active version; no evaluation was made. Republish or rebuild the policy index."
+            ),
+        )
+
+    selection = select_retained(candidates, current_hits, budget=RETRIEVAL_POLICY_BUDGET)
     retained = selection["retained"]
     discarded = selection["discarded"]
     considered = selection["considered"]
-    clauses_retrieved = selection["clauses_retrieved"]
+    policies_retrieved = selection["policies_retrieved"]
 
     if not retained:
-        # The search surfaced clauses, but none inside the budget belongs to a
-        # testable policy. A real "no policy matched", distinct from the index
-        # being empty and from search being unavailable.
+        matched_candidate_ids = {entry["provision_key"] for entry in considered if entry.get("best_rank") is not None}
+        if current_hits and not matched_candidate_ids:
+            return respond(
+                RETRIEVAL_INDEX_STALE,
+                considered=considered,
+                retained=retained,
+                discarded=discarded,
+                policies_retrieved=policies_retrieved,
+                evaluation=None,
+                size=empty_size,
+                reason=(
+                    "the policy index returned current-version documents that are not present in the active "
+                    "published payload, so retrieval cannot be relied on; no evaluation was made. Republish or "
+                    "rebuild the policy index."
+                ),
+            )
+        # The search surfaced current-version policies, but none inside the
+        # budget belongs to a testable policy. A real "no policy matched",
+        # distinct from the index being absent/stale and from search unavailable.
         return respond(
             RETRIEVAL_NO_MATCH,
             considered=considered,
             retained=retained,
             discarded=discarded,
-            clauses_retrieved=clauses_retrieved,
+            policies_retrieved=policies_retrieved,
             evaluation=None,
             size=empty_size,
             reason="no published policy matched this question",
         )
 
-    by_id = {c["provision_id"]: c for c in candidates}
+    by_search_id = {c["search_document_id"]: c for c in candidates}
     records = [
         {
             "policy": {
@@ -625,7 +703,12 @@ async def _answer_project_scope(
                 "provision_key": entry["provision_key"],
                 "heading_path": entry["heading_path"],
             },
-            "payload": by_id[entry["provision_id"]]["payload"],
+            "payload": by_search_id[
+                policy_document_id(
+                    policy_version_id=str(active_version_id),
+                    provision_key=str(entry["provision_key"]),
+                )
+            ]["payload"],
         }
         for entry in retained
     ]
@@ -639,7 +722,7 @@ async def _answer_project_scope(
         considered=considered,
         retained=retained,
         discarded=discarded,
-        clauses_retrieved=clauses_retrieved,
+        policies_retrieved=policies_retrieved,
         evaluation=evaluation,
         size=_size_report(records),
     )
