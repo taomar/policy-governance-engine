@@ -786,7 +786,7 @@ def _relationship_anchors(
                 element_ids=[ev.clause_id for ev in rule.evidence if ev.clause_id],
                 text=anchor_text,
                 section_path=section_path,
-                fact_paths=sorted({fact.path for fact in rule.required_facts}),
+                fact_paths=sorted({fact.name for fact in rule.required_facts}),
                 actor=(policy_rule.subject if policy_rule else "") or "",
                 action=(policy_rule.predicate if policy_rule else "") or "",
                 rule_kind=(rule.rule_type.value if hasattr(rule.rule_type, "value") else str(rule.rule_type)).lower(),
