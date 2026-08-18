@@ -194,7 +194,7 @@ async def adjudicate_window(
             {"role": "user", "content": _prompt_for(window)},
         ],
         deployment=settings.azure_openai_deployment,
-        response_format={"type": "json_object"},
+        json_mode=True,
     )
     payload = json.loads(raw)
 
