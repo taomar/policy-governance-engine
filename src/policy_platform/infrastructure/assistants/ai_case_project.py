@@ -64,14 +64,16 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from policy_platform.domain.models import DocumentProvision
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
 from policy_platform.infrastructure.assistants.ai_case_intent import (
     _MAX_RECORD_CHARS,
     answer_case_over_policies,
 )
-from policy_platform.infrastructure.projection.policy_case_payload import case_payload_for_provision, to_compact
+from policy_platform.infrastructure.projection.policy_case_payload import to_compact
 from policy_platform.infrastructure.projection.published_case_payload import (
     active_version_for_policy_set,
+    published_case_payload_for_policy,
     published_case_payloads_for_policy_set,
 )
 from policy_platform.infrastructure.search.policy_index import policy_document_id, policy_index_name
@@ -127,6 +129,7 @@ RETRIEVAL_UNAVAILABLE = "unavailable"
 RETRIEVAL_FAILED = "failed"
 RETRIEVAL_EMPTY_SET = "empty"
 RETRIEVAL_BYPASSED = "bypassed"
+RETRIEVAL_POLICY_NOT_PUBLISHED = "policy_not_published"
 
 #: Why a candidate policy was discarded, told apart so "seen and set aside" never
 #: reads the same as "never surfaced".
@@ -142,26 +145,6 @@ class ProvisionNotInProject(LookupError):
     one of this project's, so the endpoint answers 404 without pretending the id
     was malformed.
     """
-
-
-def provision_search_ids(payload: dict) -> set[str]:
-    """The search keys a policy's clauses are indexed under, read from its payload.
-
-    Every span in the lean record carries the ``search_document_id`` the index
-    keyed that clause under (`policy_case_payload._span_ref`), which is exactly the
-    id a clause hit comes back as. Collecting them is what lets a retrieved clause
-    be mapped back to the policy that owns it, over the join the projection and the
-    index already share rather than any second key this module invents.
-    """
-
-    keys: set[str] = set()
-    for span in (payload.get("spans") or {}).values():
-        if not isinstance(span, dict):
-            continue
-        key = span.get("search_document_id")
-        if key:
-            keys.add(str(key))
-    return keys
 
 
 def published_policy_search_id(payload: dict) -> str | None:
@@ -423,28 +406,78 @@ def _project_response(
     }
 
 
+async def _provision_in_project(session: AsyncSession, *, policy_set, provision_id):
+    """The named provision, or `ProvisionNotInProject` if it is not this project's.
+
+    Kept apart from "this policy is not published": an id that names nothing, or
+    names a policy in a different project, is a caller error the endpoint answers
+    404 to. A policy that exists here but is absent from the published version is
+    a legitimate question with an honest answer, and must not be reported as if
+    the reviewer had asked for something that does not exist.
+    """
+
+    pid = provision_id if isinstance(provision_id, uuid.UUID) else uuid.UUID(str(provision_id))
+    provision = await session.get(DocumentProvision, pid)
+    if provision is None:
+        raise ProvisionNotInProject(f"No provision with id {provision_id!r}")
+    if str(provision.policy_set_id) != str(policy_set.id):
+        raise ProvisionNotInProject(
+            f"Provision {provision_id!r} does not belong to project {policy_set.key!r}"
+        )
+    return provision
+
+
 async def _answer_single_scope(
     session: AsyncSession, *, policy_set, provision_id, scenario: str, reasoning_effort: str
 ) -> dict:
     """The reviewer chose one policy: bypass retrieval and answer that policy.
 
     Retrieval does not run — the narrowing a reviewer would ask retrieval for has
-    already been done by choosing the policy. The one policy is projected exactly
-    as `/policy-case/answer` projects it, and evaluated through the same multi-policy
-    gather (a set of one), so a single-scope answer carries the same per-policy
-    citations and fabrication guarantees as a project one.
+    already been done by choosing the policy. The policy is projected from the
+    project's *active approved version*, the same source the project scope reads,
+    so naming a policy cannot silently switch the answer to the draft set. It is
+    evaluated through the same multi-policy gather (a set of one), so a single-scope
+    answer carries the same per-policy citations and fabrication guarantees as a
+    project one.
+
+    A provision can exist and still not be answerable here, in two different ways
+    that a reviewer acts on differently: the project may have nothing published at
+    all, or this particular policy may not be in the version that is published.
+    Both are reported, and neither is answered from drafts.
     """
 
-    payload = await case_payload_for_provision(session, provision_id)
-    if payload is None:
-        raise ProvisionNotInProject(f"No provision with id {provision_id!r}")
+    provision = await _provision_in_project(session, policy_set=policy_set, provision_id=provision_id)
 
-    envelope = payload.get("envelope") or {}
-    if str(envelope.get("policy_set_id")) != str(policy_set.id):
-        raise ProvisionNotInProject(
-            f"Provision {provision_id!r} does not belong to project {policy_set.key!r}"
+    def unanswerable(status: str, reason: str) -> dict:
+        return {
+            "scope": SCOPE_SINGLE,
+            "policy_set_key": policy_set.key,
+            "provision": {
+                "provision_id": str(provision.id),
+                "provision_key": provision.provision_key,
+                "heading_path": provision.heading_path_json,
+                "rules": 0,
+            },
+            "retrieval": {"status": status, "reason": reason},
+            "evaluation": None,
+            "size": _size_report([]),
+        }
+
+    version = await active_version_for_policy_set(session, policy_set.id)
+    if version is None:
+        return unanswerable(
+            RETRIEVAL_NO_PUBLISHED_VERSION,
+            "this project has no published version yet, so there is nothing approved to test against",
         )
 
+    payload = await published_case_payload_for_policy(session, policy_set.id, provision.provision_key)
+    if payload is None:
+        return unanswerable(
+            RETRIEVAL_POLICY_NOT_PUBLISHED,
+            "this policy is not in the published version; only published policies are tested here",
+        )
+
+    envelope = payload.get("envelope") or {}
     identity = {
         "provision_id": envelope.get("provision_id"),
         "provision_key": envelope.get("provision_key"),

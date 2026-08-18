@@ -141,21 +141,7 @@ def _ids(entries: list[dict]) -> set[str]:
     return {entry["provision_id"] for entry in entries}
 
 
-# --- provision_search_ids: the retrieval join key is read from the payload ----
-
-
-def test_provision_search_ids_reads_every_span_key() -> None:
-    """The keys a provision can be retrieved under are exactly the search keys of
-    the clauses its rules are grounded in — read from the payload's spans, the
-    same join the index writes, so no second key format is invented."""
-
-    payload = _payload_for("prov-1", "P1", ["C-a", "C-b"])
-
-    keys = ai_case_project.provision_search_ids(payload)
-
-    # A relationship, not a literal: the keys are precisely the fixture's own
-    # clauses under the shared join-key function.
-    assert keys == {_clause_key("C-a"), _clause_key("C-b")}
+# --- published policy identity: the retrieval join key ------------------------
 
 
 def test_published_policy_search_id_uses_version_and_policy_identity() -> None:
@@ -505,16 +491,31 @@ async def _canned_evaluation(records: list[dict], *, scenario: str, reasoning_ef
     }
 
 
-async def test_single_policy_scope_bypasses_retrieval(
-    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings
-) -> None:
-    """A reviewer who has already chosen one policy sends its `provision_id`; that
-    policy must not go through retrieval at all. The search client is rigged to
-    explode if touched, so a bypass that isn't a bypass fails here."""
+class _NamespaceProvision:
+    """A provision as the bypass reads it: identity only, no rules of its own."""
 
-    payload = _payload_for("prov-a", "A", ["C-a"])
+    def __init__(self, provision_id: str, provision_key: str) -> None:
+        self.id = provision_id
+        self.provision_key = provision_key
+        self.heading_path_json = [provision_key]
 
-    async def _fake_payload(session: Any, provision_id: Any) -> dict:
+
+def _bypass_stubs(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    payload: dict | None,
+    has_version: bool,
+    provision_key: str = "A",
+) -> list[list[dict]]:
+    """Stub the bypass's three collaborators and spy on what got evaluated."""
+
+    async def _fake_provision(session: Any, *, policy_set: Any, provision_id: Any) -> Any:
+        return _NamespaceProvision(str(provision_id), provision_key)
+
+    async def _fake_version(session: Any, policy_set_id: Any) -> Any:
+        return object() if has_version else None
+
+    async def _fake_published(session: Any, policy_set_id: Any, key: str) -> dict | None:
         return payload
 
     calls: list[list[dict]] = []
@@ -523,9 +524,23 @@ async def test_single_policy_scope_bypasses_retrieval(
         calls.append(records)
         return await _canned_evaluation(records, scenario=scenario, reasoning_effort=reasoning_effort)
 
-    monkeypatch.setattr(ai_case_project, "case_payload_for_provision", _fake_payload)
+    monkeypatch.setattr(ai_case_project, "_provision_in_project", _fake_provision)
+    monkeypatch.setattr(ai_case_project, "active_version_for_policy_set", _fake_version)
+    monkeypatch.setattr(ai_case_project, "published_case_payload_for_policy", _fake_published)
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _ExplodingSearchClient)
     monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _spy_eval)
+    return calls
+
+
+async def test_single_policy_scope_bypasses_retrieval(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings
+) -> None:
+    """A reviewer who has already chosen one policy sends its `provision_id`; that
+    policy must not go through retrieval at all. The search client is rigged to
+    explode if touched, so a bypass that isn't a bypass fails here."""
+
+    payload = _payload_for("prov-a", "A", ["C-a"])
+    calls = _bypass_stubs(monkeypatch, payload=payload, has_version=True)
 
     result = await ai_case_project.answer_project_case(
         object(),
@@ -539,6 +554,52 @@ async def test_single_policy_scope_bypasses_retrieval(
     # The chosen policy was evaluated (retrieval did not gate it out).
     assert len(calls) == 1
     assert _ids([{"provision_id": r["policy"]["provision_id"]} for r in calls[0]]) == {"prov-a"}
+
+
+async def test_single_policy_scope_refuses_when_the_project_has_no_published_version(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings
+) -> None:
+    """Naming a policy must not smuggle the draft set past the published scope.
+
+    The project scope answers from the active approved version; if there is none,
+    the single scope has nothing approved to answer from either, and says so
+    rather than quietly falling back to candidate rules."""
+
+    calls = _bypass_stubs(monkeypatch, payload=None, has_version=False)
+
+    result = await ai_case_project.answer_project_case(
+        object(),
+        policy_set=_NamespacePolicySet("set-1", "xx"),
+        scenario="was this compliant?",
+        provision_id="prov-a",
+    )
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_NO_PUBLISHED_VERSION
+    assert result["evaluation"] is None
+    assert calls == []
+
+
+async def test_single_policy_scope_tells_unpublished_apart_from_unpublishable(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings
+) -> None:
+    """A project that publishes, and a policy of it that does not, is its own state.
+
+    Reporting this as "the project has nothing published" would be false, and
+    answering it from drafts would be worse — the reviewer would receive a draft
+    answer for a question they asked of the published set."""
+
+    calls = _bypass_stubs(monkeypatch, payload=None, has_version=True)
+
+    result = await ai_case_project.answer_project_case(
+        object(),
+        policy_set=_NamespacePolicySet("set-1", "xx"),
+        scenario="was this compliant?",
+        provision_id="prov-a",
+    )
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_POLICY_NOT_PUBLISHED
+    assert result["evaluation"] is None
+    assert calls == []
 
 
 def _project_scope(candidates: list[dict], excluded: list[dict] | None = None) -> dict:
