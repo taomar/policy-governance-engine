@@ -214,13 +214,14 @@ function GroundingLine({ grounding }: { grounding: ProjectCaseGrounding | undefi
   );
 }
 
-function RetrievalSummary({ answer }: { answer: ProjectCaseAnswer }) {
+function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAnswer; onOpenPolicyIndex?: () => void }) {
   const status = answer.retrieval.status;
   const copy = RETRIEVAL_COPY[status] ?? {
     type: "warning" as const,
     message: `Retrieval returned ${status}`,
     description: "This status is not known by this client. The raw narrowing details below are still shown.",
   };
+  const canRepairIndex = status === "index_not_built" || status === "index_stale";
   const retained = answer.retrieval.policies_retained ?? answer.considered?.filter((p) => p.retained).length ?? null;
   const considered = answer.retrieval.policies_considered ?? answer.considered?.length ?? null;
   const discarded = answer.retrieval.policies_discarded ?? answer.considered?.filter((p) => p.retained === false).length ?? null;
@@ -230,9 +231,19 @@ function RetrievalSummary({ answer }: { answer: ProjectCaseAnswer }) {
       type={copy.type}
       data-testid={`project-case-status-${status}`}
       title={copy.message}
+      action={
+        canRepairIndex && onOpenPolicyIndex ? (
+          <Button size="small" onClick={onOpenPolicyIndex}>
+            Open index repair
+          </Button>
+        ) : undefined
+      }
       description={
         <Space orientation="vertical" size={4}>
           <Text>{copy.description}</Text>
+          {canRepairIndex && onOpenPolicyIndex ? (
+            <Text type="secondary">Open the Overview readiness panel to rebuild the recorded project-wide case index.</Text>
+          ) : null}
           {answer.retrieval.reason ? <Text type="secondary">{answer.retrieval.reason}</Text> : null}
           {considered !== null || retained !== null || discarded !== null ? (
             <Text type="secondary">
@@ -489,10 +500,12 @@ export function ProjectCaseRunner({
   policySetKey,
   open,
   onClose,
+  onOpenPolicyIndex,
 }: {
   policySetKey: string;
   open: boolean;
   onClose: () => void;
+  onOpenPolicyIndex?: () => void;
 }) {
   const [scope, setScope] = useState<CaseScope>("project");
   const [scenario, setScenario] = useState("");
@@ -672,7 +685,7 @@ export function ProjectCaseRunner({
         {error ? <Alert type="error" showIcon title={error} /> : null}
         {answer ? (
           <Space orientation="vertical" size={16} style={{ width: "100%" }}>
-            <RetrievalSummary answer={answer} />
+            <RetrievalSummary answer={answer} onOpenPolicyIndex={onOpenPolicyIndex} />
             <EvaluationPanel answer={answer} />
             <ConsideredPolicies answer={answer} />
             <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }} data-testid="project-case-size">

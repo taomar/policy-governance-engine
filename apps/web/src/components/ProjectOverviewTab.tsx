@@ -8,9 +8,10 @@ import {
   EditOutlined,
   FileTextOutlined,
   SafetyCertificateOutlined,
+  SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicySet } from "../api";
+import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
@@ -120,6 +121,102 @@ export function buildOverviewSteps(stats: Stats | null, pending: number): Overvi
   ];
 }
 
+export function policyIndexRepairable(state: PolicyIndexState): boolean {
+  return state.freshness === "stale" && state.last_attempt !== "skipped";
+}
+
+export function describePolicyIndexState(state: PolicyIndexState): {
+  title: string;
+  detail: string;
+  tone: "success" | "warning" | "error" | "info";
+  statusLabel: string;
+} {
+  if (state.freshness === "nothing_to_index") {
+    return {
+      title: "There is nothing to index yet",
+      detail: "This project has no active published policy package, so project-wide case search has no published policies to index.",
+      tone: "info",
+      statusLabel: "Nothing to index",
+    };
+  }
+  if (state.last_attempt === "skipped") {
+    return {
+      title: "Policy search is not configured here",
+      detail: "The last build was skipped because Search is not available on this server. This is a configuration state, not a broken project index.",
+      tone: "info",
+      statusLabel: "Search not configured",
+    };
+  }
+  if (state.freshness === "current") {
+    if (state.last_attempt === "failed") {
+      return {
+        title: "The current index is still usable",
+        detail: `The last rebuild attempt failed, but the recorded index still matches the active published version and contains ${state.document_count} policy document${state.document_count === 1 ? "" : "s"}.`,
+        tone: "success",
+        statusLabel: "Current despite failed attempt",
+      };
+    }
+    return {
+      title: "The project-wide case index is up to date",
+      detail: `Published v${state.indexed_version_number ?? state.active_version_number ?? "—"} is indexed with ${state.document_count} policy document${state.document_count === 1 ? "" : "s"}.`,
+      tone: "success",
+      statusLabel: "Current",
+    };
+  }
+  if (state.freshness === "stale") {
+    if (state.last_attempt === "never_attempted") {
+      return {
+        title: "The project-wide case index has never been built",
+        detail: "Testing cases across this project will not work until the active published version is indexed.",
+        tone: "warning",
+        statusLabel: "Never built",
+      };
+    }
+    if (state.last_attempt === "failed") {
+      return {
+        title: "The last index rebuild failed and the index is stale",
+        detail: "Project-wide case testing will not use this index until a rebuild succeeds.",
+        tone: "error",
+        statusLabel: "Failed and stale",
+      };
+    }
+    return {
+      title: "The project-wide case index is stale",
+      detail: `The active published version is v${state.active_version_number ?? "—"}, but the recorded index is for v${state.indexed_version_number ?? "—"}.`,
+      tone: "warning",
+      statusLabel: "Stale",
+    };
+  }
+  return {
+    title: "The recorded policy index state is unknown",
+    detail: "The app could not derive whether the index matches the active published version from the recorded build state.",
+    tone: "warning",
+    statusLabel: "Unknown",
+  };
+}
+
+function rebuildResultMessage(result: PolicyIndexBuildResult): { type: "success" | "info" | "error"; message: string; description: string } {
+  if (result.state === "built") {
+    return {
+      type: "success",
+      message: "Policy index rebuilt",
+      description: `Indexed ${result.document_count} policy document${result.document_count === 1 ? "" : "s"} for v${result.version_number ?? "—"}. The state below has been refreshed from the server.`,
+    };
+  }
+  if (result.state === "skipped") {
+    return {
+      type: "info",
+      message: "Policy index rebuild was skipped",
+      description: result.error ?? "Search is not configured on this server, so there is no index to rebuild.",
+    };
+  }
+  return {
+    type: "error",
+    message: "Policy index rebuild failed",
+    description: result.error ?? "The server recorded the failed attempt and the state below has been refreshed.",
+  };
+}
+
 /**
  * Project landing tab — "what's the state of this project right now". Rather than a
  * generic stat-card grid, this renders the actual policy lifecycle (documents in →
@@ -139,6 +236,11 @@ export function ProjectOverviewTab({
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [policyIndexState, setPolicyIndexState] = useState<PolicyIndexState | null>(null);
+  const [policyIndexError, setPolicyIndexError] = useState<string | null>(null);
+  const [policyIndexLoading, setPolicyIndexLoading] = useState(false);
+  const [rebuildingPolicyIndex, setRebuildingPolicyIndex] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<PolicyIndexBuildResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,6 +284,28 @@ export function ProjectOverviewTab({
     };
   }, [policySet.key]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setPolicyIndexState(null);
+    setPolicyIndexError(null);
+    setRebuildResult(null);
+    setPolicyIndexLoading(true);
+    api
+      .getPolicyIndexState(policySet.key)
+      .then((state) => {
+        if (!cancelled) setPolicyIndexState(state);
+      })
+      .catch((e) => {
+        if (!cancelled) setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setPolicyIndexLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [policySet.key]);
+
   const pending = stats?.pendingCandidateCount ?? 0;
   const raciEntries: { label: string; value: string; isDefault: boolean }[] = [
     { label: "Owning department", value: policySet.owner || "Not set", isDefault: !policySet.owner },
@@ -215,6 +339,27 @@ export function ProjectOverviewTab({
     stats?.readingRouteCount ?? 0,
   );
   const steps = buildOverviewSteps(stats, pending);
+  const policyIndexCopy = policyIndexState ? describePolicyIndexState(policyIndexState) : null;
+  const policyIndexCanRebuild = policyIndexState ? policyIndexRepairable(policyIndexState) : false;
+  const rebuildNotice = rebuildResult ? rebuildResultMessage(rebuildResult) : null;
+  const refreshPolicyIndexState = async () => {
+    const state = await api.getPolicyIndexState(policySet.key);
+    setPolicyIndexState(state);
+  };
+  const handleRebuildPolicyIndex = async () => {
+    setRebuildingPolicyIndex(true);
+    setPolicyIndexError(null);
+    setRebuildResult(null);
+    try {
+      const result = await api.rebuildPolicyIndex(policySet.key);
+      setRebuildResult(result);
+      await refreshPolicyIndexState();
+    } catch (e) {
+      setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+    } finally {
+      setRebuildingPolicyIndex(false);
+    }
+  };
 
   return (
     <>
@@ -349,6 +494,70 @@ export function ProjectOverviewTab({
                     <strong>{stats.activeVersion.approved_by}</strong>
                   </span>
                 </footer>
+                <div className="policy-index-readiness" data-testid="policy-index-readiness">
+                  <div className="policy-index-readiness__header">
+                    <span className={`project-readiness-icon${policyIndexCopy?.tone === "success" ? " is-live" : policyIndexCopy?.tone === "error" || policyIndexCopy?.tone === "warning" ? " is-warning" : ""}`}>
+                      {policyIndexCopy?.tone === "success" ? <CheckCircleOutlined /> : <SyncOutlined />}
+                    </span>
+                    <div>
+                      <Text strong>Project-wide case index</Text>
+                      <Text type="secondary">Recorded build state, not a live Azure Search check</Text>
+                    </div>
+                    {policyIndexCanRebuild && (
+                      <Button size="small" onClick={handleRebuildPolicyIndex} loading={rebuildingPolicyIndex}>
+                        Rebuild policy index
+                      </Button>
+                    )}
+                  </div>
+                  {policyIndexLoading ? (
+                    <Text type="secondary">Loading the recorded index state…</Text>
+                  ) : policyIndexError ? (
+                    <Alert type="error" showIcon message="Could not read the recorded policy index state" description={policyIndexError} />
+                  ) : policyIndexState && policyIndexCopy ? (
+                    <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+                      <Alert
+                        type={policyIndexCopy.tone}
+                        showIcon
+                        message={policyIndexCopy.title}
+                        description={
+                          <Space orientation="vertical" size={4}>
+                            <Text>{policyIndexCopy.detail}</Text>
+                            {policyIndexState.error ? <Text type="secondary">{policyIndexState.error}</Text> : null}
+                          </Space>
+                        }
+                      />
+                      {rebuildNotice ? (
+                        <Alert
+                          type={rebuildNotice.type}
+                          showIcon
+                          message={rebuildNotice.message}
+                          description={rebuildNotice.description}
+                        />
+                      ) : null}
+                      <dl className="policy-index-readiness__facts">
+                        <div>
+                          <dt>Index state</dt>
+                          <dd>{policyIndexCopy.statusLabel}</dd>
+                        </div>
+                        <div>
+                          <dt>Active version</dt>
+                          <dd>{policyIndexState.active_version_number ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Indexed version</dt>
+                          <dd>{policyIndexState.indexed_version_number ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Indexed policies</dt>
+                          <dd>{policyIndexState.document_count}</dd>
+                        </div>
+                      </dl>
+                      <Text type="secondary" className="policy-index-readiness__source">
+                        Source: {policyIndexState.source}; live probe: {policyIndexState.live_probe ? "yes" : "no"}.
+                      </Text>
+                    </Space>
+                  ) : null}
+                </div>
               </>
             ) : (
               <div className="project-state-empty">
@@ -358,6 +567,26 @@ export function ProjectOverviewTab({
                   <a onClick={() => onNavigate("documents")}>Upload source →</a>
                   <a onClick={() => onNavigate("review")}>Open Review →</a>
                 </Space>
+              </div>
+            )}
+            {!stats?.activeVersion && (
+              <div className="policy-index-readiness" data-testid="policy-index-readiness">
+                <div className="policy-index-readiness__header">
+                  <span className="project-readiness-icon">
+                    <SyncOutlined />
+                  </span>
+                  <div>
+                    <Text strong>Project-wide case index</Text>
+                    <Text type="secondary">Recorded build state, not a live Azure Search check</Text>
+                  </div>
+                </div>
+                {policyIndexLoading ? (
+                  <Text type="secondary">Loading the recorded index state…</Text>
+                ) : policyIndexError ? (
+                  <Alert type="error" showIcon message="Could not read the recorded policy index state" description={policyIndexError} />
+                ) : policyIndexState && policyIndexCopy ? (
+                  <Alert type={policyIndexCopy.tone} showIcon message={policyIndexCopy.title} description={policyIndexCopy.detail} />
+                ) : null}
               </div>
             )}
           </div>

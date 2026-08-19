@@ -65,21 +65,6 @@ KNOWN_UNREACHABLE = {
         "Single-exception fetch. The product lists exceptions and edits them "
         "from the list, so it never needs one by id. Reported, not fixed."
     ),
-    "POST /api/policy-sets/*/policy-index/rebuild": (
-        "Rebuilds a project's policy index. The build normally happens on publish "
-        "and is best effort, so this is the repair path for the case where that "
-        "build failed and the index is stale or absent. `policy_index_states` "
-        "records enough to detect that, so the product could show it and offer "
-        "this -- until it does, a failed build is only repairable by an operator. "
-        "Recorded as a gap, not as a design."
-    ),
-    "GET /api/policy-sets/*/policy-index": (
-        "Reads the app's recorded state for a project's policy index so the "
-        "product can show whether the index is current, stale, unbuilt, or not "
-        "applicable before offering the rebuild action. This is the backend half "
-        "of that repair surface; until the web half lands, the state is still "
-        "only visible to direct API callers. Recorded as a gap, not as a design."
-    ),
 }
 
 

@@ -576,6 +576,10 @@ ${GROUP_DIVIDER_CSS.split(",\n")
         policySetKey={policySet.key}
         open={caseRunnerOpen}
         onClose={() => setCaseRunnerOpen(false)}
+        onOpenPolicyIndex={() => {
+          setCaseRunnerOpen(false);
+          setActiveTab("overview");
+        }}
       />
 
       <Modal

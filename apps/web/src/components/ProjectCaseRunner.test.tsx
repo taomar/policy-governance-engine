@@ -319,4 +319,46 @@ describe("project-wide case runner", () => {
     expect(screen.getByText(/has no published policies yet/i)).toBeTruthy();
     expect(screen.queryByText(/none matched this case/i)).toBeNull();
   });
+
+  it("links an unbuilt project index refusal to the Overview repair surface", async () => {
+    mockPublishedPolicyList();
+    vi.spyOn(api, "getWorkspaceCounts").mockResolvedValue({
+      documents: 0,
+      review_pending: 0,
+      policy_rules: 0,
+      versions: 0,
+      tests: 0,
+      regression_tests: 0,
+      exceptions_open: 0,
+      correlation_findings: 0,
+      decisions: 0,
+    });
+    vi.spyOn(api, "answerProjectCase").mockResolvedValue({
+      scope: "project",
+      policy_set_key: "gmu",
+      retrieval: {
+        status: "index_not_built",
+        reason: "Republish or rebuild the policy index.",
+        policies_considered: 0,
+        policies_retained: 0,
+        policies_discarded: 0,
+      },
+      considered: [],
+      excluded: [],
+      evaluation: null,
+      size: { combined_chars: 0, budget_chars: 200000, oversize: false },
+    });
+
+    render(<ProjectWorkspace policySet={{ ...policySet(), key: "gmu" }} />);
+    fireEvent.click(screen.getByRole("tab", { name: /Validation/i }));
+    expect(await screen.findByText("Validation tab")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /test a case/i }));
+    fireEvent.change(await screen.findByTestId("project-case-scenario"), { target: { value: "Can the project answer?" } });
+    fireEvent.click(screen.getByTestId("project-case-run"));
+
+    expect(await screen.findByTestId("project-case-status-index_not_built")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /open index repair/i }));
+
+    await waitFor(() => expect(screen.getByText("Overview tab")).toBeTruthy());
+  });
 });

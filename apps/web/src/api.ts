@@ -1133,6 +1133,35 @@ export interface RuleNameGenerationResult {
   prompt_version: string;
 }
 
+export type PolicyIndexLastAttempt = "built" | "skipped" | "failed" | "never_attempted";
+export type PolicyIndexFreshness = "current" | "stale" | "nothing_to_index" | "unknown";
+
+export interface PolicyIndexState {
+  policy_set_key: string;
+  index_name: string;
+  last_attempt: PolicyIndexLastAttempt;
+  freshness: PolicyIndexFreshness;
+  active_version_number: number | null;
+  indexed_version_number: number | null;
+  attempted_version_number: number | null;
+  document_count: number;
+  built_at: string | null;
+  attempted_at: string | null;
+  error: string | null;
+  source: "recorded_build_state";
+  live_probe: false;
+}
+
+export interface PolicyIndexBuildResult {
+  state: "built" | "skipped" | "failed";
+  policy_set_key: string;
+  index_name: string;
+  version_number: number | null;
+  document_count: number;
+  indexed_at: string;
+  error: string | null;
+}
+
 export type ProjectCaseRetrievalStatus =
   | "narrowed"
   | "no_match"
@@ -2934,6 +2963,14 @@ export const api = {
 
   listPolicyVersions: (key: string) =>
     request<ApprovedPolicyVersion[]>(`/api/policy-sets/${encodeURIComponent(key)}/versions`),
+
+  getPolicyIndexState: (key: string) =>
+    request<PolicyIndexState>(`/api/policy-sets/${encodeURIComponent(key)}/policy-index`),
+
+  rebuildPolicyIndex: (key: string) =>
+    request<PolicyIndexBuildResult>(`/api/policy-sets/${encodeURIComponent(key)}/policy-index/rebuild`, {
+      method: "POST",
+    }),
 
   getVersionRules: (key: string, versionId: string) =>
     request<CanonicalRule[]>(

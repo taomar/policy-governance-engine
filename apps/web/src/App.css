@@ -2121,6 +2121,72 @@
   white-space: nowrap;
 }
 
+.policy-index-readiness {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.policy-index-readiness__header {
+  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.policy-index-readiness__header > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.policy-index-readiness__header > div > .ant-typography:first-child {
+  color: var(--text-heading);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.policy-index-readiness__header .ant-typography-secondary,
+.policy-index-readiness__source {
+  font-size: 9.5px;
+}
+
+.policy-index-readiness__facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.policy-index-readiness__facts > div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-right: 1px solid var(--border);
+}
+
+.policy-index-readiness__facts > div:last-child {
+  border-right: 0;
+}
+
+.policy-index-readiness__facts dt {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-index-readiness__facts dd {
+  margin: 1px 0 0;
+  color: var(--text-heading);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .governance-role-register {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2317,7 +2383,8 @@
   }
 
   .project-readiness-metrics,
-  .governance-role-register {
+  .governance-role-register,
+  .policy-index-readiness__facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2325,7 +2392,15 @@
     border-right: 0;
   }
 
+  .policy-index-readiness__facts > div:nth-child(2) {
+    border-right: 0;
+  }
+
   .project-readiness-metrics > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .policy-index-readiness__facts > div:nth-child(-n + 2) {
     border-bottom: 1px solid var(--border);
   }
 
@@ -2343,8 +2418,13 @@
     grid-template-columns: 24px minmax(0, 1fr);
   }
 
+  .policy-index-readiness__header {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
   .project-readiness-heading > .ant-tag,
-  .project-readiness-heading > .ant-btn {
+  .project-readiness-heading > .ant-btn,
+  .policy-index-readiness__header > .ant-btn {
     grid-column: 2 / -1;
     justify-self: start;
   }

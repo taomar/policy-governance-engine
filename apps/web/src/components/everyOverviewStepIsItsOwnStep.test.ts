@@ -17,7 +17,13 @@
  * stays legitimate; sharing an *identity* is what this forbids.
  */
 import { describe, expect, it } from "vitest";
-import { buildOverviewSteps, type Stats } from "./ProjectOverviewTab";
+import {
+  buildOverviewSteps,
+  describePolicyIndexState,
+  policyIndexRepairable,
+  type Stats,
+} from "./ProjectOverviewTab";
+import type { PolicyIndexState } from "../api";
 
 /** A fully-loaded stats object. `activeVersion` is null because the flow reads only
  *  its `rule_count`, and the last step falls back to 0 without it -- none of which
@@ -80,5 +86,73 @@ describe("two steps may share a destination without sharing an identity", () => 
     for (const step of buildOverviewSteps(loadedStats, 9)) {
       expect(destinations.has(step.nav)).toBe(true);
     }
+  });
+});
+
+function policyIndexState(
+  last_attempt: PolicyIndexState["last_attempt"],
+  freshness: PolicyIndexState["freshness"],
+  overrides: Partial<PolicyIndexState> = {},
+): PolicyIndexState {
+  return {
+    policy_set_key: "a-set",
+    index_name: "policy-cases-a-set",
+    last_attempt,
+    freshness,
+    active_version_number: 2,
+    indexed_version_number: null,
+    attempted_version_number: null,
+    document_count: 0,
+    built_at: null,
+    attempted_at: null,
+    error: null,
+    source: "recorded_build_state",
+    live_probe: false,
+    ...overrides,
+  };
+}
+
+describe("policy index state is composed for a reader", () => {
+  it("states a current built index quietly", () => {
+    const copy = describePolicyIndexState(
+      policyIndexState("built", "current", { indexed_version_number: 6, document_count: 10 }),
+    );
+    expect(copy.title).toContain("up to date");
+    expect(copy.statusLabel).toBe("Current");
+    expect(copy.tone).toBe("success");
+  });
+
+  it("turns never attempted plus stale into never built and offers repair", () => {
+    const state = policyIndexState("never_attempted", "stale");
+    const copy = describePolicyIndexState(state);
+    expect(copy.title).toContain("never been built");
+    expect(copy.detail).toContain("will not work");
+    expect(policyIndexRepairable(state)).toBe(true);
+  });
+
+  it("does not alarm when a failed attempt leaves a current index usable", () => {
+    const state = policyIndexState("failed", "current", { indexed_version_number: 2, document_count: 12 });
+    const copy = describePolicyIndexState(state);
+    expect(copy.title).toContain("still usable");
+    expect(copy.tone).toBe("success");
+    expect(policyIndexRepairable(state)).toBe(false);
+  });
+
+  it("does not present nothing-to-index as broken or repairable", () => {
+    const state = policyIndexState("built", "nothing_to_index", {
+      active_version_number: null,
+      indexed_version_number: null,
+    });
+    const copy = describePolicyIndexState(state);
+    expect(copy.statusLabel).toBe("Nothing to index");
+    expect(copy.tone).toBe("info");
+    expect(policyIndexRepairable(state)).toBe(false);
+  });
+
+  it("treats skipped as search configuration, not a project defect", () => {
+    const state = policyIndexState("skipped", "stale");
+    const copy = describePolicyIndexState(state);
+    expect(copy.title).toContain("not configured");
+    expect(policyIndexRepairable(state)).toBe(false);
   });
 });
