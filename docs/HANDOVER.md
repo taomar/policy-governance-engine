@@ -1051,6 +1051,38 @@ denormalised onto each approved rule — **not** by joining `DocumentProvision`,
 an approved version is immutable and must not start reading differently when a live
 provision is re-parsed or renamed underneath it.
 
+### A new invariant applied only to new data
+
+Rebuild-on-publish was wired and proven, and every project that published *before* it
+existed was left without an index. Nothing backfilled them. Measured across the whole
+corpus once the freshness read existed:
+
+| project | last attempt | freshness | active | indexed |
+| --- | --- | --- | --- | --- |
+| `ais-employee-handbook` | built | current | 6 | 6 |
+| `gmu-staff-handbook-2024` | **never_attempted** | **stale** | 2 | — |
+| `e2e-trace-leave` | **never_attempted** | **stale** | 1 | — |
+| `xx`, `oneround`, `table-structure-witness` | — | nothing_to_index | none | — |
+
+**Two of the three projects with published policies had no index at all**, so project-wide
+case testing returned `index_not_built` for them. AIS looked healthy only because it was
+built by hand while developing the feature — the one project anyone tested was, again,
+the unrepresentative one (§9.17 records the same shape of mistake with `xx`).
+
+Two things worth carrying forward.
+
+**A hook that maintains state forward does not create it.** "Rebuild on publish" is
+correct and complete for every publish *after* it lands, and says nothing about the data
+already there. Whenever an invariant is enforced at an event, ask separately what
+establishes it for records that predate the enforcement.
+
+**A backfill migration was considered and rejected.** Building these indexes calls Azure
+OpenAI for embeddings and writes to Azure Search: a schema migration that costs money,
+needs credentials, and fails when a third party is unreachable is worse than the gap it
+closes. At this scale the honest repair is to make the state visible and the fix
+reachable — which is what the freshness read and the rebuild button are for. At a scale
+where an operator cannot visit each project, that answer would need revisiting.
+
 ### Two defects found by the repo's own guards, not by review
 
 **The reachability guard found an undeclared scope switch.** It failed on two
