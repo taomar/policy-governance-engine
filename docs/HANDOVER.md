@@ -278,20 +278,24 @@ Worth imitating, all observed in this session:
 
 ## 6. State at handover
 
-**587 commits** on `taomar-microsoft-policy-queue-and-backlog`. Tree clean.
+**593 commits** on `taomar-microsoft-policy-queue-and-backlog`. Tree clean.
 
 | | |
 |---|---|
-| Python | 3,331 passed, 16 skipped, 0 failed |
-| Web | 1,499 passed, 122 files |
+| Python | 3,336 passed, 16 skipped, 0 failed |
+| Web | 1,509 passed, 122 files |
 | `tsc -b --force` | exit 0 |
-| API surface | 85 paths / 95 operations / 13 tags |
+| API surface | 86 paths / 96 operations / 13 tags |
 
 Data: AIS Employee Handbook (38 policies live, **10 published at v6, 56 rules**),
-GMU Staff Handbook 2024 (**28 published at v2**), E2E Trace Leave (4 published at v1),
-`xx` (7 policies live, **nothing published** — the right project for testing the
-`no_published_version` state and the wrong one for demonstrating project-wide search),
-`table-structure-witness` (evidence set, disposable).
+GMU Staff Handbook 2024 (**2 published policies at v2, 28 rules**), E2E Trace Leave
+(1 published at v1, 4 rules), `xx` (7 policies live, **nothing published** — the right
+project for testing the `no_published_version` state and the wrong one for demonstrating
+project-wide search), `table-structure-witness` (evidence set, disposable).
+
+Every project with published policies now has a current policy index; the three with
+nothing published read `nothing_to_index`. That was not true when this session began —
+see "A new invariant applied only to new data" in section 10.
 
 The numbers below this line are from the second session and are kept for the record.
 
@@ -1118,11 +1122,20 @@ do not claim it is doing heavy lifting at this size.
 
 ### Open
 
-* **A failed index build is only repairable by an operator.** `policy_index_states`
-  records enough to detect a stale or absent index; the product does not surface it, and
-  the rebuild endpoint has no caller. Recorded in `KNOWN_UNREACHABLE` as a gap, not a
-  design.
-* The extraction strip still does not read `relationship_discovery` (§4.1 gap, from the
-  previous session).
+Nothing from this section remains open. Both items were closed in the following
+session and the record of what they were is kept below, because the second one
+turned out to be a different defect from the one it was filed as.
+
+* ~~A failed index build is only repairable by an operator.~~ **Closed.** It was filed
+  as a missing status badge and was worse than that: retrieval already told users
+  *"Republish or rebuild the policy index"*, an instruction the product had no control
+  for. `GET /api/policy-sets/{key}/policy-index` now reports the recorded state, the
+  project Overview composes it into a sentence, and the rebuild is offered where the
+  state is repairable. Both `KNOWN_UNREACHABLE` entries were deleted by the rot check
+  doing its job.
+* ~~The extraction strip does not read `relationship_discovery`.~~ **Closed.** `Linked`
+  is a count only when every reported pass is `ok`, reads `at least N` when any failed,
+  and is an em dash when discovery was never reached — which is what a crash before the
+  first tier produces. `0` means "ran and found none" again.
 
 
