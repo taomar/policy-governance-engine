@@ -205,6 +205,43 @@ def test_policy_index_freshness_keeps_last_attempt_and_current_state_orthogonal(
     assert policy_index_freshness(None, 6).freshness == POLICY_INDEX_FRESHNESS_STALE
 
 
+def test_a_skipped_attempt_still_reports_a_version_the_record_can_prove_is_behind():
+    """Skipping does not erase what was last indexed, so do not discard the comparison.
+
+    `record_policy_index_build_state` deliberately preserves
+    `indexed_version_number` across a skipped attempt. When that version is
+    known, comparing it against the active one is as sound here as it is for a
+    failed attempt, and answering `unknown` would throw away a staleness the
+    record can prove -- while the surface above it lists Active v7 and Indexed
+    v6 side by side.
+
+    `unknown` is kept for the case it actually describes: skipped with nothing
+    ever indexed, where there is no version to compare and claiming `stale`
+    would assert a comparison never made.
+    """
+
+    def _skipped(indexed: int | None) -> PolicyIndexState:
+        return PolicyIndexState(
+            policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000218"),
+            index_name=policy_index_name("handbook"),
+            status=POLICY_INDEX_LAST_SKIPPED,
+            indexed_version_number=indexed,
+            document_count=0 if indexed is None else 4,
+            attempted_version_number=7,
+            attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+        )
+
+    behind = policy_index_freshness(_skipped(6), 7)
+    assert behind.last_attempt == POLICY_INDEX_LAST_SKIPPED
+    assert behind.freshness == POLICY_INDEX_FRESHNESS_STALE
+
+    matching = policy_index_freshness(_skipped(7), 7)
+    assert matching.freshness == POLICY_INDEX_FRESHNESS_CURRENT
+
+    never_indexed = policy_index_freshness(_skipped(None), 7)
+    assert never_indexed.freshness == POLICY_INDEX_FRESHNESS_UNKNOWN
+
+
 def test_policy_index_freshness_reports_no_active_version_as_nothing_to_index():
     built_without_active_version = PolicyIndexState(
         policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000216"),

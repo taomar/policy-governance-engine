@@ -312,6 +312,11 @@ export function ProjectWorkspace({
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewForm] = Form.useForm();
   const [caseRunnerOpen, setCaseRunnerOpen] = useState(false);
+  //: Set when a case refuses on an index fault and the reader asks to repair it.
+  //: `status` is what live retrieval found, which the Overview's recorded state
+  //: can legitimately disagree with; carrying it keeps the instruction and the
+  //: control together instead of sending the reader to a panel with no button.
+  const [indexRepair, setIndexRepair] = useState<{ nonce: number; status: string } | null>(null);
 
   const handleNavigate = (page: string) => {
     // "Regression" was merged into the Validation surface, which is now the
@@ -410,7 +415,7 @@ export function ProjectWorkspace({
      over — so the map is built at render time without a temporal-dead-zone
      reference to `openEdit`/`handleNavigate`. */
   const TAB_CONTENT: Record<WorkspaceTabKey, ReactNode> = {
-    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={openEdit} />,
+    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={openEdit} indexRepair={indexRepair} />,
     documents: (
       <DocumentsPage policySetKey={policySet.key} policySetName={policySet.name} onNavigate={handleNavigate} />
     ),
@@ -576,8 +581,13 @@ ${GROUP_DIVIDER_CSS.split(",\n")
         policySetKey={policySet.key}
         open={caseRunnerOpen}
         onClose={() => setCaseRunnerOpen(false)}
-        onOpenPolicyIndex={() => {
+        onOpenPolicyIndex={(status) => {
           setCaseRunnerOpen(false);
+          // Carries the live status and a fresh nonce. The nonce matters even
+          // when Overview is already the active tab: switching to the tab you
+          // are on is a no-op, so without it the panel would answer a probe
+          // that just ran with the reading it took when it mounted.
+          setIndexRepair((prev) => ({ nonce: (prev?.nonce ?? 0) + 1, status }));
           setActiveTab("overview");
         }}
       />

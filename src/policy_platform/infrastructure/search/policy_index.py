@@ -177,11 +177,19 @@ def policy_index_freshness(
             last_attempt=last_attempt,
             freshness=POLICY_INDEX_FRESHNESS_STALE,
         )
-    if state.status == POLICY_INDEX_LAST_SKIPPED:
+    if state.status == POLICY_INDEX_LAST_SKIPPED and state.indexed_version_number is None:
+        # Search was unavailable and nothing was ever indexed, so the record
+        # cannot say whether an index matches the active version. `unknown` is
+        # the honest answer; `stale` would assert a comparison never made.
         return PolicyIndexFreshness(
             last_attempt=last_attempt,
             freshness=POLICY_INDEX_FRESHNESS_UNKNOWN,
         )
+    # A skipped attempt keeps whatever version was last indexed
+    # (`record_policy_index_build_state` preserves it), so when that version is
+    # known the comparison is as sound here as for a failed attempt. Returning
+    # `unknown` because the last attempt was skipped would throw away a
+    # staleness the record can prove.
     if state.indexed_version_number == active_version_number:
         return PolicyIndexFreshness(
             last_attempt=last_attempt,
@@ -191,6 +199,24 @@ def policy_index_freshness(
         last_attempt=last_attempt,
         freshness=POLICY_INDEX_FRESHNESS_STALE,
     )
+
+
+def policy_index_filter(policy_set_key: str, policy_version_id: str | None = None) -> str:
+    """An OData filter selecting a project's documents in its policy index.
+
+    How documents in this index are addressed lives here, with the schema that
+    names the fields and the builder that writes them. Retrieval asks the same
+    question when it probes whether anything is indexed, and imports this rather
+    than composing `policy_set_key eq …` a second time: renaming that field, or
+    finding the escaping has to handle another character, must not be a change
+    that has to be remembered in two places to keep a project's documents
+    matching.
+    """
+
+    clauses = [f"policy_set_key eq {_odata_string(policy_set_key)}"]
+    if policy_version_id:
+        clauses.append(f"policy_version_id eq {_odata_string(policy_version_id)}")
+    return " and ".join(clauses)
 
 
 def policy_index_definition(name: str, *, vector_dimensions: int | None = None) -> dict:
@@ -367,7 +393,7 @@ async def rebuild_project_policy_index(
         await search_client.upload_documents(index_name, documents)
         indexed_ids = await search_client.find_ids_by_filter(
             index_name,
-            filter_expr=f"policy_set_key eq {_odata_string(policy_set_key)}",
+            filter_expr=policy_index_filter(policy_set_key),
         )
         live_ids = {doc["id"] for doc in documents}
         stale_ids = sorted(doc_id for doc_id in indexed_ids if doc_id not in live_ids)

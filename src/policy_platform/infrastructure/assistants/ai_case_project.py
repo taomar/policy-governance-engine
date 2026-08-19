@@ -76,7 +76,11 @@ from policy_platform.infrastructure.projection.published_case_payload import (
     published_case_payload_for_policy,
     published_case_payloads_for_policy_set,
 )
-from policy_platform.infrastructure.search.policy_index import policy_document_id, policy_index_name
+from policy_platform.infrastructure.search.policy_index import (
+    policy_document_id,
+    policy_index_filter,
+    policy_index_name,
+)
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
 from policy_platform.infrastructure.settings import get_settings
 
@@ -307,17 +311,6 @@ async def load_project_scope(session: AsyncSession, policy_set_id) -> dict:
         "candidates": candidates,
         "excluded": excluded,
     }
-
-
-def _odata_string(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _policy_index_filter(policy_set_key: str, policy_version_id: str | None = None) -> str:
-    clauses = [f"policy_set_key eq {_odata_string(policy_set_key)}"]
-    if policy_version_id:
-        clauses.append(f"policy_version_id eq {_odata_string(policy_version_id)}")
-    return " and ".join(clauses)
 
 
 def _size_report(records: list[dict]) -> dict:
@@ -615,10 +608,10 @@ async def _answer_project_scope(
         # not match the question.
         try:
             current_indexed = await search_client.find_ids_by_filter(
-                index_name, filter_expr=_policy_index_filter(policy_set.key, active_version_id), page_size=1
+                index_name, filter_expr=policy_index_filter(policy_set.key, active_version_id), page_size=1
             )
             any_indexed = await search_client.find_ids_by_filter(
-                index_name, filter_expr=_policy_index_filter(policy_set.key), page_size=1
+                index_name, filter_expr=policy_index_filter(policy_set.key), page_size=1
             )
         except Exception as exc:  # noqa: BLE001 - fall back to the honest weaker claim
             logger.warning("project-case index probe failed for set %s: %s", policy_set.key, exc)
