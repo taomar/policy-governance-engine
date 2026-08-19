@@ -13,6 +13,7 @@ import {
   type ProjectCaseRetrievalStatus,
 } from "../api";
 import { formatElapsed } from "../uploadFeedback";
+import { retrievalStatusIsIndexRepairable } from "../policyIndexHealth";
 import { DirectionalText } from "./DirectionalText";
 import "./policyCaseRunner.css";
 
@@ -214,14 +215,14 @@ function GroundingLine({ grounding }: { grounding: ProjectCaseGrounding | undefi
   );
 }
 
-function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAnswer; onOpenPolicyIndex?: () => void }) {
+function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAnswer; onOpenPolicyIndex?: (status: string) => void }) {
   const status = answer.retrieval.status;
   const copy = RETRIEVAL_COPY[status] ?? {
     type: "warning" as const,
     message: `Retrieval returned ${status}`,
     description: "This status is not known by this client. The raw narrowing details below are still shown.",
   };
-  const canRepairIndex = status === "index_not_built" || status === "index_stale";
+  const canRepairIndex = retrievalStatusIsIndexRepairable(status);
   const retained = answer.retrieval.policies_retained ?? answer.considered?.filter((p) => p.retained).length ?? null;
   const considered = answer.retrieval.policies_considered ?? answer.considered?.length ?? null;
   const discarded = answer.retrieval.policies_discarded ?? answer.considered?.filter((p) => p.retained === false).length ?? null;
@@ -233,7 +234,7 @@ function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAn
       title={copy.message}
       action={
         canRepairIndex && onOpenPolicyIndex ? (
-          <Button size="small" onClick={onOpenPolicyIndex}>
+          <Button size="small" onClick={() => onOpenPolicyIndex(status)}>
             Open index repair
           </Button>
         ) : undefined
@@ -505,7 +506,7 @@ export function ProjectCaseRunner({
   policySetKey: string;
   open: boolean;
   onClose: () => void;
-  onOpenPolicyIndex?: () => void;
+  onOpenPolicyIndex?: (status: string) => void;
 }) {
   const [scope, setScope] = useState<CaseScope>("project");
   const [scenario, setScenario] = useState("");

@@ -17,6 +17,12 @@ import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
 import { routeCell } from "../projectRegisterRow";
 import { policyUnitCount, recordScaleLabel } from "../policyRecordFacts";
+import {
+  describePolicyIndexState,
+  policyIndexRepairable,
+  rebuildResultMessage,
+  retrievalStatusIsIndexRepairable,
+} from "../policyIndexHealth";
 
 const { Text } = Typography;
 
@@ -121,101 +127,6 @@ export function buildOverviewSteps(stats: Stats | null, pending: number): Overvi
   ];
 }
 
-export function policyIndexRepairable(state: PolicyIndexState): boolean {
-  return state.freshness === "stale" && state.last_attempt !== "skipped";
-}
-
-export function describePolicyIndexState(state: PolicyIndexState): {
-  title: string;
-  detail: string;
-  tone: "success" | "warning" | "error" | "info";
-  statusLabel: string;
-} {
-  if (state.freshness === "nothing_to_index") {
-    return {
-      title: "There is nothing to index yet",
-      detail: "This project has no active published policy package, so project-wide case search has no published policies to index.",
-      tone: "info",
-      statusLabel: "Nothing to index",
-    };
-  }
-  if (state.last_attempt === "skipped") {
-    return {
-      title: "Policy search is not configured here",
-      detail: "The last build was skipped because Search is not available on this server. This is a configuration state, not a broken project index.",
-      tone: "info",
-      statusLabel: "Search not configured",
-    };
-  }
-  if (state.freshness === "current") {
-    if (state.last_attempt === "failed") {
-      return {
-        title: "The current index is still usable",
-        detail: `The last rebuild attempt failed, but the recorded index still matches the active published version and contains ${state.document_count} policy document${state.document_count === 1 ? "" : "s"}.`,
-        tone: "success",
-        statusLabel: "Current despite failed attempt",
-      };
-    }
-    return {
-      title: "The project-wide case index is up to date",
-      detail: `Published v${state.indexed_version_number ?? state.active_version_number ?? "—"} is indexed with ${state.document_count} policy document${state.document_count === 1 ? "" : "s"}.`,
-      tone: "success",
-      statusLabel: "Current",
-    };
-  }
-  if (state.freshness === "stale") {
-    if (state.last_attempt === "never_attempted") {
-      return {
-        title: "The project-wide case index has never been built",
-        detail: "Testing cases across this project will not work until the active published version is indexed.",
-        tone: "warning",
-        statusLabel: "Never built",
-      };
-    }
-    if (state.last_attempt === "failed") {
-      return {
-        title: "The last index rebuild failed and the index is stale",
-        detail: "Project-wide case testing will not use this index until a rebuild succeeds.",
-        tone: "error",
-        statusLabel: "Failed and stale",
-      };
-    }
-    return {
-      title: "The project-wide case index is stale",
-      detail: `The active published version is v${state.active_version_number ?? "—"}, but the recorded index is for v${state.indexed_version_number ?? "—"}.`,
-      tone: "warning",
-      statusLabel: "Stale",
-    };
-  }
-  return {
-    title: "The recorded policy index state is unknown",
-    detail: "The app could not derive whether the index matches the active published version from the recorded build state.",
-    tone: "warning",
-    statusLabel: "Unknown",
-  };
-}
-
-function rebuildResultMessage(result: PolicyIndexBuildResult): { type: "success" | "info" | "error"; message: string; description: string } {
-  if (result.state === "built") {
-    return {
-      type: "success",
-      message: "Policy index rebuilt",
-      description: `Indexed ${result.document_count} policy document${result.document_count === 1 ? "" : "s"} for v${result.version_number ?? "—"}. The state below has been refreshed from the server.`,
-    };
-  }
-  if (result.state === "skipped") {
-    return {
-      type: "info",
-      message: "Policy index rebuild was skipped",
-      description: result.error ?? "Search is not configured on this server, so there is no index to rebuild.",
-    };
-  }
-  return {
-    type: "error",
-    message: "Policy index rebuild failed",
-    description: result.error ?? "The server recorded the failed attempt and the state below has been refreshed.",
-  };
-}
 
 /**
  * Project landing tab — "what's the state of this project right now". Rather than a
@@ -228,11 +139,20 @@ export function ProjectOverviewTab({
   policySet,
   onNavigate,
   onEditProject,
+  indexRepair,
 }: {
   policySet: PolicySet;
   onNavigate: (page: string) => void;
   /** Opens the project's Edit modal (RACI/ownership fields live there) — omitted hides the "Configure" action. */
   onEditProject?: () => void;
+  /**
+   * Set when a project case refused on an index fault and the reader asked to
+   * repair it. `nonce` changes on every such request so the recorded state is
+   * re-read even when this tab was already open; `status` is what live
+   * retrieval found, which is a different measurement from the recorded state
+   * and can disagree with it.
+   */
+  indexRepair?: { nonce: number; status: string } | null;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -304,7 +224,10 @@ export function ProjectOverviewTab({
     return () => {
       cancelled = true;
     };
-  }, [policySet.key]);
+    // `indexRepair.nonce` is a dependency so arriving here from a failed case
+    // re-reads the state. Without it, switching to the tab already showing
+    // would keep the reading taken at mount.
+  }, [policySet.key, indexRepair?.nonce]);
 
   const pending = stats?.pendingCandidateCount ?? 0;
   const raciEntries: { label: string; value: string; isDefault: boolean }[] = [
@@ -340,7 +263,14 @@ export function ProjectOverviewTab({
   );
   const steps = buildOverviewSteps(stats, pending);
   const policyIndexCopy = policyIndexState ? describePolicyIndexState(policyIndexState) : null;
-  const policyIndexCanRebuild = policyIndexState ? policyIndexRepairable(policyIndexState) : false;
+  // The recorded state and what live retrieval just found are separate
+  // measurements and may disagree — an index deleted in Azure leaves the record
+  // reading "current". When the reader arrives from a live index fault, offer
+  // the repair regardless, so the instruction that sent them here cannot land
+  // on a panel with no control.
+  const arrivedFromLiveIndexFault = indexRepair ? retrievalStatusIsIndexRepairable(indexRepair.status) : false;
+  const policyIndexCanRebuild =
+    (policyIndexState ? policyIndexRepairable(policyIndexState) : false) || arrivedFromLiveIndexFault;
   const rebuildNotice = rebuildResult ? rebuildResultMessage(rebuildResult) : null;
   const refreshPolicyIndexState = async () => {
     const state = await api.getPolicyIndexState(policySet.key);
@@ -352,8 +282,11 @@ export function ProjectOverviewTab({
     setRebuildResult(null);
     try {
       const result = await api.rebuildPolicyIndex(policySet.key);
-      setRebuildResult(result);
+      // The refresh comes first: the notice says the state below has been
+      // refreshed, and React would commit that claim while the follow-up GET
+      // was still in flight, printing it above the pre-rebuild reading.
       await refreshPolicyIndexState();
+      setRebuildResult(result);
     } catch (e) {
       setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {

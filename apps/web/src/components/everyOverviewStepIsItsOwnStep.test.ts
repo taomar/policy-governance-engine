@@ -17,12 +17,8 @@
  * stays legitimate; sharing an *identity* is what this forbids.
  */
 import { describe, expect, it } from "vitest";
-import {
-  buildOverviewSteps,
-  describePolicyIndexState,
-  policyIndexRepairable,
-  type Stats,
-} from "./ProjectOverviewTab";
+import { buildOverviewSteps, type Stats } from "./ProjectOverviewTab";
+import { describePolicyIndexState, policyIndexRepairable } from "../policyIndexHealth";
 import type { PolicyIndexState } from "../api";
 
 /** A fully-loaded stats object. `activeVersion` is null because the flow reads only
@@ -125,15 +121,18 @@ describe("policy index state is composed for a reader", () => {
   it("turns never attempted plus stale into never built and offers repair", () => {
     const state = policyIndexState("never_attempted", "stale");
     const copy = describePolicyIndexState(state);
-    expect(copy.title).toContain("never been built");
-    expect(copy.detail).toContain("will not work");
+    // Pins the fact, not the sentence: no build has been recorded. The copy
+    // deliberately stops short of predicting live retrieval, which this
+    // recorded state never probed.
+    expect(copy.statusLabel).toBe("Never built");
+    expect(copy.tone).toBe("warning");
     expect(policyIndexRepairable(state)).toBe(true);
   });
 
   it("does not alarm when a failed attempt leaves a current index usable", () => {
     const state = policyIndexState("failed", "current", { indexed_version_number: 2, document_count: 12 });
     const copy = describePolicyIndexState(state);
-    expect(copy.title).toContain("still usable");
+    expect(copy.statusLabel).toBe("Current despite failed attempt");
     expect(copy.tone).toBe("success");
     expect(policyIndexRepairable(state)).toBe(false);
   });
@@ -150,9 +149,28 @@ describe("policy index state is composed for a reader", () => {
   });
 
   it("treats skipped as search configuration, not a project defect", () => {
-    const state = policyIndexState("skipped", "stale");
+    const state = policyIndexState("skipped", "unknown", { indexed_version_number: null });
     const copy = describePolicyIndexState(state);
     expect(copy.title).toContain("not configured");
+    expect(copy.tone).toBe("info");
+    expect(policyIndexRepairable(state)).toBe(false);
+  });
+
+  it("still says the index is behind when a skipped attempt left a known version", () => {
+    // Skipping does not erase what was last indexed, so a version the record
+    // can prove is behind is stated rather than withheld. Saying only "not
+    // configured" beside an Active v3 / Indexed v2 facts list would deny what
+    // the panel is showing.
+    const state = policyIndexState("skipped", "stale", {
+      active_version_number: 3,
+      indexed_version_number: 2,
+    });
+    const copy = describePolicyIndexState(state);
+    expect(copy.title).toContain("not configured");
+    expect(copy.detail).toContain("v2");
+    expect(copy.detail).toContain("v3");
+    expect(copy.tone).toBe("info");
+    // Still not repairable here: no rebuild succeeds while Search is absent.
     expect(policyIndexRepairable(state)).toBe(false);
   });
 });
