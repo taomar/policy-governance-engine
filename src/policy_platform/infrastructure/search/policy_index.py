@@ -1,12 +1,18 @@
 """Per-project Azure AI Search index for case-to-policy retrieval.
 
-This module owns the callable surface only. It is deliberately not wired into
-publish or teardown yet.
+One index per project, holding only published policies at the latest approved
+version. That restriction is what makes it cheap to keep correct: edits,
+approvals, rejections, supersessions and re-extractions all act on *candidates*,
+so they cannot change what is indexed. Exactly two events can, and both are
+wired — publishing rebuilds a project's index (`candidate_rules.publish`), and
+deleting the project drops it (`policy_set_teardown`). A manual rebuild endpoint
+is the repair path when a best-effort build did not complete.
 
 Input shape for one policy
 --------------------------
-Until the publisher-owned projection module lands, `build_policy_document`
-accepts this explicit subset of a future `grounding_projection_v1` dict:
+`build_policy_document` consumes a `grounding_projection_v1` dict, produced by
+`projection/published_case_payload.py` from the active approved version. The
+fields it reads:
 
 ```
 {
@@ -28,7 +34,18 @@ accepts this explicit subset of a future `grounding_projection_v1` dict:
 
 The index stores ids, counts, headings, retrieval text and embeddings. It does
 not store the light JSON payload: PostgreSQL remains the source of truth and the
-payload is rebuilt at evaluation time.
+payload is rebuilt at evaluation time, so the index can never become a second
+authority on what a policy says.
+
+Two mechanisms, one index
+-------------------------
+This module records what the app last built (`policy_index_states`, read by
+`read_policy_index_state` and interpreted by `policy_index_freshness`).
+`ai_case_project` probes Azure live when a case is actually run. They answer
+different questions and may legitimately disagree — an index deleted out of band
+leaves the record reading current — so they are kept apart on purpose. What they
+do share is written once here: `policy_index_name`, `policy_document_id` and
+`policy_index_filter`.
 
 Vector/semantic configuration note
 ----------------------------------

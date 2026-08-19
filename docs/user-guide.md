@@ -74,7 +74,20 @@ The Overview answers whether the current package is:
 - published and effective;
 - linked to source evidence;
 - assigned to accountable owners;
-- scheduled for review.
+- scheduled for review;
+- searchable as a whole, for putting a case to the project.
+
+That last one is the **Project-wide case index** panel. It reports what the app
+last recorded about the project's search index — which published version it holds
+and how many policies — and whether that still matches the version now active. It
+is a record of the last build, not a live check, and says so, because loading a
+page should not depend on a search service being reachable.
+
+Where a rebuild would help, the panel offers one. Where it would not, it does not:
+a project that has published nothing has nothing to index, and a server without
+search configured cannot be repaired by rebuilding. A build that failed but left
+the index still matching the active version is reported as usable rather than as a
+fault, so the panel does not cry wolf.
 
 It also shows how the package's policies are routed. Each carries an
 `evaluation_mode` stating how it must be decided:
@@ -293,6 +306,35 @@ this policy's tests; it is not recorded as live evaluation traffic. An informati
 answer reports the value a determination would otherwise be given, so there is
 nothing separate to keep — the dialog offers a guard only where one can mean
 something.
+
+### Put a case to the whole project
+
+When you do not already know which policy applies, use **Test a Case** in the
+project header. Describe the situation once and the project answers it, choosing
+between two scopes:
+
+- **All published policies** — the app searches this project's published policies,
+  keeps the ones that bear on your question, and evaluates only those. It never
+  evaluates every policy, and it never quietly falls back to doing so.
+- **One published policy** — you have already narrowed it yourself, so the search
+  step is skipped and that policy answers directly.
+
+The panel shows the narrowing rather than hiding it: how many policies were
+considered, which were kept, and why each of the rest was set aside. That is there
+so you can satisfy yourself the answer did not ignore a policy it should have read.
+The size of what was sent is reported against its limit, and an answer that would
+exceed it is refused rather than trimmed behind your back.
+
+Both scopes answer from the **published** version, never from drafts under review.
+A project that has published nothing says exactly that, which is a different
+message from "nothing matched your question" — and if the search index for the
+project is missing or out of date, the panel says so and offers to rebuild it
+rather than presenting an empty answer as if it were a finding.
+
+Answers are cited the same way as the single-policy dialog: every load-bearing
+statement names the rule it came from and quotes the source words, with its page
+and section. A question the retained rules do not settle is reported as unsettled,
+not answered with a confident-sounding paragraph the policy does not support.
 
 ## 9. Prove behavior with blind tests
 

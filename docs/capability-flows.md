@@ -168,6 +168,58 @@ sequenceDiagram
 Search is grounding, never execution. Retrieval failure must not silently convert
 an ungrounded answer into authoritative policy.
 
+### 6a. Putting a case to a whole project
+
+A reviewer can describe a situation in plain English and put it to one policy or
+to a whole project. The project scope never evaluates every policy: it retrieves
+the ones that bear on the question from that project's **own** policy index, and
+discards the rest before anything is evaluated.
+
+```mermaid
+sequenceDiagram
+    participant UI as Test a Case
+    participant API as FastAPI service
+    participant DB as PostgreSQL
+    participant AOAI as Azure OpenAI
+    participant PIdx as Per-project policy index
+
+    UI->>API: scenario (+ optional provision_id)
+    alt one policy chosen
+        API->>DB: published payload for that policy
+    else whole project
+        API->>DB: published payloads for the active version
+        API->>AOAI: embed scenario
+        API->>PIdx: search this project's policies
+        PIdx-->>API: ranked policies
+        API->>API: retain in-budget, discard the rest
+    end
+    API->>AOAI: one gather over the retained records
+    AOAI-->>API: informational answer or decision
+    API->>API: check every citation against the payload
+    API-->>UI: answer + retained/discarded + size vs budget
+```
+
+Three things this flow guarantees, each of which was a defect first:
+
+- **It never fans out.** The retained policies are evaluated in one gather, not
+  one call per policy, and the combined size is reported against a budget. An
+  oversize payload is refused rather than silently trimmed.
+- **It never falls back to "evaluate everything".** When retrieval cannot be
+  relied on, the reviewer is told which of the distinct states applies — no
+  published version, index not built, index stale, index empty, search
+  unavailable, search failed, or a genuine no-match — and no evaluation is made.
+  Those are kept apart because collapsing any pair reports one situation as
+  another.
+- **It retrieves policies, not clauses.** The indexed unit is a policy at its
+  published version, keyed on identity that survives re-parsing. An earlier
+  design keyed retrieval on clause ids, which are regenerated whenever a
+  document is re-read, and it failed silently on every project with history.
+
+The index holds only published policies at the latest approved version, which is
+what makes it cheap to maintain: edits, approvals, rejections and re-extractions
+all act on candidates and cannot change it. Only two events can — publishing
+rebuilds a project's index, and deleting the project drops it.
+
 ## 7. Outputs and audit
 
 ```mermaid

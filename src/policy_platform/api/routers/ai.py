@@ -815,32 +815,52 @@ async def answer_project_case(
     *not* narrowed, and the narrowing is the feature: "u never run against all
     published, u must use AI search and any technique possible to retrieve highest
     policies match before evaluation, non matching policies are discarded." So this
-    never evaluates against every policy. It embeds the question and runs the same
-    hybrid clause retrieval the Ask-AI chat uses (`ai_chat.ask`), scoped to this
-    project's own documents, maps the retrieved clauses back to the policies that
-    own them by the join the index and the projection already share, and keeps only
-    those. Reusing that one retrieval path rather than standing up a second is
-    deliberate — a second copy drifts.
+    never evaluates against every policy. It embeds the question and searches the
+    project's **own policy index** — one index per project, holding only published
+    policies at the latest approved version — then keeps the policies that rank
+    inside the budget and discards the rest.
+
+    The retrievable unit is a policy, not a clause. An earlier design retrieved
+    clauses and mapped them back to their owning policy by search key; clause ids
+    are regenerated whenever a document is re-read, so that join silently emptied
+    on every project with extraction history and reported "no policy matched" when
+    nothing could ever have matched. A policy at its published version is identity
+    that survives re-parsing.
 
     WHAT RETRIEVAL DID IS REPORTED, NOT HIDDEN
 
     The response's `retrieval` block and `considered` list name every candidate
     policy, which were retained, which discarded, and on what basis, so a reviewer
     can always see how much narrowing happened (constraint 10). Retrieval's outcome
-    is one of six distinct `status` values, none of which ever degrades to
+    is one of these distinct `status` values, none of which ever degrades to
     "evaluate against all" (constraint 5):
 
-      - `narrowed`     — a subset was kept and evaluated; `evaluation` is present.
-      - `no_match`     — retrieval ran and the project is indexed, but nothing it
-                         surfaced bears; `evaluation` is null. A real answer.
-      - `index_empty`  — the project's policies are not in the grounding index, so
-                         retrieval cannot be relied on for it; `evaluation` null.
-      - `unavailable`  — search is not configured on this server; `evaluation` null.
-      - `failed`       — the search call raised; `evaluation` null.
-      - `empty`        — the project has no policy with live rules to test.
+      - `narrowed`             — a subset was kept and evaluated; `evaluation` present.
+      - `no_match`             — retrieval ran against the active published version
+                                 and nothing bears; `evaluation` null. A real answer.
+      - `no_published_version` — the project has published nothing, so there is no
+                                 project scope to test; `evaluation` null.
+      - `index_not_built`      — this project's policy index does not exist yet.
+      - `index_stale`          — the index holds no documents for the active
+                                 published version.
+      - `index_empty`          — the index exists and holds nothing for this project.
+      - `unavailable`          — search is not configured on this server.
+      - `failed`               — the search call raised.
+      - `empty`                — the active version has no published policy rules.
+
+    The three that a rebuild repairs — `index_not_built`, `index_stale` and
+    `index_empty` — say so in their `reason`, and
+    `POST /api/policy-sets/{key}/policy-index/rebuild` is that repair;
+    `GET /api/policy-sets/{key}/policy-index` reports the recorded state without
+    probing Search.
 
     When `provision_id` is set the reviewer chose one policy: retrieval is bypassed
-    (`status: bypassed`, `scope: single`) and that policy is answered directly.
+    (`status: bypassed`, `scope: single`) and that policy is answered from the same
+    published version the project scope reads. A named policy that exists but is
+    not in the published version is `policy_not_published`, and a project with no
+    published version at all is `no_published_version` — neither is answered from
+    draft rules, because naming a policy must not quietly change what the answer
+    is drawn from.
 
     REQUEST
 
@@ -852,8 +872,8 @@ async def answer_project_case(
 
         { "scope": "project",
           "policy_set_key": str,
-          "retrieval": { "status": str, "method": str, "clause_budget": int,
-                         "clause_scan": int, "clauses_retrieved": int,
+          "retrieval": { "status": str, "method": str, "policy_budget": int,
+                         "policy_scan": int, "policies_retrieved": int,
                          "policies_considered": int, "policies_retained": int,
                          "policies_discarded": int, "policies_untestable": int,
                          "reason": str? },
@@ -875,13 +895,15 @@ async def answer_project_case(
           "size": { ... } }
 
     The `evaluation` object is the multi-policy case result: `intent`
-    (informational | decision), `classification_reasoning`, and — informational
-    only — `informational` with `status`, `answer`, `citations` (each carrying its
-    `rule_id`, verbatim `source`, and the `policy` it was drawn from), and a
-    `grounding` block reporting `rules_available`, `rules_cited`,
-    `fabricated_citations`, `policies_grounded`, and `oversize`. For a
-    determination `informational` is null and the caller runs the per-rule
-    deciders it already has, one policy's rule at a time.
+    (informational | decision), `classification_reasoning`, and the branch that
+    intent selected. An informational case populates `informational` with
+    `status`, `answer` and `citations` (each carrying its `rule_id`, verbatim
+    `source`, and the `policy` it was drawn from). A determination populates
+    `decision` with `status`, `verdict`, `answer`, `missing_required_facts` and
+    the same citation shape — a case the retained rules do not settle is
+    `no_rule_bears` rather than a hedged paragraph that reads like a verdict.
+    Both branches carry a `grounding` block reporting `rules_available`,
+    `rules_cited`, `fabricated_citations`, `policies_grounded` and `oversize`.
 
     An unknown project key is 404, as is a `provision_id` that names a policy in a
     different project; a malformed id is 422; an unconfigured model is 503.

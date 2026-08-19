@@ -278,12 +278,12 @@ Worth imitating, all observed in this session:
 
 ## 6. State at handover
 
-**593 commits** on `taomar-microsoft-policy-queue-and-backlog`. Tree clean.
+**597 commits** on `taomar-microsoft-policy-queue-and-backlog`. Tree clean.
 
 | | |
 |---|---|
-| Python | 3,336 passed, 16 skipped, 0 failed |
-| Web | 1,509 passed, 122 files |
+| Python | 3,340 passed, 16 skipped, 0 failed |
+| Web | 1,518 passed, 123 files |
 | `tsc -b --force` | exit 0 |
 | API surface | 86 paths / 96 operations / 13 tags |
 
@@ -1014,6 +1014,56 @@ re-parsing by construction.
 * A retrieval path must **distinguish an empty or stale index from a genuine non-match**.
   Reporting "nothing matched" when the index cannot match is the lie that hid this for
   an entire session.
+
+
+### 9.18 A stubbed browser outlives the agent that stubbed it
+
+§9.16 records a dev server serving code that is no longer on disk. There is a
+sharper version: a browser page serving an **API that does not exist**.
+
+A verification agent reported the client "not sound in the running app" — opening
+any project crashed to a blank page, opening Evaluate crashed, the dashboard errored.
+Four findings, two marked blocking, each with a file and line, each internally
+coherent: `policySet.tags.length` on a response with no `tags`,
+`versions.map` on `{}`, `portfolio.map` on `{}`.
+
+Every one was false. Checked directly against the API:
+
+| claim | measured |
+| --- | --- |
+| `/api/policy-sets` has no `tags` | it does, on all 7 |
+| `/api/policy-sets/{key}/versions` returns `{}` | returns an array of 6 |
+| `/api/policy-sets/portfolio/summary` returns `{}` | returns an array of 7 |
+
+The giveaway was the project name. Every reproduction used **"Demo project"** and
+`/api/policy-sets/demo/...`, and no such project exists — the corpus is
+`ais-employee-handbook`, `gmu-staff-handbook-2024`, `e2e-trace-leave`, `xx`,
+`oneround`, `table-structure-witness`, `IT Policies`. An earlier agent, verifying
+a panel whose failure state cannot be produced on demand, had **stubbed the network
+layer** in the shared browser and rendered a synthetic project. It said so honestly.
+Its stubs then outlived it, and the next agent drove that page believing it was the
+product.
+
+**A shared browser is shared state, and a network stub is the most dangerous kind**
+because it is invisible in the DOM: the page renders, the console shows a real
+error, the stack trace names real code, and the defect reads as production
+behaviour. The report was better-evidenced than most true reports.
+
+**Defences:**
+
+* **Check the data before the code.** A defect about a response shape is settled by
+  one call to the API, not by reading the component. That check took a minute and
+  overturned four findings.
+* **Recognise data that cannot exist.** "Demo project" is not in the corpus; a
+  fixture name in a bug report is a signal the environment is not the product.
+* Treat stubbing the network as **build-invalidating for every later observation in
+  that browser**, exactly as §9.16 treats a failed hot reload. Clear stubs when done,
+  or use an isolated context.
+* When an agent reports the app broadly broken, **weigh that against the app having
+  worked minutes earlier**. Broad breakage from a narrow change is more often the
+  environment than the code — the same reasoning that correctly identified two Docker
+  outages this session, where *every* database-backed endpoint failed rather than only
+  the new ones.
 
 
 ## 10. Fourth session — the per-project policy index

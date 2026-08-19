@@ -32,20 +32,31 @@ one place.
 
 THE STATES A RETRIEVAL CAN BE IN, KEPT APART
 
-Six facts about a search are not one fact (constraint 5), and none of them may
+Ten facts about a search are not one fact (constraint 5), and none of them may
 degrade silently to "answer against all" (constraint 10):
 
-  - ``narrowed``              — retrieval kept a subset; those are evaluated.
-  - ``no_match``              — retrieval ran on the current published policy
-                                index, but no policy matched this question.
-  - ``no_published_version``  — the project has no active approved version, so
-                                there is no published project scope to test.
-  - ``index_not_built``       — the project's policy index does not exist yet.
-  - ``index_stale``           — the index exists, but not for the active
-                                published version.
-  - ``unavailable``           — search is not configured on this server at all.
-  - ``failed``                — the search call itself raised.
-  - ``empty``                 — the active version has no published policy rules.
+  - ``narrowed``               — retrieval kept a subset; those are evaluated.
+  - ``no_match``               — retrieval ran on the current published policy
+                                 index, but no policy matched this question.
+  - ``no_published_version``   — the project has no active approved version, so
+                                 there is no published project scope to test.
+  - ``index_not_built``        — the project's policy index does not exist yet.
+  - ``index_stale``            — the index exists, but not for the active
+                                 published version.
+  - ``index_empty``            — the index exists and holds no documents at all
+                                 for this project.
+  - ``unavailable``            — search is not configured on this server at all.
+  - ``failed``                 — the search call itself raised.
+  - ``empty``                  — the active version has no published policy rules.
+  - ``bypassed``               — a single policy was named, so retrieval did not
+                                 run; and ``policy_not_published`` when that
+                                 policy is not in the published version.
+
+The three that a rebuild repairs — ``index_not_built``, ``index_stale`` and
+``index_empty`` — say so in their reason, and the client offers the repair for
+exactly those three. `test_the_index_repair_offer_matches_the_backend` fails if
+that set and this one ever come apart, because an instruction the product cannot
+carry out is worse than no instruction.
 
 The one thing forbidden — falling back to evaluating every policy — is never done
 in any of these states. When retrieval cannot be relied on, the reviewer is told,

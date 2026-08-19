@@ -114,8 +114,10 @@ consequence — a large document takes minutes rather than returning a job id.
   `AzureSearchClient` and issue direct REST calls with `httpx`. If Azure OpenAI
   is not configured, AI routes reject with `503` before any work starts; if
   search is not configured, clause indexing is skipped and retrieval-backed
-  grounding is unavailable. Only `ai_chat.py` and `ai_test_proposal.py` read from
-  Azure AI Search — see
+  grounding is unavailable. `ai_chat.py` and `ai_test_proposal.py` read the
+  shared clause index; `ai_case_project.py` reads a project's own policy index,
+  and `search/policy_index.py` is the only module that creates, rebuilds or
+  drops one — see
   [AI assistance → How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
 - **Anything → evaluator.** The evaluator is called as a plain function with an
   in-memory `ApprovedPolicyPackage` and a fact dictionary. Callers are the

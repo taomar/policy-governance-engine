@@ -125,9 +125,25 @@ how a document groups must not silently restate a decision a human already made.
 |---|---|
 | `policy_exceptions` | A human-requested, time-bounded waiver — distinct from the rule-level `rule_exceptions` field. |
 | `policy_attestations` | One person's obligation to acknowledge one published version. |
+| `policy_index_states` | What the app last recorded about a project's per-policy search index: which published version it holds, how many documents, when, and whether the last attempt was built, skipped or failed. One row per policy set. |
 | `audit_events` | Immutable audit trail for authoritative actions (approvals, publications, dispositions). |
 | `notes` | Human-authored, append-only notes attached to a governed entity. |
 | `outbox_messages` | Reserved for future transactional outbox publishing; no publisher exists yet. |
+
+`policy_index_states` exists because Azure AI Search can say whether an index
+exists and how many documents it holds, but not **which** approved version those
+documents represent. The index is rebuilt on publish on a best-effort basis, so
+that a search outage cannot block a publish — which means a failure has to be
+recorded somewhere the app can read later. A failed attempt updates the status
+and error but **keeps** the previously indexed version and count, because that is
+what distinguishes "stale relative to the active version" from "fresh but nothing
+matched".
+
+Two separate mechanisms answer questions about the same index, deliberately:
+this row is the app's record of the last build, while `ai_case_project` probes
+Azure live when a case is actually run. They can disagree — an index deleted out
+of band leaves the record reading current — and the disagreement is a finding,
+not a bug to be designed away.
 
 ## Invariants
 

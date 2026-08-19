@@ -49,7 +49,7 @@ These are choices, not gaps. They are recorded so nobody re-derives them.
 | Ownership and RACI | Metadata only. Contacts are not validated and do not drive routing, notification or publish gates. |
 | Exceptions | Requests have a stored lifecycle; no notification or external approval integration. |
 | Exports | JSON, JSONL and CSV point-in-time downloads. No subscription or scheduled delivery. |
-| Index maintenance | Each indexing write reconciles that document version's entries against the store, so re-extraction no longer leaves orphans searchable. There is still no freshness check, repair job or full re-index workflow independent of a write. |
+| Index maintenance | Each indexing write reconciles that document version's entries against the store, so re-extraction no longer leaves orphans searchable. A project's **policy** index additionally records what it last built, reports whether that still matches the active published version, and can be rebuilt on demand from the project Overview. What is still missing is anything scheduled or automatic: nothing sweeps for stale indexes, and a project that published before this existed stays unindexed until someone rebuilds it. |
 
 ## Test coverage boundaries
 
