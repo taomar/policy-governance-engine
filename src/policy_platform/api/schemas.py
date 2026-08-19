@@ -204,6 +204,31 @@ class PolicyIndexBuildResponse(BaseModel):
     error: str | None = None
 
 
+class PolicyIndexStateResponse(BaseModel):
+    """Recorded per-project policy index state; this is not a live Search probe.
+
+    The endpoint serving this model reads PostgreSQL only. It reports the app's
+    own record of the last best-effort build attempt and derives freshness from
+    that record plus the active approved version, so a project page can load
+    cheaply even when Azure Search is unavailable. It does not verify that the
+    Azure Search index exists or contains these documents at request time.
+    """
+
+    policy_set_key: str
+    index_name: str
+    last_attempt: Literal["built", "skipped", "failed", "never_attempted"]
+    freshness: Literal["current", "stale", "nothing_to_index", "unknown"]
+    active_version_number: int | None
+    indexed_version_number: int | None
+    attempted_version_number: int | None
+    document_count: int
+    built_at: datetime | None
+    attempted_at: datetime | None
+    error: str | None = None
+    source: Literal["recorded_build_state"] = "recorded_build_state"
+    live_probe: Literal[False] = False
+
+
 class ApprovedPolicyVersionResponse(BaseModel):
     id: str
     policy_set_id: str

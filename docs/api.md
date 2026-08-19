@@ -20,7 +20,7 @@ generated description as authoritative — this page only orients you. The
 description is generated from the same Pydantic contracts the evaluator consumes,
 so it cannot drift from the implementation.
 
-The current surface is **85 paths / 95 operations** across 13 tags.
+The current surface is **86 paths / 96 operations** across 13 tags.
 
 ## Endpoint groups
 
@@ -28,7 +28,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 
 | Tag | Prefix | Operations | What it covers |
 |---|---|---|---|
-| `policy-sets` | `/api/policy-sets` | 18 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version policies, provision history across versions, version export, active version, and rebuilding the project's own policy index when a best-effort build after publishing did not complete. |
+| `policy-sets` | `/api/policy-sets` | 19 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version policies, provision history across versions, version export, active version, reading whether the project's own policy index still represents the active published version, and rebuilding it when a best-effort build after publishing did not complete. |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue: draft, list, facets, edit, review, request-changes, override, bulk-review, export — plus `GET /api/policy-sets/{key}/policies`, the same rules grouped under the passage that stated them, and `POST /api/policy-sets/{key}/publish`. |
 | `ai` | `/api/ai` | 31 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation — split by the route the rule takes, so a rule read by a judge and a rule computed by the engine are each put to the decider its route names — compare, quality (published + candidates, each split into a POST that evaluates and a GET that reads the last result, plus history), policy-set summary, correlation runs/findings/dispositions, change explanation, generated subject names for the policies of a set, generated handles for the rules of a set and the lookup that serves them, a plain-words reading of one policy's extracted record, answering a plain-English case put to a whole policy, and answering one put to a whole project — where the policies bearing on the question are retrieved from the project's own policy index and the rest discarded before anything is evaluated, never the whole set. Both case surfaces sort the question into an informational one the policy answers from what it states, or a determination assessed against the rules, and each is answered in its own right. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |

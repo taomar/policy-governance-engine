@@ -11,7 +11,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.api.schemas import (
@@ -20,11 +20,13 @@ from policy_platform.api.schemas import (
     ImportPolicyVersionRequest,
     MarkPolicySetReviewedRequest,
     PolicyIndexBuildResponse,
+    PolicyIndexStateResponse,
     PolicySetResponse,
     UpdatePolicySetRequest,
     UpdateTrustedConfigRequest,
 )
 from policy_platform.contracts.policy import CanonicalRule
+from policy_platform.domain.models import PolicyIndexState
 from policy_platform.infrastructure.assembly.approved_provision_lookup import (
     approved_provision_groupings,
 )
@@ -54,6 +56,8 @@ from policy_platform.infrastructure.search.policy_index import (
     drop_project_policy_index,
     failed_policy_index_build_outcome,
     policy_index_build_outcome_payload,
+    policy_index_freshness,
+    policy_index_name,
     rebuild_project_policy_index,
     record_policy_index_build_state,
 )
@@ -429,6 +433,48 @@ async def delete_policy_set_endpoint(
         "policy_index_error": outcome.policy_index_error,
         "retained": dict(RETAINED_TABLES),
     }
+
+
+@router.get("/{key}/policy-index", response_model=PolicyIndexStateResponse)
+async def get_policy_index_state_endpoint(
+    key: str, session: AsyncSession = Depends(get_session)
+) -> PolicyIndexStateResponse:
+    """Return the recorded project policy-index state without probing Azure Search.
+
+    This endpoint is intentionally cheap enough for a project page load: it reads
+    PostgreSQL only. It reports the app's record of the last best-effort build
+    attempt and derives freshness against the active approved version. It does
+    not verify that the Azure Search index exists or contains matching documents
+    right now; live retrieval in `ai_case_project.py` performs that separate
+    guard when a case query is actually run.
+    """
+
+    repo = PolicySetRepository(session)
+    policy_set = await repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    active_version = await active_version_for_policy_set(session, policy_set.id)
+    active_version_number = active_version.version_number if active_version else None
+    state = (
+        await session.execute(
+            select(PolicyIndexState).where(PolicyIndexState.policy_set_id == policy_set.id)
+        )
+    ).scalar_one_or_none()
+    freshness = policy_index_freshness(state, active_version_number)
+    return PolicyIndexStateResponse(
+        policy_set_key=key,
+        index_name=state.index_name if state else policy_index_name(key),
+        last_attempt=freshness.last_attempt,
+        freshness=freshness.freshness,
+        active_version_number=active_version_number,
+        indexed_version_number=state.indexed_version_number if state else None,
+        attempted_version_number=state.attempted_version_number if state else None,
+        document_count=state.document_count if state else 0,
+        built_at=state.built_at if state else None,
+        attempted_at=state.attempted_at if state else None,
+        error=state.error if state else None,
+    )
 
 
 @router.post("/{key}/policy-index/rebuild", response_model=PolicyIndexBuildResponse)

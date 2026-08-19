@@ -73,6 +73,13 @@ KNOWN_UNREACHABLE = {
         "this -- until it does, a failed build is only repairable by an operator. "
         "Recorded as a gap, not as a design."
     ),
+    "GET /api/policy-sets/*/policy-index": (
+        "Reads the app's recorded state for a project's policy index so the "
+        "product can show whether the index is current, stale, unbuilt, or not "
+        "applicable before offering the rebuild action. This is the backend half "
+        "of that repair surface; until the web half lands, the state is still "
+        "only visible to direct API callers. Recorded as a gap, not as a design."
+    ),
 }
 
 

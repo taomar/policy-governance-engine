@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -16,7 +17,7 @@ from sqlalchemy.ext.compiler import compiles  # noqa: E402
 
 from policy_platform.api.app import create_app  # noqa: E402
 from policy_platform.api.routers import policy_sets as policy_sets_router  # noqa: E402
-from policy_platform.domain.models import Base, PolicyIndexState, PolicySet  # noqa: E402
+from policy_platform.domain.models import ApprovedPolicyVersion, Base, PolicyIndexState, PolicySet  # noqa: E402
 from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
 from policy_platform.infrastructure.persistence.policy_set_teardown import DeletionOutcome  # noqa: E402
 from policy_platform.infrastructure.search.policy_index import (  # noqa: E402
@@ -93,6 +94,72 @@ async def test_manual_policy_index_rebuild_reports_empty_project_without_crashin
         assert state.status == "built"
         assert state.indexed_version_number is None
         assert state.document_count == 0
+
+
+async def test_get_policy_index_reports_recorded_current_state_without_live_search(app_with_project) -> None:
+    http, maker, _monkeypatch = app_with_project
+    async with maker() as session:
+        session.add(
+            ApprovedPolicyVersion(
+                policy_set_id=_SET_ID,
+                version_number=6,
+                effective_from=date(2026, 1, 1),
+                is_active=True,
+                approved_by="policy",
+                approved_at=datetime(2026, 8, 18, 11, 0, tzinfo=UTC),
+            )
+        )
+        session.add(
+            PolicyIndexState(
+                policy_set_id=_SET_ID,
+                index_name=policy_index_name("xx"),
+                indexed_version_number=6,
+                document_count=10,
+                built_at=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+                status="built",
+                attempted_version_number=6,
+                attempted_at=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+            )
+        )
+        await session.commit()
+
+    response = await http.get("/api/policy-sets/xx/policy-index")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["policy_set_key"] == "xx"
+    assert payload["index_name"] == policy_index_name("xx")
+    assert payload["last_attempt"] == "built"
+    assert payload["freshness"] == "current"
+    assert payload["active_version_number"] == 6
+    assert payload["indexed_version_number"] == 6
+    assert payload["document_count"] == 10
+    assert payload["source"] == "recorded_build_state"
+    assert payload["live_probe"] is False
+
+
+async def test_get_policy_index_reports_nothing_to_index_when_no_active_version(app_with_project) -> None:
+    http, _maker, _monkeypatch = app_with_project
+
+    response = await http.get("/api/policy-sets/xx/policy-index")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["last_attempt"] == "never_attempted"
+    assert payload["freshness"] == "nothing_to_index"
+    assert payload["active_version_number"] is None
+    assert payload["indexed_version_number"] is None
+    assert payload["document_count"] == 0
+    assert payload["attempted_at"] is None
+
+
+async def test_get_policy_index_reports_unknown_project_as_404(app_with_project) -> None:
+    http, _maker, _monkeypatch = app_with_project
+
+    response = await http.get("/api/policy-sets/missing/policy-index")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "policy set 'missing' not found"
 
 
 async def test_delete_reports_project_policy_index_separately_from_authoring_index(app_with_project) -> None:

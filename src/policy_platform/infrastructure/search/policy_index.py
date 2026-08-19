@@ -49,7 +49,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,6 +71,39 @@ _SEMANTIC_CONFIG = "policy-cases-semantic"
 
 PolicyIndexBuildState = Literal["built", "skipped", "failed"]
 PolicyIndexDropState = Literal["dropped", "skipped", "failed"]
+PolicyIndexLastAttempt = Literal["built", "skipped", "failed", "never_attempted"]
+PolicyIndexFreshnessState = Literal["current", "stale", "nothing_to_index", "unknown"]
+
+# Kept as two axes because constraint 5 forbids collapsing "what happened"
+# into "what is usable now": a failed attempt can leave a current index, and a
+# skipped attempt says nothing about freshness.
+POLICY_INDEX_LAST_BUILT = "built"
+POLICY_INDEX_LAST_SKIPPED = "skipped"
+POLICY_INDEX_LAST_FAILED = "failed"
+POLICY_INDEX_LAST_NEVER_ATTEMPTED = "never_attempted"
+POLICY_INDEX_FRESHNESS_CURRENT = "current"
+POLICY_INDEX_FRESHNESS_STALE = "stale"
+POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX = "nothing_to_index"
+POLICY_INDEX_FRESHNESS_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class PolicyIndexFreshness:
+    """Freshness derived from the app's recorded build state, not Azure Search.
+
+    This is intentionally not the same mechanism as
+    `ai_case_project.py`'s live retrieval guard. The retrieval path asks Azure
+    whether an index exists and whether returned hits belong to the active
+    approved version: "can this query safely run right now?" This derivation
+    reads `policy_index_states`: "what did the app last try to build, and does
+    the last recorded successful build match the active version?" They can
+    legitimately disagree if the Search index is edited or deleted out of band,
+    so unifying them would make either the page-load state expensive and brittle
+    or the retrieval guard blind to live drift.
+    """
+
+    last_attempt: PolicyIndexLastAttempt
+    freshness: PolicyIndexFreshnessState
 
 
 @dataclass(frozen=True)
@@ -121,6 +154,43 @@ def policy_index_name(policy_set_key: str) -> str:
     if "--" in name or len(name) > _MAX_INDEX_NAME_LENGTH:
         raise ValueError(f"derived invalid Azure Search index name {name!r}")
     return name
+
+
+def policy_index_freshness(
+    state: PolicyIndexState | None,
+    active_version_number: int | None,
+) -> PolicyIndexFreshness:
+    """Derive recorded freshness without opening a database session or probing Search."""
+
+    if state is None:
+        last_attempt: PolicyIndexLastAttempt = POLICY_INDEX_LAST_NEVER_ATTEMPTED
+    else:
+        last_attempt = cast(PolicyIndexLastAttempt, state.status)
+
+    if active_version_number is None:
+        return PolicyIndexFreshness(
+            last_attempt=last_attempt,
+            freshness=POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX,
+        )
+    if state is None:
+        return PolicyIndexFreshness(
+            last_attempt=last_attempt,
+            freshness=POLICY_INDEX_FRESHNESS_STALE,
+        )
+    if state.status == POLICY_INDEX_LAST_SKIPPED:
+        return PolicyIndexFreshness(
+            last_attempt=last_attempt,
+            freshness=POLICY_INDEX_FRESHNESS_UNKNOWN,
+        )
+    if state.indexed_version_number == active_version_number:
+        return PolicyIndexFreshness(
+            last_attempt=last_attempt,
+            freshness=POLICY_INDEX_FRESHNESS_CURRENT,
+        )
+    return PolicyIndexFreshness(
+        last_attempt=last_attempt,
+        freshness=POLICY_INDEX_FRESHNESS_STALE,
+    )
 
 
 def policy_index_definition(name: str, *, vector_dimensions: int | None = None) -> dict:

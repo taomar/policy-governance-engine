@@ -13,8 +13,17 @@ from sqlalchemy.ext.compiler import compiles
 
 from policy_platform.domain.models import Base, PolicyIndexState, PolicySet
 from policy_platform.infrastructure.search.policy_index import (
+    POLICY_INDEX_FRESHNESS_CURRENT,
+    POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX,
+    POLICY_INDEX_FRESHNESS_STALE,
+    POLICY_INDEX_FRESHNESS_UNKNOWN,
+    POLICY_INDEX_LAST_BUILT,
+    POLICY_INDEX_LAST_FAILED,
+    POLICY_INDEX_LAST_NEVER_ATTEMPTED,
+    POLICY_INDEX_LAST_SKIPPED,
     PolicyIndexBuildOutcome,
     build_policy_document,
+    policy_index_freshness,
     policy_index_definition,
     policy_index_name,
     rebuild_project_policy_index,
@@ -142,6 +151,87 @@ def test_policy_index_name_truncates_with_a_digest():
 
     assert len(name) <= 128
     assert name.endswith(policy_index_name(long_key)[-16:])
+
+
+def test_policy_index_freshness_keeps_last_attempt_and_current_state_orthogonal():
+    built_current = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000211"),
+        index_name=policy_index_name("handbook"),
+        status=POLICY_INDEX_LAST_BUILT,
+        indexed_version_number=6,
+        document_count=10,
+        attempted_version_number=6,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+    )
+    failed_stale = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000212"),
+        index_name=policy_index_name("handbook"),
+        status=POLICY_INDEX_LAST_FAILED,
+        indexed_version_number=5,
+        document_count=9,
+        attempted_version_number=6,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+        error="search unavailable",
+    )
+    failed_still_current = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000213"),
+        index_name=policy_index_name("handbook"),
+        status=POLICY_INDEX_LAST_FAILED,
+        indexed_version_number=6,
+        document_count=10,
+        attempted_version_number=6,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+        error="post-build cleanup failed",
+    )
+    skipped = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000214"),
+        index_name=policy_index_name("handbook"),
+        status=POLICY_INDEX_LAST_SKIPPED,
+        indexed_version_number=None,
+        document_count=0,
+        attempted_version_number=6,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+    )
+
+    assert policy_index_freshness(built_current, 6).last_attempt == POLICY_INDEX_LAST_BUILT
+    assert policy_index_freshness(built_current, 6).freshness == POLICY_INDEX_FRESHNESS_CURRENT
+    assert policy_index_freshness(failed_stale, 6).last_attempt == POLICY_INDEX_LAST_FAILED
+    assert policy_index_freshness(failed_stale, 6).freshness == POLICY_INDEX_FRESHNESS_STALE
+    assert policy_index_freshness(failed_still_current, 6).last_attempt == POLICY_INDEX_LAST_FAILED
+    assert policy_index_freshness(failed_still_current, 6).freshness == POLICY_INDEX_FRESHNESS_CURRENT
+    assert policy_index_freshness(skipped, 6).last_attempt == POLICY_INDEX_LAST_SKIPPED
+    assert policy_index_freshness(skipped, 6).freshness == POLICY_INDEX_FRESHNESS_UNKNOWN
+    assert policy_index_freshness(None, 6).last_attempt == POLICY_INDEX_LAST_NEVER_ATTEMPTED
+    assert policy_index_freshness(None, 6).freshness == POLICY_INDEX_FRESHNESS_STALE
+
+
+def test_policy_index_freshness_reports_no_active_version_as_nothing_to_index():
+    built_without_active_version = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000216"),
+        index_name=policy_index_name("xx"),
+        status=POLICY_INDEX_LAST_BUILT,
+        indexed_version_number=None,
+        document_count=0,
+        attempted_version_number=None,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+    )
+    failed_without_active_version = PolicyIndexState(
+        policy_set_id=uuid.UUID("00000000-0000-4000-8000-000000000215"),
+        index_name=policy_index_name("xx"),
+        status=POLICY_INDEX_LAST_FAILED,
+        indexed_version_number=None,
+        document_count=0,
+        attempted_version_number=None,
+        attempted_at=datetime(2026, 8, 18, tzinfo=UTC),
+        error="search unavailable",
+    )
+
+    assert policy_index_freshness(None, None).last_attempt == POLICY_INDEX_LAST_NEVER_ATTEMPTED
+    assert policy_index_freshness(None, None).freshness == POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX
+    assert policy_index_freshness(built_without_active_version, None).last_attempt == POLICY_INDEX_LAST_BUILT
+    assert policy_index_freshness(built_without_active_version, None).freshness == POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX
+    assert policy_index_freshness(failed_without_active_version, None).last_attempt == POLICY_INDEX_LAST_FAILED
+    assert policy_index_freshness(failed_without_active_version, None).freshness == POLICY_INDEX_FRESHNESS_NOTHING_TO_INDEX
 
 
 def test_index_definition_uses_existing_vector_field_and_configured_dimension():
