@@ -394,6 +394,24 @@ async def rebuild_project_policy_index(
         )
 
 
+async def read_policy_index_state(
+    session: AsyncSession, *, policy_set_id: object
+) -> PolicyIndexState | None:
+    """The recorded build state for one project's policy index, or None.
+
+    None means no build was ever attempted, which is a different fact from a
+    build that ran and indexed nothing — `policy_index_freshness` keeps those
+    apart. Reading lives here beside the write rather than in the router so the
+    two stay one boundary: a caller that wants this row does not need to know
+    which table holds it.
+    """
+
+    result = await session.execute(
+        select(PolicyIndexState).where(PolicyIndexState.policy_set_id == policy_set_id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def record_policy_index_build_state(
     session: AsyncSession,
     *,

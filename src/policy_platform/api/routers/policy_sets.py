@@ -26,7 +26,6 @@ from policy_platform.api.schemas import (
     UpdateTrustedConfigRequest,
 )
 from policy_platform.contracts.policy import CanonicalRule
-from policy_platform.domain.models import PolicyIndexState
 from policy_platform.infrastructure.assembly.approved_provision_lookup import (
     approved_provision_groupings,
 )
@@ -58,6 +57,7 @@ from policy_platform.infrastructure.search.policy_index import (
     policy_index_build_outcome_payload,
     policy_index_freshness,
     policy_index_name,
+    read_policy_index_state,
     rebuild_project_policy_index,
     record_policy_index_build_state,
 )
@@ -457,10 +457,8 @@ async def get_policy_index_state_endpoint(
     active_version = await active_version_for_policy_set(session, policy_set.id)
     active_version_number = active_version.version_number if active_version else None
     state = (
-        await session.execute(
-            select(PolicyIndexState).where(PolicyIndexState.policy_set_id == policy_set.id)
-        )
-    ).scalar_one_or_none()
+        await read_policy_index_state(session, policy_set_id=policy_set.id)
+    )
     freshness = policy_index_freshness(state, active_version_number)
     return PolicyIndexStateResponse(
         policy_set_key=key,
