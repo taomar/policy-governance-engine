@@ -214,11 +214,96 @@ describe("a stage not reached reads apart from a stage that found nothing", () =
         rules_drafted: 190,
         rules_committed: 190,
         linked: 0,
+        relationship_discovery: { deterministic: "ok", model: "ok" },
         delta_unchanged: 190,
       }),
     );
     expect(boxValue("Linked")).toBe("0");
     expect(boxValue("Rules drafted")).toBe("190");
+  });
+
+  it("shows Linked as a count when every reported discovery pass completed", async () => {
+    await renderWith(
+      payload({
+        status: "completed",
+        stage: "Done — no changes.",
+        processed_batches: 38,
+        passages_found: 190,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 12,
+        relationship_discovery: { deterministic: "ok", model: "ok" },
+      }),
+    );
+
+    expect(boxValue("Linked")).toBe("12");
+    expect(screen.queryByText(/link discovery did not complete/i)).toBeNull();
+  });
+
+  it("shows Linked as a floor when any discovery pass failed", async () => {
+    await renderWith(
+      payload({
+        status: "completed",
+        stage: "Done — no changes.",
+        processed_batches: 38,
+        passages_found: 190,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 12,
+        relationship_discovery: { deterministic: "ok", model: "failed" },
+      }),
+    );
+
+    expect(boxValue("Linked")).toBe("at least 12");
+    expect(screen.getByText(/link discovery did not complete/i)).toBeTruthy();
+  });
+
+  it("keeps Linked at not reached when discovery is absent or empty", async () => {
+    await renderWith(
+      payload({
+        status: "completed",
+        stage: "Done — no changes.",
+        processed_batches: 38,
+        passages_found: 190,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 12,
+      }),
+    );
+
+    expect(boxValue("Linked")).toBe("—");
+
+    cleanup();
+    extractionProgress.mockReset();
+    await renderWith(
+      payload({
+        status: "completed",
+        stage: "Done — no changes.",
+        processed_batches: 38,
+        passages_found: 190,
+        rules_drafted: 190,
+        rules_committed: 190,
+        linked: 12,
+        relationship_discovery: {},
+      }),
+    );
+
+    expect(boxValue("Linked")).toBe("—");
+  });
+
+  it("does not turn a normal mid-run unreached discovery into a failure", async () => {
+    await renderWith(
+      payload({
+        stage: "Formulating rules from batch 9 of 38 — 11 policy statement(s) found",
+        processed_batches: 8,
+        rules_drafted: 20,
+        rules_committed: 20,
+        linked: 0,
+      }),
+    );
+
+    expect(boxValue("Linked")).toBe("—");
+    expect(screen.queryByText(/link discovery did not complete/i)).toBeNull();
   });
 });
 

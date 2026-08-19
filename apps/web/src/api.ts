@@ -1534,6 +1534,10 @@ export interface ExtractionProgress {
   skipped?: number;
   /** Rules that gained at least one confirmed relationship. */
   linked?: number;
+  /** Whether each relationship-discovery pass completed. If any reported pass
+   *  failed, `linked` is only the number already found before discovery stopped;
+   *  if no pass is reported, discovery has not been reached yet. */
+  relationship_discovery?: Record<string, "ok" | "failed">;
   superseded?: number;
   /**
    * How this run's rules differ from the previous extraction of the same

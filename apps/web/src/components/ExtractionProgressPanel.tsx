@@ -345,6 +345,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     rules_committed: committed = 0,
     skipped = 0,
     linked = 0,
+    relationship_discovery: relationshipDiscovery,
     superseded = 0,
     delta_new: deltaNew = 0,
     delta_changed: deltaChanged = 0,
@@ -463,15 +464,31 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
     // zero, so it is always reached once a run has begun.
     key === "intake" || chainSettled || failed || FIGURE_PHASE[key] <= livePhaseIndex;
 
+  const relationshipDiscoveryValues = Object.values(relationshipDiscovery ?? {});
+  const relationshipDiscoveryReached = relationshipDiscoveryValues.length > 0;
+  const relationshipDiscoveryIncomplete = relationshipDiscoveryValues.some((status) => status === "failed");
+  const linkValue = !relationshipDiscoveryReached
+    ? "—"
+    : relationshipDiscoveryIncomplete
+      ? `at least ${linked}`
+      : String(linked);
+  const linkHint = relationshipDiscoveryIncomplete
+    ? `Relationship discovery did not complete, so this is not a total. The run found ${plural(
+        linked,
+        "link",
+      )} before discovery stopped; more links may be missing.`
+    : FIGURES.link.hint;
+
   const figureCount: Record<FigureKey, string> = {
     intake: totalClauses > 0 ? `${doneClauses}/${totalClauses}` : "—",
     scan: String(passages),
     formulate: String(drafted),
     review: String(committed),
-    link: String(linked),
+    link: linkValue,
   };
   const figureValue = (key: FigureKey): string =>
     figureReached(key) ? figureCount[key] : "—";
+  const figureHint = (key: FigureKey): string => (key === "link" ? linkHint : FIGURES[key].hint);
 
   // Figure box lighting. Nothing is active once the chain is settled or failed;
   // a figure whose phase is below the live phase is complete, and when settled
@@ -600,7 +617,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
                     </Tooltip>
                   ) : (
                     phase.figures.map((key) => (
-                      <Tooltip key={key} title={FIGURES[key].hint}>
+                      <Tooltip key={key} title={figureHint(key)}>
                         <div
                           className={`extract-stage${
                             figureActive(key) ? " extract-stage--active" : ""
@@ -758,6 +775,11 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       )}
       <div className="extract-progress-line extract-progress-counters">
         <Text type="secondary">{counters.join(" · ")}</Text>
+        {relationshipDiscoveryIncomplete && (
+          <Tooltip title={linkHint}>
+            <Tag>link discovery did not complete</Tag>
+          </Tooltip>
+        )}
         {superseded > 0 && (
           <Tooltip title="Unreviewed rules from the previous run of this document, replaced by this run. Rules you had already approved or rejected were kept.">
             <Tag color="gold">replaced {superseded} from previous run</Tag>
