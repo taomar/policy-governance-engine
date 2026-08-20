@@ -47,3 +47,6 @@ skills/
 
 # Browser-tool scratch output.
 .playwright-mcp/
+
+# Internal working record. Kept on disk and out of the published repository.
+docs/HANDOVER.md
