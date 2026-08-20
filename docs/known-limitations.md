@@ -1,15 +1,8 @@
 # Known limitations
 
-What this build does not yet do, and what to know before relying on it. It
-complements the [capability flows](capability-flows.md),
-[testing guide](testing.md) and [configuration guide](configuration.md).
+What this build does not yet do, and what to know before relying on it. It complements the [capability flows](capability-flows.md), [testing guide](testing.md) and [configuration guide](configuration.md).
 
-A note on what is *not* here. This page used to list absent infrastructure — no
-queue, no broker, no worker runtime, no CI pipeline — as though each were a
-defect. They are design decisions, and describing them as shortfalls made the
-platform look unfinished in ways it is not. Those now sit under
-[Deliberate scope](#deliberate-scope), stated as what the system does. What
-remains below constrains whether the build is safe to rely on.
+A note on what is *not* here. This page used to list absent infrastructure — no queue, no broker, no worker runtime, no CI pipeline — as though each were a defect. They are design decisions, and describing them as shortfalls made the platform look unfinished in ways it is not. Those now sit under [Deliberate scope](#deliberate-scope), stated as what the system does. What remains below constrains whether the build is safe to rely on.
 
 ## Before relying on this build
 
@@ -53,8 +46,7 @@ These are choices, not gaps. They are recorded so nobody re-derives them.
 
 ## Test coverage boundaries
 
-The suite is strong around deterministic domain behavior and does not prove the
-deployed system:
+The suite is strong around deterministic domain behavior and does not prove the deployed system:
 
 - no database or Alembic migration tests
 - no FastAPI integration tests
@@ -63,100 +55,33 @@ deployed system:
 - no performance, load, penetration or dependency-security tests
 - no tests against live Azure OpenAI or Azure AI Search resources
 
-See [Testing and scripts](testing.md#current-coverage-gaps) for the verified
-inventory and commands.
+See [Testing and scripts](testing.md#current-coverage-gaps) for the verified inventory and commands.
 
 ## Structural debt
 
-- **Routers issue SQL directly.** The repository layer exists so that query
-  construction lives in one place, and it does not hold. **16** `session.execute`
-  calls remain across **6** files under `api/`: `ai.py` (6), `documents.py` (5),
-  `extraction.py` (1), `policy_sets.py` (2), `app.py` (1), `audit.py` (1).
+- **Routers issue SQL directly.** The repository layer exists so that query construction lives in one place, and it does not hold. **16** `session.execute` calls remain across **6** files under `api/`: `ai.py` (6), `documents.py` (5), `extraction.py` (1), `policy_sets.py` (2), `app.py` (1), `audit.py` (1).
 
-  It was 20 across 7. The largest single instance — 133 lines of aggregation
-  behind `/review-facets` — moved into
-  `infrastructure/persistence/review_facets.py`, which took `candidate_rules.py`
-  from three direct queries to none. Retiring the extraction-stages read endpoint
-  (`c5c06de`) removed one more, taking `extraction.py` from two calls to one — the
-  query went because the surface it served went, not because it was rewritten.
+It was 20 across 7. The largest single instance — 133 lines of aggregation behind `/review-facets` — moved into `infrastructure/persistence/review_facets.py`, which took `candidate_rules.py` from three direct queries to none. Retiring the extraction-stages read endpoint (`c5c06de`) removed one more, taking `extraction.py` from two calls to one — the query went because the surface it served went, not because it was rewritten.
 
-  This is containment, not a resolution. Each remaining call is small on its own,
-  which is exactly why the pattern spread: no individual one looks like a
-  decision. The cost is that this logic cannot be exercised without going through
-  FastAPI, which is also why [no FastAPI integration tests](#test-coverage-boundaries)
-  and this entry reinforce each other.
+This is containment, not a resolution. Each remaining call is small on its own, which is exactly why the pattern spread: no individual one looks like a decision. The cost is that this logic cannot be exercised without going through FastAPI, which is also why [no FastAPI integration tests](#test-coverage-boundaries) and this entry reinforce each other.
 
-  These counts are checked by `tests/unit/test_documented_sql_debt_is_current.py`,
-  so the paragraph above cannot drift from the code without failing the suite.
+These counts are checked by `tests/unit/test_documented_sql_debt_is_current.py`, so the paragraph above cannot drift from the code without failing the suite.
 
-- **Stored rule fingerprints are written and never read.** `domain/models.py`
-  defines `content_fingerprint` and `anchor_fingerprint` on the candidate rule,
-  and explains in a comment why they are stored rather than computed on read:
-  the comparison is against runs that may be months old, and recomputing would
-  silently re-interpret history if the definition ever changed.
+- **Stored rule fingerprints are written and never read.** `domain/models.py` defines `content_fingerprint` and `anchor_fingerprint` on the candidate rule, and explains in a comment why they are stored rather than computed on read: the comparison is against runs that may be months old, and recomputing would silently re-interpret history if the definition ever changed.
 
-  The columns are written at insert time in
-  `infrastructure/extraction/ai_extraction.py`. Nothing reads them. `diff_runs`
-  (`infrastructure/projection/rule_delta.py`) recomputes both sides from the
-  stored payloads, which is exactly the behaviour the comment gives a reason
-  against. The guarantee is described, the storage that would provide it is
-  paid for, and the consumer does not use it.
+The columns are written at insert time in `infrastructure/extraction/ai_extraction.py`. Nothing reads them. `diff_runs` (`infrastructure/projection/rule_delta.py`) recomputes both sides from the stored payloads, which is exactly the behaviour the comment gives a reason against. The guarantee is described, the storage that would provide it is paid for, and the consumer does not use it.
 
-  The code is left alone deliberately: recomputation is not currently wrong, and
-  changing which side of this contradiction wins is a decision about historical
-  comparability, not a cleanup. What is recorded here is that **the comment is
-  the more persuasive of the two and is the one that is false** — it states a
-  property, gives a reason, and reads as settled, while the behaviour it
-  describes lives in another module that a reader has no cause to open.
+The code is left alone deliberately: recomputation is not currently wrong, and changing which side of this contradiction wins is a decision about historical comparability, not a cleanup. What is recorded here is that **the comment is the more persuasive of the two and is the one that is false** — it states a property, gives a reason, and reads as settled, while the behaviour it describes lives in another module that a reader has no cause to open.
 
-- **Opening the largest policy renders every rule at once.** The Review and
-  Policies rule card draws a policy's whole body — each rule with its name and
-  inline detail — into the DOM in a single render, with no pagination or
-  windowing, so the largest measured policy (72 rules) is the heaviest single
-  render the build performs. In a queue that cost is bounded: a list draws
-  collapsed heads, and a card's full body only when a reviewer opens it, not for
-  every card scrolled past. The completeness test in
-  `apps/web/src/nothingIsBehindAClick.test.tsx` draws that whole policy and
-  carries a deliberately generous time budget, so a slow render is recorded as
-  cost rather than tripping a stopwatch and reporting rules that are all present
-  as missing.
+- **Opening the largest policy renders every rule at once.** The Review and Policies rule card draws a policy's whole body — each rule with its name and inline detail — into the DOM in a single render, with no pagination or windowing, so the largest measured policy (72 rules) is the heaviest single render the build performs. In a queue that cost is bounded: a list draws collapsed heads, and a card's full body only when a reviewer opens it, not for every card scrolled past. The completeness test in `apps/web/src/nothingIsBehindAClick.test.tsx` draws that whole policy and carries a deliberately generous time budget, so a slow render is recorded as cost rather than tripping a stopwatch and reporting rules that are all present as missing.
 
-- **A corrected extraction artefact survives in records already extracted.**
-  `infrastructure/extraction/quantity_projection.py` used to borrow a comparison
-  from a number-bearing predicate for a bare magnitude, so a plain quantity such
-  as `"Received 3 doses"` could be projected as an instruction
-  (`"You required to Received 3 doses"`). It now refuses that — a bare magnitude
-  states what the quantity *is*, not a test, so it takes the `NO_COMPARISON`
-  refusal — fixed at source in `18ca0e4`. The fix is forward-looking: rules
-  extracted before it keep the wrong text until their document is re-extracted,
-  so the artefact can still be read on a live record even though the defect is
-  closed. Every surviving instance is in the `ais-employee-handbook` set — none
-  in the GMU corpus — and some have already been approved or published, which is
-  the part that catches people. Re-extraction alone does not clear an approved or
-  published record: the corrected draft has to be reviewed, approved and
-  republished before it replaces the live one — a governance act, not a technical
-  one, and the only thing that rewrites an existing record.
+- **A corrected extraction artefact survives in records already extracted.** `infrastructure/extraction/quantity_projection.py` used to borrow a comparison from a number-bearing predicate for a bare magnitude, so a plain quantity such as `"Received 3 doses"` could be projected as an instruction (`"You required to Received 3 doses"`). It now refuses that — a bare magnitude states what the quantity *is*, not a test, so it takes the `NO_COMPARISON` refusal — fixed at source in `18ca0e4`. The fix is forward-looking: rules extracted before it keep the wrong text until their document is re-extracted, so the artefact can still be read on a live record even though the defect is closed. Every surviving instance is in the `ais-employee-handbook` set — none in the GMU corpus — and some have already been approved or published, which is the part that catches people. Re-extraction alone does not clear an approved or published record: the corrected draft has to be reviewed, approved and republished before it replaces the live one — a governance act, not a technical one, and the only thing that rewrites an existing record.
 
-- **The bulk-selection counter names no unit.** On both the Review and Policies
-  panes the selection counter reads `N selected` without naming that the unit is
-  policies. It is kept identical on the two surfaces on purpose; if it gains a
-  unit it should gain one on both at once rather than let one side drift from the
-  other.
+- **The bulk-selection counter names no unit.** On both the Review and Policies panes the selection counter reads `N selected` without naming that the unit is policies. It is kept identical on the two surfaces on purpose; if it gains a unit it should gain one on both at once rather than let one side drift from the other.
 
-- **The Overview omits two provenance facts it cannot honestly evidence.** A
-  rule's sequence position in the document (`source_elements` is an element key
-  such as `p1-E000004`, not an ordinal) and its ingestion time
-  (`DocumentVersion.created_at` exists, but neither the Review nor Policies
-  surface loads `SourceDocument`) are left out rather than approximated. Each is
-  cheap to add once a caller loads the document record; neither is worth a
-  request on its own.
+- **The Overview omits two provenance facts it cannot honestly evidence.** A rule's sequence position in the document (`source_elements` is an element key such as `p1-E000004`, not an ordinal) and its ingestion time (`DocumentVersion.created_at` exists, but neither the Review nor Policies surface loads `SourceDocument`) are left out rather than approximated. Each is cheap to add once a caller loads the document record; neither is worth a request on its own.
 
 ## Documentation gaps
 
-- **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is
-  referenced from five places in the code and no `docs/adr/` directory exists.
-  The decision itself is real and is described in [Standards](standards.md); the
-  record was never committed.
-- **RFC 9457 is not implemented.** API errors use FastAPI's default
-  `{"detail": ...}` rather than `application/problem+json`. Adopting it would be
-  a small change; until then it is not claimed.
+- **ADRs are cited but absent.** `ADR-0011` (XACML Obligation vs Advice) is referenced from five places in the code and no `docs/adr/` directory exists. The decision itself is real and is described in [Standards](standards.md); the record was never committed.
+- **RFC 9457 is not implemented.** API errors use FastAPI's default `{"detail": ...}` rather than `application/problem+json`. Adopting it would be a small change; until then it is not claimed.

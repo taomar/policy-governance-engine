@@ -2,57 +2,33 @@
 
 **AI to read. Evidence to prove. Determinism to decide.**
 
-Policy documents are written for people. Decisions have to be made by machines.
-Something has to cross that gap — and everything you trust downstream depends on
-whether it crossed honestly.
+Policy documents are written for people. Decisions have to be made by machines. Something has to cross that gap — and everything you trust downstream depends on whether it crossed honestly.
 
-PolicyVerbAItim turns PDF and DOCX policy documents into structured, executable
-rules where every rule points back at the exact clause that produced it. Spans
-are copied verbatim and verified in Python, never paraphrased. When the source
-is silent, the platform says so instead of filling the gap.
+PolicyVerbAItim turns PDF and DOCX policy documents into structured, executable rules where every rule points back at the exact clause that produced it. Spans are copied verbatim and verified in Python, never paraphrased. When the source is silent, the platform says so instead of filling the gap.
 
-That link survives publication. Uploaded documents are immutable versions
-identified by content hash. Every approved rule cites the document version,
-clause id and content hash it came from, plus the extraction run, model
-deployment and prompt version that drafted it; the clause in turn carries the
-page and the exact character range its text occupies in that page. Publishing
-snapshots the whole package rather than pointing at live drafts, so a version
-cannot change under a decision made against it. Each evaluation records a
-canonical SHA-256 over the policy version, the facts supplied and the outcome
-reached, and cites the document and clause behind every rule that fired.
+That link survives publication. Uploaded documents are immutable versions identified by content hash. Every approved rule cites the document version, clause id and content hash it came from, plus the extraction run, model deployment and prompt version that drafted it; the clause in turn carries the page and the exact character range its text occupies in that page. Publishing snapshots the whole package rather than pointing at live drafts, so a version cannot change under a decision made against it. Each evaluation records a canonical SHA-256 over the policy version, the facts supplied and the outcome reached, and cites the document and clause behind every rule that fired.
 
-The practical consequence: for any decision the system made, you can name the
-document release, the clause, and the characters within it — years later,
-without trusting that nothing was edited in between.
+The practical consequence: for any decision the system made, you can name the document release, the clause, and the characters within it — years later, without trusting that nothing was edited in between.
 
-Three layers, three jobs: AI reads the document, evidence proves what it read,
-and the record states how it must be decided — with no model anywhere in the
-deterministic decision path.
+Three layers, three jobs: AI reads the document, evidence proves what it read, and the record states how it must be decided — with no model anywhere in the deterministic decision path.
 
 > The name is the guarantee: *verbatim*, with the AI where it belongs — reading,
 > not deciding.
 
 ## Two routes, decided by the sentence
 
-Not every policy states a computable test, and pretending otherwise is how a
-threshold gets invented for a rule that never had one. Each record therefore
-carries an `evaluation_mode` that says how it must be decided:
+Not every policy states a computable test, and pretending otherwise is how a threshold gets invented for a rule that never had one. Each record therefore carries an `evaluation_mode` that says how it must be decided:
 
 | Route | The source states its test as | Decided by |
 |---|---|---|
 | `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine, from the record's `condition` |
 | `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
 
-`ai_ready` is a **route, not a fault**. A policy is not lower quality for being
-written in words; the document is what it is, and a platform that scored it as
-a defect would be pressuring itself to fabricate a number. Neither route is
-executed here — running or judging a record is a separate system's job. This
-platform's product is the record.
+`ai_ready` is a **route, not a fault**. A policy is not lower quality for being written in words; the document is what it is, and a platform that scored it as a defect would be pressuring itself to fabricate a number. Neither route is executed here — running or judging a record is a separate system's job. This platform's product is the record.
 
 ## Built on published standards
 
-Policy work is not a place to invent a format. Three standards do the load
-bearing, and each is implemented rather than name-dropped:
+Policy work is not a place to invent a format. Three standards do the load bearing, and each is implemented rather than name-dropped:
 
 | Standard | Governs | Where |
 |---|---|---|
@@ -60,9 +36,7 @@ bearing, and each is implemented rather than name-dropped:
 | [**OMG DMN 1.5 / FEEL**](https://www.omg.org/spec/DMN/) | Decision tables, condition expressions, hit policies | AI formulation → executable conditions |
 | [**OMG SBVR 1.5**](https://www.omg.org/spec/SBVR/) | Deontic categories — obligation, prohibition, permission, and what is merely definitional | Canonical rule types |
 
-[**Standards**](docs/standards.md) states which one governs which decision, and —
-just as important — what is **deliberately not claimed**. A half-claimed standard
-is worse than none: it invites you to assume guarantees the code does not give.
+[**Standards**](docs/standards.md) states which one governs which decision, and — just as important — what is **deliberately not claimed**. A half-claimed standard is worse than none: it invites you to assume guarantees the code does not give.
 
 ## Capabilities
 
@@ -127,33 +101,22 @@ cd apps\web
 npm run dev
 ```
 
-Use `scripts/run_api.ps1` rather than invoking uvicorn directly. It clears
-ambient `AZURE_OPENAI_*` variables first, which otherwise outrank `.env` and
-pair one resource's endpoint with another's key — Azure answers that with a bare
-`401` that reads like a bad key. It also binds `0.0.0.0`: `--host 127.0.0.1`
-leaves the browser unable to connect when it resolves `localhost` to `::1`,
-while `curl` still succeeds.
+Use `scripts/run_api.ps1` rather than invoking uvicorn directly. It clears ambient `AZURE_OPENAI_*` variables first, which otherwise outrank `.env` and pair one resource's endpoint with another's key — Azure answers that with a bare `401` that reads like a bad key. It also binds `0.0.0.0`: `--host 127.0.0.1` leaves the browser unable to connect when it resolves `localhost` to `::1`, while `curl` still succeeds.
 
 Interactive API documentation: `http://127.0.0.1:<API_PORT>/docs`.
 
 ### Document conversion (optional)
 
-Docling conversion and graph discovery are an optional extra, because they pull
-torch, torchvision, accelerate and scipy — a footprint the API neither imports
-nor needs. Install them only to work on conversion itself:
+Docling conversion and graph discovery are an optional extra, because they pull torch, torchvision, accelerate and scipy — a footprint the API neither imports nor needs. Install them only to work on conversion itself:
 
 ```powershell
 python -m venv .venv-graph
 .\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
 ```
 
-This environment resolves `httpx` to 0.28 to satisfy `docling-graph`, above the
-`<0.28` the API pins, so keep it separate from `.venv` rather than treating it
-as the default. `scripts/run_api.ps1` prefers `.venv` and falls back to
-`.venv-graph`. See [Docling](docs/docling.md).
+This environment resolves `httpx` to 0.28 to satisfy `docling-graph`, above the `<0.28` the API pins, so keep it separate from `.venv` rather than treating it as the default. `scripts/run_api.ps1` prefers `.venv` and falls back to `.venv-graph`. See [Docling](docs/docling.md).
 
-AI-assisted features require Azure OpenAI. Retrieval-grounded features also
-require Azure AI Search. See [Configuration](docs/configuration.md).
+AI-assisted features require Azure OpenAI. Retrieval-grounded features also require Azure AI Search. See [Configuration](docs/configuration.md).
 
 ## User journey
 
@@ -186,17 +149,13 @@ npx tsc --noEmit
 npm run build
 ```
 
-Guarantees are also mutation-checked — each one is broken on purpose to confirm
-a test notices:
+Guarantees are also mutation-checked — each one is broken on purpose to confirm a test notices:
 
 ```powershell
 .\.venv-graph\Scripts\python.exe scripts\mutation_check.py tests\mutations\core_guarantees.json
 ```
 
-The suite needs the `graph` extra: 13 modules import Docling directly, and in a
-`.venv` built from `.[dev]` alone they fail at collection. The torch footprint
-matters for the runtime image, not for a development machine — so install
-`.[dev,graph]` if you intend to run the tests.
+The suite needs the `graph` extra: 13 modules import Docling directly, and in a `.venv` built from `.[dev]` alone they fail at collection. The torch footprint matters for the runtime image, not for a development machine — so install `.[dev,graph]` if you intend to run the tests.
 
 ## Important boundaries
 
@@ -206,8 +165,7 @@ matters for the runtime image, not for a development machine — so install
 - Search is grounding, not execution.
 - Azure deployment and production authorization remain pending.
 
-See [Known limitations](docs/known-limitations.md) and the
-[Security roadmap](docs/security-roadmap.md).
+See [Known limitations](docs/known-limitations.md) and the [Security roadmap](docs/security-roadmap.md).
 
 ## Documentation
 
@@ -231,5 +189,4 @@ See [Known limitations](docs/known-limitations.md) and the
 | [Data model](docs/data-model.md) | Tables and lifecycle invariants |
 | [Failure reports](docs/failures/README.md) | What went wrong, measured from the running system, and what generalises |
 
-Ingestion specifications and the full standards survey remain under `docs/` as
-technical reference.
+Ingestion specifications and the full standards survey remain under `docs/` as technical reference.

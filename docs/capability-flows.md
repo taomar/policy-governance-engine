@@ -1,8 +1,6 @@
 # Capability flows
 
-This page keeps only the diagrams that explain the platform's highest-impact
-boundaries. The task-oriented journey is in [Workflows](workflows.md); detailed
-ingestion design remains in [PDF ingestion architecture](specs/pdf-ingestion-architecture-v1.md).
+This page keeps only the diagrams that explain the platform's highest-impact boundaries. The task-oriented journey is in [Workflows](workflows.md); detailed ingestion design remains in [PDF ingestion architecture](specs/pdf-ingestion-architecture-v1.md).
 
 ## How to read the diagrams
 
@@ -40,11 +38,9 @@ flowchart LR
     Review -- revise / reject --> Candidate
 ```
 
-**Boundary.** AI locates and formulates. Python verifies source text and compiles
-the executable representation. A human decides what may be published.
+**Boundary.** AI locates and formulates. Python verifies source text and compiles the executable representation. A human decides what may be published.
 
-**Outputs.** Immutable source versions, clauses, candidate rules, approved policy
-versions, test history, decisions, and audit events.
+**Outputs.** Immutable source versions, clauses, candidate rules, approved policy versions, test history, decisions, and audit events.
 
 ## 2. Evidence and provenance
 
@@ -64,8 +60,7 @@ flowchart LR
     Clause -. "search key:<br/>documentVersionId_clauseId" .-> Search[("Azure AI Search")]
 ```
 
-The verbatim check proves the excerpt exists in the canonical source. It does not
-replace human judgement about whether the excerpt was the right policy statement.
+The verbatim check proves the excerpt exists in the canonical source. It does not replace human judgement about whether the excerpt was the right policy statement.
 
 ## 3. Deterministic evaluation
 
@@ -95,8 +90,7 @@ flowchart TD
     Missing -- yes --> Condition --> Exception --> Combine --> Aggregate --> Hash --> Response --> Log
 ```
 
-The evaluator imports no database, network, or AI dependency. The same package,
-facts, and evaluation time produce the same result.
+The evaluator imports no database, network, or AI dependency. The same package, facts, and evaluation time produce the same result.
 
 ## 4. Tests and regression proof
 
@@ -116,9 +110,7 @@ flowchart LR
     Publish --> Guard --> Run
 ```
 
-Expected assertions are committed before execution. AI may draft scenarios; it
-never decides pass or fail. Historical evidence resolves rules from the exact
-tested version.
+Expected assertions are committed before execution. AI may draft scenarios; it never decides pass or fail. Historical evidence resolves rules from the exact tested version.
 
 ## 5. Quality and correlation assurance
 
@@ -138,9 +130,7 @@ flowchart TD
     Scope --> Correlation --> Disposition
 ```
 
-Deterministic findings are confirmed structural checks. AI findings are potential
-issues requiring human confirmation. Quality trends compare only runs produced by
-the same methodology version.
+Deterministic findings are confirmed structural checks. AI findings are potential issues requiring human confirmation. Quality trends compare only runs produced by the same methodology version.
 
 ## 6. Grounded AI
 
@@ -165,15 +155,11 @@ sequenceDiagram
     API-->>UI: answer / proposal + evidence
 ```
 
-Search is grounding, never execution. Retrieval failure must not silently convert
-an ungrounded answer into authoritative policy.
+Search is grounding, never execution. Retrieval failure must not silently convert an ungrounded answer into authoritative policy.
 
 ### 6a. Putting a case to a whole project
 
-A reviewer can describe a situation in plain English and put it to one policy or
-to a whole project. The project scope never evaluates every policy: it retrieves
-the ones that bear on the question from that project's **own** policy index, and
-discards the rest before anything is evaluated.
+A reviewer can describe a situation in plain English and put it to one policy or to a whole project. The project scope never evaluates every policy: it retrieves the ones that bear on the question from that project's **own** policy index, and discards the rest before anything is evaluated.
 
 ```mermaid
 sequenceDiagram
@@ -201,37 +187,14 @@ sequenceDiagram
 
 Three things this flow guarantees, each of which was a defect first:
 
-- **It never fans out.** The retained policies are evaluated in one gather, not
-  one call per policy, and the combined size is reported against a budget. An
-  oversize payload is refused rather than silently trimmed.
-- **It never falls back to "evaluate everything".** When retrieval cannot be
-  relied on, the reviewer is told which of the distinct states applies — no
-  published version, index not built, index stale, index empty, search
-  unavailable, search failed, or a genuine no-match — and no evaluation is made.
-  Those are kept apart because collapsing any pair reports one situation as
-  another.
-- **It only claims to have narrowed when it did.** A project with no more
-  published policies than the retention budget has all of them evaluated, and
-  that is reported as `not_narrowed` rather than as a selection. Saying "search
-  kept the highest matching policies and discarded the rest" when nothing was
-  discarded credits search with a choice it never made, and leaves a reviewer
-  believing the listed policies matched their question when they are simply all
-  the project has.
-- **It retrieves policies, not clauses.** The indexed unit is a policy at its
-  published version, keyed on identity that survives re-parsing. An earlier
-  design keyed retrieval on clause ids, which are regenerated whenever a
-  document is re-read, and it failed silently on every project with history.
+- **It never fans out.** The retained policies are evaluated in one gather, not one call per policy, and the combined size is reported against a budget. An oversize payload is refused rather than silently trimmed.
+- **It never falls back to "evaluate everything".** When retrieval cannot be relied on, the reviewer is told which of the distinct states applies — no published version, index not built, index stale, index empty, search unavailable, search failed, or a genuine no-match — and no evaluation is made. Those are kept apart because collapsing any pair reports one situation as another.
+- **It only claims to have narrowed when it did.** A project with no more published policies than the retention budget has all of them evaluated, and that is reported as `not_narrowed` rather than as a selection. Saying "search kept the highest matching policies and discarded the rest" when nothing was discarded credits search with a choice it never made, and leaves a reviewer believing the listed policies matched their question when they are simply all the project has.
+- **It retrieves policies, not clauses.** The indexed unit is a policy at its published version, keyed on identity that survives re-parsing. An earlier design keyed retrieval on clause ids, which are regenerated whenever a document is re-read, and it failed silently on every project with history.
 
-Narrowing is a cost control and a scope control, not a relevance guarantee. A
-policy that is retained has not been judged to bear on the question — the gather
-decides that, and reports `no_rule_bears` when none of them does. Over-retention
-is the deliberate direction: a policy kept but not bearing costs a little
-context, while one dropped that did bear is the outcome the reviewer forbade.
+Narrowing is a cost control and a scope control, not a relevance guarantee. A policy that is retained has not been judged to bear on the question — the gather decides that, and reports `no_rule_bears` when none of them does. Over-retention is the deliberate direction: a policy kept but not bearing costs a little context, while one dropped that did bear is the outcome the reviewer forbade.
 
-The index holds only published policies at the latest approved version, which is
-what makes it cheap to maintain: edits, approvals, rejections and re-extractions
-all act on candidates and cannot change it. Only two events can — publishing
-rebuilds a project's index, and deleting the project drops it.
+The index holds only published policies at the latest approved version, which is what makes it cheap to maintain: edits, approvals, rejections and re-extractions all act on candidates and cannot change it. Only two events can — publishing rebuilds a project's index, and deleting the project drops it.
 
 ## 7. Outputs and audit
 
@@ -253,8 +216,7 @@ flowchart LR
     Audit --> UI
 ```
 
-Exports are verbatim structural re-serialization. Decision, quality, and test
-history remain version-owned and read-only.
+Exports are verbatim structural re-serialization. Decision, quality, and test history remain version-owned and read-only.
 
 ## Secondary capabilities
 
@@ -273,7 +235,5 @@ These are important but do not need separate diagrams:
 - AI, Search, and extraction work are synchronous request-driven operations.
 - Search indexing is best-effort and has no scheduled reconciliation.
 - Actor persona is workflow attribution, not production authorization.
-- Hidden Correlation, Exceptions, and Attestations surfaces remain callable by
-  API but are not in current navigation.
-- There is no transactional outbox publisher, notification delivery, or
-  scheduled policy run.
+- Hidden Correlation, Exceptions, and Attestations surfaces remain callable by API but are not in current navigation.
+- There is no transactional outbox publisher, notification delivery, or scheduled policy run.

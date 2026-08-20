@@ -1,7 +1,6 @@
 # Azure deployment options
 
-**Azure deployment is pending.** The repository provides executable Bicep for
-Azure Container Apps only. Other options are design guidance.
+**Azure deployment is pending.** The repository provides executable Bicep for Azure Container Apps only. Other options are design guidance.
 
 ## Support
 
@@ -13,8 +12,7 @@ Azure Container Apps only. Other options are design guidance.
 | Azure AI Search grounding | Implemented | Current retrieval layer |
 | Foundry IQ grounding | Future design | Managed knowledge retrieval after an adapter exists |
 
-No option migrates Local deployment data. Azure starts with an empty PostgreSQL
-database, empty document share, and initialized Search schemas.
+No option migrates Local deployment data. Azure starts with an empty PostgreSQL database, empty document share, and initialized Search schemas.
 
 ## Recommended: Container Apps
 
@@ -36,8 +34,7 @@ database, empty document share, and initialized Search schemas.
 | Storage | `Standard_LRS`, 10 GiB |
 | ACR | Standard |
 
-This option keeps the API private and lets web/API scale independently without
-Kubernetes administration.
+This option keeps the API private and lets web/API scale independently without Kubernetes administration.
 
 ## App Service
 
@@ -49,8 +46,7 @@ Target design:
 - web VNet integration to the API;
 - dedicated initialization procedure.
 
-Choose it only when App Service operational standards or deployment slots matter
-more than independent web/API sizing. No App Service Bicep is included.
+Choose it only when App Service operational standards or deployment slots matter more than independent web/API sizing. No App Service Bicep is included.
 
 ## Private-network Container Apps
 
@@ -64,13 +60,11 @@ Target design:
 - PostgreSQL HA and Storage ZRS;
 - optional Firewall/UDR when centralized egress inspection is required.
 
-This option adds material cost and network ownership. Use it only for an explicit
-private-ingress, WAF, egress-inspection, or zone-resilience requirement.
+This option adds material cost and network ownership. Use it only for an explicit private-ingress, WAF, egress-inspection, or zone-resilience requirement.
 
 ## Resilient capacity profile
 
-The supplied resilient profile increases capacity and redundancy within one
-region:
+The supplied resilient profile increases capacity and redundancy within one region:
 
 | Service | Baseline | Resilient |
 |---|---|---|
@@ -84,9 +78,7 @@ It is not a multi-region disaster-recovery design.
 
 ## Grounding
 
-Azure AI Search is implemented directly. Foundry IQ is not integrated and is not
-a drop-in replacement; adoption requires a retrieval abstraction and citation/
-scope mapping.
+Azure AI Search is implemented directly. Foundry IQ is not integrated and is not a drop-in replacement; adoption requires a retrieval abstraction and citation/ scope mapping.
 
 ## Selection checklist
 
@@ -97,5 +89,4 @@ scope mapping.
 5. Are Azure OpenAI model and Search quotas available in the selected region?
 6. Has the chosen option been implemented and live-tested?
 
-See [Azure deployment](azure-deployment.md) and
-[Azure prerequisites](azure-prerequisites.md).
+See [Azure deployment](azure-deployment.md) and [Azure prerequisites](azure-prerequisites.md).

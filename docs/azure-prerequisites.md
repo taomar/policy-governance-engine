@@ -1,8 +1,6 @@
 # Azure deployment prerequisites
 
-Complete these prerequisites before any future `azd up`. The generated scripts
-check them but do not install tools, register providers, request quota or create
-resources automatically.
+Complete these prerequisites before any future `azd up`. The generated scripts check them but do not install tools, register providers, request quota or create resources automatically.
 
 ## Local tools
 
@@ -27,8 +25,7 @@ winget upgrade Microsoft.Azd
 az bicep upgrade
 ```
 
-The repository was authored against Python 3.11 and Node 22 container images;
-local Python/Node are useful for validation but not required by `azd` builds.
+The repository was authored against Python 3.11 and Node 22 container images; local Python/Node are useful for validation but not required by `azd` builds.
 
 ## Approved package feeds
 
@@ -38,22 +35,16 @@ The API container defaults to the approved PyPI proxy:
 https://packagefeedproxy.microsoft.io/pypi/simple
 ```
 
-Override Docker build argument `PIP_INDEX_URL` only when an approved environment
-requires another mirror. The supplied NuGet feed
-`https://packagefeedproxy.microsoft.io/nuget/v3/index.json` is not consumed by
-the current Python/React build because the repository contains no .NET project.
+Override Docker build argument `PIP_INDEX_URL` only when an approved environment requires another mirror. The supplied NuGet feed `https://packagefeedproxy.microsoft.io/nuget/v3/index.json` is not consumed by the current Python/React build because the repository contains no .NET project.
 
-The web image currently uses `npm ci` and its committed `package-lock.json`.
-No organization-approved npm proxy was supplied; configure one before a remote
-build if direct npm registry access is not permitted.
+The web image currently uses `npm ci` and its committed `package-lock.json`. No organization-approved npm proxy was supplied; configure one before a remote build if direct npm registry access is not permitted.
 
 ## Azure identity and permissions
 
 The deployment operator needs:
 
 - Contributor on the target subscription or resource-group scope
-- User Access Administrator (or Owner) where managed-identity role assignments
-  are created
+- User Access Administrator (or Owner) where managed-identity role assignments are created
 - permission to create Azure OpenAI deployments
 - permission to read quotas and provider registration
 - permission to create/update the selected Microsoft Entra app registration
@@ -67,9 +58,7 @@ azd auth login
 azd env new policy-dev
 ```
 
-A future `azd up` asks for the subscription and location. The location must
-support all three chosen Azure OpenAI model/version/SKU combinations, Container
-Apps, PostgreSQL Flexible Server and AI Search.
+A future `azd up` asks for the subscription and location. The location must support all three chosen Azure OpenAI model/version/SKU combinations, Container Apps, PostgreSQL Flexible Server and AI Search.
 
 ## Resource providers
 
@@ -88,8 +77,7 @@ $providers | ForEach-Object {
 }
 ```
 
-Register a missing provider only after authorization from the subscription
-owner:
+Register a missing provider only after authorization from the subscription owner:
 
 ```powershell
 az provider register --namespace <provider-name>
@@ -103,38 +91,27 @@ Install the Azure CLI quota extension:
 az extension add --name quota
 ```
 
-`infra/scripts/Test-AzurePrerequisites.ps1` uses `az quota` for supported
-providers and verifies that Container Apps quota can be read. Azure OpenAI model
-availability and TPM capacity are regional; the selected models must be
-confirmed before provisioning.
+`infra/scripts/Test-AzurePrerequisites.ps1` uses `az quota` for supported providers and verifies that Container Apps quota can be read. Azure OpenAI model availability and TPM capacity are regional; the selected models must be confirmed before provisioning.
 
-No quota is assumed by the documentation because subscription and location are
-intentionally deployment-time choices.
+No quota is assumed by the documentation because subscription and location are intentionally deployment-time choices.
 
 ## Microsoft Entra application
 
-Container Apps built-in authentication needs an app registration. Create or
-select a single-tenant web application and a client secret according to your
-organization's credential policy. Record:
+Container Apps built-in authentication needs an app registration. Create or select a single-tenant web application and a client secret according to your organization's credential policy. Record:
 
 - tenant ID
 - application/client ID
 - client secret value
 
-The initial callback URL is not known until Container Apps is provisioned. The
-postdeploy script adds:
+The initial callback URL is not known until Container Apps is provisioned. The postdeploy script adds:
 
 ```text
 <WEB_URL>/.auth/login/aad/callback
 ```
 
-The operator running `azd up` must be allowed to update that registration. If
-an identity team owns registrations, provide the final `WEB_URL` to that team
-and run the postdeploy step only after they add the callback.
+The operator running `azd up` must be allowed to update that registration. If an identity team owns registrations, provide the final `WEB_URL` to that team and run the postdeploy step only after they add the callback.
 
-A client secret is a deployment compromise, not the preferred long-term
-credential. Rotate it before expiry and consider a federated/managed pattern
-when Container Apps authentication supports the organization's target design.
+A client secret is a deployment compromise, not the preferred long-term credential. Rotate it before expiry and consider a federated/managed pattern when Container Apps authentication supports the organization's target design.
 
 ## Network ranges
 
@@ -147,13 +124,11 @@ PostgreSQL subnet            10.20.4.0/24
 Private endpoints subnet     10.20.5.0/24
 ```
 
-Change these azd values if they overlap connected VNets, VPN routes or
-on-premises networks. Delegated subnets must remain exclusive to their service.
+Change these azd values if they overlap connected VNets, VPN routes or on-premises networks. Delegated subnets must remain exclusive to their service.
 
 ## Required interactive values
 
-The preprovision hook asks for missing values and persists them in the selected
-local azd environment (ignored by Git):
+The preprovision hook asks for missing values and persists them in the selected local azd environment (ignored by Git):
 
 - resource group and resource prefix
 - PostgreSQL administrator login and URI-safe password
@@ -161,8 +136,7 @@ local azd environment (ignored by Git):
 - OpenAI reasoning and fast model names/versions
 - deployment names (safe defaults are offered)
 
-Model deployment capacity, SKUs, network ranges, replicas and retention have
-baseline defaults and can be overridden with `azd env set`.
+Model deployment capacity, SKUs, network ranges, replicas and retention have baseline defaults and can be overridden with `azd env set`.
 
 ## Run the read-only check
 
@@ -173,9 +147,7 @@ After selecting the subscription and location:
 .\infra\scripts\Test-AzurePrerequisites.ps1
 ```
 
-These scripts create or update local azd environment values and read Azure
-metadata. They do not create Azure resources. Do not continue to `azd up` until
-the prerequisite check succeeds.
+These scripts create or update local azd environment values and read Azure metadata. They do not create Azure resources. Do not continue to `azd up` until the prerequisite check succeeds.
 
 ## Secrets and source control
 
@@ -187,8 +159,7 @@ Never commit:
 - Entra client secrets
 - OpenAI or Search keys
 
-Bicep obtains newly created OpenAI/Search keys and writes them directly to Key
-Vault. Container Apps consume versionless Key Vault references.
+Bicep obtains newly created OpenAI/Search keys and writes them directly to Key Vault. Container Apps consume versionless Key Vault references.
 
 ## Official references
 

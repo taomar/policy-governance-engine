@@ -2,8 +2,7 @@
 
 *AI to read. Evidence to prove. Determinism to decide.*
 
-Start with the [User guide](user-guide.md) to see the product, or
-[How we work](how-we-work.md) to contribute to it.
+Start with the [User guide](user-guide.md) to see the product, or [How we work](how-we-work.md) to contribute to it.
 
 ## Core
 
@@ -46,14 +45,8 @@ Start with the [User guide](user-guide.md) to see the product, or
 
 ## Kept on the workstation
 
-Some pages are deliberately not published. Failure analyses, drift reports, the
-step-by-step account of what this build actually executes, and designs that have
-been decided but not built are written for whoever is doing the work. They
-describe how the product went wrong, or what it is not yet — which is not what a
-reader should have to sift through to learn how it behaves today.
+Some pages are deliberately not published. Failure analyses, drift reports, the step-by-step account of what this build actually executes, and designs that have been decided but not built are written for whoever is doing the work. They describe how the product went wrong, or what it is not yet — which is not what a reader should have to sift through to learn how it behaves today.
 
-What the product **is** lives in the pages above; what it does **not** do is in
-[Known limitations](known-limitations.md), which is published and guarded.
+What the product **is** lives in the pages above; what it does **not** do is in [Known limitations](known-limitations.md), which is published and guarded.
 
-See "What stays on the workstation" in [How we work](how-we-work.md) for the
-convention and the paths it covers.
+See "What stays on the workstation" in [How we work](how-we-work.md) for the convention and the paths it covers.

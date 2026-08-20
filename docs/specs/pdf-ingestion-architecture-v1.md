@@ -6,151 +6,67 @@
 
 **IMPORTANT:**
 
-This instruction governs HOW documents are parsed, chunked, indexed,
-reconstructed and supplied to the policy-extraction LLM.
+This instruction governs HOW documents are parsed, chunked, indexed, reconstructed and supplied to the policy-extraction LLM.
 
-Policy extraction itself is performed by a separate strict-verbatim
-policy-passage extraction prompt.
+Policy extraction itself is performed by a separate strict-verbatim policy-passage extraction prompt.
 
 
 ---
 
 ## STATUS — added 2026-08-14, not part of the original instruction
 
-**This document predates the code. It is still normative and still cited, but
-it is not a description of the system as built.** Part of it was never
-implemented, and one part of it should stay that way. The record of where the
-designed pipeline and the running one diverge is kept on the workstation, with
-the other failure analyses, rather than published here.
+**This document predates the code. It is still normative and still cited, but it is not a description of the system as built.** Part of it was never implemented, and one part of it should stay that way. The record of where the designed pipeline and the running one diverge is kept on the workstation, with the other failure analyses, rather than published here.
 
-Provenance: the file arrived in commit `7093f3b` and no line below this section
-has been edited since. The code cites it as normative —
-`infrastructure/ingestion/document_ingestion.py` line 3 names this file by
-path, and `contracts/canonical_document.py` cites eleven of its sections. The
-original wording is preserved deliberately: it is the record of what was asked
-for, not a description to be kept current.
+Provenance: the file arrived in commit `7093f3b` and no line below this section has been edited since. The code cites it as normative — `infrastructure/ingestion/document_ingestion.py` line 3 names this file by path, and `contracts/canonical_document.py` cites eleven of its sections. The original wording is preserved deliberately: it is the record of what was asked for, not a description to be kept current.
 
 ### The prompt this document refers to
 
-The preamble above refers to "a separate strict-verbatim policy-passage
-extraction prompt". It lives at
-`src/policy_platform/infrastructure/prompts/passage_extractor_v1.md` and is
-loaded from disk by `infrastructure/extraction/passage_extractor.py`, so a
-revision to it is a visible file change rather than a diff buried in Python.
-That is the only copy that runs.
+The preamble above refers to "a separate strict-verbatim policy-passage extraction prompt". It lives at `src/policy_platform/infrastructure/prompts/passage_extractor_v1.md` and is loaded from disk by `infrastructure/extraction/passage_extractor.py`, so a revision to it is a visible file change rather than a diff buried in Python. That is the only copy that runs.
 
-A second copy sat in `docs/specs/verbatim-passage-extractor-v1.md` until
-2026-08-14, when it was deleted. Its name said v1 and its version number agreed
-with the running one, but it was **an old intermediate state of v1** — which is
-worse than being out of date openly, because both signals said it was current.
-It had missed both revisions the runtime asset received: commit `0069b40`,
-which added the rule excluding a document's statements about its own
-enactment, approval, effective date and supersession, and commit `5846393`,
-which removed currency-specific wording. It stood 32 lines and 1,760 bytes
-behind. A reader building from it would have produced a system that extracts
-the document-control metadata the running system deliberately rejects.
+A second copy sat in `docs/specs/verbatim-passage-extractor-v1.md` until 2026-08-14, when it was deleted. Its name said v1 and its version number agreed with the running one, but it was **an old intermediate state of v1** — which is worse than being out of date openly, because both signals said it was current. It had missed both revisions the runtime asset received: commit `0069b40`, which added the rule excluding a document's statements about its own enactment, approval, effective date and supersession, and commit `5846393`, which removed currency-specific wording. It stood 32 lines and 1,760 bytes behind. A reader building from it would have produced a system that extracts the document-control metadata the running system deliberately rejects.
 
-The general form, which is why this is recorded here rather than in a note of
-its own: **a prompt copied into documentation is a source artefact wearing the
-wrong clothes, and it drifts faster than code because nothing imports it.** The
-domain-neutrality guard scans `src/` and the prompt directory, not `docs/`, so
-the stale copy kept wording the runtime prompt had already had removed and no
-test could see it. Nothing that is never loaded can fail loudly.
-`tests/unit/test_a_runtime_asset_has_one_home.py` now holds the rule that
-closes the class: a file the code loads at runtime has exactly one copy, and it
-lives where the code loads it from.
+The general form, which is why this is recorded here rather than in a note of its own: **a prompt copied into documentation is a source artefact wearing the wrong clothes, and it drifts faster than code because nothing imports it.** The domain-neutrality guard scans `src/` and the prompt directory, not `docs/`, so the stale copy kept wording the runtime prompt had already had removed and no test could see it. Nothing that is never loaded can fail loudly. `tests/unit/test_a_runtime_asset_has_one_home.py` now holds the rule that closes the class: a file the code loads at runtime has exactly one copy, and it lives where the code loads it from.
 
 ### Implemented
 
-Sections 6–13, 19, 26, 28–30, 35, 38, 39, 43–44, and the boundary tests of
-sections 47–53.
+Sections 6–13, 19, 26, 28–30, 35, 38, 39, 43–44, and the boundary tests of sections 47–53.
 
-* The canonical model of section 7 is `contracts/canonical_document.py`. The
-  two representations of section 6 are `CanonicalPage.raw_text` and
-  `CanonicalElement`.
-* Cross-page reconstruction (sections 8–10) is
-  `infrastructure/ingestion/document_ingestion.py`, which records every join as
-  a named transformation — `cross_page_join`, `line_break_hyphen_join`.
-* The verbatim guarantee of section 26 is enforced by `verify_verbatim`
-  (`infrastructure/extraction/passage_extractor.py` line 215). Section 51's own
-  test case — `non-Saudi` offered against a source reading `non- Saudi` — is
-  rejected, as that section requires.
-* Section 3's requirement is met: extraction enumerates a document rather than
-  retrieving the top *k*. See **Overtaken** below for the mechanism.
+* The canonical model of section 7 is `contracts/canonical_document.py`. The two representations of section 6 are `CanonicalPage.raw_text` and `CanonicalElement`.
+* Cross-page reconstruction (sections 8–10) is `infrastructure/ingestion/document_ingestion.py`, which records every join as a named transformation — `cross_page_join`, `line_break_hyphen_join`.
+* The verbatim guarantee of section 26 is enforced by `verify_verbatim` (`infrastructure/extraction/passage_extractor.py` line 215). Section 51's own test case — `non-Saudi` offered against a source reading `non- Saudi` — is rejected, as that section requires.
+* Section 3's requirement is met: extraction enumerates a document rather than retrieving the top *k*. See **Overtaken** below for the mechanism.
 
 ### Built, but not reached by the running pipeline
 
-The context-window architecture of sections 22–24 and the coverage proof of
-section 40 are both implemented — `contracts/reading_plan.py` — and neither
-reaches the extraction model. Section 22 is therefore unmet in effect while its
-implementation is complete and tested. The evidence is in the failures record
-cited above and is not repeated here.
+The context-window architecture of sections 22–24 and the coverage proof of section 40 are both implemented — `contracts/reading_plan.py` — and neither reaches the extraction model. Section 22 is therefore unmet in effect while its implementation is complete and tested. The evidence is in the failures record cited above and is not repeated here.
 
 ### Never built
 
-* **Sections 4 and 32 — lists and tables spanning pages.** A table continuing
-  across a page break is not reassembled into one logical table. The converter
-  emits each page's grid separately, so a body row on a continuation page has
-  no header row to resolve against.
-* **Section 16 — overlap between extraction windows.** Windows are strictly
-  disjoint (`infrastructure/extraction/ai_extraction.py` lines 120–134), so a
-  condition ending one window and its consequence beginning the next are never
-  presented together. Section 42's deduplication requirement is dormant only
-  because of this, and becomes live the moment overlap exists.
-* **Section 41 — retry.** A window whose processing fails is recorded as a skip
-  and the run still reports `completed`
-  (`infrastructure/extraction/ai_extraction.py` line 1061). There is no retry in
-  the path.
-* **Section 14 — configurable chunk size.** `_MAX_CHARS_PER_BATCH` is a module
-  constant, not a setting.
-* **Sections 31, 33, 34 — table cell position, list nesting, footnote anchors.**
-  Present on the canonical contract, dropped at the persistence boundary, so
-  they never reach extraction.
+* **Sections 4 and 32 — lists and tables spanning pages.** A table continuing across a page break is not reassembled into one logical table. The converter emits each page's grid separately, so a body row on a continuation page has no header row to resolve against.
+* **Section 16 — overlap between extraction windows.** Windows are strictly disjoint (`infrastructure/extraction/ai_extraction.py` lines 120–134), so a condition ending one window and its consequence beginning the next are never presented together. Section 42's deduplication requirement is dormant only because of this, and becomes live the moment overlap exists.
+* **Section 41 — retry.** A window whose processing fails is recorded as a skip and the run still reports `completed` (`infrastructure/extraction/ai_extraction.py` line 1061). There is no retry in the path.
+* **Section 14 — configurable chunk size.** `_MAX_CHARS_PER_BATCH` is a module constant, not a setting.
+* **Sections 31, 33, 34 — table cell position, list nesting, footnote anchors.** Present on the canonical contract, dropped at the persistence boundary, so they never reach extraction.
 
 ### Overtaken — designed, never built, and not to be built
 
-**Sections 18–21, and the ordering fields of section 36.** These specify an
-Azure AI Search retrieval layer: `chunk_order`, `previous_chunk_id`,
-`next_chunk_id`, `parent_element_ids`, `first_page`, `last_page`, and
-extraction driven by a filtered, ordered query over the index. None of those
-fields is written (`infrastructure/search/indexing.py`), and
-`infrastructure/search/search_client.py` line 3 records that the client never
-creates or alters index schemas.
+**Sections 18–21, and the ordering fields of section 36.** These specify an Azure AI Search retrieval layer: `chunk_order`, `previous_chunk_id`, `next_chunk_id`, `parent_element_ids`, `first_page`, `last_page`, and extraction driven by a filtered, ordered query over the index. None of those fields is written (`infrastructure/search/indexing.py`), and `infrastructure/search/search_client.py` line 3 records that the client never creates or alters index schemas.
 
-**Do not implement them.** Their purpose was section 3's requirement — visit
-every region of a document rather than retrieve the most similar *k* — and that
-requirement is already met by a better mechanism: clauses are enumerated from
-PostgreSQL in `Clause.sequence` order
-(`infrastructure/extraction/ai_extraction.py` line 563), a total order the
-index would otherwise have had to reconstruct. **The requirement stands; this
-way of meeting it has been overtaken.** Sections 3, 21 and 45 remain in force,
-and are satisfied.
+**Do not implement them.** Their purpose was section 3's requirement — visit every region of a document rather than retrieve the most similar *k* — and that requirement is already met by a better mechanism: clauses are enumerated from PostgreSQL in `Clause.sequence` order (`infrastructure/extraction/ai_extraction.py` line 563), a total order the index would otherwise have had to reconstruct. **The requirement stands; this way of meeting it has been overtaken.** Sections 3, 21 and 45 remain in force, and are satisfied.
 
-Of section 36, what is built: embeddings are generated, and `document_id` is
-filterable. What is not: the ordering fields above.
+Of section 36, what is built: embeddings are generated, and `document_id` is filterable. What is not: the ordering fields above.
 
 ### Stated limitation — INVARIANT 7
 
-INVARIANT 7 requires every extraction to be validated against canonical source
-text. `verify_verbatim` is called against the *rendered batch* that was sent to
-the model (`infrastructure/extraction/passage_extractor.py` lines 389 and 410),
-not against `CanonicalPage.raw_text`. That proves the model copied rather than
-composed. It does not prove the stored clause matches the PDF, so a document
-whose text was captured wrongly upstream can pass verbatim verification against
-its own corrupted store.
+INVARIANT 7 requires every extraction to be validated against canonical source text. `verify_verbatim` is called against the *rendered batch* that was sent to the model (`infrastructure/extraction/passage_extractor.py` lines 389 and 410), not against `CanonicalPage.raw_text`. That proves the model copied rather than composed. It does not prove the stored clause matches the PDF, so a document whose text was captured wrongly upstream can pass verbatim verification against its own corrupted store.
 
-This limit is known and deliberately still open. Closing it means first deciding
-what verification means once canonical text has been legitimately transformed:
-section 30 permits hyphen-joining, while section 51 requires a repaired hyphen
-to *fail* an exact comparison — so a single exact match against raw page text
-cannot serve both.
+This limit is known and deliberately still open. Closing it means first deciding what verification means once canonical text has been legitimately transformed: section 30 permits hyphen-joining, while section 51 requires a repaired hyphen to *fail* an exact comparison — so a single exact match against raw page text cannot serve both.
 
 ---
 
 ## 1. OBJECTIVE
 
-Implement a document ingestion and retrieval architecture for policy documents
-such as:
+Implement a document ingestion and retrieval architecture for policy documents such as:
 
 - HR policies
 - finance policies
@@ -210,8 +126,7 @@ A numbered list may begin on page 30 and continue on page 31.
 
 A table may begin on page 45 and continue on page 46.
 
-A policy condition may appear at the bottom of one page while its consequence
-appears on the next page.
+A policy condition may appear at the bottom of one page while its consequence appears on the next page.
 
 The implementation MUST preserve these relationships.
 
@@ -229,8 +144,7 @@ Azure AI Search vector/hybrid search is useful for:
 - policy comparison
 - later RAG operations
 
-It MUST NOT be used as the sole mechanism for deciding which chunks of a
-document are processed during initial policy extraction.
+It MUST NOT be used as the sole mechanism for deciding which chunks of a document are processed during initial policy extraction.
 
 DO NOT do:
 
@@ -302,15 +216,7 @@ exact-source validation
 
 Do NOT:
 
-PDF
-   ↓
-split every page independently
-   ↓
-embed pages
-   ↓
-search top-k
-   ↓
-extract policies
+PDF ↓ split every page independently ↓ embed pages ↓ search top-k ↓ extract policies
 
 
 That architecture is insufficient for exhaustive policy extraction.
@@ -324,8 +230,7 @@ For a new Azure AI Search ingestion implementation, evaluate:
 
     Azure Content Understanding skill
 
-because it supports layout-aware semantic units and can preserve structures
-that span page boundaries.
+because it supports layout-aware semantic units and can preserve structures that span page boundaries.
 
 If the existing implementation already uses:
 
@@ -334,8 +239,7 @@ If the existing implementation already uses:
 
 it may remain in use, but perform explicit logical continuation handling.
 
-Do NOT rely only on plain PDF text extraction when layout structure is
-important.
+Do NOT rely only on plain PDF text extraction when layout structure is important.
 
 
 The parser should preserve, where available:
@@ -367,8 +271,7 @@ Purpose:
 
 Never intentionally rewrite this representation.
 
-Store source-derived text and coordinates exactly as provided by the selected
-document extraction layer.
+Store source-derived text and coordinates exactly as provided by the selected document extraction layer.
 
 
 B. LOGICAL DOCUMENT REPRESENTATION
@@ -379,8 +282,7 @@ Purpose:
     policy detection
     semantic chunking
 
-This representation may reconnect physical page fragments that clearly belong
-to one logical paragraph/list/table.
+This representation may reconnect physical page fragments that clearly belong to one logical paragraph/list/table.
 
 IMPORTANT:
 
@@ -395,10 +297,7 @@ Create a deterministic intermediate representation before embedding.
 
 Example:
 
-{
-  "document_id": "...",
-  "document_version": "...",
-  "elements": [
+{ "document_id": "...", "document_version": "...", "elements": [
     {
       "element_id": "E000001",
       "element_type": "paragraph",
@@ -412,8 +311,7 @@ Example:
         }
       ]
     }
-  ]
-}
+] }
 
 
 Possible element_type values:
@@ -469,8 +367,7 @@ The reconstructed logical text should remain source-derived:
 
 Store provenance:
 
-source_fragments:
-[
+source_fragments: [
     { "page": 10, ... },
     { "page": 11, ... }
 ]
@@ -609,31 +506,20 @@ Then assemble those units into embedding chunks.
 
 Preferred hierarchy:
 
-DOCUMENT
-   ↓
-SECTION
-   ↓
-PARAGRAPH / LIST / TABLE
-   ↓
-CHUNK
+DOCUMENT ↓ SECTION ↓ PARAGRAPH / LIST / TABLE ↓ CHUNK
 
 
 Never:
 
-DOCUMENT
-   ↓
-every 2,000 characters regardless of structure
+DOCUMENT ↓ every 2,000 characters regardless of structure
 
 
-Microsoft's layout-aware Search tooling is specifically intended to produce
-more semantically coherent chunks; use that structural information instead of
-discarding it.
+Microsoft's layout-aware Search tooling is specifically intended to produce more semantically coherent chunks; use that structural information instead of discarding it.
 
 
 ## 13. CHUNK BOUNDARY RULE
 
-Embedding chunks MUST be created only AFTER logical blocks have been
-reconstructed.
+Embedding chunks MUST be created only AFTER logical blocks have been reconstructed.
 
 A chunk boundary should preferably occur:
 
@@ -657,8 +543,7 @@ Avoid splitting:
 
 Do not hard-code a tiny chunk size.
 
-Select a configurable target appropriate to the embedding model and retrieval
-requirements.
+Select a configurable target appropriate to the embedding model and retrieval requirements.
 
 Example configuration concept:
 
@@ -674,8 +559,7 @@ The important requirement is:
     SEMANTIC BOUNDARY > TARGET SIZE
 
 
-If a complete logical paragraph slightly exceeds the preferred target size,
-prefer keeping the paragraph intact when model limits permit.
+If a complete logical paragraph slightly exceeds the preferred target size, prefer keeping the paragraph intact when model limits permit.
 
 
 ## 15. OVERSIZED PARAGRAPHS
@@ -725,8 +609,7 @@ Chunk 11:
 
 This is acceptable.
 
-Store metadata indicating which content is overlapping so duplicated extraction
-results can later be reconciled by source position.
+Store metadata indicating which content is overlapping so duplicated extraction results can later be reconciled by source position.
 
 
 ## 17. DO NOT CONFUSE TEXT SPLIT "PAGES" WITH PDF PAGES
@@ -751,26 +634,19 @@ Do not overload these concepts.
 
 At minimum, maintain fields equivalent to:
 
-document_id
-document_version
-document_name
+document_id document_version document_name
 
-chunk_id
-chunk_order
+chunk_id chunk_order
 
-content
-content_vector
+content content_vector
 
-section_id
-section_title
+section_id section_title
 
-first_page
-last_page
+first_page last_page
 
 source_fragments
 
-previous_chunk_id
-next_chunk_id
+previous_chunk_id next_chunk_id
 
 parent_element_ids
 
@@ -779,16 +655,10 @@ content_hash
 
 Where supported by the storage model also preserve:
 
-source offsets
-bounding regions
-paragraph IDs
-table IDs
-article numbers
-clause numbers
+source offsets bounding regions paragraph IDs table IDs article numbers clause numbers
 
 
-The exact schema may be adapted to Azure AI Search supported field types,
-but the information MUST remain recoverable.
+The exact schema may be adapted to Azure AI Search supported field types, but the information MUST remain recoverable.
 
 
 ## 19. STABLE CHUNK IDENTIFIERS
@@ -934,8 +804,7 @@ Instruction to extraction model:
     Extract a passage when any part of the qualifying passage intersects
     primary_source.
 
-This allows complete cross-boundary policy extraction without processing the
-same passage repeatedly.
+This allows complete cross-boundary policy extraction without processing the same passage repeatedly.
 
 
 ## 24. EVEN BETTER: PROCESS LOGICAL BLOCK WINDOWS
@@ -990,8 +859,7 @@ The same text can legitimately appear more than once.
 
 ## 26. VERBATIM EXTRACTION GUARANTEE
 
-The policy extractor must never be trusted merely because it was instructed
-to be verbatim.
+The policy extractor must never be trusted merely because it was instructed to be verbatim.
 
 Enforce verbatim extraction programmatically.
 
@@ -1113,8 +981,7 @@ Never perform uncontrolled transformations such as:
     convert bullets
 
 
-unless the transformation is part of a deterministic canonicalization algorithm
-performed BEFORE indexing and source validation.
+unless the transformation is part of a deterministic canonicalization algorithm performed BEFORE indexing and source validation.
 
 
 If canonicalization is used:
@@ -1170,13 +1037,7 @@ Tables are policy-rich and require special treatment.
 
 Examples:
 
-approval matrices
-penalty schedules
-benefit tiers
-expense limits
-delegation matrices
-risk levels
-retention schedules
+approval matrices penalty schedules benefit tiers expense limits delegation matrices risk levels retention schedules
 
 
 Do NOT flatten a table into meaningless text.
@@ -1191,14 +1052,12 @@ Preserve:
     page locations
 
 
-For policy extraction, provide sufficient table structure for the model to
-identify policy-bearing rows.
+For policy extraction, provide sufficient table structure for the model to identify policy-bearing rows.
 
 
 Never have the LLM invent sentences from the table.
 
-If the row is returned as a policy candidate, return the source row/block in
-its canonical table representation.
+If the row is returned as a policy candidate, return the source row/block in its canonical table representation.
 
 
 ## 32. MULTI-PAGE TABLES
@@ -1229,14 +1088,10 @@ TABLE-004
 
 not:
 
-TABLE-004A
-TABLE-004B
-TABLE-004C
+TABLE-004A TABLE-004B TABLE-004C
 
 
-If Azure Content Understanding is available in the selected architecture,
-take advantage of its cross-page table capabilities rather than recreating
-them unnecessarily.
+If Azure Content Understanding is available in the selected architecture, take advantage of its cross-page table capabilities rather than recreating them unnecessarily.
 
 
 ## 33. NUMBERED LISTS
@@ -1285,8 +1140,7 @@ Do not merge footnote wording into the policy sentence.
 
 ## 35. HEADINGS
 
-Headings generally aren't policy passages themselves, but they provide
-important context.
+Headings generally aren't policy passages themselves, but they provide important context.
 
 Store them and include the active heading hierarchy as metadata/context:
 
@@ -1308,8 +1162,7 @@ Example:
 }
 
 
-Do not inject heading words into extracted source text unless they literally
-belong to the selected source passage.
+Do not inject heading words into extracted source text unless they literally belong to the selected source passage.
 
 
 ## 36. SEARCH AI EMBEDDINGS
@@ -1325,8 +1178,7 @@ Embeddings are valuable for later:
     cross-document comparison
 
 
-But retain the non-vector filterable fields necessary for exact document
-enumeration.
+But retain the non-vector filterable fields necessary for exact document enumeration.
 
 
 At minimum:
@@ -1390,8 +1242,7 @@ Store:
     ingestion_timestamp
 
 
-Policies should reference the exact source version from which they were
-extracted.
+Policies should reference the exact source version from which they were extracted.
 
 
 This later enables:
@@ -1418,14 +1269,12 @@ Example:
     SHA-256
 
 
-This allows the system to prove when source content is unchanged and avoid
-unnecessary reprocessing.
+This allows the system to prove when source content is unchanged and avoid unnecessary reprocessing.
 
 
 ## 40. COVERAGE CONTROL
 
-After extraction, the system must be able to prove that every region of the
-document was considered.
+After extraction, the system must be able to prove that every region of the document was considered.
 
 Maintain processing records such as:
 
@@ -1485,8 +1334,7 @@ Two identical sentences in different source locations must remain distinct.
 
 The LLM should return:
 
-{
-  "policy_passages": [
+{ "policy_passages": [
     {
       "classification": "POLICY",
       "text": "<exact source text>",
@@ -1497,12 +1345,10 @@ The LLM should return:
         "source_fragments": [...]
       }
     }
-  ]
-}
+] }
 
 
-Do not allow the LLM to generate source page numbers if the application already
-knows them.
+Do not allow the LLM to generate source page numbers if the application already knows them.
 
 The application should attach authoritative provenance whenever possible.
 
@@ -1538,8 +1384,7 @@ For the initial extraction workflow:
 
     embedding similarity score MUST NOT determine whether text gets processed.
 
-A paragraph with low similarity to the word "policy" can still contain a
-critical requirement.
+A paragraph with low similarity to the word "policy" can still contain a critical requirement.
 
 Example:
 
@@ -1654,8 +1499,7 @@ page 2 contains:
     > SAR 100K
 
 
-The ingestion pipeline must preserve the table as one logical table or clearly
-linked continuation.
+The ingestion pipeline must preserve the table as one logical table or clearly linked continuation.
 
 No row may lose its header context.
 
@@ -1773,8 +1617,7 @@ No LLM-generated word can enter the verbatim policy text field.
 
 INVARIANT 7
 
-Every extraction returned by the LLM is validated against canonical source
-text.
+Every extraction returned by the LLM is validated against canonical source text.
 
 
 INVARIANT 8
@@ -1789,8 +1632,7 @@ Failures cannot silently reduce document coverage.
 
 INVARIANT 10
 
-Embedding retrieval is never used as a substitute for complete document
-enumeration during policy extraction.
+Embedding retrieval is never used as a substitute for complete document enumeration during policy extraction.
 
 
 ## 56. IMPLEMENTATION PRIORITY
@@ -1849,8 +1691,7 @@ Identify the exact component responsible for each transformation.
 
 Do not duplicate existing functionality unnecessarily.
 
-If the existing Azure AI Search pipeline already preserves structural
-information, extend it instead of replacing it.
+If the existing Azure AI Search pipeline already preserves structural information, extend it instead of replacing it.
 
 
 ## 58. SMALL BUG / ARCHITECTURAL PROBLEM RULE

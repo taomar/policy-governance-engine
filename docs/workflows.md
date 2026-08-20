@@ -1,8 +1,6 @@
 # Workflows
 
-This page is the short operational view of the platform. For screenshots, use the
-[User guide](user-guide.md). For implementation boundaries, use
-[Capability flows](capability-flows.md).
+This page is the short operational view of the platform. For screenshots, use the [User guide](user-guide.md). For implementation boundaries, use [Capability flows](capability-flows.md).
 
 ## Document control workflow
 
@@ -25,27 +23,22 @@ flowchart LR
 
 The important control points are:
 
-1. **Source is immutable.** Uploading a replacement creates a new
-   `DocumentVersion`; it does not overwrite the earlier source.
-2. **AI produces drafts only.** Extraction creates candidate rules linked to
-   verbatim clauses.
+1. **Source is immutable.** Uploading a replacement creates a new `DocumentVersion`; it does not overwrite the earlier source.
+2. **AI produces drafts only.** Extraction creates candidate rules linked to verbatim clauses.
 3. **A human publishes.** Approved candidates become a new full policy snapshot.
 4. **The engine is deterministic.** AI is never in the decision path.
-5. **Evidence is append-only.** Evaluations, quality runs, and test runs retain
-   the version they were executed against.
+5. **Evidence is append-only.** Evaluations, quality runs, and test runs retain the version they were executed against.
 
 ## 1. Ingest and control source documents
 
-Upload PDF or DOCX from a project **Documents** tab or the global
-**Document Inbox**. The API:
+Upload PDF or DOCX from a project **Documents** tab or the global **Document Inbox**. The API:
 
 - stores the file;
 - creates a `SourceDocument` and immutable `DocumentVersion`;
 - parses layout-aware `Clause` rows with page, section, sequence, and offsets;
 - indexes clauses into Azure AI Search on a best-effort basis.
 
-Duplicate content hashes are rejected. Search failure does not invalidate the
-stored source.
+Duplicate content hashes are rejected. Search failure does not invalidate the stored source.
 
 ## 2. Extract candidate rules
 
@@ -54,35 +47,27 @@ stored source.
 1. Stage 1 selects verbatim policy passages.
 2. Python verifies each passage against the canonical source text.
 3. Stage 2 formulates structured rules.
-4. Deterministic mapping derives conditions, effects, facts, and the route each
-   rule takes.
+4. Deterministic mapping derives conditions, effects, facts, and the route each rule takes.
 5. Candidate rows are persisted for review.
 
-Nothing is published automatically. A restart marks an interrupted run failed
-while keeping candidates already committed.
+Nothing is published automatically. A restart marks an interrupted run failed while keeping candidates already committed.
 
 ### How a rule is routed
 
-Every rule carries an `evaluation_mode` saying how it must be decided. It is a
-property of how the source sentence is written, not a grade:
+Every rule carries an `evaluation_mode` saying how it must be decided. It is a property of how the source sentence is written, not a grade:
 
 | Route | The source states its test as | Decided by |
 |---|---|---|
 | `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine, from the rule's `condition` |
 | `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
 
-Most policy text is the second kind. Both are complete records; running or
-judging them is a separate system's job, not this platform's.
+Most policy text is the second kind. Both are complete records; running or judging them is a separate system's job, not this platform's.
 
 ## 3. Review and approve
 
-The **Review** tab is the governance gate. Reviewers can filter, inspect source
-evidence, edit, request an AI rewrite, approve, reject, or apply a bulk decision.
-Manager-only request-change and override actions require the manager persona.
+The **Review** tab is the governance gate. Reviewers can filter, inspect source evidence, edit, request an AI rewrite, approve, reject, or apply a bulk decision. Manager-only request-change and override actions require the manager persona.
 
-All evidence-creating actions use the shared actor identity from the application
-header. A reviewer name must be set there before approving or rejecting, so
-every decision carries an attributable author.
+All evidence-creating actions use the shared actor identity from the application header. A reviewer name must be set there before approving or rejecting, so every decision carries an attributable author.
 
 ## 4. Publish an immutable version
 
@@ -95,8 +80,7 @@ Publishing:
 - writes an audit event;
 - re-runs active regression guards.
 
-Published rules are read-only. A correction requires a new candidate and another
-version.
+Published rules are read-only. A correction requires a new candidate and another version.
 
 ## 5. Assure policy behavior
 
@@ -106,13 +90,11 @@ version.
 | **Validation** | Generate or author sealed scenarios, run them blind, compare expected to actual behavior, and preserve representative passing scenarios as guards that re-run across later published versions. |
 | **Compare** | Compute an exact rule-level diff between two published snapshots, with an optional AI narrative. |
 
-AI may propose findings or scenarios. Python validation and the deterministic
-engine decide what is accepted, executable, passing, or failing.
+AI may propose findings or scenarios. Python validation and the deterministic engine decide what is accepted, executable, passing, or failing.
 
 ## 6. Evaluate and retain evidence
 
-The global **Evaluate** page and `POST /api/evaluations` accept a policy set,
-optional version pin, and facts.
+The global **Evaluate** page and `POST /api/evaluations` accept a policy set, optional version pin, and facts.
 
 The result includes:
 
@@ -125,8 +107,7 @@ The result includes:
 - source evidence;
 - stable result hash.
 
-Every call is appended to the project **Decision Log**. Missing facts yield
-`INDETERMINATE`; the engine never guesses.
+Every call is appended to the project **Decision Log**. Missing facts yield `INDETERMINATE`; the engine never guesses.
 
 ## Supporting workflows
 
@@ -141,8 +122,7 @@ Every call is appended to the project **Decision Log**. Missing facts yield
 
 ## Navigation
 
-The sidebar exposes Dashboard, Projects, Document Inbox, Evaluate, and named
-projects. Inside a project, tabs follow the lifecycle:
+The sidebar exposes Dashboard, Projects, Document Inbox, Evaluate, and named projects. Inside a project, tabs follow the lifecycle:
 
 ```text
 Author:   Overview -> Documents -> Review

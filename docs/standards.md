@@ -1,12 +1,8 @@
 # Standards
 
-PolicyVerbAItim implements three published standards. Each is named here with
-what it governs, where it is applied, and — where it matters most — what the
-platform deliberately does *not* claim from it.
+PolicyVerbAItim implements three published standards. Each is named here with what it governs, where it is applied, and — where it matters most — what the platform deliberately does *not* claim from it.
 
-Depth and the full survey of what was evaluated and rejected is in
-[Standards research](policy-standards-research.md). This page is the short,
-binding answer: **which standard governs which decision**.
+Depth and the full survey of what was evaluated and rejected is in [Standards research](policy-standards-research.md). This page is the short, binding answer: **which standard governs which decision**.
 
 ## The three
 
@@ -16,15 +12,11 @@ binding answer: **which standard governs which decision**.
 | **OMG DMN 1.5 / FEEL** | OMG | Decision tables, condition expressions, hit policies |
 | **OMG SBVR 1.5** (concepts) | OMG | The deontic vocabulary the canonical rule types express |
 
-One rule governs all of them: **a standard is adopted or it is not.** Where a
-concept is borrowed without conformance, this page says so explicitly, because a
-half-claimed standard is worse than none — it invites a reader to assume
-guarantees the code does not provide.
+One rule governs all of them: **a standard is adopted or it is not.** Where a concept is borrowed without conformance, this page says so explicitly, because a half-claimed standard is worse than none — it invites a reader to assume guarantees the code does not provide.
 
 ## XACML 3.0 — the decision vocabulary
 
-XACML is the platform's adopted authorization standard. It is used, not merely
-referenced:
+XACML is the platform's adopted authorization standard. It is used, not merely referenced:
 
 | XACML concept | Where |
 |---|---|
@@ -36,10 +28,7 @@ referenced:
 
 ### Obligation is not Advice
 
-XACML §7.18 draws a line the platform must keep: a PEP **must** discharge an
-Obligation, and **may** ignore Advice. `REQUIRE_ACTION` is the first;
-`INFORMATIONAL` is the second. Collapsing them turns guidance into a duty, so
-they never share an encoding.
+XACML §7.18 draws a line the platform must keep: a PEP **must** discharge an Obligation, and **may** ignore Advice. `REQUIRE_ACTION` is the first; `INFORMATIONAL` is the second. Collapsing them turns guidance into a duty, so they never share an encoding.
 
 ### Attribute naming
 
@@ -51,27 +40,17 @@ Short forms of the standard identifiers, used in the display of stated logic:
 | `action.action-id` | `urn:oasis:names:tc:xacml:1.0:action:action-id` |
 | `resource.resource-id` | `urn:oasis:names:tc:xacml:1.0:resource:resource-id` |
 
-`subject:subject-id` is used rather than the narrower `subject:role`. Both are
-standard, but asserting `role` requires knowing the subject *names a role* —
-"The ED/CEO" is a role, "A device" is not, and both arrive as the grammatical
-subject of a sentence. The generic identifier makes no claim the extraction
-cannot support.
+`subject:subject-id` is used rather than the narrower `subject:role`. Both are standard, but asserting `role` requires knowing the subject *names a role* — "The ED/CEO" is a role, "A device" is not, and both arrive as the grammatical subject of a sentence. The generic identifier makes no claim the extraction cannot support.
 
-A rule that only classifies constrains `resource.resource-id`, not a subject:
-calling "Security incidents" a subject would claim the document assigned conduct
-to a category.
+A rule that only classifies constrains `resource.resource-id`, not a subject: calling "Security incidents" a subject would claim the document assigned conduct to a category.
 
 ### What XACML does not govern
 
-The platform is not an XACML PDP and does not consume XACML XML policies. It
-implements the model — decisions, targets, obligations, combining — over its own
-canonical rule format.
+The platform is not an XACML PDP and does not consume XACML XML policies. It implements the model — decisions, targets, obligations, combining — over its own canonical rule format.
 
 ## DMN 1.5 / FEEL — the executable projection
 
-The formulator projects each canonical policy to a DMN-shaped decision, and
-`derive_condition()` compiles a table row into the condition AST the evaluator
-executes.
+The formulator projects each canonical policy to a DMN-shaped decision, and `derive_condition()` compiles a table row into the condition AST the evaluator executes.
 
 Every projection carries a status, and only one of them compiles:
 
@@ -83,38 +62,21 @@ Every projection carries a status, and only one of them compiles:
 | `not_directly_mappable` | Stated as a responsibility, not a decision. |
 | `not_applicable` | Carries no decision at all. |
 
-**`executable` is the agent's assertion that nothing was invented.** Without it,
-`derive_condition()` returns nothing and the rule is `machine_executable=False`.
-It never guesses a fact path to fill the gap — see
-[Relationships and linking](relationships.md) for the same principle applied to
-links.
+**`executable` is the agent's assertion that nothing was invented.** Without it, `derive_condition()` returns nothing and the rule is `machine_executable=False`. It never guesses a fact path to fill the gap — see [Relationships and linking](relationships.md) for the same principle applied to links.
 
-The JSON is a **DMN-compatible IR**, not a normative DMN document. It carries
-`representation: "DMN-compatible JSON IR"` precisely so no consumer mistakes it
-for one.
+The JSON is a **DMN-compatible IR**, not a normative DMN document. It carries `representation: "DMN-compatible JSON IR"` precisely so no consumer mistakes it for one.
 
 ## SBVR 1.5 — deontic categories
 
-`CanonicalRuleType` is the deontic vocabulary: `obligation`, `prohibition`,
-`permission`, `entitlement`, `eligibility`, `recommendation`, `classification`,
-`definition`, `conditional_outcome`, `calculation`, `ambiguous`,
-`non_normative`.
+`CanonicalRuleType` is the deontic vocabulary: `obligation`, `prohibition`, `permission`, `entitlement`, `eligibility`, `recommendation`, `classification`, `definition`, `conditional_outcome`, `calculation`, `ambiguous`, `non_normative`.
 
-The distinction that matters is **deontic vs alethic**: an obligation says what
-*ought* to be, a classification says what *is true by definition*. Conflating
-them turns a definition into a duty, which is why `classification` and
-`definition` map to `INFORMATIONAL` rather than `ALLOW` — most visibly when the
-source is phrased negatively and a forced `ALLOW` would assert the literal
-inverse of the rule's own text.
+The distinction that matters is **deontic vs alethic**: an obligation says what *ought* to be, a classification says what *is true by definition*. Conflating them turns a definition into a duty, which is why `classification` and `definition` map to `INFORMATIONAL` rather than `ALLOW` — most visibly when the source is phrased negatively and a forced `ALLOW` would assert the literal inverse of the rule's own text.
 
-Concepts are used; SBVR's structured English and MOF metamodel are not
-implemented.
+Concepts are used; SBVR's structured English and MOF metamodel are not implemented.
 
 ## RFC 9457 — not adopted
 
-API errors are FastAPI's default `{"detail": "..."}`, **not**
-`application/problem+json`. RFC 9457 is a natural fit and adopting it would be a
-small change, but until it is made the platform does not claim it.
+API errors are FastAPI's default `{"detail": "..."}`, **not** `application/problem+json`. RFC 9457 is a natural fit and adopting it would be a small change, but until it is made the platform does not claim it.
 
 ## Deliberately not claimed
 

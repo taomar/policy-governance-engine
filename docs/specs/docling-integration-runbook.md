@@ -1,8 +1,6 @@
 # Docling Integration — Migration and Operating Runbook
 
-How to enable, run, verify, and roll back the Docling extraction path. Every
-number here was measured on this repository's sample corpus; nothing is
-projected.
+How to enable, run, verify, and roll back the Docling extraction path. Every number here was measured on this repository's sample corpus; nothing is projected.
 
 ---
 
@@ -25,9 +23,7 @@ projected.
 | `PolicyDocumentGraphV1` template | validated against Docling Graph's catalog builder |
 | Extraction API + web drawer | working, build and lint clean |
 
-**Built but not exercised in this environment** — each needs a credential or
-service that was not configured, so treat these as untested against the real
-dependency:
+**Built but not exercised in this environment** — each needs a credential or service that was not configured, so treat these as untested against the real dependency:
 
 | Component | Needs |
 |---|---|
@@ -55,9 +51,7 @@ dependency:
 
 ### Environment
 
-Extraction runs in its own environment. This is not a preference: `litellm`
-requires `httpx>=0.28` while the API pins `<0.28`, so the two cannot share one
-interpreter.
+Extraction runs in its own environment. This is not a preference: `litellm` requires `httpx>=0.28` while the API pins `<0.28`, so the two cannot share one interpreter.
 
 ```powershell
 python -m venv .venv-graph
@@ -76,14 +70,9 @@ DOCLING_GRAPH_ENABLED=true
 DOCLING_GRAPH_MODEL=azure/gpt-4o
 ```
 
-Dense extraction routes through LiteLLM at the platform's existing Azure OpenAI
-deployment. There is deliberately no second endpoint: two model configurations
-drift, and the resulting failure is a run extracted by a different model than
-the one that was validated.
+Dense extraction routes through LiteLLM at the platform's existing Azure OpenAI deployment. There is deliberately no second endpoint: two model configurations drift, and the resulting failure is a run extracted by a different model than the one that was validated.
 
-`DOCLING_GRAPH_ENABLED=false` leaves the deterministic pipeline fully
-functional — a document can still be converted, structured, planned, coverage-proven
-and verified. Only candidate discovery is skipped.
+`DOCLING_GRAPH_ENABLED=false` leaves the deterministic pipeline fully functional — a document can still be converted, structured, planned, coverage-proven and verified. Only candidate discovery is skipped.
 
 ### Windows PDF prerequisite
 
@@ -91,8 +80,7 @@ and verified. Only candidate discovery is skipped.
 $env:TORCHDYNAMO_DISABLE = "1"
 ```
 
-Without it, Docling's PDF pipeline fails with `InvalidCxxCompiler: Compiler: cl
-is not found` on machines with no Visual C++ toolchain. DOCX is unaffected.
+Without it, Docling's PDF pipeline fails with `InvalidCxxCompiler: Compiler: cl is not found` on machines with no Visual C++ toolchain. DOCX is unaffected.
 
 ### Running the stack locally
 
@@ -119,15 +107,9 @@ cd apps/web; npm install; npm run dev
 | API | `http://localhost:8010` |
 | OpenAPI | `http://localhost:8010/docs` |
 
-**Ports and CORS live in `.env`, not in code.** `WEB_DEV_SERVER_PORT` sets the
-port Vite binds to *and* the origin the API admits, so moving the UI is a
-one-line change. `vite.config.ts` reads the same value with `strictPort`, which
-means the dev server fails rather than silently moving to a port the API would
-reject — a mismatch there presents as a broken backend, because the browser
-blocks the request and the server logs nothing.
+**Ports and CORS live in `.env`, not in code.** `WEB_DEV_SERVER_PORT` sets the port Vite binds to *and* the origin the API admits, so moving the UI is a one-line change. `vite.config.ts` reads the same value with `strictPort`, which means the dev server fails rather than silently moving to a port the API would reject — a mismatch there presents as a broken backend, because the browser blocks the request and the server logs nothing.
 
-Set `CORS_ALLOWED_ORIGINS` explicitly for a deployed environment. An explicit
-list is used verbatim and is never widened by the development range.
+Set `CORS_ALLOWED_ORIGINS` explicitly for a deployed environment. An explicit list is used verbatim and is never widened by the development range.
 
 To verify CORS without a browser:
 
@@ -188,35 +170,22 @@ Both scripts exit non-zero on failure, so they are usable as CI gates.
 | `Workplace-Hardware-...v3.2.docx` | 280 | 0.6 s |
 | `HR-Guide-...Template.pdf` (53 pages) | 782 | **~195 s** |
 
-PDF conversion is roughly three orders of magnitude slower than DOCX because it
-runs layout inference per page. **Any ingestion flow that converts PDF
-synchronously inside a request will time out.** This is the single hardest
-constraint on the durable-job work.
+PDF conversion is roughly three orders of magnitude slower than DOCX because it runs layout inference per page. **Any ingestion flow that converts PDF synchronously inside a request will time out.** This is the single hardest constraint on the durable-job work.
 
 ---
 
 ## 5. Cutover
 
-The directive permits the legacy parser to run in shadow mode for migration QA
-only, then requires its removal from the new-ingestion path.
+The directive permits the legacy parser to run in shadow mode for migration QA only, then requires its removal from the new-ingestion path.
 
-1. **Shadow.** Run `docling_shadow_report.py` on the real corpus. Cutover is
-   blocked while any document reports content loss.
-2. **Enable.** Point new ingestion at `convert_document`. Old releases keep their
-   existing canonical artifacts and ordinal element IDs — the directive forbids
-   silently recanonicalizing them, and `is_legacy_element_id` exists so both
-   forms resolve side by side.
-3. **Observe.** Watch `suspected_missing_space` diagnostics and coverage
-   verdicts on newly ingested documents.
-4. **Remove.** Once the gates hold on production documents, drop the legacy
-   parser from the new-ingestion path only.
+1. **Shadow.** Run `docling_shadow_report.py` on the real corpus. Cutover is blocked while any document reports content loss.
+2. **Enable.** Point new ingestion at `convert_document`. Old releases keep their existing canonical artifacts and ordinal element IDs — the directive forbids silently recanonicalizing them, and `is_legacy_element_id` exists so both forms resolve side by side.
+3. **Observe.** Watch `suspected_missing_space` diagnostics and coverage verdicts on newly ingested documents.
+4. **Remove.** Once the gates hold on production documents, drop the legacy parser from the new-ingestion path only.
 
 ### Rollback
 
-Re-point ingestion at `document_extraction.extract_document`, and
-`alembic downgrade -1` if the stages table is unwanted. Nothing else needs
-undoing: the Docling path is additive, alters no existing table, and previously
-ingested releases are untouched by either direction of the switch.
+Re-point ingestion at `document_extraction.extract_document`, and `alembic downgrade -1` if the stages table is unwanted. Nothing else needs undoing: the Docling path is additive, alters no existing table, and previously ingested releases are untouched by either direction of the switch.
 
 ---
 
@@ -239,62 +208,41 @@ ingested releases are untouched by either direction of the switch.
 | `weak_provenance` | warning | Candidates lack verbatim location |
 | `synthetic_parents`, `orphan_nodes` | warning | Graph structure needs review |
 
-A blocker means the package asserts something untrue and cannot be reviewed into
-correctness. A warning means it is honest but uncertain, which is what the
-review workbench is for.
+A blocker means the package asserts something untrue and cannot be reviewed into correctness. A warning means it is honest but uncertain, which is what the review workbench is for.
 
 ---
 
 ## 7. Failure triage
 
-**Conversion fails.** Check the `docling_converted` stage detail. `cl is not
-found` means `TORCHDYNAMO_DISABLE=1` is unset. `unsupported_source` means an
-image-only PDF, which is out of scope.
+**Conversion fails.** Check the `docling_converted` stage detail. `cl is not found` means `TORCHDYNAMO_DISABLE=1` is unset. `unsupported_source` means an image-only PDF, which is out of scope.
 
-**`canonical_artifact_frozen` fails.** Fragments do not resolve. This should be
-impossible — canonical text is constructed from the elements themselves — so
-treat it as a converter regression and do not accept the run.
+**`canonical_artifact_frozen` fails.** Fragments do not resolve. This should be impossible — canonical text is constructed from the elements themselves — so treat it as a converter regression and do not accept the run.
 
-**`context_units_assembled` fails.** The reading plan is not exhaustive; some
-targetable element belongs to no unit. Check for an element type missing from
-`_TARGETABLE`.
+**`context_units_assembled` fails.** The reading plan is not exhaustive; some targetable element belongs to no unit. Check for an element type missing from `_TARGETABLE`.
 
-**`verification_completed` fails on coverage.** An element received no
-disposition. Inspect `coverage.unaccounted_element_ids` — a class of element the
-run does not know how to classify usually indicates a new document shape.
+**`verification_completed` fails on coverage.** An element received no disposition. Inspect `coverage.unaccounted_element_ids` — a class of element the run does not know how to classify usually indicates a new document shape.
 
-**Dependency integrity fails.** An upstream file differs from its installed
-hash. Do not patch it. Reinstall the pinned version; if the difference persists,
-treat it as a supply-chain event.
+**Dependency integrity fails.** An upstream file differs from its installed hash. Do not patch it. Reinstall the pinned version; if the difference persists, treat it as a supply-chain event.
 
-**The UI shows "TypeError: Failed to fetch" while the API health check passes.**
-Almost always a bind-address mismatch rather than a CORS problem. Browsers
-resolve `localhost` to `::1` (IPv6) first, while uvicorn defaults to `127.0.0.1`
-(IPv4 only) — so command-line clients succeed and the browser does not. Confirm
-with:
+**The UI shows "TypeError: Failed to fetch" while the API health check passes.** Almost always a bind-address mismatch rather than a CORS problem. Browsers resolve `localhost` to `::1` (IPv6) first, while uvicorn defaults to `127.0.0.1` (IPv4 only) — so command-line clients succeed and the browser does not. Confirm with:
 
 ```powershell
 curl.exe -s -o NUL -w "v4=%{http_code}`n" http://127.0.0.1:8010/health
 curl.exe -s -o NUL -w "v6=%{http_code}`n" "http://[::1]:8010/health"
 ```
 
-If v4 succeeds and v6 fails, restart the API with `--host ::`. A genuine CORS
-failure looks different: the response arrives but carries no
-`access-control-allow-origin` header.
+If v4 succeeds and v6 fails, restart the API with `--host ::`. A genuine CORS failure looks different: the response arrives but carries no `access-control-allow-origin` header.
 
 ---
 
 ## 8. Invariants that must not regress
 
 1. Every canonical element's offsets slice back to exactly its text.
-2. No canonical identity depends on a display label, filename, list position or
-   graph node ID.
+2. No canonical identity depends on a display label, filename, list position or graph node ID.
 3. Evidence text is copied by the application, never accepted from a model.
 4. Canonical text is never rewritten to repair a converter artifact.
 5. Every canonical leaf receives exactly one coverage disposition.
 6. Upstream Docling code is never edited, patched or monkey-patched.
-7. Re-running extraction on identical bytes yields identical identities and the
-   same idempotency key.
+7. Re-running extraction on identical bytes yields identical identities and the same idempotency key.
 
-Each is covered by at least one test. A change that breaks one should fail the
-suite rather than reach review.
+Each is covered by at least one test. A change that breaks one should fail the suite rather than reach review.

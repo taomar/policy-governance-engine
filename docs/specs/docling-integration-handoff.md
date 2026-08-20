@@ -1,12 +1,8 @@
 # Docling Integration — Handoff Summary
 
-**Branch:** `taomar-microsoft-advancedtooling`
-**Base commit:** `bcb4f7a` on `main`
-**20 commits · 56 files · +13,097 lines · 912 Python tests + clean web build**
+**Branch:** `taomar-microsoft-advancedtooling` **Base commit:** `bcb4f7a` on `main` **20 commits · 56 files · +13,097 lines · 912 Python tests + clean web build**
 
-All 16 directive deliverables are implemented. Everything is additive: no
-existing module was rewritten, and the one migration only creates a new table.
-Reverting is a branch drop plus one `alembic downgrade`.
+All 16 directive deliverables are implemented. Everything is additive: no existing module was rewritten, and the one migration only creates a new table. Reverting is a branch drop plus one `alembic downgrade`.
 
 ---
 
@@ -34,8 +30,7 @@ git cherry-pick 33a8434   # extraction API surface
 git cherry-pick 8a2cfa3   # web extraction detail drawer
 ```
 
-Each commit is self-contained and leaves the suite green, so the sequence can be
-stopped at any point.
+Each commit is self-contained and leaves the suite green, so the sequence can be stopped at any point.
 
 ---
 
@@ -109,11 +104,9 @@ python -m venv .venv-graph
 $env:TORCHDYNAMO_DISABLE = "1"   # Windows without a C++ toolchain; PDF only
 ```
 
-Copy `.env.example` to `.env` and fill in the database URLs plus, if you want
-live extraction, `AZURE_OPENAI_API_KEY`.
+Copy `.env.example` to `.env` and fill in the database URLs plus, if you want live extraction, `AZURE_OPENAI_API_KEY`.
 
-**Extraction must use its own venv** — not a preference: `litellm` requires
-`httpx>=0.28` while the API pins `<0.28`.
+**Extraction must use its own venv** — not a preference: `litellm` requires `httpx>=0.28` while the API pins `<0.28`.
 
 ### Ports and CORS
 
@@ -127,10 +120,7 @@ CORS_ALLOWED_ORIGINS=         # empty = derive; set explicitly when deployed
 CORS_DEV_PORT_RANGE=5173-5180
 ```
 
-`vite.config.ts` reads `WEB_DEV_SERVER_PORT` with `strictPort`, so the dev
-server fails rather than drifting onto a port the API would reject. That
-mismatch is worth preventing because it presents as a broken backend: the
-browser blocks the request and nothing appears in the server log.
+`vite.config.ts` reads `WEB_DEV_SERVER_PORT` with `strictPort`, so the dev server fails rather than drifting onto a port the API would reject. That mismatch is worth preventing because it presents as a broken backend: the browser blocks the request and nothing appears in the server log.
 
 ---
 
@@ -178,13 +168,9 @@ A third was caught by the corpus gate itself: 40 headings governing no content h
 
 All 16 deliverables exist, and the stack was run locally against Postgres.
 
-**Verified live** (Postgres 5433, API 8010, UI 5490): all migrations apply to a
-fresh database including `extraction_stages`; the five extraction endpoints
-answer against a real uploaded document; CORS admits the configured origin and
-refuses an unlisted one; coverage reports 17/17 with zero unaccounted elements.
+**Verified live** (Postgres 5433, API 8010, UI 5490): all migrations apply to a fresh database including `extraction_stages`; the five extraction endpoints answer against a real uploaded document; CORS admits the configured origin and refuses an unlisted one; coverage reports 17/17 with zero unaccounted elements.
 
-**Still untested against the real dependency**, because no credential was
-configured:
+**Still untested against the real dependency**, because no credential was configured:
 
 | Component | Needs |
 |---|---|
@@ -192,16 +178,11 @@ configured:
 | Handoff submission | a policy set exercised through candidate intake |
 | Search projections | an Azure AI Search index |
 
-Two follow-ups worth scheduling: a **worker/queue** for conversion (PDF takes
-195 s, so it cannot run in-request), and the **publisher** that writes the
-runtime projection and flips activation after `verify_projection` passes.
+Two follow-ups worth scheduling: a **worker/queue** for conversion (PDF takes 195 s, so it cannot run in-request), and the **publisher** that writes the runtime projection and flips activation after `verify_projection` passes.
 
 ### Local database note
 
-The shared `policy_platform` database is stamped at a revision that does not
-exist on this branch, so migrations were applied to a separate
-`policy_platform_advtool` database rather than migrating another branch's
-working state. Point `DATABASE_URL` wherever is appropriate in the target fork.
+The shared `policy_platform` database is stamped at a revision that does not exist on this branch, so migrations were applied to a separate `policy_platform_advtool` database rather than migrating another branch's working state. Point `DATABASE_URL` wherever is appropriate in the target fork.
 
 ---
 

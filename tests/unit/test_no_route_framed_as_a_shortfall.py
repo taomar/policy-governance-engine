@@ -164,11 +164,8 @@ def _fingerprint(sentence: str) -> str:
 
 
 #: Sentences that name a route beside a shortfall on purpose, in order to
-#: forbid that phrasing. There is one, and it is a line of a system prompt
-#: telling a model not to write the frame this guard exists to catch. A rule
-#: that cannot tell a phrasing quoted as data from one written as language will
-#: report it, and deleting it from the prompt would remove the instruction that
-#: keeps the frame out of generated copy.
+#: forbid or deny that phrasing. A rule that cannot tell a phrasing quoted as
+#: data, or denied outright, from one written as language will report both.
 #:
 #: Kept by fingerprint rather than by file, and rather than by writing the
 #: sentence out. By file would be a standing permission for whatever is written
@@ -180,6 +177,20 @@ def _fingerprint(sentence: str) -> str:
 #: exactly when somebody should look at it again.
 _QUOTED_TO_FORBID_IT = {
     "b4eb40dfcab54036": "a system prompt line forbidding the frame",
+    # The user guide's correction: it names the route and the word 'shortfall'
+    # in one sentence in order to say the route is not one. Deleting it would
+    # remove the sentence that stops a reader drawing the conclusion this guard
+    # exists to prevent.
+    #
+    # It surfaced only when the documentation was unwrapped from its 80-column
+    # hard wrap. Before that a line break fell between the route term and the
+    # word 'shortfall', so the sentence scanner never saw the two together and
+    # skipped it silently -- measured at the time as 0 flagged before the
+    # unwrap and 1 after, with no copy edited in between. Worth remembering: a
+    # scanner that works a sentence at a time inherits whatever sentence
+    # boundaries the source's line breaks happen to produce, so its coverage
+    # can depend on something nobody thinks of as meaningful.
+    "f5951835f0d8a384": "the user guide's 'AI Ready is a route, not a fault' correction",
 }
 
 
@@ -338,22 +349,37 @@ class TestTheGuardWorks:
     def test_every_exemption_is_earned(self) -> None:
         """An exemption matching nothing in the tree is a rule nobody holds.
 
-        Each fingerprint has to still name a real sentence somewhere in the
-        source, and that sentence has to still be one this scan would report.
-        A fingerprint that matches nothing means the copy it excused has been
+        Each fingerprint has to still name a real sentence somewhere the scan
+        reads, and that sentence has to still be one this scan would report. A
+        fingerprint that matches nothing means the copy it excused has been
         edited, and the exemption has to go with it.
+
+        Both scanned corpora are searched -- Python string literals and the
+        documents -- because an exemption is earned by its sentence existing,
+        not by which of the two surfaces carries it. Looking in only one would
+        retire a live exemption the moment its sentence moved between them,
+        which loses a decision rather than revisiting it.
         """
 
         seen: set[str] = set()
+
+        def note(text: str) -> None:
+            for sentence in _sentences(text):
+                if not _ROUTE_RE.search(sentence):
+                    continue
+                if _SHORTFALL_RE.search(_ROUTE_RE.sub(" ", sentence)):
+                    seen.add(_fingerprint(sentence))
+
         for path in sorted(SRC.rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
             for _, value in _string_literals(path):
-                for sentence in _sentences(value):
-                    if not _ROUTE_RE.search(sentence):
-                        continue
-                    if _SHORTFALL_RE.search(_ROUTE_RE.sub(" ", sentence)):
-                        seen.add(_fingerprint(sentence))
+                note(value)
+
+        for path in sorted(DOCS.rglob("*.md")):
+            if _FAILURE_RECORD in path.parents:
+                continue
+            note(path.read_text(encoding="utf-8"))
 
         unearned = set(_QUOTED_TO_FORBID_IT) - seen
         assert unearned == set(), sorted(unearned)

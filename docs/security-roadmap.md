@@ -27,8 +27,7 @@
 - Use managed identity for Azure OpenAI and Azure AI Search.
 - Use Entra authentication for PostgreSQL where supported.
 - Retain ACR and Key Vault managed identities.
-- Introduce a document-storage abstraction before replacing the key-based Azure
-  Files mount.
+- Introduce a document-storage abstraction before replacing the key-based Azure Files mount.
 
 ### Platform hardening
 

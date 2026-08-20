@@ -1,14 +1,10 @@
 # Configuration and operations
 
-Environment variables, how to run and test, and the operational posture. For
-what each framework does and where it is initialised, see
-[Frameworks and technologies](frameworks.md).
+Environment variables, how to run and test, and the operational posture. For what each framework does and where it is initialised, see [Frameworks and technologies](frameworks.md).
 
 ## Environment
 
-All configuration lives in a `.env` file at the repository root, read once by
-`policy_platform.infrastructure.settings`. No component reads `os.environ`
-directly. Copy the template to start:
+All configuration lives in a `.env` file at the repository root, read once by `policy_platform.infrastructure.settings`. No component reads `os.environ` directly. Copy the template to start:
 
 ```powershell
 Copy-Item .env.example .env
@@ -34,16 +30,9 @@ Copy-Item .env.example .env
 | `AZURE_SEARCH_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2025-09-01` | **Required grounding layer.** Blank disables clause indexing and all retrieval-backed grounding. |
 | `AZURE_SEARCH_AUTHORING_INDEX` / `_EVIDENCE_INDEX` | `policy-authoring` / `policy-evidence` | Index names. Runtime reads/writes the authoring index; the Azure deployment bootstrap initializes both schemas, while the runtime client never alters schema. |
 
-**AI and search are product requirements, not options.** Azure OpenAI drives
-every AI capability, and a grounding/search layer — today Azure AI Search — is
-what makes grounded answers and grounded test proposals possible. See
-[AI assistance](ai-assistance.md) and
-[How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
+**AI and search are product requirements, not options.** Azure OpenAI drives every AI capability, and a grounding/search layer — today Azure AI Search — is what makes grounded answers and grounded test proposals possible. See [AI assistance](ai-assistance.md) and [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
 
-`ai_enabled` is true only when the OpenAI endpoint, key, chat deployment *and*
-embedding deployment are all set. `search_enabled` is gated separately on its own
-endpoint and key. Check the effective state at `GET /api/ai/status`, or via the
-AI pill in the app header.
+`ai_enabled` is true only when the OpenAI endpoint, key, chat deployment *and* embedding deployment are all set. `search_enabled` is gated separately on its own endpoint and key. Check the effective state at `GET /api/ai/status`, or via the AI pill in the app header.
 
 > **Degraded mode.** The current code contains **no fail-fast startup check**:
 > the API boots with everything blank. In that state AI endpoints return `503`,
@@ -54,17 +43,11 @@ AI pill in the app header.
 > the product. The absence of a fail-fast check is recorded in
 > [Known limitations](known-limitations.md).
 
-Per-project extraction configuration (`trusted_config`) is stored on the policy
-set, not in `.env`. Key it on the source term exactly as it appears in the policy
-text, with the target fact path nested inside — keying by the fact path instead
-fails silently because the extractor resolves mappings by source terminology.
+Per-project extraction configuration (`trusted_config`) is stored on the policy set, not in `.env`. Key it on the source term exactly as it appears in the policy text, with the target fact path nested inside — keying by the fact path instead fails silently because the extractor resolves mappings by source terminology.
 
 ### Pointing a migration at a database other than the default
 
-`ALEMBIC_DATABASE_URL` is the *default* target, not the only one. Anything a
-caller names explicitly wins over it, and the resolved target — with the
-password removed — is logged at the start of every run, so an operator can see
-where a `downgrade` is about to land before it lands.
+`ALEMBIC_DATABASE_URL` is the *default* target, not the only one. Anything a caller names explicitly wins over it, and the resolved target — with the password removed — is logged at the start of every run, so an operator can see where a `downgrade` is about to land before it lands.
 
 ```powershell
 # One invocation, from the command line.
@@ -79,14 +62,7 @@ config.set_main_option("sqlalchemy.url", scratch_url)
 command.upgrade(config, "head")
 ```
 
-Setting `ALEMBIC_DATABASE_URL` in a child process's environment also works and
-always did, but it is no longer the *only* route. It used to be: `alembic/env.py`
-overwrote `sqlalchemy.url` unconditionally, so a caller who set it
-programmatically was silently pointed at the ambient default instead — which in
-a developer's shell is production. The resolution now lives in
-`infrastructure/persistence/migration_target.py`, which explains the failure in
-full; `tests/unit/test_migration_target_resolution.py` fails if the override is
-ever made unconditional again.
+Setting `ALEMBIC_DATABASE_URL` in a child process's environment also works and always did, but it is no longer the *only* route. It used to be: `alembic/env.py` overwrote `sqlalchemy.url` unconditionally, so a caller who set it programmatically was silently pointed at the ambient default instead — which in a developer's shell is production. The resolution now lives in `infrastructure/persistence/migration_target.py`, which explains the failure in full; `tests/unit/test_migration_target_resolution.py` fails if the override is ever made unconditional again.
 
 ## Setup, run, test
 
@@ -123,9 +99,7 @@ cd apps\web; npm run build
 cd apps\web; npm run lint
 ```
 
-The [testing guide](testing.md) describes the active pytest process by
-capability, its invocation commands, expected behavior, isolation and coverage
-gaps. Maintenance scripts are explicitly outside testing.
+The [testing guide](testing.md) describes the active pytest process by capability, its invocation commands, expected behavior, isolation and coverage gaps. Maintenance scripts are explicitly outside testing.
 
 Useful database access:
 
@@ -140,17 +114,9 @@ docker exec policy-postgres psql -U policy_admin -d policy_platform -c "\dt"
 | **Local deployment** | **Available** | PostgreSQL uses `infra/local/docker-compose.yml`; API and Vite run locally and may call configured Azure OpenAI/Search endpoints. |
 | **Azure deployment** | **Pending** | The azd/Bicep/container kit is prepared, but no Azure-hosted environment has been provisioned from this repository. |
 
-The repository also contains a deployment-ready Azure kit: root `azure.yaml`
-and Dockerfiles plus Bicep, parameter profiles, prerequisite hooks, Search
-schemas and fresh-environment bootstrap under `infra/`. The recommended target
-is Azure Container Apps with private PostgreSQL, Azure Files, Key Vault, Azure
-OpenAI and Azure AI Search connectivity. See
-[Azure deployment](azure-deployment.md) and
-[Azure prerequisites](azure-prerequisites.md).
+The repository also contains a deployment-ready Azure kit: root `azure.yaml` and Dockerfiles plus Bicep, parameter profiles, prerequisite hooks, Search schemas and fresh-environment bootstrap under `infra/`. The recommended target is Azure Container Apps with private PostgreSQL, Azure Files, Key Vault, Azure OpenAI and Azure AI Search connectivity. See [Azure deployment](azure-deployment.md) and [Azure prerequisites](azure-prerequisites.md).
 
-This is interactive deployment automation through `azd`; it is not a CI/CD
-pipeline. There is still no `.github/workflows/` or other automated build,
-test, scan or release pipeline.
+This is interactive deployment automation through `azd`; it is not a CI/CD pipeline. There is still no `.github/workflows/` or other automated build, test, scan or release pipeline.
 
 ## Security status
 
@@ -187,17 +153,9 @@ No metrics endpoint, tracing, alerting or log aggregation is implemented.
 
 ### Operational notes
 
-- On startup the API marks an `extraction_runs` row it owns
-  (`owner_kind == OWNER_API`) still `running`/`pending` as `failed`, because an
-  in-process extraction does not survive a restart. Runs owned by another
-  process are left untouched, and rules already committed by that run are kept.
-- Azure AI Search indexing is best-effort: failures are logged and swallowed so a
-  document upload never fails because a downstream service is unavailable. The
-  trade-off is that a document can be fully usable while missing from the index,
-  and nothing reconciles that afterwards except the maintenance scripts in
-  [`docs/testing.md`](testing.md#maintenance-scripts-are-outside-testing).
-- Long AI operations (candidate quality over hundreds of rules) run as a single
-  request without incremental progress reporting.
+- On startup the API marks an `extraction_runs` row it owns (`owner_kind == OWNER_API`) still `running`/`pending` as `failed`, because an in-process extraction does not survive a restart. Runs owned by another process are left untouched, and rules already committed by that run are kept.
+- Azure AI Search indexing is best-effort: failures are logged and swallowed so a document upload never fails because a downstream service is unavailable. The trade-off is that a document can be fully usable while missing from the index, and nothing reconciles that afterwards except the maintenance scripts in [`docs/testing.md`](testing.md#maintenance-scripts-are-outside-testing).
+- Long AI operations (candidate quality over hundreds of rules) run as a single request without incremental progress reporting.
 
 ## Extension points
 

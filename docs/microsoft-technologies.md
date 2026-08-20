@@ -12,8 +12,7 @@ Used for:
 - policy-test proposal and Ask AI;
 - clause/query embeddings.
 
-The application calls chat and embedding REST endpoints through `httpx`.
-Responses are validated before persistence or display.
+The application calls chat and embedding REST endpoints through `httpx`. Responses are validated before persistence or display.
 
 References:
 
@@ -23,8 +22,7 @@ References:
 
 ### Azure AI Search
 
-Used for clause-level hybrid keyword/vector retrieval. The application writes
-platform-owned clause documents and filters reads to platform document IDs.
+Used for clause-level hybrid keyword/vector retrieval. The application writes platform-owned clause documents and filters reads to platform document IDs.
 
 References:
 
@@ -63,8 +61,7 @@ References:
 | Application Insights code-level instrumentation | Pending |
 | Live Azure deployment validation | Pending |
 
-See [Security roadmap](security-roadmap.md) and
-[Known limitations](known-limitations.md).
+See [Security roadmap](security-roadmap.md) and [Known limitations](known-limitations.md).
 
 ## Not used
 
@@ -73,7 +70,4 @@ See [Security roadmap](security-roadmap.md) and
 - Microsoft.Extensions.AI;
 - Foundry Agent Service / Foundry IQ.
 
-The current fixed request-driven workflows use explicit FastAPI services and
-PostgreSQL state. Reconsider an agent framework only if the product needs
-resumable multi-agent workflows, dynamic tool routing, or framework-managed
-checkpoints.
+The current fixed request-driven workflows use explicit FastAPI services and PostgreSQL state. Reconsider an agent framework only if the product needs resumable multi-agent workflows, dynamic tool routing, or framework-managed checkpoints.
