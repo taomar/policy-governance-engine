@@ -284,6 +284,5 @@ Every message about a run should be able to survive that substitution. When a
 sentence about coverage can be rewritten as a sentence about the source and
 still sound reasonable, the sentence is wrong.
 
-See [The running path](running-path.md) for where `mark_completed` sits in the
-sequence, and [Known limitations](known-limitations.md) for what else a green
-run does not promise.
+See [Known limitations](known-limitations.md) for what else a green run does not
+promise.

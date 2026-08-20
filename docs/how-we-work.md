@@ -139,10 +139,26 @@ so do not add them back as tracked files.
 | **Environment files** — `.env`, `.env.local`, `infra/parameters/*.env` | They hold real endpoints, logins and keys. Only the `*.example` templates are published, carrying placeholders. `.env` alone did not cover the variants, which is how a real Azure endpoint reached a published example file once. |
 | **Decision records** — `docs/adr/` | Reasoning about a choice, written for whoever is making it. The decision's *outcome* belongs in the code comment and the commit message, where it cannot drift from what shipped. |
 | **Task lists** — `docs/todo/`, `TODO.md` | A list of intentions dates immediately and describes work rather than the product. Open work belongs in the tracker; a defect worth remembering belongs in a test that fails. |
+| **Failure analyses** — `docs/failures/`, `docs/drift-report.md` | Records of how the product went wrong. Valuable to whoever is fixing it, misleading to whoever is trying to learn what it does now. |
+| **Unfinished designs** — `docs/repair-passes.md` | Decided and not built. A published page describing behaviour that does not exist is worse than no page. |
+| **The running path** — `docs/running-path.md` | A step-by-step account of what this build actually executes, including which designed stages are unreachable. Internal working knowledge, not product documentation. |
+| **Session records** — `docs/HANDOVER.md` | Session history, verbatim instructions and failure analyses, written for whoever picks the work up next. |
 
 The general rule: **publish what the product is, keep what the work was.** A
 reader of this repository should be able to understand the system without
-reading anyone's notes about building it.
+reading anyone's notes about building it. What the product does *not* do is
+still published, in [Known limitations](known-limitations.md) — a boundary a user
+must know is part of the product, not part of the work.
+
+Two consequences worth knowing:
+
+- **Nothing published may link to a local-only page.** A link to a file a reader
+  cannot fetch is worse than no link. When a page moves out, its inbound links go
+  with it.
+- **A guard that reads a local-only page must skip when the page is absent, not
+  fail.** `test_the_running_path_is_the_documented_path.py` does this: it runs in
+  full wherever the page is kept and skips visibly, with its reason, where it is
+  not. Absence is a policy; breakage is a failure; the two must never look alike.
 
 Verify a path before relying on it — `git check-ignore -v <path>` names the rule
 that matched, and says nothing if the file would be published.
@@ -183,13 +199,12 @@ from document upload or from the AI extraction endpoint — run this as well:
 ```
 
 It computes the call closure from the two entry points and reports modules on it
-that [the running path](running-path.md) does not name. Read what it names and
-decide; roughly four findings in five are worth acting on, which is why it is a
-script and not a build-failing guard.
+that the running-path page (`docs/running-path.md`, kept on the workstation) does
+not name. Read what it names and decide; roughly four findings in five are worth
+acting on, which is why it is a script and not a build-failing guard.
 
 The trigger is the point. A step added to the running system and left off that
-page is how the divergence recorded in
-[failures](failures/designed-pipeline-and-running-pipeline.md) began, and the
+page is how a documented pipeline and a running one diverged before, and the
 person best placed to catch it is the one adding the module — who is also the
 person least likely to know the page exists. That is why the instruction lives
 here, next to the checks everyone runs, rather than only on the page it serves.

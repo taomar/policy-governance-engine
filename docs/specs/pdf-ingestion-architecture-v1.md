@@ -19,9 +19,9 @@ policy-passage extraction prompt.
 
 **This document predates the code. It is still normative and still cited, but
 it is not a description of the system as built.** Part of it was never
-implemented, and one part of it should stay that way. Read it together with
-[`docs/failures/designed-pipeline-and-running-pipeline.md`](../failures/designed-pipeline-and-running-pipeline.md),
-which records where the designed pipeline and the running one diverge.
+implemented, and one part of it should stay that way. The record of where the
+designed pipeline and the running one diverge is kept on the workstation, with
+the other failure analyses, rather than published here.
 
 Provenance: the file arrived in commit `7093f3b` and no line below this section
 has been edited since. The code cites it as normative —

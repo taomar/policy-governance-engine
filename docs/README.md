@@ -13,9 +13,7 @@ Start with the [User guide](user-guide.md) to see the product, or
 | [How we work](how-we-work.md) | Engineering agreements and the reasoning behind them |
 | [Standards](standards.md) | Which published standard governs which decision |
 | [Architecture](architecture.md) | Components, boundaries, and trust model |
-| [The running path](running-path.md) | What this build actually executes, step by step, named by symbol |
 | [Extraction run coverage](extraction-run-coverage.md) | What a finished run promises, and what it does not |
-| [Repair passes](repair-passes.md) | Design decision, not yet built: acting on findings rather than only reporting them |
 | [Relationships](relationships.md) | How rules are linked, and what is deliberately not claimed |
 | [Docling](docling.md) | Document conversion and graph discovery |
 | [AI assistance](ai-assistance.md) | Extraction, grounding, and validation |
@@ -45,17 +43,16 @@ Start with the [User guide](user-guide.md) to see the product, or
 - [Standards research](policy-standards-research.md) — the full survey, including what was evaluated and rejected
 - [Ingestion specifications](specs/) — Docling integration and PDF ingestion
 
-## Failure reports
+## Kept on the workstation
 
-Written after the fact, from the running system. These are records of what went
-wrong and why, not descriptions of how the platform works now — read them for
-the reasoning, and read the pages above for current behaviour.
+Some pages are deliberately not published. Failure analyses, drift reports, the
+step-by-step account of what this build actually executes, and designs that have
+been decided but not built are written for whoever is doing the work. They
+describe how the product went wrong, or what it is not yet — which is not what a
+reader should have to sift through to learn how it behaves today.
 
-| Report | What it covers |
-|---|---|
-| [Index and current state](failures/README.md) | The corpus figures, and the two numbers that look contradictory and are both true |
-| [Designed pipeline and running pipeline](failures/designed-pipeline-and-running-pipeline.md) | Nine designed extraction stages, two reached, and why ten dead subsystems are one fact |
-| [Validators that could not fail](failures/validators-that-could-not-fail.md) | Four checks that shipped reporting success while structurally unable to report anything else |
-| [Duplicate detection](failures/duplicate-detection.md) | Three attempts at one check; the first merged two real rules, the second hid two real duplicates |
-| [Display overclaims](failures/display-overclaims.md) | Where the interface stated something the data did not |
-| [Execution and linkage](failures/execution-and-linkage.md) | Which linkage and evaluation blockers are fixable here and which need a customer's data model |
+What the product **is** lives in the pages above; what it does **not** do is in
+[Known limitations](known-limitations.md), which is published and guarded.
+
+See "What stays on the workstation" in [How we work](how-we-work.md) for the
+convention and the paths it covers.

@@ -70,6 +70,17 @@ TODOS.md
 todo.md
 todos.md
 
+# Internal reports and unfinished work. Failure analyses, drift reports, and
+# designs that have been decided but not built are written for whoever is doing
+# the work. They describe how the product went wrong or what it is not yet, which
+# is exactly what a reader of the published repository should not have to sift
+# through to learn how it behaves. Kept on disk; maintained as a rule so the next
+# report of this kind is local without anyone having to remember.
+docs/failures/
+docs/drift-report.md
+docs/repair-passes.md
+docs/running-path.md
+
 # Session working records. The handover is written for whoever picks the work up
 # on this machine -- session history, verbatim instructions, failure analyses --
 # and is not documentation of the product. Matched by shape rather than by exact

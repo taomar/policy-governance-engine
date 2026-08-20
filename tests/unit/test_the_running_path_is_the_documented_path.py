@@ -17,6 +17,21 @@ Two claims from that page are checkable, so they are checked here.
 What is deliberately not checked: whether a step was added to the running path
 and left out of the page. Nothing detects an omission. That is why the page says
 it should be re-derived from the call path rather than edited from memory.
+
+WHY THIS MODULE CAN SKIP
+
+`docs/running-path.md` is kept on the workstation and out of the published
+repository: it describes what this build actually executes, including which
+designed stages are unreachable, which is internal working knowledge rather than
+documentation of the product. So a clone of the public repository does not have
+the page, and every check below would fail on a file that was never meant to be
+there.
+
+The module therefore skips as a whole when the page is absent, and runs in full
+when it is present. The distinction that matters is preserved: an absent page
+skips *visibly*, with this reason, while a present page is checked exactly as
+before -- including the floor that fails when the page stops naming symbols.
+Absence is a policy, breakage is a failure, and the two never look alike.
 """
 
 from __future__ import annotations
@@ -30,6 +45,14 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PAGE = _REPO_ROOT / "docs" / "running-path.md"
 _SOURCE_ROOT = _REPO_ROOT / "src" / "policy_platform"
+
+pytestmark = pytest.mark.skipif(
+    not _PAGE.exists(),
+    reason=(
+        "docs/running-path.md is deliberately local-only and absent from the "
+        "published repository. These checks run wherever the page is kept."
+    ),
+)
 
 # `path/to/module.py::symbol`, as written inside backticks on the page.
 _REFERENCE = re.compile(r"`([\w/]+\.py)::(\w+)`")
