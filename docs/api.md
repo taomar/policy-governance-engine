@@ -28,19 +28,61 @@ All routes are prefixed with `/api`, except `GET /health`.
 
 | Tag | Prefix | Operations | What it covers |
 |---|---|---|---|
-| `policy-sets` | `/api/policy-sets` | 19 | Projects (policy sets): create, list, update, delete, portfolio summary, workspace counts, periodic-review marking, trusted extraction config, versions, version rules, version policies, provision history across versions, version export, active version, reading whether the project's own policy index still represents the active published version, and rebuilding it when a best-effort build after publishing did not complete. |
-| `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue: draft, list, facets, edit, review, request-changes, override, bulk-review, export — plus `GET /api/policy-sets/{key}/policies`, the same rules grouped under the passage that stated them, and `POST /api/policy-sets/{key}/publish`. |
-| `ai` | `/api/ai` | 31 | Everything AI-assisted: status, ask, extract, extraction progress and runs, rewrite (+apply), rewrite preview, draft-from-text, scenario evaluation — split by the route the rule takes, so a rule read by a judge and a rule computed by the engine are each put to the decider its route names — compare, quality (published + candidates, each split into a POST that evaluates and a GET that reads the last result, plus history), policy-set summary, correlation runs/findings/dispositions, change explanation, generated subject names for the policies of a set, generated handles for the rules of a set and the lookup that serves them, a plain-words reading of one policy's extracted record, answering a plain-English case put to a whole policy, and answering one put to a whole project — where the policies bearing on the question are retrieved from the project's own policy index and the rest discarded before anything is evaluated, never the whole set. Both case surfaces sort the question into an informational one the policy answers from what it states, or a determination assessed against the rules, and each is answered in its own right. |
+| `policy-sets` | `/api/policy-sets` | 19 | Projects: CRUD, portfolio and workspace counts, review scheduling, versions, exports, and policy-index health. |
+| `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue, the same rules grouped by passage, and publication. |
+| `ai` | `/api/ai` | 31 | Everything AI-assisted: extraction, grounded answers, rewrites, quality, correlation, and case testing. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
-| `extraction` | `/api/extraction/{document_version_id}` | 4 | What a run actually saw: the canonical document, its structural graph, the reading plan, and element coverage. Read-only, and the fastest way to answer "why was this clause not extracted?". |
+| `extraction` | `/api/extraction/{document_version_id}` | 4 | What a run actually saw: the canonical document, its structural graph, the reading plan, and element coverage. |
 | `documents` | `/api/documents` | 4 | List documents, multipart upload, list a version's clauses, assign a document to a project. |
 | `policy-tests` | `/api/policy-tests` | 10 | Saved tests: list, create, propose (AI), review a proposal, run now, run history, failing tests, and validation batches. |
 | `policy-exceptions` | `/api/policy-exceptions` | 4 | Request a waiver, list, read, and grant/deny it. |
 | `policy-attestations` | `/api/policy-attestations` | 4 | Launch an acknowledgement campaign, list, search, acknowledge. |
-| `policy-payload` | `/api/policy-payload` | 1 | The lean projection of one policy for a model to read: its rules carried by id with the canonical attribute, the document's verbatim words, and the fact a case supplies — one representation, no second notation, no run history. |
+| `policy-payload` | `/api/policy-payload` | 1 | The lean projection of one policy for a model to read. |
 | `notes` | `/api/notes` | 3 | Free-form notes attached to an entity. |
 | `audit` | `/api/audit-events` | 1 | Read the immutable audit trail. |
 | `system` | `/health` | 1 | Liveness plus the configured environment name. |
+
+The three largest groups carry more than a table cell can hold, so their detail
+is below rather than inside the row. `extraction` is read-only, and the fastest
+way to answer "why was this clause not extracted?".
+
+### What `policy-sets` covers
+
+Create, list, update and delete projects; portfolio summary and workspace counts;
+periodic-review marking; trusted extraction config; versions, version rules,
+version policies, provision history across versions, version export and the
+active version. It also reports whether a project's own policy index still
+represents the active published version, and rebuilds that index when a
+best-effort build after publishing did not complete.
+
+### What `candidate-rules` covers
+
+The review queue — draft, list, facets, edit, review, request-changes, override,
+bulk-review and export — plus `GET /api/policy-sets/{key}/policies`, which is the
+same rules grouped under the passage that stated them, and
+`POST /api/policy-sets/{key}/publish`.
+
+### What `ai` covers
+
+Status, ask, extract, extraction progress and runs, rewrite and apply, rewrite
+preview, draft-from-text, compare, policy-set summary, correlation runs, findings
+and dispositions, change explanation, generated subject names for a set's
+policies, generated handles for its rules and the lookup that serves them, and a
+plain-words reading of one policy's extracted record.
+
+Three of its groups are worth stating precisely:
+
+- **Scenario evaluation** is split by the route the rule takes, so a rule read by
+  a judge and a rule computed by the engine are each put to the decider its route
+  names.
+- **Quality** covers published rules and candidates, each split into a `POST` that
+  evaluates and a `GET` that reads the last result, plus history.
+- **Case answering** works on one policy or a whole project. The project scope
+  retrieves the policies bearing on the question from that project's own policy
+  index and discards the rest before anything is evaluated — never the whole set.
+  Both surfaces sort the question into an informational one, which the policy
+  answers from what it states, or a determination assessed against the rules, and
+  each is answered in its own right.
 
 ## Conventions
 
