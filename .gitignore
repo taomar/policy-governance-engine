@@ -48,5 +48,27 @@ skills/
 # Browser-tool scratch output.
 .playwright-mcp/
 
+# Environment variable files hold real values -- endpoints, logins, keys -- and
+# stay on the workstation. Only the `*.example` templates are published, and they
+# carry placeholders rather than anything from a live resource. `.env` alone did
+# not cover `.env.local`, `.env.production` or `infra/parameters/baseline.env`,
+# which is the file the published template is a template *for*.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+
+# Working notes. Decision records and task lists are reasoning aids for whoever
+# is doing the work, not documentation of the product, so they are kept beside
+# the code and out of the published repository. `docs/adr/` is listed above with
+# the other local session records.
+docs/todo/
+docs/todos/
+TODO.md
+TODOS.md
+todo.md
+todos.md
+
 # Internal working record. Kept on disk and out of the published repository.
 docs/HANDOVER.md

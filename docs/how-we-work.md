@@ -128,6 +128,25 @@ already adopted. A second vocabulary for the same concept means a reviewer reads
 one screen in one set of terms and the next in another, with nothing saying the
 two describe the same rule.
 
+## What stays on the workstation
+
+The repository is public. Three kinds of file are deliberately kept out of it,
+and `.gitignore` enforces each — they are absent by decision, not by oversight,
+so do not add them back as tracked files.
+
+| Kept local | Why |
+|---|---|
+| **Environment files** — `.env`, `.env.local`, `infra/parameters/*.env` | They hold real endpoints, logins and keys. Only the `*.example` templates are published, carrying placeholders. `.env` alone did not cover the variants, which is how a real Azure endpoint reached a published example file once. |
+| **Decision records** — `docs/adr/` | Reasoning about a choice, written for whoever is making it. The decision's *outcome* belongs in the code comment and the commit message, where it cannot drift from what shipped. |
+| **Task lists** — `docs/todo/`, `TODO.md` | A list of intentions dates immediately and describes work rather than the product. Open work belongs in the tracker; a defect worth remembering belongs in a test that fails. |
+
+The general rule: **publish what the product is, keep what the work was.** A
+reader of this repository should be able to understand the system without
+reading anyone's notes about building it.
+
+Verify a path before relying on it — `git check-ignore -v <path>` names the rule
+that matched, and says nothing if the file would be published.
+
 ## Commits
 
 - Commit to the working branch; **state the branch name** in the work.
