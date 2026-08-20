@@ -70,5 +70,17 @@ TODOS.md
 todo.md
 todos.md
 
-# Internal working record. Kept on disk and out of the published repository.
+# Session working records. The handover is written for whoever picks the work up
+# on this machine -- session history, verbatim instructions, failure analyses --
+# and is not documentation of the product. Matched by shape rather than by exact
+# path: `docs/HANDOVER.md` alone left `HANDOVER.md`, `docs/handover/`,
+# `docs/HANDOVER-2.md` and a lowercase spelling publishable, which is the same
+# way a single `.env` rule left every other env file exposed.
+#
+# Deliberately narrow enough to keep the product's own handoff code published:
+# `docs/specs/docling-integration-handoff.md`, `infrastructure/docling/handoff.py`
+# and its test are source, not session notes.
+HANDOVER*
+handover*
+docs/handover/
 docs/HANDOVER.md
