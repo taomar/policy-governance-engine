@@ -309,19 +309,32 @@ something.
 
 ### Put a case to the whole project
 
-When you do not already know which policy applies, use **Test a Case** in the
-project header. Describe the situation once and the project answers it, choosing
-between two scopes:
+When you do not already know which policy applies, open **Test a Case** — it sits
+in the project tab strip, immediately after Validation. Describe the situation
+once and the project answers it, choosing between two scopes:
 
-- **All published policies** — the app searches this project's published policies,
-  keeps the ones that bear on your question, and evaluates only those. It never
-  evaluates every policy, and it never quietly falls back to doing so.
+- **Project published policies** — the app searches this project's published
+  policies, keeps the ones that bear on your question, and evaluates only those.
+  It never evaluates every policy as a fallback.
 - **One published policy** — you have already narrowed it yourself, so the search
-  step is skipped and that policy answers directly.
+  step is skipped and that policy answers directly. The list offers the policies
+  in the **active published version** and says how many there are. Rules still
+  under review are not listed: only what has been published is testable here, so
+  a project with 30 policies in review and 2 published offers 2. A project that
+  has published nothing says so rather than showing an empty box.
 
-The panel shows the narrowing rather than hiding it: how many policies were
-considered, which were kept, and why each of the rest was set aside. That is there
-so you can satisfy yourself the answer did not ignore a policy it should have read.
+The panel shows how the set was chosen rather than hiding it: how many policies
+were considered, which were kept, and why each of the rest was set aside. When
+the project has few enough published policies that searching cannot set any
+aside, it says that plainly instead of claiming to have narrowed — the policies
+listed were not selected as matching, they are all of them.
+
+**Being read is not the same as bearing on your question.** The policies listed
+are the ones the answer was allowed to draw on; whether any of them actually
+speaks to what you asked is decided when the answer is composed, and reported. A
+project can have every published policy evaluated and still be told, correctly,
+that none of them answers the question.
+
 The size of what was sent is reported against its limit, and an answer that would
 exceed it is refused rather than trimmed behind your back.
 

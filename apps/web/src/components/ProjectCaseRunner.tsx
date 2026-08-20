@@ -30,6 +30,12 @@ const RETRIEVAL_COPY: Record<ProjectCaseRetrievalStatus, { type: "success" | "in
     description:
       "The project was not evaluated as one undifferentiated set. Search kept the highest matching published policies and discarded the rest before the answer was composed.",
   },
+  not_narrowed: {
+    type: "info",
+    message: "All published policies were evaluated",
+    description:
+      "This project has few enough published policies that search did not need to select between them. Every published policy went to evaluation, and none was discarded.",
+  },
   bypassed: {
     type: "info",
     message: "Retrieval was bypassed for the policy you chose",
@@ -92,36 +98,45 @@ function discardLabel(reason: string | null | undefined): string {
     .join(" ");
 }
 
+function policiesDiscarded(answer: ProjectCaseAnswer): number | null {
+  return answer.retrieval.policies_discarded ?? answer.considered?.filter((p) => p.retained === false).length ?? null;
+}
+
+function allPublishedPoliciesWereEvaluated(answer: ProjectCaseAnswer): boolean {
+  const discarded = policiesDiscarded(answer);
+  return answer.retrieval.status === "not_narrowed" || (answer.retrieval.status === "narrowed" && discarded === 0);
+}
+
 const DECISION_STATUS_COPY: Record<string, { label: string; color: string; title: string; description: string }> = {
   answered: {
     label: "Answered",
     color: "green",
-    title: "The retained rules settle this case",
-    description: "The verdict below is the decision returned from the retained published policies.",
+    title: "The evaluated rules settle this case",
+    description: "The verdict below is the decision returned from the evaluated published policies.",
   },
   missing_required_facts: {
     label: "Needs facts",
     color: "gold",
-    title: "The retained rules need more facts",
+    title: "The evaluated rules need more facts",
     description: "The policy can answer this only if the case supplies the missing facts listed below.",
   },
   not_settled_by_rules: {
     label: "Not settled by rules",
     color: "blue",
-    title: "The retained rules bear on the case but do not settle it",
-    description: "This is not a verdict. The answer explains what the retained rules say and what they do not decide.",
+    title: "The evaluated rules bear on the case but do not settle it",
+    description: "This is not a verdict. The answer explains what the evaluated rules say and what they do not decide.",
   },
   no_rule_bears: {
-    label: "No retained rule bears",
+    label: "No evaluated rule bears",
     color: "default",
-    title: "No retained rule bears on this case",
-    description: "The retained policies do not contain a rule that speaks to this scenario.",
+    title: "No evaluated rule bears on this case",
+    description: "The policies listed below were read, but none contains a rule that speaks to this scenario.",
   },
   declined: {
     label: "No answer composed",
     color: "orange",
     title: "No decision answer was composed",
-    description: "The request reached the retained rules, but no usable decision answer was returned.",
+    description: "The request reached the evaluated rules, but no usable decision answer was returned.",
   },
 };
 
@@ -191,13 +206,13 @@ function GroundingLine({ grounding }: { grounding: ProjectCaseGrounding | undefi
           }
           description={`The answer tried to cite ${fabricated.join(", ")}, which ${
             fabricated.length === 1 ? "is not a rule" : "are not rules"
-          } in the retained policies. ${
+          } in the evaluated policies. ${
             fabricated.length === 1 ? "It was" : "They were"
           } dropped and reported here rather than shown as evidence.`}
         />
       ) : (
         <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
-          Grounded on {grounding.rules_available ?? "—"} retained rules
+          Grounded on {grounding.rules_available ?? "—"} evaluated rules
           {typeof grounding.policies_grounded === "number" ? ` across ${grounding.policies_grounded} policies` : ""};
           cited {grounding.rules_cited ?? "—"} rule{grounding.rules_cited === 1 ? "" : "s"}. No refused citations were reported.
         </Paragraph>
@@ -207,7 +222,7 @@ function GroundingLine({ grounding }: { grounding: ProjectCaseGrounding | undefi
           type="warning"
           showIcon
           style={{ marginTop: 8 }}
-          title="The retained policy payload was too large to read in one grounded pass"
+          title="The evaluated policy payload was too large to read in one grounded pass"
           description="No partial answer should be treated as complete."
         />
       ) : null}
@@ -217,15 +232,18 @@ function GroundingLine({ grounding }: { grounding: ProjectCaseGrounding | undefi
 
 function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAnswer; onOpenPolicyIndex?: (status: string) => void }) {
   const status = answer.retrieval.status;
-  const copy = RETRIEVAL_COPY[status] ?? {
-    type: "warning" as const,
-    message: `Retrieval returned ${status}`,
-    description: "This status is not known by this client. The raw narrowing details below are still shown.",
-  };
+  const discarded = policiesDiscarded(answer);
+  const allEvaluated = allPublishedPoliciesWereEvaluated(answer);
+  const copy = allEvaluated
+    ? RETRIEVAL_COPY.not_narrowed
+    : RETRIEVAL_COPY[status] ?? {
+        type: "warning" as const,
+        message: `Retrieval returned ${status}`,
+        description: "This status is not known by this client. The raw narrowing details below are still shown.",
+      };
   const canRepairIndex = retrievalStatusIsIndexRepairable(status);
   const retained = answer.retrieval.policies_retained ?? answer.considered?.filter((p) => p.retained).length ?? null;
   const considered = answer.retrieval.policies_considered ?? answer.considered?.length ?? null;
-  const discarded = answer.retrieval.policies_discarded ?? answer.considered?.filter((p) => p.retained === false).length ?? null;
   return (
     <Alert
       showIcon
@@ -248,7 +266,9 @@ function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAn
           {answer.retrieval.reason ? <Text type="secondary">{answer.retrieval.reason}</Text> : null}
           {considered !== null || retained !== null || discarded !== null ? (
             <Text type="secondary">
-              {considered ?? "—"} considered · {retained ?? "—"} retained · {discarded ?? "—"} discarded
+              {allEvaluated
+                ? `${considered ?? "—"} published policies · all evaluated · ${discarded ?? 0} discarded`
+                : `${considered ?? "—"} considered · ${retained ?? "—"} retained · ${discarded ?? "—"} discarded`}
             </Text>
           ) : null}
         </Space>
@@ -318,7 +338,7 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
                   <span className="app-synthesis__mark" aria-hidden>
                     ✦
                   </span>{" "}
-                  <span className="app-synthesis__caption">Answer composed by this app from the retained policies below</span>
+                  <span className="app-synthesis__caption">Answer composed by this app from the evaluated policies below</span>
                 </div>
                 <Paragraph className="app-synthesis__body" style={{ marginBottom: 0 }}>
                   <DirectionalText align>{judgement.answer}</DirectionalText>
@@ -380,12 +400,21 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
         data-testid="project-case-informational-empty"
         title={
           informational.status === "no_rule_bears"
-            ? "The retained policies did not state an answer"
+            ? "The evaluated policies did not state an answer"
             : "No project answer was composed"
         }
         description={
           <Space orientation="vertical" size={8}>
-            <Text>{informational.note || "The narrowing result is shown below so you can see what was and was not read."}</Text>
+            <Text>
+              {informational.status === "no_rule_bears"
+                ? "The policies listed below were read, but none answered the question."
+                : "The retrieval result is shown below so you can see what was and was not read."}
+            </Text>
+            {informational.note ? (
+              <Text type="secondary">
+                <DirectionalText>{informational.note}</DirectionalText>
+              </Text>
+            ) : null}
             <RawResponse value={informational} />
           </Space>
         }
@@ -400,7 +429,7 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
           <span className="app-synthesis__mark" aria-hidden>
             ✦
           </span>{" "}
-          <span className="app-synthesis__caption">Answer composed by this app from the retained policies below</span>
+          <span className="app-synthesis__caption">Answer composed by this app from the evaluated policies below</span>
         </div>
         <Paragraph className="app-synthesis__body" style={{ marginBottom: 0 }}>
           <DirectionalText align>{informational.answer ?? ""}</DirectionalText>
@@ -421,11 +450,12 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
 function ConsideredPolicies({ answer }: { answer: ProjectCaseAnswer }) {
   const considered = answer.scope === "single" && answer.provision ? [answer.provision] : (answer.considered ?? []);
   const excluded = answer.excluded ?? [];
+  const notNarrowed = allPublishedPoliciesWereEvaluated(answer);
   return (
     <Space orientation="vertical" size={12} style={{ width: "100%" }}>
       <div>
         <Paragraph style={{ marginBottom: 6 }}>
-          <Text strong>Policies considered by narrowing</Text>
+          <Text strong>{notNarrowed ? "Published policies evaluated" : "Policies considered by narrowing"}</Text>
         </Paragraph>
         <Table<ProjectCasePolicyCandidate>
           size="small"
@@ -448,11 +478,13 @@ function ConsideredPolicies({ answer }: { answer: ProjectCaseAnswer }) {
             },
             { title: "Rules", dataIndex: "rules", width: 80 },
             {
-              title: "Kept",
+              title: "Evaluation role",
               dataIndex: "retained",
               width: 110,
               render: (retained: boolean | undefined) =>
-                answer.scope === "single" ? (
+                notNarrowed ? (
+                  <Tag color="blue">Evaluated</Tag>
+                ) : answer.scope === "single" ? (
                   <Tag color="blue">Chosen</Tag>
                 ) : retained ? (
                   <Tag color="green">Retained</Tag>
@@ -469,9 +501,11 @@ function ConsideredPolicies({ answer }: { answer: ProjectCaseAnswer }) {
             },
             { title: "Matched clauses", dataIndex: "matched_clauses", width: 130, render: (v: number | null | undefined) => v ?? "—" },
             {
-              title: "Why discarded",
+              title: notNarrowed ? "Retrieval note" : "Why discarded",
               dataIndex: "discard_reason",
-              render: (reason: string | null | undefined) => <Text type="secondary">{discardLabel(reason)}</Text>,
+              render: (reason: string | null | undefined) => (
+                <Text type="secondary">{notNarrowed ? "Search did not discard any published policy." : discardLabel(reason)}</Text>
+              ),
             },
           ]}
         />
@@ -593,8 +627,8 @@ export function ProjectCaseRunner({
     >
       <Space orientation="vertical" size={16} style={{ width: "100%" }} className="policy-case-runner">
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Ask across the project without evaluating every policy. For a project-wide case, AI search first
-          retrieves the highest matching published policies; non-matching policies are discarded and shown below.
+          Ask across the project&apos;s published policies. Search narrows the set when there are more published
+          policies than the retention budget; otherwise every published policy is evaluated and reported below.
         </Paragraph>
         <Radio.Group
           value={scope}
@@ -602,7 +636,7 @@ export function ProjectCaseRunner({
           optionType="button"
           buttonStyle="solid"
           options={[
-            { value: "project", label: "All published policies — narrow by search first" },
+            { value: "project", label: "Project published policies" },
             { value: "single", label: "One published policy" },
           ]}
         />
@@ -614,7 +648,7 @@ export function ProjectCaseRunner({
               onChange={setSelectedProvisionId}
               style={{ width: "100%" }}
               options={policyOptions}
-              placeholder="Choose a published policy"
+              placeholder={policyOptions.length === 0 ? "No published policy to choose" : "Choose a published policy"}
               optionFilterProp="label"
               disabled={policyOptions.length === 0}
             />
@@ -622,10 +656,22 @@ export function ProjectCaseRunner({
               <Alert
                 type="info"
                 showIcon
-                title="No active published policy list is available for single-policy testing"
-                description="Project-wide testing can still ask the endpoint and will report its own published-policy state."
+                title="This project has not published any policies yet"
+                description="Single-policy testing runs against the published version, so there is nothing to choose from until a version is published. Review and publish candidate rules first."
               />
-            ) : null}
+            ) : policyOptions.length === 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                title="The published version contains no policies to choose"
+                description="A version is published but holds no policy this dialog can test."
+              />
+            ) : (
+              <Text type="secondary">
+                {policyOptions.length} published {policyOptions.length === 1 ? "policy" : "policies"} in the active
+                version. Rules still under review are not listed — only what has been published is testable here.
+              </Text>
+            )}
           </Space>
         ) : null}
         <div>
@@ -671,10 +717,10 @@ export function ProjectCaseRunner({
         {running ? (
           <div className="project-case-wait" role="status" aria-live="polite">
             <Space orientation="vertical" size={4}>
-              <Text strong>Searching published policies and reading retained matches · {formatElapsed(elapsedMs)} elapsed</Text>
+              <Text strong>Searching published policies and reading evaluated policies · {formatElapsed(elapsedMs)} elapsed</Text>
               <Text type="secondary">
                 The server is using the project&apos;s policy index to find the policies that best match your case, then
-                evaluates only those retained policies.
+                evaluates the policies the retrieval step returns.
               </Text>
               <Text type="secondary">
                 This can take 30–120 seconds. There is one reply at the end, so the live signal here is the running
@@ -690,7 +736,7 @@ export function ProjectCaseRunner({
             <EvaluationPanel answer={answer} />
             <ConsideredPolicies answer={answer} />
             <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }} data-testid="project-case-size">
-              Retained payload size: {answer.size.combined_chars.toLocaleString()} of{" "}
+              Evaluated payload size: {answer.size.combined_chars.toLocaleString()} of{" "}
               {answer.size.budget_chars.toLocaleString()} characters
               {answer.size.oversize ? "; over budget, so no partial answer was composed." : "."}
             </Paragraph>

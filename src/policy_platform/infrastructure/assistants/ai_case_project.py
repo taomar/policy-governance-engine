@@ -35,7 +35,12 @@ THE STATES A RETRIEVAL CAN BE IN, KEPT APART
 Ten facts about a search are not one fact (constraint 5), and none of them may
 degrade silently to "answer against all" (constraint 10):
 
-  - ``narrowed``               — retrieval kept a subset; those are evaluated.
+  - ``narrowed``               — retrieval kept a subset and set the rest aside.
+  - ``not_narrowed``           — retrieval ran and discarded nothing, because the
+                                 project has no more published policies than the
+                                 retention budget. Every one was evaluated, and
+                                 none of them was *selected* — saying otherwise
+                                 would credit search with a choice it never made.
   - ``no_match``               — retrieval ran on the current published policy
                                  index, but no policy matched this question.
   - ``no_published_version``   — the project has no active approved version, so
@@ -135,6 +140,14 @@ SCOPE_PROJECT = "project"
 #: (constraint 5); collapsing any pair reports one situation as another, and none
 #: of them is ever "evaluate against all" (constraint 10).
 RETRIEVAL_NARROWED = "narrowed"
+#: Retrieval ran and set nothing aside, because the project has no more published
+#: policies than the retention budget. Kept apart from ``narrowed`` because
+#: reporting "search kept the highest matching policies and discarded the rest"
+#: when nothing was discarded tells a reviewer that search selected these
+#: policies, when in fact it selected nothing: they are simply all of them. The
+#: gather still decides bearing, so this is not a weaker answer — it is the same
+#: answer with an honest account of how its inputs were chosen.
+RETRIEVAL_NOT_NARROWED = "not_narrowed"
 RETRIEVAL_NO_MATCH = "no_match"
 RETRIEVAL_INDEX_EMPTY = "index_empty"
 RETRIEVAL_NO_PUBLISHED_VERSION = "no_published_version"
@@ -755,13 +768,22 @@ async def _answer_project_scope(
     )
 
     return respond(
-        RETRIEVAL_NARROWED,
+        RETRIEVAL_NARROWED if discarded else RETRIEVAL_NOT_NARROWED,
         considered=considered,
         retained=retained,
         discarded=discarded,
         policies_retrieved=policies_retrieved,
         evaluation=evaluation,
         size=_size_report(records),
+        reason=(
+            None
+            if discarded
+            else (
+                "every published policy in this project was evaluated: there are no more of them "
+                f"than the retention budget of {RETRIEVAL_POLICY_BUDGET}, so search had nothing to "
+                "set aside. The policies listed were not selected as matching — they are all of them."
+            )
+        ),
     )
 
 

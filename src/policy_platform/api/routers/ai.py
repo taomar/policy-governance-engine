@@ -835,7 +835,14 @@ async def answer_project_case(
     is one of these distinct `status` values, none of which ever degrades to
     "evaluate against all" (constraint 5):
 
-      - `narrowed`             — a subset was kept and evaluated; `evaluation` present.
+      - `narrowed`             — a subset was kept and the rest set aside;
+                                 `evaluation` present.
+      - `not_narrowed`         — retrieval ran and set nothing aside, because the
+                                 project has no more published policies than the
+                                 retention budget. Every one was evaluated;
+                                 `evaluation` present. Distinct from `narrowed`
+                                 because reporting a selection that never happened
+                                 tells a reviewer search chose these policies.
       - `no_match`             — retrieval ran against the active published version
                                  and nothing bears; `evaluation` null. A real answer.
       - `no_published_version` — the project has published nothing, so there is no

@@ -122,9 +122,54 @@ describe("project-wide case runner", () => {
     });
 
     render(<ProjectWorkspace policySet={policySet()} />);
-    fireEvent.click(screen.getByRole("button", { name: /test a case/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));
 
     expect(await screen.findByText(/Put a case to this project's published policies/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /test a case/i })).toBeNull();
+  });
+
+  it("states when retrieval did not narrow and labels the policies as evaluated, not retained", async () => {
+    mockPublishedPolicyList();
+    vi.spyOn(api, "answerProjectCase").mockResolvedValue({
+      scope: "project",
+      policy_set_key: "gmu",
+      retrieval: {
+        status: "not_narrowed",
+        reason: "The project has no more published policies than the retention budget.",
+        policies_considered: 2,
+        policies_retained: 2,
+        policies_discarded: 0,
+        policy_budget: 5,
+      },
+      considered: [
+        { provision_id: "one", provision_key: "policy-one", heading_path: ["Published", "One"], rules: 4, retained: true },
+        { provision_id: "two", provision_key: "policy-two", heading_path: ["Published", "Two"], rules: 3, retained: true },
+      ],
+      excluded: [],
+      evaluation: {
+        intent: "informational",
+        informational: {
+          status: "no_rule_bears",
+          citations: [],
+          note: "",
+          grounding: { rules_available: 7, rules_cited: 0, policies_grounded: 2, fabricated_citations: [] },
+        },
+      },
+      size: { combined_chars: 1200, budget_chars: 200000, oversize: false },
+    });
+
+    render(<ProjectCaseRunner policySetKey="gmu" open onClose={() => {}} />);
+    fireEvent.change(screen.getByTestId("project-case-scenario"), { target: { value: "How many days of annual leave?" } });
+    fireEvent.click(screen.getByTestId("project-case-run"));
+
+    expect(await screen.findByTestId("project-case-status-not_narrowed")).toBeTruthy();
+    expect(screen.getByText(/All published policies were evaluated/i)).toBeTruthy();
+    expect(screen.getByText(/search did not need to select between them/i)).toBeTruthy();
+    expect(screen.getByText(/all evaluated/i)).toBeTruthy();
+    expect(screen.getAllByText("Evaluated").length).toBe(2);
+    expect(screen.queryByText("Retained")).toBeNull();
+    expect(screen.getByText(/The evaluated policies did not state an answer/i)).toBeTruthy();
+    expect(screen.getByText(/none answered the question/i)).toBeTruthy();
   });
 
   it("posts without a provision id for project scope and shows retained and discarded policies", async () => {
@@ -293,6 +338,8 @@ describe("project-wide case runner", () => {
     fireEvent.click(screen.getByTestId("project-case-run"));
 
     expect((await screen.findByTestId("project-case-verdict")).textContent).toContain("not compliant");
+    expect(screen.getByText(/All published policies were evaluated/i)).toBeTruthy();
+    expect(screen.queryByText(/Search narrowed the published policies before evaluation/i)).toBeNull();
     expect(screen.getByText("The retained rule prohibits the case as described. [rule-kept]")).toBeTruthy();
     expect(screen.getByTestId("project-case-missing-facts").textContent).toContain("employee category");
     expect(screen.getByText(/fabricated citation was refused/i)).toBeTruthy();
@@ -352,7 +399,7 @@ describe("project-wide case runner", () => {
     render(<ProjectWorkspace policySet={{ ...policySet(), key: "gmu" }} />);
     fireEvent.click(screen.getByRole("tab", { name: /Validation/i }));
     expect(await screen.findByText("Validation tab")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /test a case/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));
     fireEvent.change(await screen.findByTestId("project-case-scenario"), { target: { value: "Can the project answer?" } });
     fireEvent.click(screen.getByTestId("project-case-run"));
 

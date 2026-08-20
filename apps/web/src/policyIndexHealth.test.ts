@@ -48,6 +48,7 @@ describe("which retrieval refusals a rebuild repairs", () => {
     // the answer was wrong when it was correct.
     expect(retrievalStatusIsIndexRepairable("no_match")).toBe(false);
     expect(retrievalStatusIsIndexRepairable("narrowed")).toBe(false);
+    expect(retrievalStatusIsIndexRepairable("not_narrowed")).toBe(false);
   });
 
   it("treats a status it has never heard of as not repairable", () => {

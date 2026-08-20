@@ -25,6 +25,7 @@ import {
   FileTextOutlined,
   HistoryOutlined,
   NodeIndexOutlined,
+  ReadOutlined,
   SafetyCertificateOutlined,
   SolutionOutlined,
   WarningOutlined,
@@ -66,6 +67,7 @@ type WorkspaceTabKey =
   | "exceptions"
   | "attestations"
   | "decision-log";
+type WorkspaceStripKey = WorkspaceTabKey | "case-runner";
 
 /**
  * The lifecycle stage each tab belongs to. Eleven peer tabs in one flat strip
@@ -84,7 +86,7 @@ const TAB_GROUP_LABELS: Record<TabGroup, string> = {
 };
 
 interface TabMeta {
-  key: WorkspaceTabKey;
+  key: WorkspaceStripKey;
   label: string;
   group: TabGroup;
   icon: React.ReactNode;
@@ -174,6 +176,13 @@ const TAB_META: TabMeta[] = [
     count: "regression_tests",
   },
   {
+    key: "case-runner",
+    label: "Test a Case",
+    group: "assure",
+    icon: <ReadOutlined />,
+    hint: "Ask this project's published policies a plain-language case without leaving the workspace.",
+  },
+  {
     key: "exceptions",
     label: "Exceptions",
     group: "operate",
@@ -199,7 +208,7 @@ const TAB_META: TabMeta[] = [
   },
 ];
 
-const TAB_KEYS: WorkspaceTabKey[] = TAB_META.map((t) => t.key);
+const TAB_KEYS: WorkspaceStripKey[] = TAB_META.map((t) => t.key);
 
 /**
  * Tabs built but deliberately out of scope for the current phase. They are hidden
@@ -208,10 +217,11 @@ const TAB_KEYS: WorkspaceTabKey[] = TAB_META.map((t) => t.key);
  * tab strip and the `onNavigate` guard, so a hidden tab can never become the active
  * tab and render a blank panel.
  */
-const HIDDEN_TAB_KEYS: readonly WorkspaceTabKey[] = ["attestations", "correlation", "exceptions"];
+const HIDDEN_TAB_KEYS: readonly WorkspaceStripKey[] = ["attestations", "correlation", "exceptions"];
 
 const VISIBLE_TAB_META = TAB_META.filter((t) => !HIDDEN_TAB_KEYS.includes(t.key));
 const VISIBLE_TAB_KEYS = TAB_KEYS.filter((k) => !HIDDEN_TAB_KEYS.includes(k));
+const VISIBLE_NAV_TAB_KEYS = VISIBLE_TAB_KEYS.filter((k): k is WorkspaceTabKey => k !== "case-runner");
 
 /**
  * First visible tab of each group *except the first* — i.e. exactly the points
@@ -324,7 +334,7 @@ export function ProjectWorkspace({
     // navigation, a child tab's onNavigate — lands on the merged surface
     // instead of dead-ending on a tab that no longer exists.
     const target = page === "regression" ? "tests" : page;
-    if ((VISIBLE_TAB_KEYS as string[]).includes(target)) setActiveTab(target as WorkspaceTabKey);
+    if ((VISIBLE_NAV_TAB_KEYS as string[]).includes(target)) setActiveTab(target as WorkspaceTabKey);
   };
 
   const openEdit = () => {
@@ -493,9 +503,6 @@ export function ProjectWorkspace({
             <Button size="small" onClick={openReview}>
               Mark Reviewed
             </Button>
-            <Button size="small" icon={<ExperimentOutlined />} onClick={() => setCaseRunnerOpen(true)}>
-              Test a Case
-            </Button>
           </div>
         </div>
 
@@ -512,7 +519,13 @@ ${GROUP_DIVIDER_CSS.split(",\n")
           <Tabs
             className="workspace-tabs"
             activeKey={activeTab}
-            onChange={(k) => setActiveTab(k as WorkspaceTabKey)}
+            onChange={(k) => {
+              if (k === "case-runner") {
+                setCaseRunnerOpen(true);
+                return;
+              }
+              setActiveTab(k as WorkspaceTabKey);
+            }}
             items={VISIBLE_TAB_META.map((meta) => {
           /* Review and Policies are both badged in policies — the unit the work
              is decided and governed in — with rules carried in the hover: a

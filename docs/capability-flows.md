@@ -210,10 +210,23 @@ Three things this flow guarantees, each of which was a defect first:
   unavailable, search failed, or a genuine no-match — and no evaluation is made.
   Those are kept apart because collapsing any pair reports one situation as
   another.
+- **It only claims to have narrowed when it did.** A project with no more
+  published policies than the retention budget has all of them evaluated, and
+  that is reported as `not_narrowed` rather than as a selection. Saying "search
+  kept the highest matching policies and discarded the rest" when nothing was
+  discarded credits search with a choice it never made, and leaves a reviewer
+  believing the listed policies matched their question when they are simply all
+  the project has.
 - **It retrieves policies, not clauses.** The indexed unit is a policy at its
   published version, keyed on identity that survives re-parsing. An earlier
   design keyed retrieval on clause ids, which are regenerated whenever a
   document is re-read, and it failed silently on every project with history.
+
+Narrowing is a cost control and a scope control, not a relevance guarantee. A
+policy that is retained has not been judged to bear on the question — the gather
+decides that, and reports `no_rule_bears` when none of them does. Over-retention
+is the deliberate direction: a policy kept but not bearing costs a little
+context, while one dropped that did bear is the outcome the reviewer forbade.
 
 The index holds only published policies at the latest approved version, which is
 what makes it cheap to maintain: edits, approvals, rejections and re-extractions

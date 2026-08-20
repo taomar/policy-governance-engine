@@ -795,6 +795,20 @@ async def test_current_version_hits_outside_the_active_payload_are_stale(
 async def test_narrowed_is_when_a_policy_is_retained_and_only_then_is_it_evaluated(
     monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
 ) -> None:
+    """Narrowing means some policies were set aside, and only survivors evaluated.
+
+    Two candidates, one of which surfaces, so the discard is real. The status is
+    reserved for that case: see the companion test below for a project small
+    enough that nothing can be set aside.
+    """
+
+    two_candidates = _project_scope(
+        [_candidate("prov-a", "A", ["C-a"]), _candidate("prov-b", "B", ["C-b"])]
+    )
+
+    async def _load_two(session: Any, policy_set_id: Any) -> dict:
+        return two_candidates
+
     class _MatchingSearchClient:
         def __init__(self, settings: Any) -> None:
             pass
@@ -811,16 +825,58 @@ async def test_narrowed_is_when_a_policy_is_retained_and_only_then_is_it_evaluat
         evaluated.append(records)
         return await _canned_evaluation(records, scenario=scenario, reasoning_effort=reasoning_effort)
 
+    # The fixture supplies the embedding stub; only the candidate set is widened.
+    monkeypatch.setattr(ai_case_project, "load_project_scope", _load_two)
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _MatchingSearchClient)
     monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _spy_eval)
 
     result = await _run_project()
 
     assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_NARROWED
+    assert result["retrieval"]["policies_discarded"] == 1
     assert result["evaluation"] is not None
     # Only the retained policy reached the evaluator.
     assert len(evaluated) == 1
     assert _ids([{"provision_id": r["policy"]["provision_id"]} for r in evaluated[0]]) == {"prov-a"}
+
+
+async def test_a_project_within_the_budget_is_not_reported_as_narrowed(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
+) -> None:
+    """Discarding nothing is not narrowing, and must not be reported as it.
+
+    A project whose published policies fit inside the retention budget has every
+    one of them evaluated. Calling that ``narrowed`` tells a reviewer that search
+    chose these policies as the matching ones, when search chose nothing. A real
+    project reported two considered, two retained and none discarded, under a
+    banner claiming the rest had been discarded — while the answer itself
+    correctly found that neither policy bore on the question.
+
+    The evaluation still runs and is still present: this is the same answer with
+    an honest account of how its inputs were chosen.
+    """
+
+    class _MatchingSearchClient:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
+        async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
+            return [_policy_hit("A", 0.7)]
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _MatchingSearchClient)
+    monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _canned_evaluation)
+
+    result = await _run_project()
+
+    assert result["retrieval"]["status"] == ai_case_project.RETRIEVAL_NOT_NARROWED
+    assert result["retrieval"]["policies_discarded"] == 0
+    assert result["retrieval"]["policies_retained"] == result["retrieval"]["policies_considered"]
+    # The answer is not weakened by the honesty: the policy was still evaluated.
+    assert result["evaluation"] is not None
+    assert "not selected" in result["retrieval"]["reason"]
 
 
 async def test_empty_project_is_its_own_state(
@@ -875,6 +931,7 @@ def test_the_retrieval_states_are_distinct() -> None:
 
     states = {
         ai_case_project.RETRIEVAL_NARROWED,
+        ai_case_project.RETRIEVAL_NOT_NARROWED,
         ai_case_project.RETRIEVAL_NO_MATCH,
         ai_case_project.RETRIEVAL_INDEX_EMPTY,
         ai_case_project.RETRIEVAL_NO_PUBLISHED_VERSION,
@@ -884,6 +941,8 @@ def test_the_retrieval_states_are_distinct() -> None:
         ai_case_project.RETRIEVAL_FAILED,
         ai_case_project.RETRIEVAL_EMPTY_SET,
         ai_case_project.RETRIEVAL_BYPASSED,
+        ai_case_project.RETRIEVAL_POLICY_NOT_PUBLISHED,
     }
-    # Ten named states, none equal to another.
-    assert len(states) == 10
+    # Twelve named states, none equal to another.
+    assert len(states) == 12
+

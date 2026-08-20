@@ -1164,6 +1164,7 @@ export interface PolicyIndexBuildResult {
 
 export type ProjectCaseRetrievalStatus =
   | "narrowed"
+  | "not_narrowed"
   | "no_match"
   | "index_empty"
   | "no_published_version"

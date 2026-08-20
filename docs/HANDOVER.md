@@ -282,8 +282,8 @@ Worth imitating, all observed in this session:
 
 | | |
 |---|---|
-| Python | 3,340 passed, 16 skipped, 0 failed |
-| Web | 1,518 passed, 123 files |
+| Python | 3,341 passed, 16 skipped, 0 failed |
+| Web | 1,519 passed, 123 files |
 | `tsc -b --force` | exit 0 |
 | API surface | 86 paths / 96 operations / 13 tags |
 
@@ -1064,6 +1064,53 @@ behaviour. The report was better-evidenced than most true reports.
   environment than the code — the same reasoning that correctly identified two Docker
   outages this session, where *every* database-backed endpoint failed rather than only
   the new ones.
+
+
+### 9.19 A status that describes the mechanism, not the outcome
+
+The user reported that putting a case to a project "doesn't load the project's
+policies — the retrieved data is not related to the project". Measured on GMU,
+which publishes **2** policies against a retention budget of **5**:
+
+```
+retrieval.status  = "narrowed"
+considered 2 · retained 2 · discarded 0
+evaluation.status = "no_rule_bears"
+```
+
+Everything here is individually correct. Both policies are retained because the
+budget cannot exclude anything from a set of two. The answer is right: it found
+that neither policy bears on annual leave, cited nothing, and fabricated nothing.
+The grounding layer did exactly its job.
+
+What was wrong was the **account of how it happened**. The panel announced
+*"Search narrowed the published policies — search kept the highest matching
+policies and discarded the rest"*, listed both policies as **Retained**, and
+placed an empty answer underneath. A reviewer reads that as *these two policies
+matched my question and then told me nothing*, which is false twice over: search
+selected nothing, and the policies were never claimed to match.
+
+**`narrowed` named the code path rather than what happened to the data.** It was
+returned wherever the selection step ran, including when the step could not
+change anything. The fix is a distinct `not_narrowed` for the case where nothing
+was discarded, which says the policies listed are all of them rather than a
+chosen few.
+
+Three things worth carrying:
+
+* **A status should be a claim about the outcome, testable against the numbers
+  beside it.** `narrowed` with `discarded: 0` is self-refuting, and it sat in
+  the response for as long as the feature existed because nothing compared the
+  word to the count.
+* **Retention is not relevance, and the UI must not imply it is.** Over-retention
+  is deliberate here — a policy kept but not bearing costs context, one dropped
+  that did bear is the outcome the user forbade — but that reasoning only holds
+  if "retained" is never presented as "matched".
+* **The defect was in a small corpus, and the demo corpus was large.** AIS has 10
+  published policies and narrows genuinely to 5, so it never showed this. The
+  project that exposed it publishes 2. Small inputs are where "the general
+  mechanism" and "what actually happened" come apart, and they are exactly the
+  inputs a demo avoids.
 
 
 ## 10. Fourth session — the per-project policy index
