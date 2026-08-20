@@ -10,6 +10,7 @@ Start with the [User guide](user-guide.md) to see the product, or
 | Page | Purpose |
 |---|---|
 | [User guide](user-guide.md) | End-to-end journey with screenshots |
+| [From document to policy](from-document-to-policy.md) | How extraction produces reviewable policy and checks itself |
 | [How we work](how-we-work.md) | Engineering agreements and the reasoning behind them |
 | [Standards](standards.md) | Which published standard governs which decision |
 | [Architecture](architecture.md) | Components, boundaries, and trust model |
