@@ -14,8 +14,8 @@ The postdeploy hook runs a manual Container Apps job using the deployed API imag
 Inspect executions:
 
 ```powershell
-az containerapp job execution list \
-  --resource-group <resource-group> \
+az containerapp job execution list `
+  --resource-group <resource-group> `
   --name <bootstrap-job> -o table
 ```
 
@@ -106,6 +106,18 @@ Bicep changes should be previewed with what-if and applied through azd to avoid 
 - audit Entra app owners, credentials and redirect URIs
 - remember that infrastructure authentication does not yet make application actor roles authoritative
 - use the private-network deployment option when private ingress, WAF or centralized egress inspection is a real requirement
+
+## Troubleshooting
+
+| Symptom | Likely cause | Diagnostic |
+|---|---|---|
+| Web returns 502 / no healthy upstream | API container is not running or failed to start. | Check `az containerapp logs show -g <rg> -n <api-app> --follow` for startup errors. Common cause: Key Vault references failing because managed identity does not have `Key Vault Secrets User` role. |
+| API starts but database queries fail | PostgreSQL network connectivity or credentials. | Verify the PostgreSQL server is in the `Running` state. Check that the Container Apps subnet can reach the PostgreSQL delegated subnet. Verify `DATABASE_URL` in Key Vault uses `?ssl=require` with the `asyncpg` driver. |
+| Bootstrap job fails | Alembic migration error or Search index creation failure. | Check job execution logs: `az containerapp job logs show -g <rg> -n <bootstrap-job> --execution <name>`. The job exits nonzero if either boundary fails. |
+| AI endpoints return 503 | OpenAI secrets not configured in Key Vault, or the private endpoint DNS is not resolving. | Check `GET /api/ai/status` via the internal API URL. Verify Key Vault secrets for `azure-openai-endpoint` and `azure-openai-api-key` are populated. Check private DNS zone links. |
+| Uploaded documents disappear after revision change | Azure Files share not mounted correctly. | Verify the storage mount in the API container app configuration. The share must be mounted at `/app/data/documents`. |
+| Long extraction requests time out | The Nginx proxy timeout is 240 seconds; operations longer than that will fail. | This is a known limitation. A durable job architecture is a future improvement. |
+| Entra login callback fails | The redirect URI has not been added to the Entra app registration. | Run the postdeploy script or manually add `<WEB_URL>/.auth/login/aad/callback` to the registration. |
 
 ## Official references
 

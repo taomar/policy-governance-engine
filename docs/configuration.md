@@ -23,25 +23,18 @@ Copy-Item .env.example .env
 | `DEV_AUTH_ENABLED` | `true` | Local development flag; there is no real auth. |
 | `WEB_DEV_SERVER_PORT` | `5490` | Included in the API's CORS allow-list along with 5173–5180. |
 | `VITE_API_BASE_URL` | `http://localhost:8010` | Read by the frontend at build/dev time. |
-| `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | **Required for the product.** Blank leaves the platform in degraded mode (AI routes `503`). |
-| `AZURE_OPENAI_DEPLOYMENT` | blank | **Required.** Reasoning deployment: extraction, quality, correlation, rewrite, compare. |
+| `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | Optional for a first local run. Blank leaves AI features disabled (routes return `503`), but the app boots and all deterministic features work. |
+| `AZURE_OPENAI_DEPLOYMENT` | blank | Reasoning deployment: extraction, quality, correlation, rewrite, compare. Required for AI features, not for booting the app. |
 | `AZURE_OPENAI_FAST_DEPLOYMENT` | blank | Low-latency deployment for Ask AI chat. Not part of the `ai_enabled` gate, but Ask AI targets it. |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | blank / blank / `3072` | **Required.** Embeddings for clause indexing and query vectors. `_DEPLOYMENT` is part of the `ai_enabled` gate. |
-| `AZURE_SEARCH_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2025-09-01` | **Required grounding layer.** Blank disables clause indexing and all retrieval-backed grounding. |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | blank / blank / `3072` | Embeddings for clause indexing and query vectors. `_DEPLOYMENT` is part of the `ai_enabled` gate. Required for AI features. |
+| `AZURE_SEARCH_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2025-09-01` | Blank disables clause indexing and all retrieval-backed grounding. Required for grounding features. |
 | `AZURE_SEARCH_AUTHORING_INDEX` / `_EVIDENCE_INDEX` | `policy-authoring` / `policy-evidence` | Index names. Runtime reads/writes the authoring index; the Azure deployment bootstrap initializes both schemas, while the runtime client never alters schema. |
 
-**AI and search are product requirements, not options.** Azure OpenAI drives every AI capability, and a grounding/search layer — today Azure AI Search — is what makes grounded answers and grounded test proposals possible. See [AI assistance](ai-assistance.md) and [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
+**Azure OpenAI and Azure AI Search are optional for getting started.** The app boots and all deterministic features work with these blank — document upload, rule editing, evaluation, policy tests, the decision log, and the audit trail all function. AI-powered features (extraction, quality checks, Ask AI, grounded answers) require Azure OpenAI and, for retrieval grounding, Azure AI Search. See [AI assistance](ai-assistance.md) and [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
 
 `ai_enabled` is true only when the OpenAI endpoint, key, chat deployment *and* embedding deployment are all set. `search_enabled` is gated separately on its own endpoint and key. Check the effective state at `GET /api/ai/status`, or via the AI pill in the app header.
 
-> **Degraded mode.** The current code contains **no fail-fast startup check**:
-> the API boots with everything blank. In that state AI endpoints return `503`,
-> the "AI disabled" pill shows, clause indexing returns `0`, and Ask AI cannot
-> retrieve — while deterministic import, evaluation, policy tests, export, the
-> decision log and the audit trail keep working. Treat this as a diagnostic
-> mode for developing the deterministic core, not as a supported deployment of
-> the product. The absence of a fail-fast check is recorded in
-> [Known limitations](known-limitations.md).
+> **Degraded mode.** The current code contains **no fail-fast startup check**: the API boots with everything blank. In that state AI endpoints return `503`, the "AI disabled" pill shows, clause indexing returns `0`, and Ask AI cannot retrieve — while deterministic import, evaluation, policy tests, export, the decision log and the audit trail keep working. Treat this as a diagnostic mode for developing the deterministic core, not as a supported deployment of the product. The absence of a fail-fast check is recorded in [Known limitations](known-limitations.md).
 
 Per-project extraction configuration (`trusted_config`) is stored on the policy set, not in `.env`. Key it on the source term exactly as it appears in the policy text, with the target fact path nested inside — keying by the fact path instead fails silently because the extractor resolves mappings by source terminology.
 
@@ -64,47 +57,146 @@ command.upgrade(config, "head")
 
 Setting `ALEMBIC_DATABASE_URL` in a child process's environment also works and always did, but it is no longer the *only* route. It used to be: `alembic/env.py` overwrote `sqlalchemy.url` unconditionally, so a caller who set it programmatically was silently pointed at the ambient default instead — which in a developer's shell is production. The resolution now lives in `infrastructure/persistence/migration_target.py`, which explains the failure in full; `tests/unit/test_migration_target_resolution.py` fails if the override is ever made unconditional again.
 
-## Setup, run, test
+## Running locally — step by step
 
-Prerequisites: Docker Desktop, Python 3.11+, Node.js 18+.
+This section takes a reader from a clean machine to a running stack. The local topology is: **one Docker container** (PostgreSQL only) plus **two host processes** (API and web dev server). The API and web app are not containerized for local development.
+
+### Prerequisites
+
+| Tool | Minimum version | Verify with |
+|---|---|---|
+| Docker Desktop | Any current release | `docker version` |
+| Python | 3.11+ | `python --version` |
+| Node.js | 18+ | `node --version` |
+| Git | Any | `git --version` |
+
+### 1. Clone and configure
 
 ```powershell
-# Database
-docker compose -f infra/local/docker-compose.yml up -d
+git clone <repository-url>
+cd <repository-root>
+Copy-Item .env.example .env
+```
 
-# Backend
+The `.env.example` template has working defaults for every local setting. The two **required** variables (`DATABASE_URL` and `ALEMBIC_DATABASE_URL`) are pre-filled with the correct connection strings for the local PostgreSQL container. You do not need to edit `.env` to get started — all Azure OpenAI and Azure AI Search variables can remain blank for a first run.
+
+### 2. Start PostgreSQL
+
+The project provides a single-service Docker Compose file at `infra/local/docker-compose.yml`. It runs PostgreSQL 16 on host port **5433** (not the default 5432, to avoid collisions with a system install).
+
+```powershell
+docker compose -f infra/local/docker-compose.yml up -d
+```
+
+Confirm it is healthy:
+
+```powershell
+docker ps --filter name=policy-postgres --format "table {{.Names}}\t{{.Status}}"
+```
+
+You should see `policy-postgres` with status `Up ... (healthy)`. If the health check has not passed yet, wait a few seconds and retry — the container runs `pg_isready` every 10 seconds.
+
+You can also test connectivity directly:
+
+```powershell
+docker exec policy-postgres psql -U policy_admin -d policy_platform -c "SELECT 1"
+```
+
+### 3. Create the Python environment
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+This installs the `policy-platform` package in editable mode with development dependencies. The `[dev]` extra is sufficient for running the API and all unit tests that do not involve Docling document conversion.
+
+### 4. Apply the database schema
+
+```powershell
+$env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m alembic upgrade head
-
-# Frontend
-cd apps\web; npm install; cd ..\..
 ```
 
-```powershell
-# Run the API (no --reload: the watcher fights long extraction runs)
-.\.venv\Scripts\python.exe -m uvicorn policy_platform.api.app:app --host 127.0.0.1 --port 8010 --app-dir src
-
-# Run the web app
-cd apps\web; npm run dev
-```
-
-```powershell
-# Backend tests
-.\.venv\Scripts\python.exe -m pytest tests/unit -q     # active Python unit-test process
-
-# Frontend type-check + build, and lint (not a test suite)
-cd apps\web; npm run build
-cd apps\web; npm run lint
-```
-
-The [testing guide](testing.md) describes the active pytest process by capability, its invocation commands, expected behavior, isolation and coverage gaps. Maintenance scripts are explicitly outside testing.
-
-Useful database access:
+This runs every Alembic migration and creates all tables. Confirm:
 
 ```powershell
 docker exec policy-postgres psql -U policy_admin -d policy_platform -c "\dt"
+```
+
+You should see tables including `policy_sets`, `clauses`, `rules`, `evaluations`, `audit_events`, and others. If you see `Did not find any relations`, the migration did not run — check that PostgreSQL is running and `ALEMBIC_DATABASE_URL` in `.env` points to `localhost:5433`.
+
+### 5. Start the API
+
+Use the provided launch script rather than invoking uvicorn directly:
+
+```powershell
+.\scripts\run_api.ps1
+```
+
+The script reads `API_PORT` from `.env` (default `8010`), sets `PYTHONPATH=src`, clears ambient `AZURE_OPENAI_*` environment variables (which otherwise outrank `.env` and can cause silent `401` errors by pairing one resource's endpoint with another's key), and binds to `0.0.0.0` (binding to `127.0.0.1` fails when the browser resolves `localhost` to `::1`).
+
+Confirm the API is running:
+
+```powershell
+curl http://localhost:8010/health
+```
+
+You should see a JSON response with `"status": "ok"` and `"environment": "development"`. If AI variables are blank, `GET /api/ai/status` will report AI and search as disabled — this is expected and the app is fully functional for deterministic features.
+
+### 6. Start the web app
+
+In a **separate terminal**:
+
+```powershell
+cd apps\web
+npm install
+npm run dev
+```
+
+Vite binds to the port in `WEB_DEV_SERVER_PORT` (default `5490` from `.env`). It uses `strictPort: true`, so it will fail rather than silently increment if the port is taken. The dev server reads `VITE_API_BASE_URL` from the root `.env` (default `http://localhost:8010`) and proxies API calls there.
+
+Confirm: open `http://localhost:5490` in a browser. You should see the PolicyVerbAItim interface. The connection pill in the header should be green. If AI is not configured, the "AI disabled" pill is expected.
+
+### 7. Uploaded documents
+
+Uploaded documents are written to the relative path `data/documents` under the repository root. This directory is created automatically on first upload. It is local filesystem state — back it up if the data matters, and note that the Azure deployment mounts this path as an Azure Files share instead.
+
+### Running tests
+
+```powershell
+# Backend unit tests (no database or network required)
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m pytest tests/unit -q
+
+# Frontend type-check and production build
+cd apps\web
+npm run build
+
+# Frontend lint
+cd apps\web
+npm run lint
+```
+
+The full test suite (`tests/`) needs the `[dev,graph]` extra because 13 modules import Docling directly — see the [Docling integration](docling.md) guide. The `tests/unit` subset runs with `.[dev]` alone.
+
+The [testing guide](testing.md) describes the active pytest process by capability, its invocation commands, expected behavior, isolation and coverage gaps. Maintenance scripts are explicitly outside testing.
+
+### Useful database commands
+
+```powershell
+# List tables
+docker exec policy-postgres psql -U policy_admin -d policy_platform -c "\dt"
+
+# Interactive psql session
+docker exec -it policy-postgres psql -U policy_admin -d policy_platform
+
+# Stop and remove the container (data persists in the pgdata volume)
+docker compose -f infra/local/docker-compose.yml down
+
+# Stop and destroy data
+docker compose -f infra/local/docker-compose.yml down -v
 ```
 
 ## Deployment status
@@ -175,12 +267,18 @@ Places designed to be extended, with the seam already in place:
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| API starts, all requests fail on the database | PostgreSQL container not running, or `DATABASE_URL` port is not 5433. |
-| AI endpoints return `503` | Azure OpenAI not fully configured — check `GET /api/ai/status`. Azure OpenAI is required for the product; a `503` means the platform is in degraded mode. |
-| Ask AI answers with no source chips | `AZURE_SEARCH_*` not configured, the document was never indexed (indexing is best-effort), or retrieval failed and was caught. Check `search_enabled` at `GET /api/ai/status`. |
-| Frontend cannot reach the API | Vite chose a port outside the CORS allow-list, or `VITE_API_BASE_URL` does not match the API port. |
-| Extraction restarts mid-run | The API was started with `--reload`. |
-| A prompt edit has no effect | Prompt loading is cached per process; restart the API. |
-| An extraction run shows `failed` after a restart | Expected: interrupted runs are reconciled at startup. |
+| Symptom | Likely cause | Diagnostic |
+|---|---|---|
+| API starts, all requests fail on the database | PostgreSQL container not running, or `DATABASE_URL` port is not 5433. | Run `docker ps --filter name=policy-postgres` — if it is not listed, run `docker compose -f infra/local/docker-compose.yml up -d`. If it is listed but unhealthy, check `docker logs policy-postgres`. |
+| `alembic upgrade head` fails with connection refused | PostgreSQL is not running or `.env` has the wrong port. | Verify `ALEMBIC_DATABASE_URL` in `.env` uses port `5433` and driver `postgresql+psycopg`. Run `docker exec policy-postgres psql -U policy_admin -d policy_platform -c "SELECT 1"` to confirm connectivity. |
+| API returns `401` from Azure OpenAI | Ambient `AZURE_OPENAI_*` environment variables outrank `.env`, pairing one resource's endpoint with another's key. | Use `scripts/run_api.ps1` which clears these variables before starting. Alternatively, close and reopen the terminal. |
+| AI endpoints return `503` | Azure OpenAI not fully configured — check `GET /api/ai/status`. This is expected if you left AI variables blank. Azure OpenAI is required for AI features; a `503` means the platform is in degraded mode but deterministic features work. | Verify all four variables: `AZURE_OPENAI_ENDPOINT`, `_API_KEY`, `_DEPLOYMENT`, and `_EMBEDDING_DEPLOYMENT`. |
+| Ask AI answers with no source chips | `AZURE_SEARCH_*` not configured, the document was never indexed (indexing is best-effort), or retrieval failed and was caught. | Check `search_enabled` at `GET /api/ai/status`. |
+| Frontend cannot reach the API | Vite chose a port outside the CORS allow-list, or `VITE_API_BASE_URL` does not match the API port. | Confirm `WEB_DEV_SERVER_PORT` in `.env` is `5490` (within the CORS allow-list). Confirm `VITE_API_BASE_URL` matches the port the API is actually running on. Check the browser console for CORS errors. |
+| Vite exits with "port already in use" | Port `5490` is taken. The dev server uses `strictPort: true` and refuses to silently increment. | Free the port or change `WEB_DEV_SERVER_PORT` in `.env`. |
+| Browser shows blank page but API works via curl | The API is bound to `127.0.0.1` but the browser resolves `localhost` to `::1` (IPv6). | Use `scripts/run_api.ps1` which binds to `0.0.0.0`. |
+| Extraction restarts mid-run | The API was started with `--reload`. | Use `scripts/run_api.ps1` which does not pass `--reload`. |
+| A prompt edit has no effect | Prompt loading is cached per process; restart the API. | Stop and restart via `scripts/run_api.ps1`. |
+| An extraction run shows `failed` after a restart | Expected: interrupted runs are reconciled at startup. | Not a bug — the API marks in-process runs as `failed` on boot because they cannot resume. Rules already committed by that run are kept. |
+| `npm run dev` fails with module not found | `npm install` was not run in `apps/web`. | Run `cd apps\web; npm install`. |
+| Tests fail at collection with Docling import errors | The `[dev]` extra does not include Docling. | Install with `.[dev,graph]` in a separate venv (`.venv-graph`) — see the [Docling integration](docling.md) guide. |

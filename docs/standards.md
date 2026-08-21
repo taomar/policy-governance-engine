@@ -68,7 +68,7 @@ The JSON is a **DMN-compatible IR**, not a normative DMN document. It carries `r
 
 ## SBVR 1.5 — deontic categories
 
-`CanonicalRuleType` is the deontic vocabulary: `obligation`, `prohibition`, `permission`, `entitlement`, `eligibility`, `recommendation`, `classification`, `definition`, `conditional_outcome`, `calculation`, `ambiguous`, `non_normative`.
+`CanonicalRuleType` is the deontic vocabulary: `obligation`, `prohibition`, `permission`, `entitlement`, `eligibility`, `ineligibility`, `recommendation`, `classification`, `definition`, `conditional_outcome`, `calculation`, `ambiguous`, `non_normative`.
 
 The distinction that matters is **deontic vs alethic**: an obligation says what *ought* to be, a classification says what *is true by definition*. Conflating them turns a definition into a duty, which is why `classification` and `definition` map to `INFORMATIONAL` rather than `ALLOW` — most visibly when the source is phrased negatively and a forced `ALLOW` would assert the literal inverse of the rule's own text.
 

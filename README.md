@@ -75,7 +75,7 @@ Using Azure AI endpoints from the local API remains a Local deployment.
 
 ## Quick start
 
-Prerequisites: Docker Desktop, Python 3.11+, and Node.js 18+.
+Prerequisites: Docker Desktop, Python 3.11+, and Node.js 18+. For the full step-by-step walkthrough with verification at each stage, see [Configuration — Running locally](docs/configuration.md#running-locally--step-by-step).
 
 ```powershell
 Copy-Item .env.example .env
@@ -84,6 +84,8 @@ docker compose -f infra/local/docker-compose.yml up -d
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
+$env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m alembic upgrade head
 
 cd apps\web
@@ -93,17 +95,21 @@ npm install
 Run in separate terminals:
 
 ```powershell
-# API — reads API_PORT from .env, defaults to 8010
+# API — reads API_PORT from .env (default 8010)
 .\scripts\run_api.ps1
 
-# Web: Vite prints the URL
+# Web: Vite prints the URL (default http://localhost:5490)
 cd apps\web
 npm run dev
 ```
 
 Use `scripts/run_api.ps1` rather than invoking uvicorn directly. It clears ambient `AZURE_OPENAI_*` variables first, which otherwise outrank `.env` and pair one resource's endpoint with another's key — Azure answers that with a bare `401` that reads like a bad key. It also binds `0.0.0.0`: `--host 127.0.0.1` leaves the browser unable to connect when it resolves `localhost` to `::1`, while `curl` still succeeds.
 
-Interactive API documentation: `http://127.0.0.1:<API_PORT>/docs`.
+Verify the stack: `curl http://localhost:8010/health` should return `{"status": "ok", ...}`. Open `http://localhost:5490` in a browser to see the UI.
+
+Azure OpenAI and Azure AI Search are **optional for a first run**. The app boots with those blank — AI features show as disabled, but document upload, rule editing, evaluation, policy tests, the decision log, and the audit trail all work. See [Configuration](docs/configuration.md) for details.
+
+Interactive API documentation: `http://localhost:8010/docs`.
 
 ### Document conversion (optional)
 
@@ -183,9 +189,9 @@ See [Known limitations](docs/known-limitations.md) and the [Security roadmap](do
 | [Workflows](docs/workflows.md) | Concise operational flows |
 | [Capability flows](docs/capability-flows.md) | Seven high-impact diagrams |
 | [API](docs/api.md) | Endpoint groups and common sequences |
-| [Configuration](docs/configuration.md) | Environment, local operation, and troubleshooting |
+| [Configuration](docs/configuration.md) | Environment, local run guide, and troubleshooting |
 | [Testing](docs/testing.md) | Commands and coverage boundaries |
-| [Azure deployment](docs/azure-deployment.md) | Pending Container Apps deployment |
+| [Azure deployment](docs/azure-deployment.md) | Container Apps architecture, what gets deployed, and the `azd up` procedure |
 | [Data model](docs/data-model.md) | Tables and lifecycle invariants |
 | [Failure reports](docs/failures/README.md) | What went wrong, measured from the running system, and what generalises |
 

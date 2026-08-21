@@ -4,6 +4,36 @@
 
 The currently available path is the **Local deployment**. Calling Azure OpenAI or Azure AI Search endpoints from the local API does not make the application an Azure deployment.
 
+## What gets deployed
+
+The Azure deployment provisions two long-running container apps and one manual job, plus managed data and AI services. This is not a lift-and-shift of the local development setup — the local topology runs PostgreSQL in a container with the API and web as host processes, while the Azure topology containerizes everything.
+
+### Container images built by this repo
+
+| Image | Base | Internal port | Builds from |
+|---|---|---|---|
+| **API** | `python:3.11-slim` | 8010 | Root `Dockerfile` |
+| **Web** | `node:22-alpine` build → `nginx:1.27-alpine` runtime | 8080 | `apps/web/Dockerfile` |
+
+The web container uses Nginx to serve the React SPA and **proxy `/api/` requests to the API container** via the `API_UPSTREAM` environment variable (substituted at container start by `NGINX_ENVSUBST_FILTER`). This same-origin proxy means there is no CORS in production and no API hostname baked into the JavaScript bundle — `VITE_API_BASE_URL` defaults to `""` in the container build. This is an important design point: the browser never makes cross-origin requests because Nginx forwards them internally.
+
+Nginx also proxies `/docs`, `/redoc`, `/openapi.json`, and `/health` to the API, and responds to `/healthz` directly with a 200 for its own liveness check.
+
+### Azure resources
+
+| Resource | Azure service | Notes |
+|---|---|---|
+| Web app | `Microsoft.App/containerApps` | Public HTTPS ingress with Entra authentication, 1–2 replicas |
+| API app | `Microsoft.App/containerApps` | Internal ingress only (no public access), 1–3 replicas, Azure Files mounted at `/app/data/documents` |
+| Bootstrap job | `Microsoft.App/jobs` (`triggerType: Manual`) | Runs `python -m infra.bootstrap.initialize` — applies Alembic migrations and creates Search index schemas. Safe to rerun. |
+| Database | `Microsoft.DBforPostgreSQL/flexibleServers` | Managed PostgreSQL (not a container), private delegated subnet |
+| Document storage | Azure Files share mounted into the API container | Replaces the local `data/documents` directory |
+| Secrets | Azure Key Vault | Stores database URLs (with `?ssl=require` / `?sslmode=require`), Entra credentials, OpenAI and Search keys. Container Apps consume versionless Key Vault references. |
+| AI services | Azure OpenAI + Azure AI Search | Private endpoints, API-key auth stored in Key Vault |
+| Registry | Azure Container Registry (Standard) | Managed-identity image pulls, admin disabled |
+| Monitoring | Log Analytics + Application Insights | Platform logs immediate; app-level tracing requires future instrumentation |
+| Network | VNet with three subnets + NAT Gateway | All data/AI services behind private endpoints or delegated subnets |
+
 ## Recommended architecture
 
 Azure Container Apps is the default because the product has two containerized runtime boundaries, needs private service connectivity, and does not require a Kubernetes control plane.
