@@ -1231,3 +1231,50 @@ class PolicyAttestation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     policy_set: Mapped["PolicySet"] = relationship()
     policy_version: Mapped["ApprovedPolicyVersion"] = relationship()
+
+
+class PolicyReviewRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """A viewer's feedback on a published policy version — a request for
+    the policy author to look at something, not a change to the policy itself.
+
+    Structurally isolated from the policy tables on purpose: no column in this
+    table appears in ``ApprovedPolicyVersion`` or any table that determines
+    which version is current. A feedback record points *at* a published version
+    by FK and never writes to it. This is the cheapest guarantee that
+    submitting feedback cannot take a live policy out of service — the invariant
+    is structural, not a convention a well-meaning refactor could break.
+
+    The lifecycle (``status``) is the request's own, unrelated to the policy
+    lifecycle:
+      - ``open``: submitted by a viewer, awaiting author attention.
+      - ``acknowledged``: an author has seen it (no resolution yet).
+      - ``actioned``: an author resolved it by taking some action.
+      - ``dismissed``: an author resolved it as not actionable; a
+        ``resolution_note`` is required so the submitter learns why.
+      - ``withdrawn``: the submitter retracted it before any resolution.
+    """
+
+    __tablename__ = "policy_review_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'actioned', 'dismissed', 'withdrawn')",
+            name="ck_policy_review_requests_status",
+        ),
+        Index("ix_policy_review_requests_policy_set_key", "policy_set_key"),
+    )
+
+    policy_set_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    approved_policy_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("approved_policy_versions.id"), nullable=False, index=True
+    )
+    submitted_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    categories: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+
+    resolved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    approved_policy_version: Mapped["ApprovedPolicyVersion"] = relationship()

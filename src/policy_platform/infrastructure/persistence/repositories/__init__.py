@@ -47,6 +47,9 @@ from policy_platform.infrastructure.persistence.repositories.governance import (
     PolicyAttestationRepository,
     PolicyExceptionRepository,
 )
+from policy_platform.infrastructure.persistence.repositories.review_requests import (
+    PolicyReviewRequestRepository,
+)
 
 __all__ = [
     "ApprovedPolicyVersionRepository",
@@ -63,5 +66,6 @@ __all__ = [
     "PolicyTestBatchRepository",
     "PolicyTestRepository",
     "PolicyTestRunRepository",
+    "PolicyReviewRequestRepository",
     "QualityRunRepository",
 ]

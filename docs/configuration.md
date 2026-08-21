@@ -223,9 +223,9 @@ Read this before exposing the platform anywhere beyond a developer machine.
 
 | Aspect | Status |
 |---|---|
-| Authentication | The application has no login/token validation. The pending Azure deployment adds Microsoft Entra authentication at public web ingress; it does not make application actor roles authoritative. |
-| Identity | The "acting as" switcher (`ActorContext.tsx`) is a name and role held in browser `localStorage`. It is not an identity claim. |
-| Authorization | A lightweight local-trust check only: `request-changes`, `override` and attestation-campaign creation require `actor_role: "policy_manager"` in the request body and return `403` otherwise. It is trivially spoofable and is not a security boundary. |
+| Authentication | The application validates a bearer token when an OIDC issuer is configured (`ENTRA_ISSUER`, `ENTRA_AUDIENCE`, `ENTRA_JWKS_URL`) — signature, expiry, issuer and audience are all checked. With those unset the token path is not offered at all, rather than half-checked, and callers resolve to the least privilege. The Azure deployment additionally authenticates at web ingress. |
+| Identity | Comes from validated token claims where a token is presented. The role is no longer chosen in the browser: the "acting as" switcher has been removed, because a user who can pick their own role does not have one. A display name is still held locally for attribution. |
+| Authorization | A capability layer covering **all 96 API operations**. Each is classified into a band — read, use, author, administer — and one dependency enforces the registry, rather than checks scattered through routers. A guard test fails when any route is unclassified, and an unclassified route is denied at runtime too. **Disabled by default** (`RBAC_ENABLED=false`) so existing deployments are unchanged; see the note below before enabling it. |
 | Multi-tenancy | Not modelled. Single-tenant local assumption. |
 | Transport | Local deployment uses HTTP. The pending Azure deployment enforces HTTPS ingress and TLS/private connectivity to data and AI services. |
 | CORS | Restricted to the configured local Vite ports. |
@@ -233,7 +233,17 @@ Read this before exposing the platform anywhere beyond a developer machine.
 | Uploaded files | Local files use `data/documents`; the pending Azure deployment mounts a private Azure Files share. Malware/content scanning is not implemented. |
 | Threat model | No security review has been performed. |
 
-The client-supplied actor role **must** be replaced by trusted Entra claims and server-side authorization before untrusted or production use. The prepared ingress gate authenticates users but does not complete that application change.
+### Before enabling `RBAC_ENABLED`
+
+Enforcement is only as good as the identity it reads, so configure identity first.
+
+**Configure the issuer.** Set `ENTRA_ISSUER`, `ENTRA_AUDIENCE` and `ENTRA_JWKS_URL`. Without all three, no token can be validated and every caller falls to the least privilege — which is safe, and also unusable.
+
+**Do not enable `TRUST_PLATFORM_AUTH_HEADER` without checking your ingress.** Azure Container Apps injects `X-MS-CLIENT-PRINCIPAL` after authenticating someone, and reading it is tempting. In this topology the browser reaches an nginx container that proxies to the API, and a proxy forwards headers it was not told to drop — so a caller who sets that header themselves has it delivered alongside the genuine one. `apps/web/nginx.conf.template` now clears the platform identity headers before proxying, which is what makes trusting them defensible behind *that* ingress. A different ingress is a different question, and the setting stays off until it is answered.
+
+**`DEV_AUTH_ENABLED` must be false in production.** It enables an `X-Dev-Role` header that sets the caller's role directly. The application refuses to start if it is true while `ENVIRONMENT` is production — a bypass that can be switched on where it matters is worse than no layer at all.
+
+Roles are `viewer`, `policy_author` and `admin`, taken from the token's `roles` (or `groups`) claim by exact name, so they are configured once in the directory rather than translated here. A caller holding several gets the highest.
 
 ## Observability
 

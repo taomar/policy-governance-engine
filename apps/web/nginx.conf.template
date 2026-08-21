@@ -19,6 +19,26 @@ server {
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Real-IP $remote_addr;
+
+        # Clear the platform's identity headers before proxying.
+        #
+        # Container Apps' built-in authentication sets these after it has
+        # authenticated someone. Nothing stops a caller sending them too,
+        # and nginx forwards request headers it was not told to drop — so
+        # without these lines the API receives a client-authored identity
+        # that is indistinguishable from the platform's. Clearing them here
+        # means anything the API sees under these names came from the edge,
+        # not from the request body of a curl command.
+        #
+        # The API still does not trust them by default; see
+        # `trust_platform_auth_header`. Two independent defences, because
+        # this one lives in a template that a future deployment may replace.
+        proxy_set_header X-MS-CLIENT-PRINCIPAL "";
+        proxy_set_header X-MS-CLIENT-PRINCIPAL-ID "";
+        proxy_set_header X-MS-CLIENT-PRINCIPAL-NAME "";
+        proxy_set_header X-MS-CLIENT-PRINCIPAL-IDP "";
+        proxy_set_header X-Dev-Role "";
+
         proxy_read_timeout 240s;
         proxy_send_timeout 240s;
         client_max_body_size 50m;

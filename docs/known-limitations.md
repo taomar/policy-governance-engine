@@ -8,8 +8,8 @@ A note on what is *not* here. This page used to list absent infrastructure — n
 
 | Limitation | Current behavior | Impact |
 |---|---|---|
-| No production authentication or authorization | There is no identity-provider integration or trusted user directory. Role-like request fields and development headers are not a security boundary. | Do not expose the current build to untrusted networks or users. |
-| No tenant isolation | Policy data is not partitioned or authorized by organization. | Suitable only for a single trusted environment. |
+| Authorization is present but off by default | A capability layer classifies all 96 API operations and enforces them in one place, with bearer-token validation when an OIDC issuer is configured. It ships behind `RBAC_ENABLED`, defaulting to false, so nothing is enforced until an operator turns it on and configures identity. | The build is not a security boundary as delivered. Configure the issuer and enable enforcement — see the checklist in [configuration](configuration.md) — before exposing it to untrusted users. |
+| No tenant isolation | Policy data is not partitioned or authorized by organization. Roles are global, not per project. | Suitable only for a single trusted environment. |
 | AI settings are not enforced at startup | The API starts with blank Azure settings. AI routes then return `503`, indexing returns `0`, and deterministic features keep working. | A deployment can look healthy while extraction is unavailable. Validate required settings before accepting traffic. |
 | Documents are stored on the local filesystem | Uploads are written beside the API process. | Durability and backup are the operator's responsibility. |
 | Indexing is best-effort | Clause indexing catches search failures, logs a warning and returns `0` so upload still succeeds. | A document can exist in PostgreSQL and be absent from the grounding index. |

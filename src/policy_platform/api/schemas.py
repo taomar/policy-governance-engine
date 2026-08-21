@@ -642,3 +642,42 @@ class PolicyAttestationResponse(BaseModel):
     # "overdue".
     status: Literal["pending", "acknowledged", "overdue"]
     created_at: datetime
+
+
+# ── policy review requests (viewer feedback) ─────────────────────────
+
+
+class CreatePolicyReviewRequestRequest(BaseModel):
+    """Submit feedback on a published policy version. This is a viewer
+    capability — it appends a record and never touches the policy."""
+
+    policy_set_key: str
+    approved_policy_version_id: str
+    comment: str
+    categories: list[str] | None = None
+    submitted_by: str
+
+
+class AcknowledgePolicyReviewRequestRequest(BaseModel):
+    resolved_by: str
+
+
+class ResolvePolicyReviewRequestRequest(BaseModel):
+    disposition: Literal["actioned", "dismissed"]
+    resolution_note: str | None = None
+    resolved_by: str
+
+
+class PolicyReviewRequestResponse(BaseModel):
+    id: str
+    policy_set_key: str
+    approved_policy_version_id: str
+    submitted_by: str
+    submitted_at: datetime
+    comment: str
+    categories: list[str] | None
+    status: str
+    resolved_by: str | None
+    resolved_at: datetime | None
+    resolution_note: str | None
+    created_at: datetime

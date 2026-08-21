@@ -188,7 +188,7 @@ The public product entry point is `WEB_URL`; the API URL is not intended for int
 ## Known deployment constraints
 
 - The application still uses API keys for OpenAI and Search. They are stored in Key Vault and injected by reference, but managed-identity data-plane auth requires an application change.
-- Entra authenticates users at ingress, but application actor roles are still client-supplied and are not trusted authorization claims.
+- Entra authenticates users at ingress. Application roles are taken from validated token claims once an issuer is configured, and the capability layer enforces them — but it ships disabled, so review the checklist in [configuration](configuration.md) before treating a deployment as access-controlled. The nginx layer clears inbound platform identity headers before proxying, so an identity the API sees under those names came from the edge rather than from the caller.
 - Long AI/extraction requests remain synchronous and can approach ingress timeout limits. A durable job architecture is a future improvement.
 - ACR Standard has a secured public endpoint because ACR Private Link requires Premium. The resilient profile selects Premium when a private registry is required.
 - Application Insights is provisioned, but code-level tracing requires SDK instrumentation; Container Apps console/platform logs work immediately.

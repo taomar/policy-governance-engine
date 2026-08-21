@@ -7,26 +7,38 @@ every API operation is classified in the ``OPERATION_BANDS`` registry, and
 a global FastAPI dependency checks the calling principal's role against the
 band before any handler runs.
 
-AUTHENTICATION IS DEFERRED. The principal-resolution path trusts the
-``X-MS-CLIENT-PRINCIPAL`` header injected by Azure Container Apps EasyAuth,
-which means the platform has already validated the caller's identity. Real
-JWT signature validation (``PyJWT`` against the Entra issuer keys, with
-audience and issuer checks) is the next step. A half-validated token —
-checking the signature but not the audience, or validating locally without
-a key-rotation fetch — is worse than explicitly deferring, because it
-creates confidence without correctness. This header path is intentionally
-honest about what it does and does not verify.
+WHERE IDENTITY COMES FROM is decided in ``identity.py``, which validates a
+bearer token when an issuer is configured — signature, expiry, issuer and
+audience, with the algorithm pinned. This module only orders the sources
+and turns the answer into a permission.
+
+The ordering carries one decision worth naming: a token that is presented
+and rejected raises 401 rather than falling through to the weaker paths.
+Falling through would let an expired or forged token be laundered into an
+anonymous-but-accepted request, and would make presenting a bad token
+indistinguishable from presenting none.
+
+Enforcement is only as good as the identity it reads, which is why both
+default to off: ``rbac_enabled`` gates this module, and with no issuer
+configured the token path is not offered at all rather than half-checked.
 """
 from __future__ import annotations
 
-import base64
-import json
 import logging
-from dataclasses import dataclass
 from typing import Final
 
 from fastapi import Depends, HTTPException, Request
 
+from policy_platform.api.identity import (
+    LEAST_PRIVILEGE,
+    Principal,
+    TokenRejected,
+    bearer_token,
+    decode_platform_header,
+    identity_from_claims,
+    role_from_claims,
+    validate_bearer_token,
+)
 from policy_platform.api.roles import (
     ADMIN,
     ADMINISTER,
@@ -44,54 +56,95 @@ from policy_platform.infrastructure.settings import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 # ── principal ────────────────────────────────────────────────────────
+#
+# `Principal` is defined in `identity.py` and re-exported here. It used to be
+# declared in both, which is two descriptions of one thing: they agreed until
+# one gained a field.
 
-
-@dataclass(frozen=True, slots=True)
-class Principal:
-    """The resolved identity and role of the calling user."""
-
-    role: str
-    identity: str = "anonymous"
+__all__ = ["Principal", "enforce_rbac", "get_principal", "OPERATION_BANDS"]
 
 
 #: Returned when RBAC is off — satisfies every band.
-_PERMISSIVE_PRINCIPAL: Final[Principal] = Principal(role=ADMIN, identity="rbac-disabled")
+_PERMISSIVE_PRINCIPAL: Final[Principal] = Principal(
+    role=ADMIN, identity="rbac-disabled", source="rbac-disabled"
+)
 
 
 def _resolve_principal(request: Request, settings: Settings) -> Principal:
     """Determine who is calling and what role they hold.
 
-    Resolution order:
-    1. When ``rbac_enabled`` is False → permissive (no enforcement).
-    2. When ``dev_auth_enabled`` is True → read ``X-Dev-Role`` header.
-    3. Read ``X-MS-CLIENT-PRINCIPAL`` (Azure Container Apps EasyAuth).
-    4. Fall back to least privilege, never most.
+    Order, strongest evidence first:
+
+    1. ``rbac_enabled`` off → permissive; nothing is enforced.
+    2. A validated bearer token, when an issuer is configured. This is the
+       only path that establishes identity rather than accepting it, so it
+       is tried before anything a proxy could have written.
+    3. The development override header, behind ``dev_auth_enabled`` and the
+       startup check that refuses to boot with it on in production.
+    4. The platform header, and **only** when someone has asserted that the
+       ingress strips inbound copies. See `identity.py` for why that is not
+       the default.
+    5. Least privilege.
+
+    A token that is *presented and rejected* does not fall through to the
+    weaker paths. Falling through would mean an expired or forged token
+    could be laundered into an anonymous-but-accepted request, and worse,
+    that presenting a bad token was indistinguishable from presenting none.
     """
+
     if not settings.rbac_enabled:
         return _PERMISSIVE_PRINCIPAL
 
-    # Development override — guarded by the startup check that refuses to
-    # boot in production with dev_auth_enabled.
+    token = bearer_token(request.headers.get("Authorization"))
+    issuer_configured = bool(
+        settings.entra_issuer and settings.entra_audience and settings.entra_jwks_url
+    )
+
+    if token and issuer_configured:
+        try:
+            claims = validate_bearer_token(
+                token,
+                jwks_url=settings.entra_jwks_url or "",
+                issuer=settings.entra_issuer or "",
+                audience=settings.entra_audience or "",
+            )
+        except TokenRejected as exc:
+            # Logged because a rejected token is a caller asserting something
+            # untrue, which is worth seeing; an absent one is just anonymous.
+            logger.warning("Bearer token rejected: %s", exc)
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "token_rejected", "message": "The bearer token is not valid."},
+            ) from exc
+
+        role = role_from_claims(claims)
+        if role is None:
+            # Authenticated, and granted nothing here. That is a legitimate
+            # state — a directory carries people who use other applications —
+            # so it is least privilege rather than a refusal.
+            return Principal(
+                role=VIEWER, identity=identity_from_claims(claims), source="token-no-role"
+            )
+        return Principal(role=role, identity=identity_from_claims(claims), source="token")
+
     if settings.dev_auth_enabled:
         dev_role = request.headers.get("X-Dev-Role")
         if dev_role:
-            return Principal(role=dev_role, identity="dev-override")
+            return Principal(role=dev_role, identity="dev-override", source="dev-header")
 
-    # Azure Container Apps EasyAuth injects this header after validating
-    # the caller's identity. Its value is a base64-encoded JSON object
-    # carrying the identity provider's claims.
-    easyauth = request.headers.get("X-MS-CLIENT-PRINCIPAL")
-    if easyauth:
-        try:
-            decoded = json.loads(base64.b64decode(easyauth))
-            claims = {c["typ"]: c["val"] for c in decoded.get("claims", [])}
-            role = claims.get("roles", VIEWER)
-            identity = claims.get("preferred_username", claims.get("name", "easyauth-user"))
-            return Principal(role=role, identity=identity)
-        except Exception:
-            logger.warning("Unparseable X-MS-CLIENT-PRINCIPAL header; defaulting to viewer")
+    if settings.trust_platform_auth_header:
+        raw = request.headers.get("X-MS-CLIENT-PRINCIPAL")
+        if raw:
+            claims = decode_platform_header(raw)
+            if claims is None:
+                logger.warning("Unreadable X-MS-CLIENT-PRINCIPAL; falling to least privilege")
+            else:
+                role = role_from_claims(claims) or VIEWER
+                return Principal(
+                    role=role, identity=identity_from_claims(claims), source="platform-header"
+                )
 
-    return Principal(role=VIEWER, identity="anonymous")
+    return LEAST_PRIVILEGE
 
 
 # ── operation registry ───────────────────────────────────────────────
@@ -194,6 +247,19 @@ OPERATION_BANDS: Final[dict[tuple[str, str], str]] = {
     ("POST", "/api/policy-exceptions/{exception_id}/decide"): AUTHOR,
     # ── policy payload ───────────────────────────────────────────────
     ("GET", "/api/policy-payload/{provision_id}"): READ,
+    # ── policy review requests (viewer feedback) ─────────────────────
+    # Submitting feedback is a viewer capability — the whole point of the
+    # feature is that someone who cannot edit a policy can still flag concerns.
+    ("POST", "/api/policy-review-requests"): USE,
+    ("GET", "/api/policy-review-requests"): READ,
+    # Acknowledging and resolving are author actions: only someone who can
+    # change the policy should be able to act on feedback about it.
+    ("POST", "/api/policy-review-requests/{request_id}/acknowledge"): AUTHOR,
+    ("POST", "/api/policy-review-requests/{request_id}/resolve"): AUTHOR,
+    # Withdrawing is a viewer action — the submitter retracts their own
+    # open request. The band permits any viewer; the handler itself checks
+    # that the caller is the submitter (record-level ownership, not band).
+    ("DELETE", "/api/policy-review-requests/{request_id}"): USE,
     # ── policy sets ──────────────────────────────────────────────────
     ("GET", "/api/policy-sets"): READ,
     ("POST", "/api/policy-sets"): AUTHOR,

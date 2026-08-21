@@ -224,6 +224,11 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     ("quality_runs", "DELETE FROM quality_runs WHERE policy_set_id = :sid"),
     ("policy_exceptions", "DELETE FROM policy_exceptions WHERE policy_set_id = :sid"),
     ("policy_attestations", "DELETE FROM policy_attestations WHERE policy_set_id = :sid"),
+    (
+        "policy_review_requests",
+        """DELETE FROM policy_review_requests WHERE approved_policy_version_id IN (
+               SELECT id FROM approved_policy_versions WHERE policy_set_id = :sid)""",
+    ),
     ("policy_aggregate_limits", "DELETE FROM policy_aggregate_limits WHERE policy_set_id = :sid"),
     ("policy_index_states", "DELETE FROM policy_index_states WHERE policy_set_id = :sid"),
     ("approved_policy_versions", "DELETE FROM approved_policy_versions WHERE policy_set_id = :sid"),

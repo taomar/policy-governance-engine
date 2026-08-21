@@ -17,6 +17,13 @@ dependencies = [
   "httpx>=0.27,<0.28",
   "pdfplumber>=0.11,<0.12",
   "python-docx>=1.1,<2.0",
+  # Bearer-token validation for the identity layer. Declared explicitly
+  # rather than relied on transitively: it was already importable here only
+  # because something else happened to pull it in, and a security check
+  # whose library arrives by accident can leave by accident too. The
+  # `crypto` extra is the part that matters — without it PyJWT cannot verify
+  # an RS256 signature, and the failure is at runtime, not at install.
+  "PyJWT[crypto]>=2.8,<3.0",
 ]
 
 [project.optional-dependencies]

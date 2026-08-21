@@ -2913,6 +2913,45 @@ export const extractionApi = {
     ),
 };
 
+// ---------------------------------------------------------------------------
+// Policy review requests (viewer feedback)
+//
+// Typed from the API contract, not from a design. Every field the server may
+// omit is optional here — the crash history at the top of this file is why.
+// ---------------------------------------------------------------------------
+
+export type ReviewRequestStatus = "open" | "acknowledged" | "actioned" | "dismissed" | "withdrawn";
+
+export interface PolicyReviewRequest {
+  id: string;
+  policy_set_key: string;
+  approved_policy_version_id: string;
+  submitted_by: string;
+  submitted_at: string;
+  comment: string;
+  categories?: string[];
+  status: ReviewRequestStatus;
+  resolved_by?: string;
+  resolved_at?: string;
+  resolution_note?: string;
+}
+
+export interface CreateReviewRequestBody {
+  policy_set_key: string;
+  approved_policy_version_id: string;
+  comment: string;
+  categories?: string[];
+  submitted_by: string;
+}
+
+export const FEEDBACK_CATEGORIES = [
+  "Factual error",
+  "Ambiguous language",
+  "Missing scope",
+  "Outdated reference",
+  "Other",
+] as const;
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
 
@@ -3206,4 +3245,45 @@ export const api = {
       }`,
       `${key}-candidate-rules.${format}`
     ),
+
+  // ---------- Policy Review Requests (feedback) ----------
+
+  listReviewRequests: (params?: {
+    policy_set_key?: string;
+    status?: ReviewRequestStatus;
+    submitted_by?: string;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.policy_set_key) qs.set("policy_set_key", params.policy_set_key);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.submitted_by) qs.set("submitted_by", params.submitted_by);
+    const q = qs.toString();
+    return request<PolicyReviewRequest[]>(`/api/policy-review-requests${q ? `?${q}` : ""}`);
+  },
+
+  createReviewRequest: (body: CreateReviewRequestBody) =>
+    request<PolicyReviewRequest>("/api/policy-review-requests", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  acknowledgeReviewRequest: (requestId: string, resolved_by: string) =>
+    request<PolicyReviewRequest>(
+      `/api/policy-review-requests/${encodeURIComponent(requestId)}/acknowledge`,
+      { method: "POST", body: JSON.stringify({ resolved_by }) },
+    ),
+
+  resolveReviewRequest: (
+    requestId: string,
+    body: { disposition: "actioned" | "dismissed"; resolution_note?: string; resolved_by: string },
+  ) =>
+    request<PolicyReviewRequest>(
+      `/api/policy-review-requests/${encodeURIComponent(requestId)}/resolve`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  withdrawReviewRequest: (requestId: string) =>
+    request<void>(`/api/policy-review-requests/${encodeURIComponent(requestId)}`, {
+      method: "DELETE",
+    }),
 };

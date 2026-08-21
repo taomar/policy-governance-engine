@@ -34,6 +34,31 @@ class Settings(BaseSettings):
     #: endpoints with no credentials — continues to pass unmodified.
     rbac_enabled: bool = False
 
+    # ── identity ────────────────────────────────────────────────────
+    #: Entra (or any OIDC issuer) settings. All three are needed before a
+    #: bearer token can be validated; with any of them unset the token path
+    #: is simply not offered, rather than half-checked. A partially verified
+    #: token is worse than an unverified one, because it looks verified.
+    entra_issuer: str | None = None
+    entra_audience: str | None = None
+    entra_jwks_url: str | None = None
+
+    #: Whether `X-MS-CLIENT-PRINCIPAL` may be believed.
+    #:
+    #: Off by default, and the default is the security decision. The
+    #: platform injects that header after authenticating someone, but in
+    #: this deployment the browser reaches nginx, which proxies to the API
+    #: and forwards headers it was not told to drop — so a caller who sets
+    #: the header themselves has it delivered alongside the genuine one.
+    #: The API being internal-only does not help: the web container is
+    #: inside the perimeter and forwards whatever it is handed.
+    #:
+    #: Turn this on only where the edge provably strips inbound copies.
+    #: `apps/web/nginx.conf.template` now clears them, which is what makes
+    #: enabling it defensible there; a different ingress is a different
+    #: question and has to be answered before this is set.
+    trust_platform_auth_header: bool = False
+
     web_dev_server_port: int = 5173
     vite_api_base_url: str = "http://localhost:8000"
     #: Comma-separated browser origins allowed to call the API. Empty means

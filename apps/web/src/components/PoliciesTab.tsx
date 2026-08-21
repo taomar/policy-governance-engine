@@ -34,8 +34,10 @@ import { PolicyDetailPanel } from "./PolicyDetailPanel";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { usePolicyTesting } from "./policyTesting";
-import { useActor } from "../ActorContext";
+import { useActor, toRbacRole } from "../ActorContext";
 import { RecordActionsMenu } from "./RecordActionsMenu";
+import { SubmitFeedbackModal } from "./SubmitFeedbackModal";
+import { FeedbackTimeline } from "./FeedbackTimeline";
 import {
   buildPolicyCards,
   cardsAnsweringNarrowing,
@@ -213,6 +215,11 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
    *  are on the page at once and each is a different policy. */
   const [historyByKey, setHistoryByKey] = useState<Record<string, PolicySightingView[]>>({});
   const [historyLoadingKeys, setHistoryLoadingKeys] = useState<ReadonlySet<string>>(new Set());
+
+  // Feedback modal state — viewer-only feature
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackEpoch, setFeedbackEpoch] = useState(0);
+  const isViewer = toRbacRole(actor.role) === "viewer";
 
   const requestHistory = useCallback(
     (provisionKey: string) => {
@@ -858,6 +865,15 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         }}
         actions={
           <>
+            {isViewer && selectedVersion && (
+              <Button
+                size="small"
+                onClick={() => setFeedbackModalOpen(true)}
+                data-testid="submit-feedback-button"
+              >
+                Submit Feedback for Review
+              </Button>
+            )}
             {isDesktop && (
               <Button size="small" onClick={() => setInspectorFullscreen((value) => !value)}>
                 {inspectorFullscreen ? "Restore" : "Expand"}
@@ -1249,6 +1265,28 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
               `Revision drafted for ${reviseTarget.rule_id} — find it in the Review tab to approve and publish.`
             );
             onNavigate?.("review");
+          }}
+        />
+      )}
+
+      {isViewer && openPolicyCard && selectedVersion && (
+        <FeedbackTimeline
+          policySetKey={policySetKey}
+          submittedBy={actor.name}
+          epoch={feedbackEpoch}
+        />
+      )}
+
+      {isViewer && selectedVersion && (
+        <SubmitFeedbackModal
+          open={feedbackModalOpen}
+          policySetKey={policySetKey}
+          approvedPolicyVersionId={versionId}
+          submittedBy={actor.name}
+          onClose={() => setFeedbackModalOpen(false)}
+          onSubmitted={() => {
+            setFeedbackModalOpen(false);
+            setFeedbackEpoch((e) => e + 1);
           }}
         />
       )}

@@ -14,7 +14,7 @@ FastAPI generates and serves the OpenAPI description automatically. With the API
 
 Swagger UI is the fastest way to explore the API: pick a tag, expand an operation, and the exact schema for that request is right there. Treat the generated description as authoritative — this page only orients you. The description is generated from the same Pydantic contracts the evaluator consumes, so it cannot drift from the implementation.
 
-The current surface is **86 paths / 96 operations** across 13 tags.
+The current surface is **90 paths / 101 operations** across 14 tags.
 
 ## Endpoint groups
 
@@ -31,6 +31,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 | `policy-tests` | `/api/policy-tests` | 10 | Saved tests: list, create, propose (AI), review a proposal, run now, run history, failing tests, and validation batches. |
 | `policy-exceptions` | `/api/policy-exceptions` | 4 | Request a waiver, list, read, and grant/deny it. |
 | `policy-attestations` | `/api/policy-attestations` | 4 | Launch an acknowledgement campaign, list, search, acknowledge. |
+| `policy-review-requests` | `/api/policy-review-requests` | 5 | Viewer feedback on published versions: submit, list, acknowledge, resolve, withdraw. |
 | `policy-payload` | `/api/policy-payload` | 1 | The lean projection of one policy for a model to read. |
 | `notes` | `/api/notes` | 3 | Free-form notes attached to an entity. |
 | `audit` | `/api/audit-events` | 1 | Read the immutable audit trail. |
@@ -61,7 +62,8 @@ Three of its groups are worth stating precisely:
 - **JSON in, JSON out**, except document upload (`multipart/form-data`) and export endpoints (which return JSON, JSONL or CSV as an attachment, selected with a `format` query parameter). See [Capabilities](../README.md#capabilities) for what each output is for.
 - **Policy sets are addressed by `key`** — a stable slug such as `expense-policy` — while most other resources use UUIDs.
 - **AI endpoints require configuration.** Azure OpenAI is a product requirement, not an option: if it is not configured, every AI route returns `503` before doing any work and the platform is in a degraded diagnostic mode. Retrieval- backed grounding additionally needs `AZURE_SEARCH_*`. Check `GET /api/ai/status` first — it reports both `ai_enabled` and `search_enabled`.
-- **Manager-only operations.** `request-changes`, `override`, and creating an attestation campaign require `actor_role: "policy_manager"` in the request body and return `403` otherwise. This is a lightweight local-trust boundary, not authentication.
+- **Role-based access control, off by default.** Every operation is classified into a capability band — read, use, author, administer — and one dependency enforces the whole registry, so a route cannot be reachable without a classification. It is disabled unless `RBAC_ENABLED` is set; see [configuration](configuration.md) for what to set up first. When enabled, an insufficient role gets `403` with a structured `detail` carrying `code`, `required_role` and `band` rather than a sentence, so clients can render their own wording. Note that the bands do not follow HTTP verbs: many `POST /api/ai/*` routes change nothing and are readable by any role, while a few that write nothing — the ones that exist to compose an edit — require an author.
+- **Manager-only operations.** `request-changes`, `override`, and creating an attestation campaign additionally require `actor_role: "policy_manager"` in the request body. This is the older, narrower check and is not a security boundary on its own; the capability layer above is what enforces access.
 - **Append-only resources.** Evaluations, policy-test runs and audit events are read-only once written; published versions are never edited in place.
 - **Deleting a project is the one destructive operation.** `DELETE /api/policy-sets/{key}` removes the project and everything scoped to it — documents, clauses, extraction runs, candidate rules, published versions, quality runs, notes and search-index entries. It requires `actor` and `confirm={key}`: echoing the name is the cheapest guard that a mistyped URL cannot satisfy by accident. It returns a body rather than `204`, because someone who has just removed hundreds of extracted rules should be told what went. The audit trail is deliberately **kept** — a `policy_set.deleted` event records that the project existed and who removed it, since erasing that is the opposite of governance. The `search_index` field reads `clean`, `skipped` or `orphaned` rather than a count, because the index is a separate service and a failure to clean it must be reported rather than hidden.
 

@@ -122,6 +122,7 @@ import { ReviewStatusTabs, REVIEW_STATUS_TABS } from "./ReviewStatusTabs";
 import { ReviewQueueSummary } from "./ReviewQueueSummary";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
+import { FeedbackQueue } from "./FeedbackQueue";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -156,6 +157,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const { message } = App.useApp();
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(policySetKey ?? "");
+  const [reviewSegment, setReviewSegment] = useState<"candidates" | "feedback">("candidates");
+  const [feedbackCount, setFeedbackCount] = useState(0);
   const [candidates, setCandidates] = useState<CandidateRule[]>([]);
   /** The same rules arranged under the passage that stated them. Fetched
    *  alongside the flat list and joined to it by rule id. */
@@ -1880,6 +1883,27 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
       {selectedKey && (
         <>
+          <Segmented
+            value={reviewSegment}
+            onChange={(v) => setReviewSegment(v as "candidates" | "feedback")}
+            options={[
+              { value: "candidates", label: "Candidates" },
+              {
+                value: "feedback",
+                label: feedbackCount > 0 ? `Submitted feedback (${feedbackCount})` : "Submitted feedback",
+              },
+            ]}
+            style={{ marginBottom: 16 }}
+            data-testid="review-segment"
+          />
+          {reviewSegment === "feedback" ? (
+            <FeedbackQueue
+              policySetKey={selectedKey}
+              actorName={actor.name}
+              onCountChange={setFeedbackCount}
+            />
+          ) : (
+          <>
           <section className="review-queue-panel">
             <div className="review-queue-panel__body">
             {showDraftForm && (
@@ -2599,6 +2623,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           </section>
           )}
         </>
+        )}
+      </>
       )}
 
       {!isDesktop && (

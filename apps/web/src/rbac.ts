@@ -95,7 +95,7 @@ const VIEWER_MAP: SurfaceMap = {
   overview:      readOnly("Project settings are managed by a Policy Author. You can view the project's status and history here."),
   documents:     readOnly("Source documents are uploaded by a Policy Author. You can read them and see how rules were extracted."),
   review:        HIDDEN,
-  policies:      readOnly("Published policies are read-only for everyone. To propose a change, ask a Policy Author to start a revision."),
+  policies:      readOnly("Published policies are read-only for everyone. To propose a change, use Submit feedback for review — the policy stays in force while a Policy Author considers it."),
   compare:       FULL,
   quality:       HIDDEN,
   correlation:   HIDDEN,

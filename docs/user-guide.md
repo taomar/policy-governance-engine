@@ -29,18 +29,17 @@ Set identity
 
 ## 1. Set your identity and understand the dashboard
 
-The top-right identity control is the single place to set:
+The top-right identity control shows who you are and the role you hold. Your display name is yours to set — it is what appears against the decisions you record. **Your role is not**: it is assigned, and it decides what the product lets you do.
 
-- your display name;
-- the persona you are acting as.
-
-| Persona | Main responsibility |
+| Role | What it is for |
 |---|---|
-| **System Admin** | Project setup, source documents, and platform configuration |
-| **Policy Composer / Reviewer** | Extraction, drafting, review, quality, and tests |
-| **Policy Manager** | Publication, overrides, exports, and lifecycle oversight |
+| **Viewer** | Reading published policies and testing cases against them |
+| **Policy Author** | Everything a viewer does, plus source documents, extraction, review and publishing |
+| **Admin** | Everything, plus configuration and removing projects |
 
-The identity is used for attribution. In the current Local deployment it is not authentication or trusted authorization.
+Surfaces you cannot use are not shown, so the product you see is the one you can work with. Where something is visible but not yours to change, it says so and names who can.
+
+Access control ships **disabled** by default, so a local deployment behaves as it always did until an operator configures identity and turns it on — see [configuration](configuration.md). Until then the display name is attribution, not proof of who you are.
 
 Confirm the header shows:
 
