@@ -18,7 +18,8 @@ import {
   type PolicySet,
   type ProjectPortfolioInsight,
 } from "../api";
-import { ACTOR_ROLE_LABELS, useActor, type ActorRole } from "../ActorContext";
+import { ACTOR_ROLE_LABELS, useActor, type ActorRole, toRbacRole } from "../ActorContext";
+import { canAccessPage } from "../rbac";
 import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
 import { projectRowClauses, routeClauses } from "../projectRegisterRow";
 import { recordScaleLabel } from "../policyRecordFacts";
@@ -256,7 +257,12 @@ export function Dashboard({
     void load();
   }, [reloadToken]);
 
-  const toolkit = ROLE_TOOLKITS[actor.role];
+  const toolkit = ROLE_TOOLKITS[actor.role] ?? [];
+  const rbacRole = toRbacRole(actor.role);
+  // Filter out toolkit actions that route to surfaces the role cannot reach.
+  const visibleToolkit = toolkit.filter((tool) =>
+    tool.page === "ask-ai" || canAccessPage(rbacRole, tool.page),
+  );
 
   const goToTool = (page: string) => {
     if (page === "ask-ai") onOpenAskAi?.();
@@ -364,6 +370,10 @@ export function Dashboard({
           around without shrinking it. A fixed summary and an unbounded list do
           not belong side by side, so they are stacked siblings now and each is
           exactly as tall as its own content. */}
+      {/* Authoring-oriented sections are suppressed for roles that cannot act
+          on them: showing a review queue to a viewer who cannot approve anything
+          reads as a feature gap rather than a privilege boundary. */}
+      {rbacRole !== "viewer" && (
       <section className="dashboard-priority" aria-labelledby="review-work-title">
         <div className="dashboard-priority-copy">
           <div className="dashboard-priority-label">
@@ -435,6 +445,7 @@ export function Dashboard({
           ))}
         </div>
       </section>
+      )}
 
       <section className="dashboard-portfolio" aria-label="Portfolio register">
         <div className="dashboard-panel-heading">
@@ -522,6 +533,7 @@ export function Dashboard({
         </div>
       </section>
 
+      {visibleToolkit.length > 0 && (
       <section className="dashboard-workflow" aria-labelledby="workflow-title">
         <div className="dashboard-section-heading">
           <div>
@@ -533,7 +545,7 @@ export function Dashboard({
           <Text type="secondary">{ACTOR_ROLE_LABELS[actor.role]}</Text>
         </div>
         <div className="dashboard-workflow-list" role="list">
-          {toolkit.map((tool) => (
+          {visibleToolkit.map((tool) => (
             <button key={tool.label} type="button" role="listitem" onClick={() => goToTool(tool.page)}>
               <span className="dashboard-workflow-icon">{tool.icon}</span>
               <span className="dashboard-workflow-copy">
@@ -545,6 +557,7 @@ export function Dashboard({
           ))}
         </div>
       </section>
+      )}
     </div>
   );
 }

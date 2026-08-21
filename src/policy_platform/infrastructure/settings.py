@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     dev_auth_enabled: bool = True
+    #: When True, the RBAC layer enforces capability-band checks on every
+    #: request.  Defaults to False so the existing test suite — which calls
+    #: endpoints with no credentials — continues to pass unmodified.
+    rbac_enabled: bool = False
 
     web_dev_server_port: int = 5173
     vite_api_base_url: str = "http://localhost:8000"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Input, Layout, Menu, Popover, Select, Space, Tag, Typography } from "antd";
+import { Button, Layout, Menu, Result, Space, Tag, Typography } from "antd";
 import {
   DesktopOutlined,
   FolderOutlined,
@@ -8,10 +8,11 @@ import {
   PlayCircleOutlined,
   SolutionOutlined,
   ThunderboltOutlined,
-  UserOutlined,
 } from "@ant-design/icons";
 import { aiApi, api, type AiStatus, type PolicySet } from "./api";
-import { ACTOR_ROLE_DESCRIPTIONS, ACTOR_ROLE_LABELS, useActor, type ActorRole } from "./ActorContext";
+import { toRbacRole, useActor } from "./ActorContext";
+import { canAccessPage, surfaceAccess } from "./rbac";
+import { IdentityBadge } from "./components/IdentityBadge";
 import { Dashboard } from "./components/Dashboard";
 import { ProjectsPage } from "./components/ProjectsPage";
 import { DocumentsPage } from "./components/DocumentsPage";
@@ -89,72 +90,29 @@ const NAV_GROUP_LABELS: Record<"overview" | "author" | "runtime", string> = {
  * key from this list. Declared once and applied to both the rendered menu and
  * the navigation guard, so a hidden page cannot be reached by any other route
  * and render as a blank shell.
+ *
+ * Role-based visibility is layered on top: `canAccessPage` from `rbac.ts`
+ * further restricts which pages a given role may see. The two filters are
+ * combined rather than duplicated, so hiding is expressed in one place and
+ * the guard cannot drift from the menu.
  */
-const HIDDEN_NAV_IDS: Page[] = ["my-attestations"];
-const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter((item) => !HIDDEN_NAV_IDS.includes(item.id));
+const PHASE_HIDDEN_NAV_IDS: Page[] = ["my-attestations"];
 
 /** Namespaces project keys in the menu so they cannot collide with a `Page` id.
  *  Defined in `projectNav` so surfaces other than the sider can navigate to a
  *  named project rather than only to the register. */
 
-function ActorSwitcher() {
-  const { actor, setActor } = useActor();
-  const [open, setOpen] = useState(false);
-  const [draftName, setDraftName] = useState(actor.name);
-
-  useEffect(() => setDraftName(actor.name), [actor.name]);
-
-  const content = (
-    <Space direction="vertical" size={12} className="actor-switcher-popover">
-      <div>
-        <Text type="secondary" className="actor-field-label">
-          Your name
-        </Text>
-        <Input
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          onBlur={() => setActor({ ...actor, name: draftName.trim() })}
-          onPressEnter={() => setActor({ ...actor, name: draftName.trim() })}
-          placeholder="jane.doe"
-        />
-      </div>
-      <div>
-        <Text type="secondary" className="actor-field-label">
-          Acting as
-        </Text>
-        <Select
-          value={actor.role}
-          style={{ width: "100%" }}
-          onChange={(role: ActorRole) => setActor({ ...actor, role })}
-          options={(Object.keys(ACTOR_ROLE_LABELS) as ActorRole[]).map((role) => ({
-            value: role,
-            label: ACTOR_ROLE_LABELS[role],
-          }))}
-        />
-        <Text type="secondary" className="actor-role-description">
-          {ACTOR_ROLE_DESCRIPTIONS[actor.role]}
-        </Text>
-      </div>
-    </Space>
-  );
-
-  return (
-    <Popover
-      content={content}
-      title="Acting as"
-      trigger="click"
-      open={open}
-      onOpenChange={setOpen}
-      placement="bottomRight"
-    >
-      <Button icon={<UserOutlined />} className="actor-switcher-btn">
-        {actor.name || "Set name"} <span className="actor-switcher-role">· {ACTOR_ROLE_LABELS[actor.role]}</span>
-      </Button>
-    </Popover>
-  );
-}
-
 function App() {
+  const { actor } = useActor();
+  const rbacRole = toRbacRole(actor.role);
+
+  // Combined visibility: phase-hidden items plus role-based filtering from
+  // rbac.ts.  Computed inside the component so it reacts to role changes.
+  const hiddenNavIds = NAV_ITEMS.filter(
+    (item) => PHASE_HIDDEN_NAV_IDS.includes(item.id) || !canAccessPage(rbacRole, item.id),
+  ).map((item) => item.id);
+  const visibleNavItems = NAV_ITEMS.filter((item) => !hiddenNavIds.includes(item.id));
+
   const [page, setPage] = useState<Page>("dashboard");
   const [apiHealthy, setApiHealthy] = useState<"unknown" | "ok" | "down">("unknown");
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
@@ -219,7 +177,7 @@ function App() {
       setProjectOpenRequest({ key: target.slice(PROJECT_NAV_PREFIX.length), nonce: Date.now() });
       return;
     }
-    if (HIDDEN_NAV_IDS.includes(target as Page)) return;
+    if (hiddenNavIds.includes(target as Page)) return;
     if (target === "projects") {
       // The parent destination is the register, not whichever child happened to
       // be opened last. Clear the one-shot child intent before ProjectsPage is
@@ -264,9 +222,27 @@ function App() {
           ]}
 
           className="app-menu"
-          items={(["overview", "author", "runtime"] as const).flatMap((group) => {
-            const groupItems = VISIBLE_NAV_ITEMS.filter((item) => item.group === group);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          items={(["overview", "author", "runtime"] as const).flatMap((group): any[] => {
+            const groupItems = visibleNavItems.filter((item) => item.group === group);
             if (groupItems.length === 0) return [];
+            // A group heading above a single item is noise — render it ungrouped.
+            if (groupItems.length === 1) {
+              const item = groupItems[0];
+              return [{
+                key: item.id,
+                icon: item.icon,
+                label: (
+                  <span className="nav-item">
+                    <span className="nav-item-label">{item.label}</span>
+                    {item.id === "projects" && policySets.length > 0 && (
+                      <span className="nav-item-count">{policySets.length}</span>
+                    )}
+                  </span>
+                ),
+                title: item.hint,
+              }];
+            }
             return [
               {
                 key: `grp-${group}`,
@@ -328,7 +304,7 @@ function App() {
                 }),
               },
             ];
-          })}
+          }) as React.ComponentProps<typeof Menu>["items"]}
           onClick={({ key }) => handleNavigate(key)}
         />
         <div className="sider-footer">
@@ -374,12 +350,19 @@ function App() {
               </Button>
             )}
             <span className="header-divider" />
-            <ActorSwitcher />
+            <IdentityBadge />
           </Space>
         </Header>
 
         <Content className="app-content">
           <div className="page-inner">
+            {visibleNavItems.length === 0 ? (
+              <Result
+                status="403"
+                subTitle={surfaceAccess(rbacRole, "dashboard").blockedReason}
+              />
+            ) : (
+            <>
             {page === "dashboard" && (
               <Dashboard
                 onNavigate={handleNavigate}
@@ -396,6 +379,8 @@ function App() {
             {page === "document-inbox" && <DocumentsPage onNavigate={handleNavigate} />}
             {page === "evaluate" && <EvaluatePage />}
             {page === "my-attestations" && <MyAttestationsPage />}
+            </>
+            )}
           </div>
         </Content>
       </Layout>

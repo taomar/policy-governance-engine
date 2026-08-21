@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import update
 
@@ -22,6 +22,7 @@ from policy_platform.api.routers import (
     policy_sets,
     policy_tests,
 )
+from policy_platform.api.authz import enforce_rbac, validate_no_dev_auth_in_production
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ async def _reconcile_interrupted_runs() -> None:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    validate_no_dev_auth_in_production(settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -124,6 +126,7 @@ def create_app() -> FastAPI:
         ),
         version="0.1.0",
         lifespan=lifespan,
+        dependencies=[Depends(enforce_rbac)],
     )
 
     # CORS origins come from configuration (see Settings.allowed_cors_origins).

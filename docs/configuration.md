@@ -88,6 +88,8 @@ The project provides a single-service Docker Compose file at `infra/local/docker
 docker compose -f infra/local/docker-compose.yml up -d
 ```
 
+This starts a **new, empty database**. That is the intended starting point: the guide sets up a clean instance with no projects, documents or policies in it, exactly as a new deployment would begin. If you have run this before and want to start over from nothing, remove the volume as well — see [Useful database commands](#useful-database-commands).
+
 Confirm it is healthy:
 
 ```powershell
@@ -112,20 +114,24 @@ python -m venv .venv
 
 This installs the `policy-platform` package in editable mode with development dependencies. The `[dev]` extra is sufficient for running the API and all unit tests that do not involve Docling document conversion.
 
-### 4. Apply the database schema
+### 4. Create the database schema
 
 ```powershell
 $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-This runs every Alembic migration and creates all tables. Confirm:
+This builds the empty schema — the tables, columns, indexes and constraints the application needs before it can store anything. It creates **no data**. The database you started in step 2 is brand new and stays empty: after this step there are no projects, no documents, no rules and no policies, and the application opens on empty screens until you upload your first document.
+
+The tool is Alembic, and the scripts under `alembic/versions/` are called *migrations* by convention, which is misleading here — the word suggests moving or populating data, and these do not. Each script describes one schema change, and the set of them is replayed in order to build the structure from nothing. A handful also contain `UPDATE` statements that fill in a newly added column for rows that already exist; on the fresh database in this guide there are no such rows, so those statements match nothing and change nothing. There is not a single `INSERT` in any of them.
+
+Confirm:
 
 ```powershell
 docker exec policy-postgres psql -U policy_admin -d policy_platform -c "\dt"
 ```
 
-You should see tables including `policy_sets`, `clauses`, `rules`, `evaluations`, `audit_events`, and others. If you see `Did not find any relations`, the migration did not run — check that PostgreSQL is running and `ALEMBIC_DATABASE_URL` in `.env` points to `localhost:5433`.
+You should see tables including `policy_sets`, `clauses`, `rules`, `evaluations`, `audit_events`, and others — all of them empty. If you see `Did not find any relations`, the schema was not created: check that PostgreSQL is running and that `ALEMBIC_DATABASE_URL` in `.env` points to `localhost:5433`.
 
 ### 5. Start the API
 
@@ -195,7 +201,8 @@ docker exec -it policy-postgres psql -U policy_admin -d policy_platform
 # Stop and remove the container (data persists in the pgdata volume)
 docker compose -f infra/local/docker-compose.yml down
 
-# Stop and destroy data
+# Stop and destroy the data as well — this is how you start over from an
+# empty database, which is the supported starting point for a new setup
 docker compose -f infra/local/docker-compose.yml down -v
 ```
 

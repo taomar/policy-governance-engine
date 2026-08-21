@@ -24,7 +24,7 @@ describe("the acting-role refusal", () => {
         required_role: "policy_manager",
         action: "launch_attestation_campaign",
       })
-    ).toBe("Only a Policy Manager can launch a new campaign. Switch your acting role in the header.");
+    ).toBe("Only a Policy Manager can launch a new campaign. Ask an administrator if you need this access.");
   });
 
   it("drops the verb rather than inventing one for an action it does not know", () => {
@@ -48,7 +48,36 @@ describe("the acting-role refusal", () => {
 
     expect(text).not.toContain("policy_auditor");
     expect(text).not.toContain("undefined");
-    expect(text).toContain("Switch your acting role in the header.");
+    expect(text).toContain("Ask an administrator if you need this access.");
+  });
+
+  it("recognises the capability layer's refusal too, not only the original", () => {
+    // Two server modules refuse on who is acting: the named-action guard in
+    // `api/actor_role.py` and the capability layer in `api/authz.py`. A reader
+    // does not care which one refused them. Recognising only the first would
+    // send the second down the generic-error path to be rendered as a raw
+    // object, which is what the codes exist to prevent.
+    expect(
+      isActorRoleRefusal({
+        code: "rbac_insufficient",
+        required_role: "policy_author",
+        action: "POST /api/policy-sets/{key}/publish",
+      })
+    ).toBe(true);
+  });
+
+  it("names a capability-layer role but not the route it refused", () => {
+    // The capability layer sends a route as its action. A route has no reading
+    // for a person, so the sentence names the role and stops -- the same
+    // restraint as an unknown verb above.
+    const text = actorRoleRefusalText({
+      required_role: "policy_author",
+      action: "POST /api/policy-sets/{key}/publish",
+    });
+
+    expect(text).toContain("Policy Author");
+    expect(text).not.toContain("/api/");
+    expect(text).not.toContain("undefined");
   });
 
   it("recognises the refusal by its code and not by its words", () => {

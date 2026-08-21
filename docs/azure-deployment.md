@@ -25,7 +25,7 @@ Nginx also proxies `/docs`, `/redoc`, `/openapi.json`, and `/health` to the API,
 |---|---|---|
 | Web app | `Microsoft.App/containerApps` | Public HTTPS ingress with Entra authentication, 1–2 replicas |
 | API app | `Microsoft.App/containerApps` | Internal ingress only (no public access), 1–3 replicas, Azure Files mounted at `/app/data/documents` |
-| Bootstrap job | `Microsoft.App/jobs` (`triggerType: Manual`) | Runs `python -m infra.bootstrap.initialize` — applies Alembic migrations and creates Search index schemas. Safe to rerun. |
+| Bootstrap job | `Microsoft.App/jobs` (`triggerType: Manual`) | Runs `python -m infra.bootstrap.initialize` — creates the database schema and the Search index schemas. Creates no data. Safe to rerun. |
 | Database | `Microsoft.DBforPostgreSQL/flexibleServers` | Managed PostgreSQL (not a container), private delegated subnet |
 | Document storage | Azure Files share mounted into the API container | Replaces the local `data/documents` directory |
 | Secrets | Azure Key Vault | Stores database URLs (with `?ssl=require` / `?sslmode=require`), Entra credentials, OpenAI and Search keys. Container Apps consume versionless Key Vault references. |
@@ -135,13 +135,17 @@ Apply a profile to a selected environment before deployment:
 
 ## Fresh database behavior
 
-The Azure database is deliberately empty. The postdeploy job runs:
+**Every deployment starts from an empty database.** That is the intended and only supported starting point: a new environment comes up with no projects, no source documents, no rules and no policies, and the application opens on empty screens until someone uploads the first document.
+
+The initialization job runs:
 
 ```text
 alembic upgrade head
 PUT policy-authoring index schema
 PUT policy-evidence index schema
 ```
+
+`alembic upgrade head` **builds the schema and creates no data.** The scripts under `alembic/versions/` are called *migrations* by convention, which misleads here — the word suggests moving or populating data, and they do not. Each one describes a schema change, and replaying them in order constructs the tables, columns, indexes and constraints from nothing. A few also carry `UPDATE` statements that fill a newly added column on rows that already exist; against a new database there are no such rows, so they match nothing. There is no `INSERT` in any of them.
 
 It does **not** run files under `scripts/`, restore a PostgreSQL dump, import sample JSON, copy `data/documents`, or upload any policy. The application opens with no policy sets or source documents.
 

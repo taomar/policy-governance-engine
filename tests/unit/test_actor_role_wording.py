@@ -31,6 +31,8 @@ from policy_platform.api.actor_role import (
     ACTOR_ROLES,
     GUARDED_ACTIONS,
 )
+from policy_platform.api.roles import ALL_ROLES as RBAC_ROLES
+from policy_platform.api.roles import RBAC_REFUSAL as RBAC_REFUSAL_CODE
 
 WORDING = Path(__file__).resolve().parents[2] / "apps" / "web" / "src" / "actorRole.ts"
 
@@ -117,6 +119,51 @@ def test_the_code_itself_is_agreed_on_both_sides():
         f"the server sends {ACTOR_ROLE_REFUSAL!r} and the interface does not "
         "mention it"
     )
+
+
+def test_the_capability_layers_refusal_code_is_agreed_too():
+    """The second code, for the same reason as the first.
+
+    `api/authz.py` refuses with its own code because it governs every operation
+    rather than the named few in `actor_role.py`. It reached the interface
+    unrecognised at first: `isActorRoleRefusal` matched one literal, so a
+    capability refusal fell through to the generic path and would have rendered
+    as a raw object -- exactly the silence the first code was introduced to
+    remove, reappearing the moment a second code existed.
+
+    Asserted against the constant rather than a copy of the string, so the two
+    cannot be reworded apart.
+    """
+
+    text = WORDING.read_text(encoding="utf-8")
+    assert f'"{RBAC_REFUSAL_CODE}"' in text, (
+        f"the capability layer refuses with {RBAC_REFUSAL_CODE!r} and the "
+        "interface does not mention it, so that refusal reaches a reader as a "
+        "raw object"
+    )
+
+
+@pytest.mark.parametrize("role", RBAC_ROLES)
+def test_every_capability_role_has_a_label(role: str):
+    """The roles the capability layer can name need words as much as the others.
+
+    Same rule as `test_every_role_the_server_can_name_has_a_label`, over the
+    other vocabulary. Two vocabularies can refuse a reader and both render
+    through one function, so both have to be covered or the newer one degrades
+    to "you do not have the role this action needs" while the server knew which
+    role it wanted.
+    """
+
+    assert role in _keys("ACTOR_ROLE_LABEL"), (
+        f"the capability layer can refuse asking for {role!r} and the interface "
+        "has no label for it, so a reader is told less than the server knew"
+    )
+
+
+def test_the_capability_vocabulary_is_not_empty():
+    """Positive control, for the same reason as the one above it."""
+
+    assert RBAC_ROLES, "no capability roles declared, so the check runs zero times"
 
 
 def test_no_router_composes_the_sentence_this_replaced():

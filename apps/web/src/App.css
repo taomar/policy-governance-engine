@@ -10690,6 +10690,18 @@
   font-size: 16px;
 }
 
+/* ---------- RBAC identity & banner ---------- */
+
+.identity-role-tag {
+  margin-left: 6px;
+  margin-right: 0;
+}
+
+.rbac-readonly-banner {
+  margin-bottom: 12px;
+  font-size: 12.5px;
+}
+
 .validation-regression-brief-heading h4.ant-typography {
   margin: 0 0 3px;
   color: var(--text-heading);

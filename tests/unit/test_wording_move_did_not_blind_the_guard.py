@@ -62,7 +62,17 @@ def test_the_caption_reader_finds_the_moved_sentences():
 
     assert captions, f"the caption reader found nothing in {MOVED_TO.name}"
     joined = " ".join(captions)
-    assert "Switch your acting role in the header." in joined, (
+    # The canary sentence, not an arbitrary one: it is the tail every refusal in
+    # that file ends with, so it is present whichever branch produced the text.
+    #
+    # It used to read "Switch your acting role in the header." That was true
+    # while a control in the header changed the acting role. The capability layer
+    # assigns a role instead of offering it, that control is gone, and the
+    # sentence had become an instruction a reader could not follow -- so the copy
+    # moved and this canary moved with it. What is asserted is unchanged: that
+    # the scanner reads real captions out of this file rather than passing on an
+    # empty set.
+    assert "Ask an administrator if you need this access." in joined, (
         "the sentence that moved out of Python is not among the captions the "
         f"scanner reads from {MOVED_TO.name}; it found {captions!r}"
     )

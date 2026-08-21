@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { ProjectCaseRunner } from "./ProjectCaseRunner";
 import { api, type ApprovedPolicyVersion, type AssembledPolicy, type PolicySet } from "../api";
 import { ProjectWorkspace } from "./ProjectWorkspace";
+import { ActorProvider } from "../ActorContext";
 
 vi.mock("./ProjectOverviewTab", () => ({ ProjectOverviewTab: () => <div>Overview tab</div> }));
 vi.mock("./DocumentsPage", () => ({ DocumentsPage: () => <div>Documents tab</div> }));
@@ -121,7 +122,7 @@ describe("project-wide case runner", () => {
       decisions: 0,
     });
 
-    render(<ProjectWorkspace policySet={policySet()} />);
+    render(<ActorProvider><ProjectWorkspace policySet={policySet()} /></ActorProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));
 
     expect(await screen.findByText(/Put a case to this project's published policies/i)).toBeTruthy();
@@ -396,7 +397,7 @@ describe("project-wide case runner", () => {
       size: { combined_chars: 0, budget_chars: 200000, oversize: false },
     });
 
-    render(<ProjectWorkspace policySet={{ ...policySet(), key: "gmu" }} />);
+    render(<ActorProvider><ProjectWorkspace policySet={{ ...policySet(), key: "gmu" }} /></ActorProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /Validation/i }));
     expect(await screen.findByText("Validation tab")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));

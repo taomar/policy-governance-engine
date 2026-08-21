@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import {
   Alert,
   AutoComplete,
@@ -52,6 +52,8 @@ import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
 import { recordScaleBadge, reviewBacklogBadge } from "../policyRecordFacts";
 import { ProjectCaseRunner } from "./ProjectCaseRunner";
+import { canAccessTab, surfaceAccess } from "../rbac";
+import { toRbacRole, useActor } from "../ActorContext";
 
 const { Text, Paragraph } = Typography;
 
@@ -208,56 +210,33 @@ const TAB_META: TabMeta[] = [
   },
 ];
 
-const TAB_KEYS: WorkspaceStripKey[] = TAB_META.map((t) => t.key);
-
 /**
  * Tabs built but deliberately out of scope for the current phase. They are hidden
  * rather than deleted so the feature and its API stay intact, and re-enabling is a
- * one-line change. Hiding is expressed once here and applied to both the rendered
- * tab strip and the `onNavigate` guard, so a hidden tab can never become the active
- * tab and render a blank panel.
+ * one-line change. Role-based visibility from `rbac.ts` is layered on top inside
+ * the component, so both the phase gate and the role gate are applied to the tab
+ * strip and the `onNavigate` guard in one place.
  */
-const HIDDEN_TAB_KEYS: readonly WorkspaceStripKey[] = ["attestations", "correlation", "exceptions"];
+const PHASE_HIDDEN_TAB_KEYS: readonly WorkspaceStripKey[] = ["attestations", "correlation", "exceptions"];
 
-const VISIBLE_TAB_META = TAB_META.filter((t) => !HIDDEN_TAB_KEYS.includes(t.key));
-const VISIBLE_TAB_KEYS = TAB_KEYS.filter((k) => !HIDDEN_TAB_KEYS.includes(k));
-const VISIBLE_NAV_TAB_KEYS = VISIBLE_TAB_KEYS.filter((k): k is WorkspaceTabKey => k !== "case-runner");
+const PHASE_VISIBLE_TAB_META = TAB_META.filter((t) => !PHASE_HIDDEN_TAB_KEYS.includes(t.key));
 
-/**
- * First visible tab of each group *except the first* — i.e. exactly the points
- * where one lifecycle stage hands over to the next, so the tab bar can draw a
- * divider there. Derived rather than hand-listed: hiding the tab that happens to
- * start a group would otherwise leave a divider in the wrong place.
- *
- * The first visible tab is excluded because a divider before it would sit at the
- * very start of the strip, separating the tabs from nothing.
- */
-const GROUP_DIVIDER_KEYS = Object.keys(TAB_GROUP_LABELS)
-  .flatMap((g) => {
-    const first = VISIBLE_TAB_META.find((t) => t.group === (g as TabGroup));
-    return first ? [first.key] : [];
-  })
-  .filter((k) => k !== VISIBLE_TAB_META[0]?.key);
+/** Computes group divider keys from a given set of visible tab metadata. */
+function computeGroupDividerKeys(visibleMeta: TabMeta[]): string[] {
+  return Object.keys(TAB_GROUP_LABELS)
+    .flatMap((g) => {
+      const first = visibleMeta.find((t) => t.group === (g as TabGroup));
+      return first ? [first.key] : [];
+    })
+    .filter((k) => k !== visibleMeta[0]?.key);
+}
 
-/**
- * Grouping is drawn as space + a hairline between stages rather than as inline
- * caption text.
- *
- * The captions were tried first and were wrong twice over: rc-tabs renders a
- * label *inside* the tab button, so an active tab drew its white pill around the
- * caption as though "AUTHOR" were part of the word "Overview"; and four captions
- * cost roughly 250px of a strip that was already overflowing and clipping the
- * last tab. Space and a rule carry the same grouping at no width cost and cannot
- * be captured by a tab's own background. The stage name still reaches the user
- * through each tab's tooltip.
- *
- * Emitted from `GROUP_DIVIDER_KEYS` instead of being written out in App.css so
- * the grouping stays defined in exactly one place; rc-tabs puts `data-node-key`
- * on every tab, which is what makes this addressable.
- */
-const GROUP_DIVIDER_CSS = GROUP_DIVIDER_KEYS.map(
-  (key) => `.workspace-tabs > .ant-tabs-nav .ant-tabs-tab[data-node-key="${key}"]`,
-).join(",\n");
+function computeGroupDividerCss(visibleMeta: TabMeta[]): string {
+  const keys = computeGroupDividerKeys(visibleMeta);
+  return keys
+    .map((key) => `.workspace-tabs > .ant-tabs-nav .ant-tabs-tab[data-node-key="${key}"]`)
+    .join(",\n");
+}
 
 /**
  * The single home for working on one project end to end: bring files in, see them
@@ -283,6 +262,28 @@ export function ProjectWorkspace({
   /** Reports a successful metadata edit so the parent (ProjectsPage) can refresh its list/selection. */
   onUpdated?: (ps: PolicySet) => void;
 }) {
+  const { actor } = useActor();
+  const rbacRole = toRbacRole(actor.role);
+
+  // Role-aware tab visibility: phase-hidden tabs plus role-based filtering.
+  // Computed inside the component so it reacts to role changes.
+  const visibleTabMeta = useMemo(
+    () => PHASE_VISIBLE_TAB_META.filter((t) => canAccessTab(rbacRole, t.key)),
+    [rbacRole],
+  );
+  const visibleTabKeys = useMemo(
+    () => visibleTabMeta.map((t) => t.key),
+    [visibleTabMeta],
+  );
+  const visibleNavTabKeys = useMemo(
+    () => visibleTabKeys.filter((k): k is WorkspaceTabKey => k !== "case-runner"),
+    [visibleTabKeys],
+  );
+  const groupDividerCss = useMemo(
+    () => computeGroupDividerCss(visibleTabMeta),
+    [visibleTabMeta],
+  );
+
   const [activeTab, setActiveTab] = useState<WorkspaceTabKey>("overview");
   const [counts, setCounts] = useState<WorkspaceCounts | null>(null);
 
@@ -334,7 +335,7 @@ export function ProjectWorkspace({
     // navigation, a child tab's onNavigate — lands on the merged surface
     // instead of dead-ending on a tab that no longer exists.
     const target = page === "regression" ? "tests" : page;
-    if ((VISIBLE_NAV_TAB_KEYS as string[]).includes(target)) setActiveTab(target as WorkspaceTabKey);
+    if ((visibleNavTabKeys as string[]).includes(target)) setActiveTab(target as WorkspaceTabKey);
   };
 
   const openEdit = () => {
@@ -510,8 +511,8 @@ export function ProjectWorkspace({
             Drawn as a pseudo-element in the gap *between* two tabs, so unlike the
             caption text this replaces it can never be enclosed by the active tab's
             white pill. */}
-        <style>{`${GROUP_DIVIDER_CSS} { margin-left: 13px !important; }
-${GROUP_DIVIDER_CSS.split(",\n")
+        <style>{`${groupDividerCss} { margin-left: 13px !important; }
+${groupDividerCss.split(",\n")
   .map((s) => `${s}::after`)
   .join(",\n")} { content: ""; position: absolute; left: -7px; top: 50%; transform: translateY(-50%); width: 1px; height: 15px; background: rgba(15,23,42,0.15); }`}</style>
 
@@ -526,7 +527,7 @@ ${GROUP_DIVIDER_CSS.split(",\n")
               }
               setActiveTab(k as WorkspaceTabKey);
             }}
-            items={VISIBLE_TAB_META.map((meta) => {
+            items={visibleTabMeta.map((meta) => {
           /* Review and Policies are both badged in policies — the unit the work
              is decided and governed in — with rules carried in the hover: a
              policy is what a reviewer approves and what a version publishes, so
@@ -587,6 +588,18 @@ ${GROUP_DIVIDER_CSS.split(",\n")
           a different surface, and every filter, page, selection and draft below
           this point refers to the project that is being left. */}
       <div className="ws-tab-panel" key={policySet.key}>
+        {(() => {
+          const access = surfaceAccess(rbacRole, activeTab);
+          return access.readOnly && access.blockedReason ? (
+            <Alert
+              banner
+              type="info"
+              closable
+              className="rbac-readonly-banner"
+              message={access.blockedReason}
+            />
+          ) : null;
+        })()}
         {TAB_CONTENT[activeTab]}
       </div>
 

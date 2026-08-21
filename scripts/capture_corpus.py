@@ -13,7 +13,7 @@ Capturing from the API rather than from the database is deliberate: the derived
 views are added on read, and it is the read path's output that the rest of the
 system consumes.
 
-    python scripts/capture_corpus.py [--url http://localhost:8050] [--set benefits]
+    python scripts/capture_corpus.py [--url http://localhost:8010] [--set benefits]
 
 Regenerate `tests/fixtures/ad103_status_snapshot.json` afterwards with
 `scripts/freeze_status_inventory.py`, and read the diff: a verdict that moved
@@ -42,7 +42,14 @@ def fetch(url: str, policy_set: str) -> list[dict]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="http://localhost:8050")
+    parser.add_argument(
+        "--url",
+        # Matches `API_PORT` in `.env.example`, which is what a reader following
+        # the setup guide will have the API listening on. It was 8050 here, a
+        # port that appears nowhere else in the project, so the default failed to
+        # connect for anyone who had not happened to change their own `.env`.
+        default="http://localhost:8010",
+    )
     parser.add_argument("--set", dest="policy_set", default="benefits")
     args = parser.parse_args(argv)
 
