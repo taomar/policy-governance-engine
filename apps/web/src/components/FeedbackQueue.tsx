@@ -6,6 +6,11 @@
  * because the Review tab already means "someone needs me to look at this
  * and decide"; a separate destination would fragment that.
  *
+ * F7: uses the same hairline-divided register idiom as the candidate queue
+ * rather than an Ant Table, so the two segments of one surface read as one
+ * product. Each item carries a link to the rule it concerns so an author
+ * who reads a comment does not have to go hunting.
+ *
  * Actions: Acknowledge, Open for revision (resolve as `actioned`),
  * Dismiss with reason (resolution_note required before calling).
  */
@@ -17,13 +22,17 @@ import {
   Input,
   Modal,
   Space,
-  Table,
   Tag,
   Tooltip,
   Typography,
   message,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import {
+  CheckOutlined,
+  EditOutlined,
+  CloseOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
 import { api, PolicyPlatformApiError, type PolicyReviewRequest, type ReviewRequestStatus } from "../api";
 
 const { Text } = Typography;
@@ -44,9 +53,11 @@ export interface FeedbackQueueProps {
   epoch?: number;
   /** Reports how many open items are in the queue so the parent can badge. */
   onCountChange?: (count: number) => void;
+  /** Navigate to a specific rule from a feedback item. */
+  onNavigateToRule?: (ruleId: string) => void;
 }
 
-export function FeedbackQueue({ policySetKey, actorName, epoch, onCountChange }: FeedbackQueueProps) {
+export function FeedbackQueue({ policySetKey, actorName, epoch, onCountChange, onNavigateToRule }: FeedbackQueueProps) {
   const [items, setItems] = useState<PolicyReviewRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [dismissTarget, setDismissTarget] = useState<PolicyReviewRequest | null>(null);
@@ -124,88 +135,6 @@ export function FeedbackQueue({ policySetKey, actorName, epoch, onCountChange }:
     }
   }
 
-  const columns: ColumnsType<PolicyReviewRequest> = [
-    {
-      title: "Submitted by",
-      dataIndex: "submitted_by",
-      key: "submitted_by",
-      width: 140,
-    },
-    {
-      title: "When",
-      dataIndex: "submitted_at",
-      key: "submitted_at",
-      width: 160,
-      render: (v: string) => new Date(v).toLocaleString(),
-    },
-    {
-      title: "Categories",
-      dataIndex: "categories",
-      key: "categories",
-      width: 180,
-      render: (cats?: string[]) =>
-        cats && cats.length > 0 ? (
-          <Space size={4} wrap>
-            {cats.map((c) => (
-              <Tag key={c}>{c}</Tag>
-            ))}
-          </Space>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
-      title: "Comment",
-      dataIndex: "comment",
-      key: "comment",
-      ellipsis: { showTitle: false },
-      render: (text: string) => (
-        <Tooltip title={text} placement="topLeft">
-          <span>{text}</span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      width: 120,
-      render: (s: ReviewRequestStatus) => <Tag color={STATUS_COLOR[s]}>{s}</Tag>,
-    },
-    {
-      title: "Actions",
-      key: "actions",
-      width: 260,
-      render: (_: unknown, record: PolicyReviewRequest) => {
-        if (record.status !== "open" && record.status !== "acknowledged") {
-          if (record.resolution_note) {
-            return (
-              <Text type="secondary" italic>
-                {record.resolution_note}
-              </Text>
-            );
-          }
-          return null;
-        }
-        return (
-          <Space size={4}>
-            {record.status === "open" && (
-              <Button size="small" onClick={() => handleAcknowledge(record)}>
-                Acknowledge
-              </Button>
-            )}
-            <Button size="small" type="primary" onClick={() => handleAction(record)}>
-              Open for revision
-            </Button>
-            <Button size="small" danger onClick={() => { setDismissTarget(record); setDismissNote(""); }}>
-              Dismiss
-            </Button>
-          </Space>
-        );
-      },
-    },
-  ];
-
   if (!loading && items.length === 0) {
     return (
       <Empty
@@ -215,17 +144,82 @@ export function FeedbackQueue({ policySetKey, actorName, epoch, onCountChange }:
     );
   }
 
+  const actionable = (r: PolicyReviewRequest) =>
+    r.status === "open" || r.status === "acknowledged";
+
   return (
     <>
-      <Table<PolicyReviewRequest>
-        dataSource={items}
-        columns={columns}
-        rowKey="id"
-        loading={loading}
-        size="small"
-        pagination={{ pageSize: 20 }}
-        data-testid="feedback-queue-table"
-      />
+      <div className="feedback-register" data-testid="feedback-queue-register">
+        {items.map((record, i) => (
+          <div
+            key={record.id}
+            className={`feedback-row${i < items.length - 1 ? " feedback-row--ruled" : ""}`}
+          >
+            <div className="feedback-row__main">
+              <div className="feedback-row__line1">
+                <span className="feedback-row__author">{record.submitted_by}</span>
+                <span className="feedback-row__date">
+                  {new Date(record.submitted_at).toLocaleString()}
+                </span>
+                <Tag color={STATUS_COLOR[record.status]}>{record.status}</Tag>
+              </div>
+              <div className="feedback-row__comment">{record.comment}</div>
+              <div className="feedback-row__meta">
+                {record.categories && record.categories.length > 0 && (
+                  <Space size={4} wrap>
+                    {record.categories.map((c) => (
+                      <Tag key={c}>{c}</Tag>
+                    ))}
+                  </Space>
+                )}
+                {record.approved_policy_version_id && onNavigateToRule && (
+                  <Tooltip title="Open the rule this feedback concerns">
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<RightOutlined />}
+                      onClick={() => onNavigateToRule(record.approved_policy_version_id)}
+                    >
+                      View rule
+                    </Button>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
+            <div className="feedback-row__actions" onClick={(e) => e.stopPropagation()}>
+              {actionable(record) ? (
+                <Space size={4}>
+                  {record.status === "open" && (
+                    <Tooltip title="Mark as seen — the submitter will know you read it">
+                      <Button size="small" icon={<CheckOutlined />} onClick={() => handleAcknowledge(record)}>
+                        Acknowledge
+                      </Button>
+                    </Tooltip>
+                  )}
+                  <Tooltip title="Open the policy for revision based on this feedback">
+                    <Button size="small" type="primary" icon={<EditOutlined />} onClick={() => handleAction(record)}>
+                      Open for revision
+                    </Button>
+                  </Tooltip>
+                  <Button
+                    size="small"
+                    icon={<CloseOutlined />}
+                    onClick={() => { setDismissTarget(record); setDismissNote(""); }}
+                  >
+                    Dismiss
+                  </Button>
+                </Space>
+              ) : (
+                record.resolution_note && (
+                  <Text type="secondary" italic>
+                    {record.resolution_note}
+                  </Text>
+                )
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
       <Modal
         open={!!dismissTarget}
         title="Dismiss feedback"

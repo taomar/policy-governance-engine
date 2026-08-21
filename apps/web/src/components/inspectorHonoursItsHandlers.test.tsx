@@ -130,12 +130,12 @@ function renderInspector(props: { shownAsReference?: boolean; withHandlers: bool
 describe("what the inspector draws, and what decides it", () => {
   it("offers Revise wherever the caller passed a way to revise", () => {
     renderInspector({ withHandlers: true, shownAsReference: true });
-    expect(screen.queryByRole("button", { name: /Revise/ })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Draft revision/ })).not.toBeNull();
   });
 
   it("offers no Revise where the caller passed no way to revise", () => {
     renderInspector({ withHandlers: false });
-    expect(screen.queryByRole("button", { name: /Revise/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Draft revision/ })).toBeNull();
   });
 
   it("draws the caller's own actions wherever the caller supplied them", () => {

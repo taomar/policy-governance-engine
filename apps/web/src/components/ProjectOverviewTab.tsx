@@ -11,7 +11,7 @@ import {
   SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet } from "../api";
+import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
@@ -161,6 +161,7 @@ export function ProjectOverviewTab({
   const [policyIndexLoading, setPolicyIndexLoading] = useState(false);
   const [rebuildingPolicyIndex, setRebuildingPolicyIndex] = useState(false);
   const [rebuildResult, setRebuildResult] = useState<PolicyIndexBuildResult | null>(null);
+  const [latestQualityRun, setLatestQualityRun] = useState<QualityRunSummary | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,6 +229,25 @@ export function ProjectOverviewTab({
     // re-reads the state. Without it, switching to the tab already showing
     // would keep the reading taken at mount.
   }, [policySet.key, indexRepair?.nonce]);
+
+  // Fetch the latest quality run so the overview can state whether the project
+  // has been checked. A viewer cannot reach Quality — this is their only signal.
+  useEffect(() => {
+    let cancelled = false;
+    aiApi
+      .getQualityHistory(policySet.key, "published", 1)
+      .then((result) => {
+        if (!cancelled) setLatestQualityRun(result.runs[0] ?? null);
+      })
+      .catch(() => {
+        // Quality history is supplementary; a failure is not worth an error
+        // banner on the overview tab.
+        if (!cancelled) setLatestQualityRun(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [policySet.key]);
 
   const pending = stats?.pendingCandidateCount ?? 0;
   const raciEntries: { label: string; value: string; isDefault: boolean }[] = [
@@ -606,6 +626,28 @@ export function ProjectOverviewTab({
           </div>
         </section>
       </div>
+
+      {/* Quality confidence — a read-only line for viewers who cannot reach
+          the Quality tab. States when the project was last checked and whether
+          high-priority findings are open, without linking into a surface they
+          cannot use. */}
+      {latestQualityRun !== undefined && (
+        <div className="project-readiness-quality-line" data-testid="quality-confidence">
+          <SafetyCertificateOutlined />
+          <Text type="secondary">
+            {latestQualityRun === null ? (
+              "Quality has not been checked yet."
+            ) : latestQualityRun.high_count > 0 ? (
+              <>
+                Last checked {new Date(latestQualityRun.run_at).toLocaleDateString()} —{" "}
+                <Text strong>{latestQualityRun.high_count} high-priority finding{latestQualityRun.high_count === 1 ? "" : "s"} open</Text>.
+              </>
+            ) : (
+              <>Last checked {new Date(latestQualityRun.run_at).toLocaleDateString()} — no high-priority findings.</>
+            )}
+          </Text>
+        </div>
+      )}
 
       {stats?.activeVersion && <PolicySetSummaryPanel policySetKey={policySet.key} />}
 

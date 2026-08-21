@@ -1,0 +1,50 @@
+/*
+ * Styles owned by the policies surface fixes — F1 through F5.
+ *
+ * Scoped to components this agent owns. Uses the shared spacing scale
+ * (4/8/12/16/20/28) and the design-system colours from DESIGN.md.
+ * No new palette, no new typography, no inline overrides.
+ */
+
+/* F1b: collapsed identifier block inside the evidence section. */
+.evidence-ids-collapse {
+  border: none;
+  background: transparent;
+}
+.evidence-ids-collapse .ant-collapse-header {
+  padding: 4px 0 !important;
+}
+.evidence-ids-collapse .ant-collapse-content-box {
+  padding: 0 !important;
+}
+.evidence-ids-collapse-label {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* F5: FeedbackTimeline — replaces inline marginTop: 24. */
+.feedback-timeline {
+  margin-top: 20px;
+}
+
+/* F5: SubmitFeedbackModal — replaces inline spacing. */
+.feedback-modal-alert {
+  margin-bottom: 16px;
+}
+.feedback-modal-comment {
+  margin-bottom: 12px;
+}
+.feedback-modal-categories {
+  width: 100%;
+}
+
+/* F5: PolicyExplainButton — replaces inline style on .policy-explain__reask. */
+.policy-explain__reask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}

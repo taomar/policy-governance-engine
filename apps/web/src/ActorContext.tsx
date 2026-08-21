@@ -138,12 +138,15 @@ export function ActorProvider({ children }: { children: ReactNode }) {
       // Map the server's RBAC role to the old ActorRole that components
       // index ACTOR_ROLE_LABELS by.  The mapping is lossy — it exists
       // only to keep the type system satisfied until the legacy type is
-      // retired.
+      // retired.  The fallback is `policy_composer` (least-privileged
+      // legacy persona) rather than `policy_manager` (most-privileged),
+      // so an unrecognised or viewer role never silently receives
+      // approver-level toolkit actions.
       role: session.role === "admin"
         ? "system_admin"
         : session.role === "policy_author"
           ? "policy_composer"
-          : ("policy_manager" as ActorRole),
+          : ("policy_composer" as ActorRole),
     };
   }, [session?.role, session?.name, actor]);
 

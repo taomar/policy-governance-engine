@@ -733,7 +733,7 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         </div>
       )}
 
-      <div className="extract-progress-line">
+      <div className={`extract-progress-line${goneQuiet ? " extract-progress-line--muted" : ""}`}>
         {done ? (
           <CheckCircleFilled style={{ color: "var(--success)" }} />
         ) : failed ? (
@@ -759,21 +759,19 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
         )}
       </div>
       {goneQuiet && secondsSinceUpdate !== null && (
-        // States the silence as a plain fact, next to the last stage the run
-        // reported, and explains why the gap is ambiguous rather than ruling the
-        // run dead: a batch is one model call, so a healthy run legitimately
-        // writes nothing for the length of a batch. If the run resumes, the next
-        // server write clears this. role="status" so assistive tech hears that
-        // the figures above are now the last the run reported.
-        <div className="extract-progress-line extract-quiet" role="status">
+        // Raised above the counters and progress bar so the reader who
+        // returns to a stalled run meets the advisory first, not the last
+        // reported figures. role="status" announces it to assistive tech.
+        <div className="extract-progress-line extract-quiet extract-quiet--raised" role="status">
+          <ClockCircleOutlined className="extract-quiet-icon" aria-hidden />
           <Text className="extract-quiet-text">
-            No update for {duration(secondsSinceUpdate)} &mdash; the figures above are the last this
+            No update for <strong>{duration(secondsSinceUpdate)}</strong> &mdash; the figures below are the last this
             run reported. A batch is drafted in a single step, so a gap like this can be a slow
             batch rather than a stopped run.
           </Text>
         </div>
       )}
-      <div className="extract-progress-line extract-progress-counters">
+      <div className={`extract-progress-line extract-progress-counters${goneQuiet ? " extract-progress-line--muted" : ""}`}>
         <Text type="secondary">{counters.join(" · ")}</Text>
         {relationshipDiscoveryIncomplete && (
           <Tooltip title={linkHint}>

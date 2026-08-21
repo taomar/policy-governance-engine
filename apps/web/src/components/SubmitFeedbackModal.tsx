@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { Alert, Input, message, Modal, Select } from "antd";
 import { api, FEEDBACK_CATEGORIES, type PolicyReviewRequest } from "../api";
+import "./policies.css";
 
 const { TextArea } = Input;
 
@@ -79,7 +80,7 @@ export function SubmitFeedbackModal({
       <Alert
         type="info"
         showIcon
-        style={{ marginBottom: 16 }}
+        className="feedback-modal-alert"
         message="This policy remains current and in force."
         description="Your feedback will be sent to a reviewer — it does not change the policy's status or take it out of service."
       />
@@ -89,13 +90,13 @@ export function SubmitFeedbackModal({
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         placeholder="Describe what should change and why."
-        style={{ marginBottom: 12 }}
+        className="feedback-modal-comment"
         data-testid="feedback-comment"
       />
 
       <Select
         mode="tags"
-        style={{ width: "100%" }}
+        className="feedback-modal-categories"
         placeholder="Categories (optional)"
         value={categories}
         onChange={setCategories}

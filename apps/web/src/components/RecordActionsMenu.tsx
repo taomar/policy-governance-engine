@@ -134,6 +134,10 @@ interface RecordActionDefinition {
   scopes: readonly RecordActionsScope[];
   /** Whether the record's own state admits it. Absent means "always". */
   admits?: (state: RecordState) => boolean;
+  /** When `admits` returns false, why. Taken from `candidateEditability` so the
+   *  menu and the server say the same thing about the same record. Absent means
+   *  the action is simply inapplicable (different state, not blocked). */
+  disabledReason?: (state: RecordState) => string | null;
 }
 
 /** What the menu knows about the record, derived from its review states. */
@@ -165,6 +169,7 @@ const ACTIONS: readonly RecordActionDefinition[] = [
     section: "act",
     scopes: ["rule"],
     admits: (state) => state.editability.canEdit,
+    disabledReason: (state) => state.editability.editBlockedReason,
   },
   {
     // Also rule-only, and for the same reason: a rewrite is a proposal about
@@ -176,6 +181,7 @@ const ACTIONS: readonly RecordActionDefinition[] = [
     section: "act",
     scopes: ["rule"],
     admits: (state) => state.editability.canReview,
+    disabledReason: (state) => state.editability.editBlockedReason,
   },
   {
     // A published version is an immutable snapshot, so the way to change it is
@@ -311,6 +317,15 @@ export function recordStateFrom(reviewStatuses: readonly string[]): RecordState 
   };
 }
 
+/** A resolved action entry, ready for rendering. */
+export interface ResolvedRecordAction extends RecordActionDefinition {
+  /** When true the entry is rendered but inert, with `reason` explaining why. */
+  disabled: boolean;
+  /** Why the action is unavailable, phrased as what the user should do
+   *  instead. From `candidateEditability`. */
+  reason: string | null;
+}
+
 /**
  * The entries this menu would draw, as data.
  *
@@ -318,6 +333,13 @@ export function recordStateFrom(reviewStatuses: readonly string[]): RecordState 
  * adopts this — can ask what a record offers without mounting a menu, and so
  * the table above can be tested for what it says rather than for what it looks
  * like.
+ *
+ * Actions whose record state does not admit them are kept as disabled entries
+ * with the editability reason from `candidateEditability`, so a user looking
+ * for Edit on an approved record sees *why* it is unavailable rather than
+ * finding nothing. Actions that are simply inapplicable to the current state
+ * (e.g. "Override & approve" when nothing is rejected) remain hidden because
+ * they carry no useful explanation.
  */
 export function recordActionsFor({
   scope,
@@ -327,20 +349,36 @@ export function recordActionsFor({
   scope: RecordActionsScope;
   reviewStatuses: readonly string[];
   on: RecordActionHandlers;
-}): RecordActionDefinition[] {
+}): ResolvedRecordAction[] {
   const state = recordStateFrom(reviewStatuses);
   return ACTIONS.filter((action) => {
     if (!action.scopes.includes(scope)) return false;
-    if (action.admits && !action.admits(state)) return false;
-    // Copying an id needs nothing from the surface; everything else is a
-    // destination or a change only the surface knows how to make.
-    if (action.key === "copy-id") return true;
-    return typeof on[action.key] === "function";
+    // An action with no handler and no disabled reason is not useful to show.
+    if (action.key !== "copy-id" && typeof on[action.key] !== "function") {
+      // Still show it disabled if the state blocks it and there is a reason
+      // worth telling — this is how Edit appears disabled on an approved record.
+      if (action.admits && !action.admits(state) && action.disabledReason?.(state)) return true;
+      return false;
+    }
+    return true;
   }).map((action) => {
-    // Resolved here rather than at render time so that asking this function
-    // what a record offers gives the same words the reader will see.
+    const admitted = action.admits ? action.admits(state) : true;
+    const hasHandler = action.key === "copy-id" || typeof on[action.key] === "function";
+    const disabled = !admitted || !hasHandler;
+    const reason = disabled && action.disabledReason ? action.disabledReason(state) : null;
     const supplied = action.hintFor?.(state);
-    return supplied ? { ...action, hint: supplied } : action;
+    const resolved: ResolvedRecordAction = {
+      ...(supplied ? { ...action, hint: supplied } : action),
+      disabled,
+      reason,
+    };
+    return resolved;
+  }).filter((action) => {
+    // F4: An action that is disabled WITH a reason is shown so the user
+    // knows why it's unavailable. One that is disabled with NO reason is
+    // simply inapplicable in this state and would clutter the menu.
+    if (action.disabled && !action.reason) return false;
+    return true;
   });
 }
 
@@ -547,41 +585,53 @@ export function RecordActionsMenu({
             onKeyDown={onMenuKeyDown}
             onClick={(event) => event.stopPropagation()}
           >
-            {entries.map((action, index) => (
-              <button
-                key={action.key}
-                type="button"
-                role="menuitem"
-                ref={(node) => {
-                  itemRefs.current[index] = node;
-                }}
-                // One tab stop for the whole menu: arrows move within it, Tab
-                // leaves it. Roving `tabIndex` is what makes that true.
-                tabIndex={index === activeIndex ? 0 : -1}
-                className={`record-actions__item record-actions__item--${action.section}`}
-                data-action={action.key}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => run(action)}
-              >
-                <span className="record-actions__icon" aria-hidden="true">
-                  {action.icon}
-                </span>
-                <span className="record-actions__text">
-                  <span className="record-actions__label">{action.label}</span>
-                  {action.key === "copy-id" ? (
-                    // The one label carrying the record's own text. Isolated,
-                    // because an id read from an Arabic document is a run with
-                    // its own direction and takes the surrounding line with it
-                    // otherwise.
-                    <span className="record-actions__hint record-actions__hint--mono">
-                      <DirectionalText>{recordId}</DirectionalText>
-                    </span>
-                  ) : (
-                    action.hint && <span className="record-actions__hint">{action.hint}</span>
-                  )}
-                </span>
-              </button>
-            ))}
+            {entries.map((action, index) => {
+              const btn = (
+                <button
+                  key={action.key}
+                  type="button"
+                  role="menuitem"
+                  ref={(node) => {
+                    itemRefs.current[index] = node;
+                  }}
+                  tabIndex={index === activeIndex ? 0 : -1}
+                  className={`record-actions__item record-actions__item--${action.section}${
+                    action.disabled ? " record-actions__item--disabled" : ""
+                  }`}
+                  data-action={action.key}
+                  aria-disabled={action.disabled || undefined}
+                  aria-label={action.disabled && action.reason ? `${action.label} — ${action.reason}` : undefined}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={action.disabled ? undefined : () => run(action)}
+                >
+                  <span className="record-actions__icon" aria-hidden="true">
+                    {action.icon}
+                  </span>
+                  <span className="record-actions__text">
+                    <span className="record-actions__label">{action.label}</span>
+                    {action.disabled && action.reason ? (
+                      <span className="record-actions__hint">{action.reason}</span>
+                    ) : action.key === "copy-id" ? (
+                      <span className="record-actions__hint record-actions__hint--mono">
+                        <DirectionalText>{recordId}</DirectionalText>
+                      </span>
+                    ) : (
+                      action.hint && <span className="record-actions__hint">{action.hint}</span>
+                    )}
+                  </span>
+                </button>
+              );
+              // Ant Design does not fire Tooltip on a disabled element — wrap
+              // it in a span so both pointer and keyboard users get the reason.
+              if (action.disabled && action.reason) {
+                return (
+                  <Tooltip key={action.key} title={action.reason}>
+                    <span>{btn}</span>
+                  </Tooltip>
+                );
+              }
+              return btn;
+            })}
           </div>,
           document.body,
         )}

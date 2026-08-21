@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   App,
@@ -24,6 +24,8 @@ import {
 } from "antd";
 import {
   BulbOutlined,
+  CheckOutlined,
+  CloseOutlined,
   ClusterOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
@@ -123,6 +125,7 @@ import { ReviewQueueSummary } from "./ReviewQueueSummary";
 import { RuleChangeExplainer } from "./RuleChangeExplainer";
 import { PolicyInspector } from "./PolicyInspector";
 import { FeedbackQueue } from "./FeedbackQueue";
+import "./reviewQueue.css";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -171,6 +174,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [previousUnderReview, setPreviousUnderReview] = useState<CandidateRule | null>(null);
   const [previousTab, setPreviousTab] = useState("overview");
+  /** F3: index within filteredCandidates of the record just decided, so the
+   *  auto-select effect can advance to the next undecided record after the
+   *  candidates refresh. */
+  const pendingAdvanceIndex = useRef<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   /** Filters that narrow the queue to what a reviewer is actually working on:
    *  one document, one extraction run, or one kind of change. Held server-side
@@ -931,7 +938,23 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     if (filteredCandidates.length === 0) {
       setSelectedCandidateId(null);
       setMobileInspectorOpen(false);
+      pendingAdvanceIndex.current = null;
       return;
+    }
+    // F3: after a decision, advance to the next undecided record starting from
+    // the position where the decided one sat. This runs once after runReview's
+    // refreshQueueAndStrip reloads the candidates.
+    const advanceFrom = pendingAdvanceIndex.current;
+    if (advanceFrom != null) {
+      pendingAdvanceIndex.current = null;
+      // The decided record may have moved bands or been filtered out, so the
+      // list is shorter. Clamp to the list length to avoid going past the end.
+      const start = Math.min(advanceFrom, filteredCandidates.length - 1);
+      const next = filteredCandidates[start] ?? filteredCandidates[0];
+      if (next) {
+        setSelectedCandidateId(next.id);
+        return;
+      }
     }
     if (!selectedCandidate) setSelectedCandidateId(filteredCandidates[0].id);
   }, [grouped, policyCards, openPolicyCard, filteredCandidates, selectedCandidate]);
@@ -1514,10 +1537,20 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setRewriteTarget(selectedCandidate)}>
                   Suggest rewrite
                 </Button>
-                <Button size="small" type="primary" onClick={() => handleReview(selectedCandidate.id, "approve")}>
+                {/* F5: visible text labels and icon so approve and reject are
+                    distinguishable without colour. F6: the resting button is
+                    indigo (primary) or default, not green/red — those hues belong
+                    to policy effect badges and committed state, not action
+                    triggers. */}
+                <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleReview(selectedCandidate.id, "approve")}>
                   Approve
                 </Button>
-                <Button size="small" danger onClick={() => handleReview(selectedCandidate.id, "reject")}>
+                <Button
+                  size="small"
+                  icon={<CloseOutlined />}
+                  className="review-reject-btn"
+                  onClick={() => handleReview(selectedCandidate.id, "reject")}
+                >
                   Reject
                 </Button>
               </>
@@ -1534,8 +1567,8 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 </Button>
                 <Button
                   size="small"
-                  danger
                   disabled={!isManager}
+                  className="review-reject-btn"
                   onClick={() => setManagerAction({ candidate: selectedCandidate, mode: "override-reject" })}
                 >
                   Override & reject
@@ -2470,40 +2503,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                               findingsCount={findings.length}
                               statusColor={STATUS_COLOR[candidate.review_status] ?? "default"}
                               statusLabel={STATUS_LABEL[candidate.review_status] ?? candidate.review_status}
-                              renderDetail={() => (
-                                /* Same reading as the policy card's rule detail
-                                   above, and for the same reason. The row already
-                                   wraps this in its own labelled region, and its
-                                   header still opens the record in the panel, so
-                                   nothing is lost by the expansion no longer
-                                   linking out to a fuller version of itself —
-                                   there is no fuller version any more. */
-                                <PolicyInspector
-                                  rule={candidate.rule}
-                                  allRules={candidateRules}
-                                  policySetKey={selectedKey}
-                                  variant="embedded"
-                                  recordKind="candidate"
-                                  recordLabel="candidate"
-                                  onSelectRule={selectCandidateRule}
-                                  notesTarget={{
-                                    entityType: "candidate_rule",
-                                    entityId: candidate.id,
-                                    title: "Review discussion",
-                                  }}
-                                />
-                              )}
                               onOpenFullRecord={() => openCandidate(candidate)}
                               recordActions={ruleActionHandlers(candidate, () => openCandidate(candidate))}
                               onToggleSelect={() => toggleSelected(candidate.id)}
                               onSelectFamily={
                                 cluster && editability.canReview ? () => selectFamily(candidate.rule.rule_id) : undefined
-                              }
-                              onApprove={
-                                editability.canReview ? () => handleReview(candidate.id, "approve") : undefined
-                              }
-                              onReject={
-                                editability.canReview ? () => handleReview(candidate.id, "reject") : undefined
                               }
                             />
                           </div>

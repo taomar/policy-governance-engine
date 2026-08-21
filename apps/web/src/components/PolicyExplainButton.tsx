@@ -5,6 +5,7 @@ import { aiApi, type PolicyExplanation } from "../api";
 import { describeApiFailure, type LoadState } from "../loadState";
 import { DirectionalText } from "./DirectionalText";
 import { AnswerLanguageToggle } from "./AnswerLanguageToggle";
+import "./policies.css";
 import {
   ASK_ANSWER_LANGUAGES,
   DEFAULT_ASK_ANSWER_LANGUAGE,
@@ -248,16 +249,7 @@ export function PolicyExplainButton({
                       reading, so the reader sets the language and asks again in
                       one place. Laid out inline: the row's own class would need
                       styles that live where this component does not own them. */}
-                  <div
-                    className="policy-explain__reask"
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: 8,
-                      marginTop: 8,
-                    }}
-                  >
+                  <div className="policy-explain__reask">
                     {languageToggle}
                     <Button size="small" onClick={() => void ask(true)}>
                       Write it again

@@ -253,11 +253,9 @@ describe("the logic tab heads a rule with the name this app generated for it", (
       "p9-E000071",
     );
 
-    // The source sentence is still offered, still closed, and still the only
-    // thing on this surface behind a disclosure.
-    const disclosures = container.querySelectorAll("details");
-    expect(disclosures).toHaveLength(1);
-    expect(disclosures[0].getAttribute("data-testid")).toBe("policy-logic-source");
+    // The source sentence is always visible (not behind a disclosure — F1).
+    const quote = container.querySelector("blockquote[data-testid='policy-logic-source']");
+    expect(quote).not.toBeNull();
   });
 
   it("asks nothing at all when the card was not told which set it belongs to", async () => {

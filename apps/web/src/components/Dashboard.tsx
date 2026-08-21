@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
+  AuditOutlined,
   CheckCircleOutlined,
   ExperimentOutlined,
+  EyeOutlined,
   FileTextOutlined,
   FolderOutlined,
   PlayCircleOutlined,
@@ -18,8 +20,9 @@ import {
   type PolicySet,
   type ProjectPortfolioInsight,
 } from "../api";
-import { ACTOR_ROLE_LABELS, useActor, type ActorRole, toRbacRole } from "../ActorContext";
-import { canAccessPage } from "../rbac";
+import { ACTOR_ROLE_LABELS, useActor, toRbacRole } from "../ActorContext";
+import { canAccessPage, ROLE_LABELS, ROLES, type Role } from "../rbac";
+import { getSession } from "../auth";
 import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
 import { projectRowClauses, routeClauses } from "../projectRegisterRow";
 import { recordScaleLabel } from "../policyRecordFacts";
@@ -95,16 +98,13 @@ interface ToolLink {
 }
 
 /**
- * Role-specific toolkits. Each role sees the actions most relevant to how they
- * actually work day-to-day, instead of one generic list for everyone. Review, Compare,
- * and Quality now live as tabs inside a project's workspace (not standalone pages), so
- * every toolkit action that touches them routes through "Open a project" first.
- *  - system_admin:    brings source documents in and stands up projects
- *  - policy_composer: drafts/reviews candidate rules, leans on Ask AI + Quality
- *  - policy_manager:  approves, publishes versions, and exports for downstream use
+ * Role-specific toolkits keyed by RBAC role (the real authority) rather than
+ * the legacy ActorRole persona.  Each role sees actions it can actually perform
+ * — derived from what `rbac.ts` allows — so the interface never invites a user
+ * into a 403.
  */
-const ROLE_TOOLKITS: Record<ActorRole, ToolLink[]> = {
-  system_admin: [
+const RBAC_TOOLKITS: Record<Role, ToolLink[]> = {
+  admin: [
     {
       label: "Upload source documents",
       description: "Bring in new HR/IT/finance policy PDFs or DOCX files for AI extraction.",
@@ -124,7 +124,7 @@ const ROLE_TOOLKITS: Record<ActorRole, ToolLink[]> = {
       page: "projects",
     },
   ],
-  policy_composer: [
+  policy_author: [
     {
       label: "Draft & review candidate rules",
       description: "Open a project's Review Queue: approve, reject, or ask the AI to suggest a rewrite.",
@@ -144,26 +144,43 @@ const ROLE_TOOLKITS: Record<ActorRole, ToolLink[]> = {
       page: "projects",
     },
   ],
-  policy_manager: [
+  viewer: [
     {
-      label: "Publish approved versions",
-      description: "Open a project's Review Queue to bundle approved rules into a new published version.",
-      icon: <CheckCircleOutlined />,
+      label: "Browse published policies",
+      description: "Read the approved, immutable rules that are currently in force across projects.",
+      icon: <EyeOutlined />,
       page: "projects",
     },
     {
-      label: "Browse & export projects",
-      description: "Inspect version history and export rules as JSON, JSONL, or CSV from any project.",
-      icon: <FolderOutlined />,
-      page: "projects",
-    },
-    {
-      label: "Run evaluations",
-      description: "Test how published rules apply against sample facts before rollout.",
+      label: "Run an evaluation",
+      description: "Test how published rules apply against a set of facts — deterministic, every time.",
       icon: <PlayCircleOutlined />,
       page: "evaluate",
     },
+    {
+      label: "Read the decision log",
+      description: "See every evaluation result: who asked, what facts, what the rules decided, and why.",
+      icon: <AuditOutlined />,
+      page: "projects",
+    },
   ],
+};
+
+/** Framing copy that speaks to the reader's role rather than describing
+ *  authoring work a viewer never does. */
+const ROLE_FRAMING: Record<Role, { title: string; subtitle: string }> = {
+  admin: {
+    title: "Policy operations",
+    subtitle: "Move source-grounded rules from intake to an immutable published decision.",
+  },
+  policy_author: {
+    title: "Policy operations",
+    subtitle: "Move source-grounded rules from intake to an immutable published decision.",
+  },
+  viewer: {
+    title: "Policy dashboard",
+    subtitle: "Published policies you can read, and evaluations you can run.",
+  },
 };
 
 export function Dashboard({
@@ -174,6 +191,7 @@ export function Dashboard({
   onOpenAskAi?: () => void;
 }) {
   const { actor } = useActor();
+  const rbacRole = toRbacRole(actor.role);
   const [summary, setSummary] = useState<Summary | null>(null);
   // `summary === null` meant both "not asked yet" and "asked and failed", so a
   // refused fetch left both panels below spinning on "Loading…" indefinitely.
@@ -257,12 +275,15 @@ export function Dashboard({
     void load();
   }, [reloadToken]);
 
-  const toolkit = ROLE_TOOLKITS[actor.role] ?? [];
-  const rbacRole = toRbacRole(actor.role);
+  const toolkit = RBAC_TOOLKITS[rbacRole] ?? [];
   // Filter out toolkit actions that route to surfaces the role cannot reach.
   const visibleToolkit = toolkit.filter((tool) =>
     tool.page === "ask-ai" || canAccessPage(rbacRole, tool.page),
   );
+  // If the server sent a role this build doesn't recognise, `toRbacRole` fell
+  // back to `"viewer"` silently.  The user deserves to know.
+  const session = getSession();
+  const roleUnrecognised = session !== null && !(ROLES as readonly string[]).includes(session.role);
 
   const goToTool = (page: string) => {
     if (page === "ask-ai") onOpenAskAi?.();
@@ -307,11 +328,9 @@ export function Dashboard({
     },
     {
       label: "High findings",
-      value: summary?.highFindingCount,
-      // Was "latest active-version checks", which described a population the
-      // register was not in fact reading: the query admitted published-scope
-      // runs only, so on an unpublished portfolio it reported nothing while
-      // real findings sat stored against the candidate generation.
+      // Zero findings is good news — say "None" rather than rendering a bare 0
+      // that reads as a defect count.
+      value: summary?.highFindingCount === 0 ? "None" : summary?.highFindingCount,
       detail: "latest quality checks",
       icon: <WarningOutlined />,
       tone: summary?.highFindingCount ? "risk" : "neutral",
@@ -347,19 +366,29 @@ export function Dashboard({
     },
   ];
 
+  const framing = ROLE_FRAMING[rbacRole] ?? ROLE_FRAMING.viewer;
+
   return (
     <div className="dashboard-page">
       <header className="dashboard-page-header">
         <div>
-          <Title level={3}>Policy operations</Title>
-          <Text type="secondary">Move source-grounded rules from intake to an immutable published decision.</Text>
+          <Title level={3}>{framing.title}</Title>
+          <Text type="secondary">{framing.subtitle}</Text>
         </div>
         <Tag variant="filled" className="dashboard-role-tag">
-          {ACTOR_ROLE_LABELS[actor.role]}
+          {ROLE_LABELS[rbacRole] ?? ACTOR_ROLE_LABELS[actor.role]}
         </Tag>
       </header>
 
       {error && <Alert type="error" showIcon message={error} />}
+      {roleUnrecognised && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Your role was not recognised by this build. You have been given read-only access. Sign in again or contact an administrator."
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {/* The two panels below used to be the two cells of a `.dashboard-ledger`
           grid. A grid stretches its cells to the tallest, the right cell was one
@@ -542,7 +571,7 @@ export function Dashboard({
             </Title>
             <Text type="secondary">Actions matched to the role selected in the header.</Text>
           </div>
-          <Text type="secondary">{ACTOR_ROLE_LABELS[actor.role]}</Text>
+          <Text type="secondary">{ROLE_LABELS[rbacRole] ?? ACTOR_ROLE_LABELS[actor.role]}</Text>
         </div>
         <div className="dashboard-workflow-list" role="list">
           {visibleToolkit.map((tool) => (

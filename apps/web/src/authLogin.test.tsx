@@ -65,7 +65,7 @@ describe("session gate", () => {
     renderApp();
     // The login screen's product name is visible
     expect(screen.getByText("PolicyVerbAItim")).toBeTruthy();
-    expect(screen.getByText("Sign in to continue")).toBeTruthy();
+    expect(screen.getByText("AI to read. Evidence to prove. Determinism to decide.")).toBeTruthy();
     // The app shell's nav items are NOT rendered
     expect(screen.queryByText("Dashboard")).toBeNull();
     expect(screen.queryByText("Projects")).toBeNull();
@@ -136,7 +136,7 @@ describe("session gate", () => {
     renderApp();
 
     // Should show login screen, not the shell
-    expect(screen.getByText("Sign in to continue")).toBeTruthy();
+    expect(screen.getByText("AI to read. Evidence to prove. Determinism to decide.")).toBeTruthy();
     expect(screen.queryByText("Dashboard")).toBeNull();
   });
 });

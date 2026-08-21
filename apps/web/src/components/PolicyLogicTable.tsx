@@ -399,18 +399,14 @@ function RuleBlock({
         </div>
       )}
 
-      {/* The one thing on this surface that is behind a control, and the reason
-          is that it is the one thing this surface never showed: the sentence
-          the rule was read out of. Every attribute the rule states is drawn
-          above it, open, so a reviewer checking whether anything was dropped
-          still never has to press anything to find out. */}
+      {/* The source quotation — the exact sentence the rule was read from.
+          Shown open: the whole point of this product is traceability, and the
+          evidence must never be behind a click. Long passages truncate with
+          the opening words visible so the reader sees something real. */}
       {rule.statedText && (
-        <details className="policy-logic__source" data-testid="policy-logic-source">
-          <summary>What the document says here</summary>
-          <blockquote className="policy-logic__source-text" data-verbatim="true">
-            <DirectionalText align>{rule.statedText}</DirectionalText>
-          </blockquote>
-        </details>
+        <blockquote className="policy-logic__source-text" data-testid="policy-logic-source" data-verbatim="true">
+          <DirectionalText align>{rule.statedText}</DirectionalText>
+        </blockquote>
       )}
     </article>
   );

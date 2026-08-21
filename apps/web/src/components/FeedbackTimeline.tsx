@@ -10,15 +10,16 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { message, Modal, Space, Tag, Timeline, Typography } from "antd";
+import { Button, message, Modal, Space, Tag, Timeline, Typography } from "antd";
 import { api, PolicyPlatformApiError, type PolicyReviewRequest, type ReviewRequestStatus } from "../api";
+import "./policies.css";
 
 const { Text, Title } = Typography;
 
 const STATUS_COLOR: Record<ReviewRequestStatus, string> = {
   open: "blue",
   acknowledged: "cyan",
-  actioned: "green",
+  actioned: "purple",
   dismissed: "default",
   withdrawn: "default",
 };
@@ -80,7 +81,7 @@ export function FeedbackTimeline({ policySetKey, submittedBy, epoch }: FeedbackT
   if (!loaded || items.length === 0) return null;
 
   return (
-    <div style={{ marginTop: 24 }} data-testid="feedback-timeline">
+    <div className="feedback-timeline" data-testid="feedback-timeline">
       <Title level={5}>Your feedback</Title>
       <Timeline
         items={items.map((item) => ({
@@ -91,9 +92,9 @@ export function FeedbackTimeline({ policySetKey, submittedBy, epoch }: FeedbackT
                 <Tag color={STATUS_COLOR[item.status]}>{item.status}</Tag>
                 <Text type="secondary">{new Date(item.submitted_at).toLocaleString()}</Text>
                 {item.status === "open" && (
-                  <a onClick={() => handleWithdraw(item.id)} data-testid={`withdraw-${item.id}`}>
+                  <Button type="link" size="small" onClick={() => handleWithdraw(item.id)} data-testid={`withdraw-${item.id}`}>
                     Withdraw
-                  </a>
+                  </Button>
                 )}
               </Space>
               <Text>{item.comment}</Text>

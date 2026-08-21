@@ -797,6 +797,21 @@ export function PolicyCaseRunner({
         answer rests on so you can read each yourself.
       </Paragraph>
 
+      {rules.length === 0 ? (
+        /* A form nobody can submit is a door that cannot open. Name the state
+           and what resolves it before the reader encounters a greyed-out button. */
+        <div data-testid="policy-case-empty-norules" style={{ padding: "24px 16px", textAlign: "center" }}>
+          <ReadOutlined style={{ fontSize: 22, opacity: 0.35 }} aria-hidden />
+          <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            This policy states no rules to put a case to. Publish a version with rules, and the case
+            runner will be ready.
+          </Paragraph>
+          <Button type="primary" disabled data-testid="policy-case-run" style={{ marginTop: 12 }}>
+            Put this case to this policy
+          </Button>
+        </div>
+      ) : (
+        <>
       <Paragraph style={{ marginBottom: 8 }}>
         <Text strong>Describe a case in plain English</Text>
       </Paragraph>
@@ -823,7 +838,7 @@ export function PolicyCaseRunner({
             void run();
           }}
           loading={running}
-          disabled={!scenario.trim() || rules.length === 0}
+          disabled={!scenario.trim()}
           data-testid="policy-case-run"
         >
           {running
@@ -967,11 +982,7 @@ export function PolicyCaseRunner({
             data-testid="policy-case-empty"
             style={{ marginTop: 12, padding: "24px 16px", textAlign: "center" }}
           >
-            {rules.length === 0 ? (
-              <Text type="secondary" data-testid="policy-case-empty-norules">
-                This policy states no rules to put a case to.
-              </Text>
-            ) : answers ? (
+            {answers ? (
               <Text type="secondary" data-testid="policy-case-empty-answered">
                 The case was put to this policy, but no rule produced an answer to it.
               </Text>
@@ -994,6 +1005,8 @@ export function PolicyCaseRunner({
           which records what calling systems asked.
         </Text>
       ) : null}
+      </>
+      )}
     </div>
   );
 }

@@ -774,9 +774,18 @@ export function PolicyValidationLab({
                 Clear
               </Button>
             </div>
-            <Text type="secondary" className="validation-filter-summary">
-              Showing {visibleRules.length} testable policies from published v{selectedVersion?.version_number ?? "—"}.
-              This lab runs the policies whose test the source states as a comparison; the rest take the AI Ready route.
+            <Text type="secondary" className="validation-filter-summary" data-testid="validation-lab-scope">
+              Showing {visibleRules.length} of {rules.length} rules from published v{selectedVersion?.version_number ?? "—"}.{" "}
+              {excludedDocumentationCount > 0 && (
+                <>{excludedDocumentationCount} rule{excludedDocumentationCount === 1 ? " takes" : "s take"} the AI Ready
+                route — {excludedDocumentationCount === 1 ? "its" : "their"} test is stated in
+                words and decided by a judge reading the case, not by the deterministic engine this
+                lab exercises. </>
+              )}
+              {excludedDefinitionCount > 0 && (
+                <>{excludedDefinitionCount} definition{excludedDefinitionCount === 1 ? " is" : "s are"} excluded because
+                definitions carry no test to run. </>
+              )}
             </Text>
             <div className="validation-rule-list">
               {visibleRules.map((rule) => (

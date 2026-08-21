@@ -320,7 +320,7 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                   />
                 )}
                 {t.result.groups.length > 0 && (
-                  <section className="ask-rule-quoted" data-testid="ask-rule-quoted">
+                  <section className="ask-rule-quoted" data-testid="ask-rule-quoted" role="region" aria-label="Quoted source text">
                     <p className="ask-rule-quoted__heading" lang={t.language.tag}>
                       <DirectionalText>{t.language.copy.quotedHeading}</DirectionalText>
                     </p>
@@ -369,6 +369,8 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                     data-generated="true"
                     data-testid="ask-rule-reflection"
                     lang={t.language.tag}
+                    role="region"
+                    aria-label="Generated reflection"
                   >
                     <div className="ask-ai-reflection-label">
                       <span className="ask-rule-reflection__mark" aria-hidden>

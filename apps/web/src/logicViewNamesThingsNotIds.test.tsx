@@ -250,18 +250,17 @@ describe("a rule is headed by what it states, not by its id", () => {
       />,
     ).container;
 
-    const disclosures = [...view.querySelectorAll("details")];
-    expect(disclosures).toHaveLength(1);
-    expect(disclosures[0].getAttribute("data-testid")).toBe("policy-logic-source");
-    expect(disclosures[0].hasAttribute("open")).toBe(false);
-    expect(disclosures[0].textContent).toContain(
+    // The source quotation is always visible (not behind a disclosure — F1).
+    const quotes = [...view.querySelectorAll("blockquote[data-testid='policy-logic-source']")];
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0].textContent).toContain(
       "An employee shall submit a written request before taking leave.",
     );
 
     // The reviewer's own checks stay in the open. This is the invariant the
     // whole view is built on, and the one thing a disclosure must never take.
-    expect(disclosures[0].querySelectorAll(".policy-attr-name")).toHaveLength(0);
-    expect(disclosures[0].querySelectorAll("[data-absent]")).toHaveLength(0);
+    expect(quotes[0].querySelectorAll(".policy-attr-name")).toHaveLength(0);
+    expect(quotes[0].querySelectorAll("[data-absent]")).toHaveLength(0);
     expect(view.querySelectorAll(".policy-attr-name").length).toBeGreaterThan(0);
   });
 

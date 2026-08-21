@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Card, Input, Typography, Alert } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { login } from "../api";
-import { storeSession, type Session } from "../auth";
+import { storeSession, consumeSessionAbsence, type Session } from "../auth";
 
 const { Title, Text } = Typography;
 
@@ -20,6 +20,8 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Consumed once so the notice shows only on the first render after expiry.
+  const [absence] = useState(() => consumeSessionAbsence());
 
   const canSubmit = username.trim().length > 0 && password.length > 0;
 
@@ -51,14 +53,23 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
     <div className="login-screen">
       <Card className="login-card">
         <div className="login-header">
-          <div className="brand-mark login-brand-mark">PP</div>
+          <div className="brand-mark login-brand-mark" aria-hidden="true">PV</div>
           <Title level={3} style={{ margin: 0 }}>
             PolicyVerbAItim
           </Title>
-          <Text type="secondary">Sign in to continue</Text>
+          <Text type="secondary">AI to read. Evidence to prove. Determinism to decide.</Text>
         </div>
 
         <form onSubmit={handleSubmit}>
+          {absence === "expired" && !error && (
+            <Alert
+              type="info"
+              message="Your session expired. Sign in again to continue where you left off."
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
           {error && (
             <Alert
               type="error"

@@ -836,6 +836,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                 variant="embedded"
                 recordLabel="rule"
                 onRevise={canRevise ? setReviseTarget : undefined}
+                onSubmitFeedback={isViewer && selectedVersion ? () => setFeedbackModalOpen(true) : undefined}
                 onSelectRule={handleSelectRule}
               />
             </div>
@@ -1193,6 +1194,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
                                 variant="embedded"
                                 recordLabel="rule"
                                 onRevise={canRevise ? setReviseTarget : undefined}
+                                onSubmitFeedback={isViewer && selectedVersion ? () => setFeedbackModalOpen(true) : undefined}
                                 onSelectRule={handleSelectRule}
                                 additionalActions={
                                   <RecordActionsMenu

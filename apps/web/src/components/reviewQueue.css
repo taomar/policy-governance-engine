@@ -1,0 +1,70 @@
+/* Styles owned by ReviewQueue, CandidateRow and their decision affordances.
+ *
+ * DESIGN.md F6: "Don't spend green, red or gold on selection, navigation,
+ * branding or emphasis — they belong to effect and ambiguity." The reject
+ * action button is a default-variant button with extra inline-start margin so
+ * it is spatially separated from approve, not a red-filled `danger` button.
+ * The approve button uses the primary (indigo) fill to say "this is the
+ * primary action"; the reject button is explicitly *not* primary so the two
+ * are distinguishable by shape, weight, icon and position, never by hue alone
+ * (WCAG 1.4.1). */
+
+.review-reject-btn {
+  margin-inline-start: 8px;
+}
+
+/* F7 — Feedback register rows matching the candidate queue idiom. */
+.feedback-register {
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.feedback-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+}
+
+.feedback-row--ruled {
+  border-bottom: 1px solid var(--color-border-muted, #d8dee4);
+}
+
+.feedback-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.feedback-row__line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.feedback-row__author {
+  font-weight: 600;
+}
+
+.feedback-row__date {
+  color: var(--color-fg-muted, #656d76);
+  font-size: 0.85em;
+}
+
+.feedback-row__comment {
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.feedback-row__meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.feedback-row__actions {
+  flex-shrink: 0;
+}

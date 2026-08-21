@@ -218,7 +218,7 @@ function App() {
         className="app-sider"
       >
         <div className="brand">
-          <div className="brand-mark">PP</div>
+          <div className="brand-mark" aria-hidden="true">PV</div>
           <div>
             <div className="brand-title">PolicyVerbAItim</div>
             <div className="brand-subtitle">Deterministic Evaluation</div>

@@ -348,7 +348,9 @@ export function EvaluatePage() {
                     This policy set has no active version — pick a specific version above to evaluate.
                   </Text>
                 ) : factsLoad.ruleCount === 0 ? (
-                  <Text type="secondary">This version has no rules yet.</Text>
+                  <Text type="secondary">
+                    This version has no rules yet. Publish a version with rules and return here to evaluate it.
+                  </Text>
                 ) : (
                   <Text type="secondary">
                     The rules on this version state their tests in words, so there is nothing for this form to collect.

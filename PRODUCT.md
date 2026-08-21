@@ -8,11 +8,15 @@ web
 
 ## Users
 
-- **Policy Composer / Reviewer** (primary, default persona in the app's role switcher) — drafts and edits candidate rules extracted from policy documents, asks AI for grounded explanations/rewrites, checks rule quality, and submits rules for approval. Works rule-by-rule and document-by-document, often across dozens to hundreds of candidates per project.
-- **Policy Manager / Approver** — approves or rejects candidate rules, can override-approve or override-reject (send back to review with feedback), and publishes new policy versions. Accountable for what goes live.
-- **Auditor / compliance reviewer** (implied by the immutable publish/versioning model and recertification workflow under discussion) — needs to trace any published rule back to verbatim source text, see who approved what and when, and review exception/override history.
+Three roles, and they are **enforced**, not chosen. A capability layer classifies every API operation into a band and refuses anything above the caller's role; the interface hides what a role cannot reach and explains what it can see but not change. Identity comes from a validated bearer token — local username and password today, an OIDC issuer when one is configured.
 
-All three roles work inside the same local, single-tenant instance (no multi-tenant auth model yet — role is a display-only "acting as" switch, not enforced authorization).
+- **Viewer** — reads published policies, runs a test case against them, and submits feedback for review. Cannot edit, upload, extract or publish. This is the compliance and audit reader: they need to trace a published rule back to verbatim source text and see who approved what and when. Submitting feedback never changes which version is in force.
+- **Policy Author** — everything a viewer can do, plus source documents, extraction, reviewing and editing candidate rules, asking AI for grounded explanations and rewrites, acting on submitted feedback, and publishing versions. Works rule-by-rule across hundreds of candidates per project.
+- **Admin** — everything, plus configuration and removing a project.
+
+Roles are global rather than per project. Enforcement ships disabled, so an upgrade changes nothing until an operator configures sign-in and turns it on.
+
+Naming note for anyone writing copy: *review* already means **approve or reject a candidate rule** throughout this product — there is a Review tab and a review queue. The middle role is therefore "Policy Author" rather than "Policy Reviewer", so the word keeps one meaning.
 
 ## Product Purpose
 
@@ -26,17 +30,17 @@ Unlike generic document-Q&A or summarization tools, this platform produces **str
 
 - Work is organized into **Projects** (policy sets), each holding its own source documents, extracted/drafted candidate rules, approved rules, and a version history.
 - Real-world policy text is often genuinely complicated: nested exceptions, escalation routes, role-based overrides (e.g., "executives may override X"), and aggregate caps across scenarios (e.g., "60 days pregnancy leave + 15 days family-sick leave, but both combined can't exceed 70 days/year"). The platform must represent this complexity explicitly, not flatten it.
-- Lifecycle: source document uploaded → AI extraction drafts candidate rules (verbatim-grounded quotes) → Composer reviews/edits/asks AI → Manager approves, rejects, requests changes, or overrides → approved rules are published as an **immutable, versioned snapshot** → published rules appear read-only in the Policies tab; changing one means drafting a new candidate that explicitly supersedes it, not editing history.
+- Lifecycle: source document uploaded → AI extraction drafts candidate rules (verbatim-grounded quotes) → a Policy Author reviews, edits and asks AI → approves, rejects, requests changes, or overrides → approved rules are published as an **immutable, versioned snapshot** → published rules appear read-only in the Policies tab; changing one means drafting a new candidate that explicitly supersedes it, not editing history. A Viewer can submit feedback on a published policy at any point, which notifies authors without taking the policy out of force.
 - Rules are categorized by business domain (HR, Finance, IT, etc.), tagged, and grouped into "variation groups" — sets of rules that are scenario/exception/escalation variants of the same underlying topic (so related complexity stays visually together instead of scattered).
-- Three real sample projects currently loaded, each from real document structure with synthetic data: Corporate Expense Approval Policy (Finance), Workplace Hardware Provisioning Policy POL-HW-001 (IT), HR Guide Policy and Procedure (HR, currently 73 published rules across 17 rule-type groups, 346 pending candidates).
+- Sample projects are loaded from real document structure with synthetic data. The largest, `gmu-staff-handbook-2024`, holds **2,282 candidate rules** and returns **448** in the default review view; `ais-employee-handbook` holds 830 across 6 published versions. These are the volumes any list, filter or review surface has to hold up at — measured against the running database rather than carried forward from an earlier note.
 
 ## Capabilities and Constraints
 
 - Local-first stack: Python FastAPI + SQLAlchemy async backend, PostgreSQL (non-default local port), React + TypeScript + Vite frontend (Ant Design v6 components), Azure OpenAI + Azure AI Search for AI-assisted extraction/rewrite/Q&A — AI output is always verbatim-grounded to source text, never fabricated.
 - Canonical rule contract: effect, a recursively-structured condition tree (fact comparisons / all / any / not), required facts with types, exceptions (each with an optional numeric `limit_value`/`limit_unit`), scope, priority, and explicit precedence fields (`is_explicit_override`, `supersedes_rule_ids`).
 - `AggregateLimit`: a combined cap that multiple rules can contribute to (e.g., a shared annual leave-day ceiling across several distinct leave-type rules).
-- Published policy versions are append-only/immutable by design — this is a hard constraint, not a missing feature, and any redesign must keep that model legible rather than implying rules can be edited in place.
-- No multi-tenant auth yet; single local instance.
+- Published policy versions are append-only/immutable by design — this is a hard constraint, not a missing feature, and any redesign must keep that model legible rather than implying rules can be edited in place. Feedback on a published policy is a parallel record that never changes which version is in force; the interface must say so, because a reader who fears they have withdrawn a live policy will not give feedback again.
+- Access is enforced per role (see Users). No tenant isolation: roles are global, and policy data is not partitioned by organisation.
 
 ## Brand Commitments
 

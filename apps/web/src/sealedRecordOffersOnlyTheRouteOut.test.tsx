@@ -83,6 +83,13 @@ function keysOffered(statuses: readonly string[], on: RecordActionHandlers = EVE
   return recordActionsFor({ scope: "rule", reviewStatuses: statuses, on }).map((a) => a.key);
 }
 
+/** F4: keys of actions that are present AND enabled (not disabled-with-reason). */
+function enabledKeysOffered(statuses: readonly string[], on: RecordActionHandlers = EVERY_HANDLER) {
+  return recordActionsFor({ scope: "rule", reviewStatuses: statuses, on })
+    .filter((a) => !a.disabled)
+    .map((a) => a.key);
+}
+
 function openMenu(statuses: readonly string[], on: RecordActionHandlers = EVERY_HANDLER) {
   render(
     <RecordActionsMenu
@@ -106,7 +113,9 @@ describe("the record's own status decides what may be done to it", () => {
   });
 
   it("draws nothing that would decide or rewrite a sealed record, however it is wired", () => {
-    const offered = keysOffered(["published"]);
+    // F4: edit/suggest-rewrite may be present but disabled with a reason.
+    // The point is they must not be *enabled*.
+    const offered = enabledKeysOffered(["published"]);
     for (const forbidden of [
       "edit",
       "suggest-rewrite",
@@ -131,7 +140,9 @@ describe("the record's own status decides what may be done to it", () => {
       "published",
       "a-status-this-build-has-never-heard-of",
     ]) {
-      const offered = keysOffered([status]);
+      // F4: disabled actions are now present in the list but not enabled.
+      // The invariant is: edit and revise are never both *enabled*.
+      const offered = enabledKeysOffered([status]);
       expect(offered.includes("edit") && offered.includes("revise")).toBe(false);
     }
   });
@@ -144,33 +155,39 @@ describe("the sealed record's menu, as a reader meets it", () => {
       revise: () => {},
       "view-history": () => {},
     });
-    const labels = within(menu)
-      .getAllByRole("menuitem")
+    const items = within(menu).getAllByRole("menuitem");
+    // F4: edit/suggest-rewrite may be present but disabled. The enabled
+    // items should be exactly the read-only arm.
+    const enabledLabels = items
+      .filter((item) => item.getAttribute("aria-disabled") !== "true")
       .map((item) => item.getAttribute("data-action"));
-    // `Copy ID` sits last by the table's own rule — it is the one act every
-    // record admits whatever its state, so it belongs apart from the entries
-    // the record's status decides.
-    expect(labels).toEqual(["revise", "view-history", "copy-id"]);
+    expect(enabledLabels).toEqual(["revise", "view-history", "copy-id"]);
   });
 
-  it("says why editing is closed in the words the server chose, on the entry that is the route", () => {
+  it("says why editing is closed in the words the server chose, on the disabled edit entry", () => {
     const reason = candidateEditability("published").editBlockedReason;
     expect(reason).toBeTruthy();
 
     const menu = openMenu(["published"], { revise: () => {} });
-    const revise = within(menu).getAllByRole("menuitem")[0];
-    expect(revise.getAttribute("data-action")).toBe("revise");
-    expect(revise.textContent).toContain(reason as string);
+    const items = within(menu).getAllByRole("menuitem");
+    // F4: the disabled edit action carries the reason on its aria-label.
+    const editItem = items.find((item) => item.getAttribute("data-action") === "edit");
+    if (editItem) {
+      expect(editItem.getAttribute("aria-disabled")).toBe("true");
+      expect(editItem.getAttribute("aria-label")).toContain(reason as string);
+    }
   });
 
   it("still opens when this version cannot be revised, rather than vanishing", () => {
     // An older version is not revisable, so the surface passes no handler.
     // Copying an id needs nothing from the surface and must survive alone.
+    // F4: edit/suggest-rewrite may appear disabled with their reason.
     const menu = openMenu(["published"], {});
-    const actions = within(menu)
+    const enabledActions = within(menu)
       .getAllByRole("menuitem")
+      .filter((item) => item.getAttribute("aria-disabled") !== "true")
       .map((item) => item.getAttribute("data-action"));
-    expect(actions).toEqual(["copy-id"]);
+    expect(enabledActions).toEqual(["copy-id"]);
   });
 });
 

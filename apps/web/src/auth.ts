@@ -30,6 +30,9 @@ const STORAGE_KEY = "policy-platform.session";
 // Read / write
 // ---------------------------------------------------------------------------
 
+/** Why there is no active session right now. */
+export type SessionAbsence = "none" | "expired";
+
 /** Returns the current session, or `null` when there is none or the token
  *  has expired.  An expired token is treated as no session without a server
  *  round trip — the client should not present credentials it already knows
@@ -46,9 +49,10 @@ export function getSession(): Session | null {
       typeof parsed.name === "string"
     ) {
       if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-        // Expired — discard silently rather than letting later requests
-        // fail with a 401 the user cannot distinguish from a bug.
+        // Expired — discard and record why, so the login screen can
+        // distinguish "you were signed out" from "you arrived signed out".
         sessionStorage.removeItem(STORAGE_KEY);
+        sessionStorage.setItem(ABSENCE_KEY, "expired");
         return null;
       }
       return parsed;
@@ -58,6 +62,17 @@ export function getSession(): Session | null {
   }
   sessionStorage.removeItem(STORAGE_KEY);
   return null;
+}
+
+const ABSENCE_KEY = "policy-platform.session-absence";
+
+/** Returns why the session is absent — `"expired"` if the last session
+ *  timed out, `"none"` otherwise.  The flag is consumed once: calling this
+ *  clears it so the message shows only on the first render after expiry. */
+export function consumeSessionAbsence(): SessionAbsence {
+  const value = sessionStorage.getItem(ABSENCE_KEY);
+  sessionStorage.removeItem(ABSENCE_KEY);
+  return value === "expired" ? "expired" : "none";
 }
 
 export function storeSession(session: Session): void {

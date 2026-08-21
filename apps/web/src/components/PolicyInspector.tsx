@@ -42,6 +42,7 @@ import {
 import { RecordedAttributes } from "./RecordedAttributes";
 import { DirectionalText } from "./DirectionalText";
 import { ruleTypeLabel } from "../ruleTypes";
+import "./policies.css";
 import { colorForCategory } from "../policyCategories";
 import {
   ambiguityMeta,
@@ -143,6 +144,8 @@ interface PolicyInspectorProps {
    * not want Revise offered simply does not pass `onRevise`.
    */
   shownAsReference?: boolean;
+  /** Viewer action: open the submit-feedback modal from the rule inspector. */
+  onSubmitFeedback?: () => void;
 }
 
 /**
@@ -173,6 +176,7 @@ export function PolicyInspector({
   recordKind = "published",
   recordLabel = "policy",
   shownAsReference = false,
+  onSubmitFeedback,
 }: PolicyInspectorProps) {
   /** Held only for the placement that has no owner for it. Initialised to the
    *  first question rather than to whatever a controlled caller last chose, so
@@ -445,53 +449,13 @@ export function PolicyInspector({
               const docMeta = docMetaByVersionId.get(ev.document_version_id);
               return (
                 <div key={idx} className="evidence-block">
-                  <Text type="secondary" className="evidence-line">
-                    <FileTextOutlined />{" "}
-                    {docMeta ? `${docMeta.documentTitle} (${docMeta.versionLabel})` : "Document"}
-                    {ev.page !== null ? `, p.${ev.page}` : ""}
-                    {clause ? ` · clause ${clause.clause_ref}` : ""}
-                  </Text>
-                  {/* Was appended to the line above as ` · {section}`, which read as part
-                      of the document's title and disappeared entirely when absent. It has
-                      its own row now so that both of its states are visible. */}
-                  <EvidenceHeadingContext section={ev.section} />
-                  <div className="evidence-provenance-grid">
-                    <div>
-                      <span>Document version ID</span>
-                      <Text code copyable={{ text: ev.document_version_id }}>
-                        {ev.document_version_id}
-                      </Text>
-                    </div>
-                    {ev.clause_id && (
-                      <div>
-                        <span>Clause ID</span>
-                        <Text code copyable={{ text: ev.clause_id }}>
-                          {ev.clause_id}
-                        </Text>
-                      </div>
-                    )}
-                    {clause?.element_id && (
-                      <div>
-                        <span>Source element</span>
-                        <Text code>{clause.element_id}</Text>
-                      </div>
-                    )}
-                    {clause?.search_document_id && (
-                      <div className="evidence-provenance-search">
-                        <span>Azure AI Search ID · {clause.search_index}</span>
-                        <Text code copyable={{ text: clause.search_document_id }}>
-                          {clause.search_document_id}
-                        </Text>
-                      </div>
-                    )}
-                  </div>
                   {clause ? (
                     <div className="evidence-quote-box">
                       <Paragraph
                         className="evidence-quote-text"
-                        ellipsis={{ rows: 3, expandable: true, symbol: "show full text" }}
+                        ellipsis={{ rows: 6, expandable: true, symbol: "show full text" }}
                       >
-                        “{clause.text}”
+                        "{clause.text}"
                       </Paragraph>
                       <Button
                         type="link"
@@ -527,6 +491,53 @@ export function PolicyInspector({
                       )}
                     </div>
                   )}
+                  <Text type="secondary" className="evidence-line">
+                    <FileTextOutlined />{" "}
+                    {docMeta ? `${docMeta.documentTitle} (${docMeta.versionLabel})` : "Document"}
+                    {ev.page !== null ? `, p.${ev.page}` : ""}
+                    {clause ? ` · clause ${clause.clause_ref}` : ""}
+                  </Text>
+                  <EvidenceHeadingContext section={ev.section} />
+                  <Collapse
+                    className="evidence-ids-collapse"
+                    size="small"
+                    items={[{
+                      key: "ids",
+                      label: <span className="evidence-ids-collapse-label">Source identifiers</span>,
+                      children: (
+                        <div className="evidence-provenance-grid">
+                          <div>
+                            <span>Document version ID</span>
+                            <Text code copyable={{ text: ev.document_version_id }}>
+                              {ev.document_version_id}
+                            </Text>
+                          </div>
+                          {ev.clause_id && (
+                            <div>
+                              <span>Clause ID</span>
+                              <Text code copyable={{ text: ev.clause_id }}>
+                                {ev.clause_id}
+                              </Text>
+                            </div>
+                          )}
+                          {clause?.element_id && (
+                            <div>
+                              <span>Source element</span>
+                              <Text code>{clause.element_id}</Text>
+                            </div>
+                          )}
+                          {clause?.search_document_id && (
+                            <div className="evidence-provenance-search">
+                              <span>Azure AI Search ID · {clause.search_index}</span>
+                              <Text code copyable={{ text: clause.search_document_id }}>
+                                {clause.search_document_id}
+                              </Text>
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    }]}
+                  />
                 </div>
               );
             })}
@@ -773,8 +784,13 @@ export function PolicyInspector({
             </Button>
           )}
           {onRevise && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => onRevise(rule)} title="Draft the next revision of this rule for review">
-              Revise
+            <Button size="small" icon={<EditOutlined />} onClick={() => onRevise(rule)} title="Draft a new candidate that supersedes this rule — the published version stays in force until the revision is approved">
+              Draft revision
+            </Button>
+          )}
+          {onSubmitFeedback && (
+            <Button size="small" onClick={onSubmitFeedback} data-testid="inspector-submit-feedback">
+              Submit feedback
             </Button>
           )}
           {/* Asking a question about a rule is a read, so nothing about who is

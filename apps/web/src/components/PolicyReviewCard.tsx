@@ -494,7 +494,7 @@ export function PolicyReviewCard({
                     : `all ${card.reviewableIds.length} of its rules still open`
                 }`}
               >
-                <Button size="small" icon={<CheckOutlined />} onClick={onApprove}>
+                <Button size="small" type="primary" icon={<CheckOutlined />} onClick={onApprove}>
                   Approve
                 </Button>
               </Tooltip>
@@ -505,7 +505,7 @@ export function PolicyReviewCard({
                     : `all ${card.reviewableIds.length} of its rules still open`
                 }`}
               >
-                <Button size="small" danger icon={<CloseOutlined />} onClick={onReject}>
+                <Button size="small" icon={<CloseOutlined />} className="review-reject-btn" onClick={onReject}>
                   Reject
                 </Button>
               </Tooltip>

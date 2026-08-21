@@ -169,12 +169,11 @@ describe("every inspector the queue mounts is accounted for", () => {
     // rather than inherit whichever behaviour it happens to get.
     //
     // It was two, and this guard is why the two that followed were reasoned
-    // about rather than added quietly. The queue used to read a record two
-    // ways — the full surface when a rule was opened, and a shorter retelling
-    // inside a row's own expansion — and the two drifted. The expansions now
-    // mount this same surface, so the count is four: the panel's, the
-    // superseded-record view's, and one for each of the two expansions.
-    expect(mounts).toHaveLength(4);
+    // about rather than added quietly. The queue used to mount the inspector
+    // inside each row's expansion as well as in the side panel. F2 removed
+    // inline expansion — the inspector now appears only in the panel and the
+    // superseded-record view, plus the review-queue panel's own mount.
+    expect(mounts).toHaveLength(3);
   });
 
   it("names the policy set on the mount bound to the record being decided", () => {

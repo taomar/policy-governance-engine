@@ -130,6 +130,31 @@
   color: #64748b;
 }
 
+/* A stalled run's counters and stage line are dimmed so the advisory above
+ * them is the first thing a returning reader meets — the figures are still
+ * shown, but they read as "last reported" rather than "current". */
+.extract-progress-line--muted {
+  opacity: 0.5;
+}
+
+/* The raised advisory sits above the counters and progress bar. The bold
+ * elapsed time is the fact that answers "is this still alive". */
+.extract-quiet--raised {
+  margin-top: 6px;
+  margin-bottom: 2px;
+  padding: 8px 12px;
+  background: var(--app-bg-subtle, #f8fafc);
+  border-radius: 6px;
+  border: 1px solid var(--app-border, #f0f0f0);
+  gap: 8px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.extract-quiet--raised .extract-quiet-icon {
+  margin-top: 2px;
+}
+
 /* ---- Phase grouping ---------------------------------------------------------
  * The chain names the four phases the run performs — Reading, Drafting,
  * Connecting, Comparing — rather than listing peer figure boxes for four of the

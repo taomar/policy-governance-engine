@@ -117,3 +117,17 @@
 .record-actions__hint--mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+/* F4: an action the record's state does not admit is rendered in place,
+   disabled, with the reason from candidateEditability so the user sees why
+   rather than finding the entry missing. */
+.record-actions__item--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+.record-actions__item--disabled:hover,
+.record-actions__item--disabled:focus-visible {
+  background: transparent;
+}

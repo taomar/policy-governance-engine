@@ -1,14 +1,9 @@
-import { useId, useState } from "react";
-import { Button, Checkbox, Space, Tag, Tooltip } from "antd";
+import { Checkbox, Space, Tag, Tooltip } from "antd";
 import {
-  CheckOutlined,
-  CloseOutlined,
   ClusterOutlined,
   CrownOutlined,
-  DownOutlined,
   ExclamationCircleOutlined,
   ReadOutlined,
-  RightOutlined,
 } from "@ant-design/icons";
 import type { CandidateRule } from "../api";
 import {
@@ -48,14 +43,9 @@ interface CandidateRowProps {
   /** Select every open sibling in this rule's family for bulk review. Absent
    *  when the row isn't selectable, so the chip stays purely informational. */
   onSelectFamily?: () => void;
-  /** This rule's detail, built only when the row is actually open.
-   *
-   *  A function rather than an element on purpose: a page of rows would
-   *  otherwise construct every detail it is not showing, and the queue holds
-   *  dozens of rows each holding a rule. */
-  renderDetail?: () => React.ReactNode;
-  /** Take this rule to the larger surface. The row no longer needs it to be
-   *  readable, so this is an explicit second choice rather than the way in. */
+  /** Take this rule to the inspector. Clicking the row is the primary path;
+   *  the row itself never expands (DESIGN.md: "Don't expand a record inside
+   *  the register"). */
   onOpenFullRecord?: () => void;
   /** What the queue can do to this rule beyond deciding it — editing it,
    *  proposing a rewrite, overriding a decision, asking about it. Passed as
@@ -63,30 +53,16 @@ interface CandidateRowProps {
    *  and the queue does not decide what a menu looks like. */
   recordActions?: RecordActionHandlers;
   onToggleSelect: () => void;
-  onApprove?: () => void;
-  onReject?: () => void;
 }
 
 /**
  * Compact, information-dense summary row for one candidate rule in the
- * Review queue — the collapsed "master" view. Mirrors PolicyRow's proven
- * layout/CSS (title + condition-to-effect line + metadata caption) so the
- * whole app reads consistently, with review-specific additions: a bulk-select
- * checkbox, status tag, quality-findings badge, and quick approve/reject
- * buttons that don't require expanding the row.
+ * Review queue. Clicking the row opens the inspector; the row itself never
+ * expands (DESIGN.md: "Don't expand a record inside the register").
  *
- * Opening a row used to mean leaving the queue: the click sent the rule to a
- * separate surface, and coming back was a second click that returned the
- * reviewer to a list they had to find their place in again. `expanded` was the
- * name of that — it meant "currently shown in the detail pane" and expanded
- * nothing. Now the row opens where it stands and the queue around it is
- * untouched, which is the comparison a reviewer is actually making.
- *
- * The open state is the row's own, not the queue's, and that is deliberate:
- * a state change here re-renders this row and nothing else, so opening one
- * rule on a page of them costs one row's worth of work rather than the page's.
- * It also means opening a row cannot disturb the queue's scroll, its filters
- * or its selection, because it never reaches them.
+ * F1: no approve/reject affordance here. A reviewer must see the source
+ * passage before making a decision, and the collapsed row does not show it.
+ * The decision lives in the inspector, where the evidence is on screen.
  */
 export function CandidateRow({
   candidate,
@@ -100,25 +76,14 @@ export function CandidateRow({
   clusterColor,
   band,
   onSelectFamily,
-  renderDetail,
   onOpenFullRecord,
   recordActions,
   onToggleSelect,
-  onApprove,
-  onReject,
 }: CandidateRowProps) {
   const rule = candidate.rule;
   const decision = ruleDecisionSummary(rule);
   const isBandStart = band?.isStart ?? true;
   const isBandEnd = band?.isEnd ?? true;
-
-  const [open, setOpen] = useState(false);
-  const detailId = `${useId()}-detail`;
-  const expandable = !!renderDetail;
-  const expanded = expandable && open;
-  const toggle = () => {
-    if (expandable) setOpen((prev) => !prev);
-  };
 
   // Same custom properties PolicyRow sets, so the family spine, node, resting
   // wash and hover tint all read identically in the queue and after publication.
@@ -133,18 +98,15 @@ export function CandidateRow({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggle();
+      onOpenFullRecord?.();
     }
   };
 
   return (
-    <>
     <div
       role="button"
       tabIndex={0}
-      aria-expanded={expandable ? expanded : undefined}
-      aria-controls={expanded ? detailId : undefined}
-      className={`policy-row candidate-row${expanded ? " candidate-row--expanded" : ""}${
+      className={`policy-row candidate-row${
         active ? " policy-row-selected" : ""
       }${
         cluster ? " policy-row--family" : ""
@@ -152,7 +114,7 @@ export function CandidateRow({
         cluster && isBandEnd ? " policy-row--family-end" : ""
       }`}
       style={clusterColor ? rowStyle : undefined}
-      onClick={toggle}
+      onClick={() => onOpenFullRecord?.()}
       onKeyDown={handleKeyDown}
     >
       {cluster && (
@@ -334,20 +296,8 @@ export function CandidateRow({
         </div>
       </div>
       <Space size={4} className="candidate-row-actions" onClick={(e) => e.stopPropagation()}>
-        {onApprove && onReject && (
-          <>
-            <Tooltip title="Quick approve">
-              <Button size="small" type="text" icon={<CheckOutlined style={{ color: "#16a34a" }} />} onClick={onApprove} />
-            </Tooltip>
-            <Tooltip title="Quick reject">
-              <Button size="small" type="text" icon={<CloseOutlined style={{ color: "#dc2626" }} />} onClick={onReject} />
-            </Tooltip>
-          </>
-        )}
-        {/* Everything that is neither the decision nor the evidence: opening the
-            full record, editing, proposing a rewrite, overriding, copying the
-            id. One control, in the same place on a rule row and in a policy
-            header, so a reader learns where to look once. */}
+        {/* F1+F2: no approve/reject here. The decision lives in the inspector
+            where the source passage is visible. This row is a summary only. */}
         <RecordActionsMenu
           scope="rule"
           recordId={rule.rule_id}
@@ -355,29 +305,7 @@ export function CandidateRow({
           reviewStatuses={[candidate.review_status]}
           on={{ ...recordActions, ...(onOpenFullRecord ? { "open-record": onOpenFullRecord } : {}) }}
         />
-        {expandable && (
-          <Tooltip title={expanded ? "Close this rule's detail" : "Show this rule's detail here"}>
-            <Button
-              size="small"
-              type="text"
-              icon={expanded ? <DownOutlined /> : <RightOutlined />}
-              className="candidate-row-expand-btn"
-              onClick={toggle}
-              aria-expanded={expanded}
-              aria-controls={expanded ? detailId : undefined}
-              aria-label={
-                expanded ? `Close the detail for ${rule.title}` : `Show the detail for ${rule.title}`
-              }
-            />
-          </Tooltip>
-        )}
       </Space>
     </div>
-    {expanded && (
-      <div id={detailId} className="candidate-item-detail" role="region" aria-label={rule.title}>
-        {renderDetail?.()}
-      </div>
-    )}
-    </>
   );
 }
