@@ -14,7 +14,7 @@ FastAPI generates and serves the OpenAPI description automatically. With the API
 
 Swagger UI is the fastest way to explore the API: pick a tag, expand an operation, and the exact schema for that request is right there. Treat the generated description as authoritative — this page only orients you. The description is generated from the same Pydantic contracts the evaluator consumes, so it cannot drift from the implementation.
 
-The current surface is **90 paths / 101 operations** across 14 tags.
+The current surface is **92 paths / 103 operations** across 14 tags.
 
 ## Endpoint groups
 
@@ -35,7 +35,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 | `policy-payload` | `/api/policy-payload` | 1 | The lean projection of one policy for a model to read. |
 | `notes` | `/api/notes` | 3 | Free-form notes attached to an entity. |
 | `audit` | `/api/audit-events` | 1 | Read the immutable audit trail. |
-| `system` | `/health` | 1 | Liveness plus the configured environment name. |
+| `system` | `/health`, `/api/auth/*` | 3 | Liveness, local sign-in, and resolved principal. |
 
 The three largest groups carry more than a table cell can hold, so their detail is below rather than inside the row. `extraction` is read-only, and the fastest way to answer "why was this clause not extracted?".
 

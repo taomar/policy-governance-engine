@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Input, Popover, Space, Tag, Typography } from "antd";
-import { UserOutlined } from "@ant-design/icons";
+import { Button, Divider, Input, Popover, Space, Tag, Typography } from "antd";
+import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
 import { useActor, toRbacRole } from "../ActorContext";
+import { clearSession, getSession } from "../auth";
 import { ROLE_LABELS, ROLE_DESCRIPTIONS, type Role } from "../rbac";
 
 const { Text } = Typography;
@@ -56,6 +57,23 @@ export function IdentityBadge() {
           {roleDesc}
         </Text>
       </div>
+      {getSession() && (
+        <>
+          <Divider style={{ margin: 0 }} />
+          <Button
+            icon={<LogoutOutlined />}
+            block
+            onClick={() => {
+              clearSession();
+              // Force a full reload so the App-level session gate
+              // re-evaluates and shows the login screen.
+              window.location.reload();
+            }}
+          >
+            Sign out
+          </Button>
+        </>
+      )}
     </Space>
   );
 

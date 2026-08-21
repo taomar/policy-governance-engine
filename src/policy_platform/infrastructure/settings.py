@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     #: question and has to be answered before this is set.
     trust_platform_auth_header: bool = False
 
+    # ── local accounts (development sign-in) ────────────────────────
+    #: When True, the API reads a plaintext accounts file and issues JWTs
+    #: signed with a locally held RSA key. The tokens are validated by the
+    #: same path as Entra tokens — no bypass — so what is tested locally is
+    #: what will run in production.
+    local_accounts_enabled: bool = False
+    local_accounts_file: str = ".local-accounts.txt"
+    local_token_ttl_minutes: int = 480
+    local_signing_key_file: str = ".local-signing-key.pem"
+    local_token_issuer: str = "policyverbatim-local"
+    local_token_audience: str = "policyverbatim-api"
+
     web_dev_server_port: int = 5173
     vite_api_base_url: str = "http://localhost:8000"
     #: Comma-separated browser origins allowed to call the API. Empty means

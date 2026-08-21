@@ -24,6 +24,7 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Role } from "./rbac";
+import { getSession } from "./auth";
 
 // ---------------------------------------------------------------------------
 // Old role type — kept for backward compatibility with components that
@@ -87,6 +88,11 @@ const STORAGE_KEY = "policy-platform.actor";
 // Default to system_admin (maps to `admin` via toRbacRole) so that:
 // 1. existing tests that render App with no auth see every surface
 // 2. Dashboard's ROLE_TOOLKITS[actor.role] finds a valid entry
+//
+// When a real session exists the session's role wins (see ActorProvider).
+// This fallback is a test and local-development convenience only — the
+// server enforces independently, so a client that believes it is admin
+// still gets 403s from the API when the server disagrees.
 const DEFAULT_ACTOR: Actor = { name: "", role: "system_admin" };
 
 function loadActor(): Actor {
@@ -117,7 +123,31 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(actor));
   }, [actor]);
 
-  const value = useMemo(() => ({ actor, setActor: setActorState }), [actor]);
+  // When a signed-in session exists, its role is authoritative — the
+  // server issued it and is the only party that may grant a role.
+  // When there is no session (tests, local dev) the locally-stored
+  // actor role is used as-is so that the ~125 test files that render
+  // components without signing in continue to work.  This fallback
+  // is a test and local-development convenience; the server enforces
+  // independently.
+  const session = getSession();
+  const effectiveActor = useMemo<Actor>(() => {
+    if (!session) return actor;
+    return {
+      name: session.name || actor.name,
+      // Map the server's RBAC role to the old ActorRole that components
+      // index ACTOR_ROLE_LABELS by.  The mapping is lossy — it exists
+      // only to keep the type system satisfied until the legacy type is
+      // retired.
+      role: session.role === "admin"
+        ? "system_admin"
+        : session.role === "policy_author"
+          ? "policy_composer"
+          : ("policy_manager" as ActorRole),
+    };
+  }, [session?.role, session?.name, actor]);
+
+  const value = useMemo(() => ({ actor: effectiveActor, setActor: setActorState }), [effectiveActor]);
 
   return <ActorContext.Provider value={value}>{children}</ActorContext.Provider>;
 }

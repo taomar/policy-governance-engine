@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Layout, Menu, Result, Space, Tag, Typography } from "antd";
 import {
   DesktopOutlined,
@@ -9,10 +9,13 @@ import {
   SolutionOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import { aiApi, api, type AiStatus, type PolicySet } from "./api";
+import { aiApi, api, onSessionCleared, type AiStatus, type PolicySet } from "./api";
 import { toRbacRole, useActor } from "./ActorContext";
+import { getSession } from "./auth";
+import type { Session } from "./auth";
 import { canAccessPage, surfaceAccess } from "./rbac";
 import { IdentityBadge } from "./components/IdentityBadge";
+import { LoginScreen } from "./components/LoginScreen";
 import { Dashboard } from "./components/Dashboard";
 import { ProjectsPage } from "./components/ProjectsPage";
 import { DocumentsPage } from "./components/DocumentsPage";
@@ -106,6 +109,16 @@ function App() {
   const { actor } = useActor();
   const rbacRole = toRbacRole(actor.role);
 
+  // Session gate: no valid session → show the login screen and nothing else.
+  // A signed-out user should not see the furniture of an application they
+  // have not entered.
+  const [session, setSession] = useState<Session | null>(() => getSession());
+
+  const handleSignedIn = useCallback((s: Session) => setSession(s), []);
+
+  // A 401 from any API call means the session is dead — return to sign-in.
+  useEffect(() => onSessionCleared(() => setSession(null)), []);
+
   // Combined visibility: phase-hidden items plus role-based filtering from
   // rbac.ts.  Computed inside the component so it reacts to role changes.
   const hiddenNavIds = NAV_ITEMS.filter(
@@ -123,6 +136,7 @@ function App() {
   const [projectOpenRequest, setProjectOpenRequest] = useState<{ key: string | null; nonce: number }>();
 
   useEffect(() => {
+    if (!session) return;
     api
       .health()
       .then(() => setApiHealthy("ok"))
@@ -135,7 +149,7 @@ function App() {
       .listPolicySets()
       .then(setPolicySets)
       .catch(() => undefined);
-  }, []);
+  }, [session]);
 
   const currentNavItem = NAV_ITEMS.find((item) => item.id === page);
 
@@ -188,6 +202,10 @@ function App() {
     setPage(target as Page);
     if (target !== "projects") setActiveProject(null);
   };
+
+  if (!session) {
+    return <LoginScreen onSignedIn={handleSignedIn} />;
+  }
 
   return (
     <Layout className="app-shell">

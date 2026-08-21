@@ -12570,3 +12570,27 @@
   content: "·";
   margin-right: 5px;
 }
+
+/* ---------- Login screen ---------- */
+
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--surface-sunken, #f4f5f7);
+}
+
+.login-card {
+  width: 380px;
+  max-width: 95vw;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-brand-mark {
+  margin: 0 auto 12px;
+}

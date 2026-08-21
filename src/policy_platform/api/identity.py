@@ -228,6 +228,7 @@ def validate_bearer_token(
     jwks_url: str,
     issuer: str,
     audience: str,
+    key: Any = None,
     _key_resolver: Any = None,
 ) -> dict[str, Any]:
     """Claims from `token`, or raise `TokenRejected`.
@@ -239,22 +240,27 @@ def validate_bearer_token(
     is a single word, reads as configuration, and turns this function into
     an elaborate way of trusting the caller.
 
-    `_key_resolver` exists for the tests, which need a signing key without a
-    network. It is not a configuration seam and nothing in the application
-    passes it.
+    `key` is the public key to verify the signature with. When supplied,
+    the JWKS endpoint is not consulted — this is how locally issued tokens
+    provide a known key without a network round-trip.
+
+    `_key_resolver` is a legacy test seam kept for backward compatibility.
+    Prefer `key` for new call sites.
     """
 
     import jwt
 
     try:
-        if _key_resolver is not None:
-            key = _key_resolver(token)
+        if key is not None:
+            signing_key = key
+        elif _key_resolver is not None:
+            signing_key = _key_resolver(token)
         else:
-            key = _jwks_client(jwks_url).get_signing_key_from_jwt(token).key
+            signing_key = _jwks_client(jwks_url).get_signing_key_from_jwt(token).key
 
         return jwt.decode(
             token,
-            key=key,
+            key=signing_key,
             algorithms=["RS256"],
             issuer=issuer,
             audience=audience,

@@ -70,6 +70,38 @@ _PERMISSIVE_PRINCIPAL: Final[Principal] = Principal(
 )
 
 
+def _try_local_token(token: str, settings: Settings) -> Principal:
+    """Validate a token against the local signing key, or raise 401.
+
+    Factored out so both the Entra-fallback path and the local-only path
+    call the same code without duplication.
+    """
+    from policy_platform.api.local_auth import get_signing_key
+
+    try:
+        local_public_key = get_signing_key(settings.local_signing_key_file).public_key()
+        claims = validate_bearer_token(
+            token,
+            jwks_url="",
+            issuer=settings.local_token_issuer,
+            audience=settings.local_token_audience,
+            key=local_public_key,
+        )
+    except TokenRejected as exc:
+        logger.warning("Local token rejected: %s", exc)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "token_rejected", "message": "The bearer token is not valid."},
+        ) from exc
+
+    role = role_from_claims(claims)
+    if role is None:
+        return Principal(
+            role=VIEWER, identity=identity_from_claims(claims), source="local-token-no-role"
+        )
+    return Principal(role=role, identity=identity_from_claims(claims), source="local-token")
+
+
 def _resolve_principal(request: Request, settings: Settings) -> Principal:
     """Determine who is calling and what role they hold.
 
@@ -108,14 +140,17 @@ def _resolve_principal(request: Request, settings: Settings) -> Principal:
                 issuer=settings.entra_issuer or "",
                 audience=settings.entra_audience or "",
             )
-        except TokenRejected as exc:
-            # Logged because a rejected token is a caller asserting something
-            # untrue, which is worth seeing; an absent one is just anonymous.
-            logger.warning("Bearer token rejected: %s", exc)
+        except TokenRejected:
+            # Entra rejected it. If local accounts are also configured, the
+            # token may have been issued locally — try that before refusing.
+            # This is not falling through to a weaker path: local tokens
+            # carry the same proof, just a different issuer.
+            if settings.local_accounts_enabled:
+                return _try_local_token(token, settings)
             raise HTTPException(
                 status_code=401,
                 detail={"code": "token_rejected", "message": "The bearer token is not valid."},
-            ) from exc
+            )
 
         role = role_from_claims(claims)
         if role is None:
@@ -126,6 +161,11 @@ def _resolve_principal(request: Request, settings: Settings) -> Principal:
                 role=VIEWER, identity=identity_from_claims(claims), source="token-no-role"
             )
         return Principal(role=role, identity=identity_from_claims(claims), source="token")
+
+    # Local tokens only (no Entra issuer configured). Same validation
+    # path, different key source.
+    if token and settings.local_accounts_enabled:
+        return _try_local_token(token, settings)
 
     if settings.dev_auth_enabled:
         dev_role = request.headers.get("X-Dev-Role")
@@ -162,6 +202,12 @@ def _resolve_principal(request: Request, settings: Settings) -> Principal:
 OPERATION_BANDS: Final[dict[tuple[str, str], str]] = {
     # ── system ───────────────────────────────────────────────────────
     ("GET", "/health"): READ,
+    # ── auth ─────────────────────────────────────────────────────────
+    # READ is correct: an unauthenticated caller resolves to LEAST_PRIVILEGE
+    # (viewer), which satisfies READ — so the login endpoint is reachable by
+    # someone who has not logged in yet, which it obviously must be.
+    ("POST", "/api/auth/login"): READ,
+    ("GET", "/api/auth/me"): READ,
     # ── AI: read / use (viewer) ──────────────────────────────────────
     ("POST", "/api/ai/ask"): USE,
     ("GET", "/api/ai/status"): READ,
@@ -390,4 +436,11 @@ def validate_no_dev_auth_in_production(settings: Settings) -> None:
             "FATAL: dev_auth_enabled is True in a production environment. "
             "The X-Dev-Role header bypass must not be available in production. "
             "Set DEV_AUTH_ENABLED=false or change ENVIRONMENT."
+        )
+
+    if settings.environment == "production" and settings.local_accounts_enabled:
+        raise RuntimeError(
+            "FATAL: local_accounts_enabled is True in a production environment. "
+            "A plaintext credential file must not be available in production. "
+            "Set LOCAL_ACCOUNTS_ENABLED=false or change ENVIRONMENT."
         )

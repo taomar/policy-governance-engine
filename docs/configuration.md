@@ -233,17 +233,31 @@ Read this before exposing the platform anywhere beyond a developer machine.
 | Uploaded files | Local files use `data/documents`; the pending Azure deployment mounts a private Azure Files share. Malware/content scanning is not implemented. |
 | Threat model | No security review has been performed. |
 
+### Signing in
+
+There are two ways to establish who is calling. Both produce a validated bearer token, and both are checked by the same code — signature, expiry, issuer, audience, with the algorithm pinned. That is deliberate: when you move from one to the other, the only thing that changes is who issued the token, so what you tested is what runs.
+
+**Local accounts, for development.** Set `LOCAL_ACCOUNTS_ENABLED=true` and put accounts in `.local-accounts.txt`, one per line as `username:password:role`, with `#` for comments. Sign in through the web app, or directly:
+
+```powershell
+curl -X POST http://localhost:8010/api/auth/login -H "Content-Type: application/json" -d '{"username":"viewer","password":"..."}'
+```
+
+The response carries `access_token`; send it as `Authorization: Bearer <token>` on subsequent calls. `GET /api/auth/me` reports the resolved principal, which is the quickest way to confirm a token is doing what you expect.
+
+The file holds plain-text passwords, because you need to read them to sign in. It is gitignored by shape — a copy named `local-accounts.backup.txt` is the same secret with a different name — and the API **refuses to start** with local accounts enabled while `ENVIRONMENT` is production. A plain-text credential file that can be switched on in production is worse than no authentication, because it looks like authentication.
+
+Tokens are signed with a key held in `.local-signing-key.pem`, also gitignored. Anyone holding that key can mint a token this API accepts, which is a more complete compromise than the passwords themselves.
+
+**Microsoft Entra, for a real deployment.** Set `ENTRA_ISSUER`, `ENTRA_AUDIENCE` and `ENTRA_JWKS_URL`. Roles come from the token's `roles` (or `groups`) claim by exact name — `viewer`, `policy_author`, `admin` — so they are configured once in the directory rather than translated here. A caller holding several gets the highest. Roles that belong to other applications are ignored rather than refused, because a directory carries plenty of them.
+
 ### Before enabling `RBAC_ENABLED`
 
-Enforcement is only as good as the identity it reads, so configure identity first.
-
-**Configure the issuer.** Set `ENTRA_ISSUER`, `ENTRA_AUDIENCE` and `ENTRA_JWKS_URL`. Without all three, no token can be validated and every caller falls to the least privilege — which is safe, and also unusable.
+Enforcement is only as good as the identity it reads, so configure sign-in first. With neither local accounts nor an issuer configured, no token can be validated and every caller falls to the least privilege — which is safe, and also unusable.
 
 **Do not enable `TRUST_PLATFORM_AUTH_HEADER` without checking your ingress.** Azure Container Apps injects `X-MS-CLIENT-PRINCIPAL` after authenticating someone, and reading it is tempting. In this topology the browser reaches an nginx container that proxies to the API, and a proxy forwards headers it was not told to drop — so a caller who sets that header themselves has it delivered alongside the genuine one. `apps/web/nginx.conf.template` now clears the platform identity headers before proxying, which is what makes trusting them defensible behind *that* ingress. A different ingress is a different question, and the setting stays off until it is answered.
 
-**`DEV_AUTH_ENABLED` must be false in production.** It enables an `X-Dev-Role` header that sets the caller's role directly. The application refuses to start if it is true while `ENVIRONMENT` is production — a bypass that can be switched on where it matters is worse than no layer at all.
-
-Roles are `viewer`, `policy_author` and `admin`, taken from the token's `roles` (or `groups`) claim by exact name, so they are configured once in the directory rather than translated here. A caller holding several gets the highest.
+**`DEV_AUTH_ENABLED` must be false in production.** It enables an `X-Dev-Role` header that sets the caller's role directly. The application refuses to start if it is true while `ENVIRONMENT` is production — a bypass that can be switched on where it matters is worse than no layer at all. It is also worth turning off locally once local accounts work, so that what you exercise is the real path rather than the shortcut.
 
 ## Observability
 

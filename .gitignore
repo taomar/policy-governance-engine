@@ -95,3 +95,22 @@ HANDOVER*
 handover*
 docs/handover/
 docs/HANDOVER.md
+
+# Local credentials and the key that signs their tokens.
+#
+# The accounts file holds usernames, passwords and roles in plain text so a
+# developer can read them and sign in. That is acceptable for a throwaway
+# local file and for nothing else, so it is matched by shape rather than by
+# one exact name -- the same lesson as `.env`, where a single rule left every
+# other environment file exposed. A copy called `local-accounts.backup.txt`
+# or `.local-accounts.dev.txt` is the same secret with a different name.
+#
+# The signing key is here for the same reason: anyone holding it can mint a
+# token this API will accept, which is a more complete compromise than the
+# passwords themselves.
+.local-accounts*
+local-accounts*
+*.local-accounts*
+.local-signing-key*
+*.pem
+!*.example.pem

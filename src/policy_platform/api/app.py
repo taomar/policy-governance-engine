@@ -11,6 +11,7 @@ from sqlalchemy import update
 from policy_platform.api.routers import (
     ai,
     audit,
+    auth,
     candidate_rules,
     documents,
     evaluations,
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth.router)
     app.include_router(policy_sets.router)
     app.include_router(candidate_rules.router)
     app.include_router(evaluations.router)

@@ -9,6 +9,77 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
 import { actorRoleRefusalText, isActorRoleRefusal } from "./actorRole";
+import { clearSession, getSession } from "./auth";
+import type { Role } from "./rbac";
+
+// ---------------------------------------------------------------------------
+// Auth response types — written from the contract, not from a design document.
+// See the header comment: a previous interface was written from a design and
+// cost a crash.  Fields the server may omit are marked optional; the rest are
+// required because the login endpoint documents them.
+// ---------------------------------------------------------------------------
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: "bearer";
+  expires_at: string;
+  role: Role;
+  name: string;
+}
+
+export interface MeResponse {
+  name: string;
+  role: Role;
+  source?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Auth endpoints
+// ---------------------------------------------------------------------------
+
+/** Authenticate with username/password. Throws on 401 (deliberately
+ *  indistinguishable from wrong-username by server design). */
+export async function login(username: string, password: string): Promise<LoginResponse> {
+  // login() must not go through the normal `request()` path because
+  // the 401 handler there clears the session and redirects — which
+  // makes no sense for a login attempt that has not established a
+  // session yet.
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch (cause) {
+    throw unreachable(cause);
+  }
+  if (!res.ok) {
+    const detail = res.statusText;
+    throw new PolicyPlatformApiError(res.status, detail);
+  }
+  return (await res.json()) as LoginResponse;
+}
+
+/** Read the current user from the server.  Uses the stored session token. */
+export async function fetchMe(): Promise<MeResponse> {
+  return request<MeResponse>("/api/auth/me");
+}
+
+// ---------------------------------------------------------------------------
+// 401 listener — components call this once at mount to be notified when any
+// request triggers a session-clear so they can redirect to sign-in.
+// ---------------------------------------------------------------------------
+
+type SessionClearedListener = () => void;
+const sessionClearedListeners = new Set<SessionClearedListener>();
+
+/** Register a callback that fires when a 401 forces the session to clear.
+ *  Returns an unsubscribe function. */
+export function onSessionCleared(fn: SessionClearedListener): () => void {
+  sessionClearedListeners.add(fn);
+  return () => { sessionClearedListeners.delete(fn); };
+}
 // A sighting is declared where it is rendered, and read from there here, so the
 // wire shape has one description rather than two that agree until they do not.
 // A previous copy of this interface was written from the design instead of from
@@ -74,18 +145,38 @@ function unreachable(cause: unknown): PolicyPlatformApiError {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Attach the bearer token when a session exists.  The header is added
+  // here rather than in each caller so that no request can accidentally
+  // skip it, and so callers never handle the credential directly.
+  const session = getSession();
+  const authHeaders: Record<string, string> = session
+    ? { Authorization: `Bearer ${session.accessToken}` }
+    : {};
+
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders,
         ...(init?.headers ?? {}),
       },
     });
   } catch (cause) {
     throw unreachable(cause);
   }
+
+  // 401 means "your session is not valid" — clear it and notify listeners
+  // so the UI returns to sign-in.  This is deliberately separate from 403
+  // ("your role may not do this"), which the existing role-refusal path
+  // already handles.
+  if (res.status === 401) {
+    clearSession();
+    for (const fn of sessionClearedListeners) fn();
+    throw new PolicyPlatformApiError(401, "Session expired or invalid.");
+  }
+
   if (!res.ok) {
     let detail = res.statusText;
     try {
