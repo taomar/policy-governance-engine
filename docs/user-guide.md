@@ -27,19 +27,23 @@ Set identity
 -> monitor evidence and governance
 ```
 
-## 1. Set your identity and understand the dashboard
+## 1. Sign in and understand the dashboard
 
-The top-right identity control shows who you are and the role you hold. Your display name is yours to set — it is what appears against the decisions you record. **Your role is not**: it is assigned, and it decides what the product lets you do.
+When access control is switched on, the application opens on a sign-in screen and shows nothing else until you are signed in — no navigation, no project list. Enter your username and password. If they do not match you are told exactly that and nothing more, because the server does not distinguish a wrong password from a username that does not exist and the screen does not undo that.
+
+Once in, the top-right identity control shows who you are and the role you hold, and offers **Sign out**. Your display name is yours to set — it is what appears against the decisions you record. **Your role is not**: it is assigned, and it decides what the product lets you do.
 
 | Role | What it is for |
 |---|---|
-| **Viewer** | Reading published policies and testing cases against them |
+| **Viewer** | Reading published policies, testing cases against them, and submitting feedback for review |
 | **Policy Author** | Everything a viewer does, plus source documents, extraction, review and publishing |
 | **Admin** | Everything, plus configuration and removing projects |
 
 Surfaces you cannot use are not shown, so the product you see is the one you can work with. Where something is visible but not yours to change, it says so and names who can.
 
-Access control ships **disabled** by default, so a local deployment behaves as it always did until an operator configures identity and turns it on — see [configuration](configuration.md). Until then the display name is attribution, not proof of who you are.
+If your session expires you are returned to the sign-in screen rather than left with an interface that looks signed in and refuses every action.
+
+Access control ships **disabled** by default, so a deployment behaves as it always did until an operator configures sign-in and turns it on — see [configuration](configuration.md). While it is off there is no sign-in screen, and the display name is attribution rather than proof of who you are.
 
 Confirm the header shows:
 

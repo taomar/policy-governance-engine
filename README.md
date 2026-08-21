@@ -107,6 +107,8 @@ Use `scripts/run_api.ps1` rather than invoking uvicorn directly. It clears ambie
 
 Verify the stack: `curl http://localhost:8010/health` should return `{"status": "ok", ...}`. Open `http://localhost:5490` in a browser to see the UI.
 
+Access control is **off by default**, so a first run needs no sign-in. To exercise the roles — viewer, policy author, admin — set `RBAC_ENABLED=true` and configure sign-in; the application then opens on a login screen. [Configuration](docs/configuration.md) covers what to set up first, and why enforcement is worth nothing until identity is real.
+
 Azure OpenAI and Azure AI Search are **optional for a first run**. The app boots with those blank — AI features show as disabled, but document upload, rule editing, evaluation, policy tests, the decision log, and the audit trail all work. See [Configuration](docs/configuration.md) for details.
 
 Interactive API documentation: `http://localhost:8010/docs`.

@@ -63,8 +63,20 @@ skills/
 # is doing the work, not documentation of the product, so they are kept beside
 # the code and out of the published repository. `docs/adr/` is listed above with
 # the other local session records.
+#
+# Matched by shape, not by the paths that happened to exist when this was
+# written: the rules below once covered `docs/todo/` and `TODO.md` while a
+# top-level `todos/` directory would have published. That is the same gap a
+# single `.env` line left for `.env.local`, found the same way -- by testing a
+# name nobody had used yet rather than by reading the list.
 docs/todo/
 docs/todos/
+todo/
+todos/
+.todo/
+.todos/
+**/todo/
+**/todos/
 TODO.md
 TODOS.md
 todo.md
