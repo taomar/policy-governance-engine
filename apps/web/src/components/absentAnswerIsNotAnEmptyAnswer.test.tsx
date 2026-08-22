@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
+import { render } from "../testing/renderWithActor";
 import { Dashboard } from "./Dashboard";
 import { ProjectsPage } from "./ProjectsPage";
 import { ActorProvider } from "../ActorContext";

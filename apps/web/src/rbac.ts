@@ -176,3 +176,25 @@ export function canAccessPage(role: string | undefined, pageId: string): boolean
 export function canAccessTab(role: string | undefined, tabKey: string): boolean {
   return surfaceAccess(role, tabKey).visible;
 }
+
+// ---------------------------------------------------------------------------
+// Action bands
+// ---------------------------------------------------------------------------
+
+/** Whether this role may perform governed-content actions.
+ *
+ * The maps above answer "may this role *see* a surface". They cannot answer
+ * "may this role perform this action", and a surface a viewer can legitimately
+ * read may still carry buttons a viewer cannot use — the project register is
+ * readable by everyone but `POST /api/policy-sets` is AUTHOR.
+ *
+ * The server's `authz.py` classifies every route into READ / USE / AUTHOR /
+ * ADMINISTER and is the authority; it returns 403 whatever the UI shows. Of
+ * those bands only AUTHOR divides the three roles this product has, so one
+ * predicate covers every governed-content action the interface offers. Adding
+ * a full four-band mirror here would duplicate the server's table without
+ * telling the UI anything more than this does.
+ */
+export function canAuthor(role: string | undefined): boolean {
+  return role === "policy_author" || role === "admin";
+}

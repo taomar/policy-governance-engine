@@ -29,6 +29,8 @@ import { ingestionOutcome } from "../ingestionOutcome";
 import ExtractionInsightDrawer from "./ExtractionInsightDrawer";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import ExtractionRunHistory from "./ExtractionRunHistory";
+import { useActor } from "../ActorContext";
+import { canAuthor } from "../rbac";
 
 const { Title, Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -72,6 +74,13 @@ interface DocumentsPageProps {
 
 export function DocumentsPage({ onNavigate, policySetKey, policySetName }: DocumentsPageProps) {
   const scoped = Boolean(policySetKey);
+  // Uploading a document and running extraction are both AUTHOR routes on the
+  // server. The surface map already marks this tab read-only for a viewer and
+  // the workspace renders a banner saying documents are "uploaded by a Policy
+  // Author" — but the banner sat directly above a live dropzone. A declaration
+  // no component consumes is not a restriction.
+  const { role } = useActor();
+  const mayAuthor = canAuthor(role);
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -244,12 +253,19 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         </Title>
         <Paragraph type="secondary">
           {scoped ? (
-            <>
-              Source policy documents for this project. Uploading a file under an existing title adds a new version
-              of that document — useful for tracking policy revisions (e.g. v3.2 → v3.3) over time. Use{" "}
-              <strong>✨ Extract with AI</strong> to turn a document version into draft candidate rules for human
-              review.
-            </>
+            mayAuthor ? (
+              <>
+                Source policy documents for this project. Uploading a file under an existing title adds a new version
+                of that document — useful for tracking policy revisions (e.g. v3.2 → v3.3) over time. Use{" "}
+                <strong>✨ Extract with AI</strong> to turn a document version into draft candidate rules for human
+                review.
+              </>
+            ) : (
+              <>
+                The source policy documents this project's rules were extracted from. Open any version to read it and
+                see how its rules were derived. Uploading and extraction are done by a Policy Author.
+              </>
+            )
           ) : (
             <>
               Every document uploaded across all projects, in one place. Documents not yet filed into a project are
@@ -303,6 +319,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         />
       )}
 
+      {mayAuthor && (
       <Card title="Upload Document">
         <Form layout="vertical" onSubmitCapture={handleUpload}>
           <Row gutter={16}>
@@ -361,7 +378,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
           )}
         </Form>
       </Card>
-
+      )}
       <section className="documents-register">
         <div className="documents-register__header">
           <Title level={4}>{scoped ? "Documents in this project" : "All documents"}</Title>
@@ -472,14 +489,16 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                           >
                             View document &amp; structure
                           </Button>
-                          <Button
-                            size="small"
-                            icon={<ThunderboltOutlined />}
-                            disabled={scoped ? false : policySets.length === 0}
-                            onClick={() => setExtractOpenFor(extractOpenFor === v.id ? null : v.id)}
-                          >
-                            Extract with AI
-                          </Button>
+                          {mayAuthor && (
+                            <Button
+                              size="small"
+                              icon={<ThunderboltOutlined />}
+                              disabled={scoped ? false : policySets.length === 0}
+                              onClick={() => setExtractOpenFor(extractOpenFor === v.id ? null : v.id)}
+                            >
+                              Extract with AI
+                            </Button>
+                          )}
                         </Space>
                       ),
                     },

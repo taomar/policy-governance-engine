@@ -34,7 +34,7 @@ import { PolicyDetailPanel } from "./PolicyDetailPanel";
 import { PolicyReviewCard } from "./PolicyReviewCard";
 import type { PolicySightingView } from "./policyTabPanes";
 import { usePolicyTesting } from "./policyTesting";
-import { useActor, toRbacRole } from "../ActorContext";
+import { useActor } from "../ActorContext";
 import { RecordActionsMenu } from "./RecordActionsMenu";
 import { SubmitFeedbackModal } from "./SubmitFeedbackModal";
 import { FeedbackTimeline } from "./FeedbackTimeline";
@@ -151,7 +151,7 @@ export function bulkSelectionLabel(policyCount: number, ruleCount: number): stri
 export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   const screens = Grid.useBreakpoint();
   const isDesktop = !!screens.lg;
-  const { actor } = useActor();
+  const { actor, role: rbacRole } = useActor();
 
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
   const [versionId, setVersionId] = useState<string>("");
@@ -219,7 +219,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
   // Feedback modal state — viewer-only feature
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackEpoch, setFeedbackEpoch] = useState(0);
-  const isViewer = toRbacRole(actor.role) === "viewer";
+  const isViewer = rbacRole === "viewer";
 
   const requestHistory = useCallback(
     (provisionKey: string) => {

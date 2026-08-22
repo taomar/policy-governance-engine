@@ -112,45 +112,79 @@ function loadActor(): Actor {
 interface ActorContextValue {
   actor: Actor;
   setActor: (actor: Actor) => void;
+  /** The role access decisions are made from.
+   *
+   *  Separate from `actor.role` on purpose. `ActorRole` is the legacy persona
+   *  vocabulary — `system_admin`, `policy_composer`, `policy_manager` — and it
+   *  has **no member meaning viewer**. Routing a signed-in role through it
+   *  therefore cannot represent the least-privileged role at all: a viewer's
+   *  session came back out of the round trip as `policy_author`, which is how
+   *  a viewer was shown the Document Inbox and an author's identity badge
+   *  while holding a viewer's token.
+   *
+   *  So the session's role is carried here unmodified, and `actor.role` keeps
+   *  its old meaning for the components that still index `ACTOR_ROLE_LABELS`
+   *  by it. Anything deciding what a person may see or do reads this.
+   */
+  role: Role;
 }
 
 const ActorContext = createContext<ActorContextValue | null>(null);
 
 export function ActorProvider({ children }: { children: ReactNode }) {
   const [actor, setActorState] = useState<Actor>(() => loadActor());
+  // Re-read on sign-in. `getSession` reads storage, which React cannot observe,
+  // so without this the provider keeps whatever it resolved on first mount --
+  // and the provider sits above the component that signs in, so it is not
+  // re-rendered by that state change either.
+  const [sessionTick, setSessionTick] = useState(0);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(actor));
   }, [actor]);
 
-  // When a signed-in session exists, its role is authoritative — the
-  // server issued it and is the only party that may grant a role.
-  // When there is no session (tests, local dev) the locally-stored
-  // actor role is used as-is so that the ~125 test files that render
-  // components without signing in continue to work.  This fallback
-  // is a test and local-development convenience; the server enforces
-  // independently.
-  const session = getSession();
+  useEffect(() => {
+    const bump = () => setSessionTick((n) => n + 1);
+    window.addEventListener("storage", bump);
+    window.addEventListener("policy-platform:session-changed", bump);
+    return () => {
+      window.removeEventListener("storage", bump);
+      window.removeEventListener("policy-platform:session-changed", bump);
+    };
+  }, []);
+
+  // When a signed-in session exists, its role is authoritative — the server
+  // issued it and is the only party that may grant a role. When there is no
+  // session (tests, local dev) the locally-stored actor is used as-is, so the
+  // ~125 test files that render components without signing in keep working.
+  // That fallback is a convenience; the server enforces independently, and a
+  // client that believes it is admin still gets 403s.
+  const session = useMemo(() => getSession(), [sessionTick]);
+
   const effectiveActor = useMemo<Actor>(() => {
     if (!session) return actor;
     return {
       name: session.name || actor.name,
-      // Map the server's RBAC role to the old ActorRole that components
-      // index ACTOR_ROLE_LABELS by.  The mapping is lossy — it exists
-      // only to keep the type system satisfied until the legacy type is
-      // retired.  The fallback is `policy_composer` (least-privileged
-      // legacy persona) rather than `policy_manager` (most-privileged),
-      // so an unrecognised or viewer role never silently receives
-      // approver-level toolkit actions.
-      role: session.role === "admin"
-        ? "system_admin"
-        : session.role === "policy_author"
-          ? "policy_composer"
-          : ("policy_composer" as ActorRole),
+      // Best-effort legacy label only. Nothing may decide access from this —
+      // see `role` below for why it cannot carry a viewer.
+      role:
+        session.role === "admin"
+          ? "system_admin"
+          : session.role === "policy_author"
+            ? "policy_composer"
+            : ("policy_composer" as ActorRole),
     };
-  }, [session?.role, session?.name, actor]);
+  }, [session, actor]);
 
-  const value = useMemo(() => ({ actor: effectiveActor, setActor: setActorState }), [effectiveActor]);
+  const role = useMemo<Role>(
+    () => (session ? session.role : toRbacRole(actor.role)),
+    [session, actor.role],
+  );
+
+  const value = useMemo(
+    () => ({ actor: effectiveActor, setActor: setActorState, role }),
+    [effectiveActor, role],
+  );
 
   return <ActorContext.Provider value={value}>{children}</ActorContext.Provider>;
 }

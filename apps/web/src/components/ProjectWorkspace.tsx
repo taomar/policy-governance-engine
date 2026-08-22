@@ -52,8 +52,8 @@ import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
 import { recordScaleBadge, reviewBacklogBadge } from "../policyRecordFacts";
 import { ProjectCaseRunner } from "./ProjectCaseRunner";
-import { canAccessTab, surfaceAccess } from "../rbac";
-import { toRbacRole, useActor } from "../ActorContext";
+import { canAccessTab, canAuthor, surfaceAccess } from "../rbac";
+import { useActor } from "../ActorContext";
 
 const { Text, Paragraph } = Typography;
 
@@ -262,8 +262,14 @@ export function ProjectWorkspace({
   /** Reports a successful metadata edit so the parent (ProjectsPage) can refresh its list/selection. */
   onUpdated?: (ps: PolicySet) => void;
 }) {
-  const { actor } = useActor();
-  const rbacRole = toRbacRole(actor.role);
+  const { role } = useActor();
+  const rbacRole = role;
+  // These two header actions change governed content: "Edit" issues
+  // PATCH /api/policy-sets/{key} and "Mark Reviewed" POSTs .../review, both
+  // classified AUTHOR by the server's authz.py. They sit in the workspace bar,
+  // so without this gate they appeared on *every* tab for a viewer — including
+  // tabs the surface map already labels read-only.
+  const mayAuthor = canAuthor(rbacRole);
 
   // Role-aware tab visibility: phase-hidden tabs plus role-based filtering.
   // Computed inside the component so it reacts to role changes.
@@ -426,7 +432,7 @@ export function ProjectWorkspace({
      over — so the map is built at render time without a temporal-dead-zone
      reference to `openEdit`/`handleNavigate`. */
   const TAB_CONTENT: Record<WorkspaceTabKey, ReactNode> = {
-    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={openEdit} indexRepair={indexRepair} />,
+    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={mayAuthor ? openEdit : undefined} indexRepair={indexRepair} />,
     documents: (
       <DocumentsPage policySetKey={policySet.key} policySetName={policySet.name} onNavigate={handleNavigate} />
     ),
@@ -498,12 +504,16 @@ export function ProjectWorkspace({
             </div>
           </div>
           <div className="ws-bar__actions">
-            <Button size="small" icon={<EditOutlined />} onClick={openEdit} aria-label="Edit project details">
-              Edit
-            </Button>
-            <Button size="small" onClick={openReview}>
-              Mark Reviewed
-            </Button>
+            {mayAuthor && (
+              <>
+                <Button size="small" icon={<EditOutlined />} onClick={openEdit} aria-label="Edit project details">
+                  Edit
+                </Button>
+                <Button size="small" onClick={openReview}>
+                  Mark Reviewed
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

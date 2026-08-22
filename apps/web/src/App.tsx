@@ -10,7 +10,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { aiApi, api, onSessionCleared, type AiStatus, type PolicySet } from "./api";
-import { toRbacRole, useActor } from "./ActorContext";
+import { useActor } from "./ActorContext";
 import { getSession } from "./auth";
 import type { Session } from "./auth";
 import { canAccessPage, surfaceAccess } from "./rbac";
@@ -106,8 +106,8 @@ const PHASE_HIDDEN_NAV_IDS: Page[] = ["my-attestations"];
  *  named project rather than only to the register. */
 
 function App() {
-  const { actor } = useActor();
-  const rbacRole = toRbacRole(actor.role);
+  const { role } = useActor();
+  const rbacRole = role;
 
   // Session gate: no valid session → show the login screen and nothing else.
   // A signed-out user should not see the furniture of an application they

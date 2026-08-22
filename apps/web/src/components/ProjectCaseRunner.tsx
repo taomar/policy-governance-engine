@@ -338,7 +338,16 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
                   <span className="app-synthesis__mark" aria-hidden>
                     ✦
                   </span>{" "}
-                  <span className="app-synthesis__caption">Answer composed by this app from the evaluated policies below</span>
+                  {/* The informational path says "answer composed by this app", which is
+                      exactly right there — the app really did compose the answer. On a
+                      decision it would be false in the way that matters: the verdict shown
+                      above came from the deterministic evaluator, and only the words
+                      explaining it were composed. Saying the app composed "the answer"
+                      invites a reader to think the model reached the outcome, which is the
+                      one claim this product cannot afford to blur. */}
+                  <span className="app-synthesis__caption">
+                    Explanation composed by this app. The decision above came from the evaluator.
+                  </span>
                 </div>
                 <Paragraph className="app-synthesis__body" style={{ marginBottom: 0 }}>
                   <DirectionalText align>{judgement.answer}</DirectionalText>

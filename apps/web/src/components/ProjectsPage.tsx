@@ -24,6 +24,8 @@ import { recordScaleLabel, reviewBacklogBadge } from "../policyRecordFacts";
 import { groupProjectsByDocument, groupSubtitle } from "../projectRegisterGroups";
 import { qualityScopeLabel } from "../qualityTrend";
 import { ProjectWorkspace } from "./ProjectWorkspace";
+import { useActor } from "../ActorContext";
+import { canAuthor } from "../rbac";
 
 const { Title, Text } = Typography;
 
@@ -79,6 +81,8 @@ export function ProjectsPage({
    */
   openRequest?: { key: string | null; nonce: number };
 }) {
+  const { role } = useActor();
+  const mayAuthor = canAuthor(role);
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [stats, setStats] = useState<Record<string, ProjectPortfolioInsight>>({});
   const [selected, setSelected] = useState<PolicySet | null>(null);
@@ -238,9 +242,11 @@ export function ProjectsPage({
           <Text type="secondary">
             {listState === "unavailable" ? `${UNKNOWN_COUNT} projects` : `${policySets.length} projects`}
           </Text>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            New project
-          </Button>
+          {mayAuthor && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              New project
+            </Button>
+          )}
         </div>
       </header>
 
@@ -319,13 +325,19 @@ export function ProjectsPage({
             description={
               <span className="project-register-empty-copy">
                 <Text>No projects yet.</Text>
-                <Text type="secondary">Create one to start uploading policy documents and extracting rules.</Text>
+                <Text type="secondary">
+                  {mayAuthor
+                    ? "Create one to start uploading policy documents and extracting rules."
+                    : "A Policy Author creates projects. Once one exists you will see it here."}
+                </Text>
               </span>
             }
           >
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              New project
-            </Button>
+            {mayAuthor && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                New project
+              </Button>
+            )}
           </Empty>
         </div>
       ) : (

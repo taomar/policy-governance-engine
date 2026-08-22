@@ -11,6 +11,8 @@ obviously must be.
 """
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from policy_platform.api.authz import Principal, get_principal
@@ -18,6 +20,25 @@ from policy_platform.api.local_auth import authenticate, get_signing_key, load_a
 from policy_platform.infrastructure.settings import get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["system"])
+
+
+def _as_iso(epoch_seconds: float) -> str:
+    """The expiry as an ISO-8601 instant, which is what the wire carries.
+
+    `mint_token` works in epoch seconds because a JWT's `exp` claim is numeric
+    by specification, and that is the right type *inside* the token. It is the
+    wrong type coming *out* of this endpoint: every other timestamp this API
+    returns is `format: date-time`, so a float here is the one field a client
+    has to special-case.
+
+    It cost exactly that. The browser client declared `expires_at: string`,
+    received a float, and its type check rejected the session it had just
+    stored -- so a correct sign-in produced an interface that looked signed in,
+    sent no credentials, and fell back to a stale role from an earlier build.
+    Nothing failed loudly, which is why it survived a passing test suite.
+    """
+
+    return dt.datetime.fromtimestamp(epoch_seconds, tz=dt.timezone.utc).isoformat()
 
 
 @router.post("/login")
@@ -48,7 +69,7 @@ async def login(request: Request):
     return {
         "access_token": token,
         "token_type": "bearer",
-        "expires_at": expires_at,
+        "expires_at": _as_iso(expires_at),
         "role": account.role,
         "name": account.username,
     }

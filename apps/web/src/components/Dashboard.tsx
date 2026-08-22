@@ -20,7 +20,7 @@ import {
   type PolicySet,
   type ProjectPortfolioInsight,
 } from "../api";
-import { ACTOR_ROLE_LABELS, useActor, toRbacRole } from "../ActorContext";
+import { ACTOR_ROLE_LABELS, useActor } from "../ActorContext";
 import { canAccessPage, ROLE_LABELS, ROLES, type Role } from "../rbac";
 import { getSession } from "../auth";
 import { describeApiFailure, UNKNOWN_COUNT, type LoadState } from "../loadState";
@@ -190,8 +190,8 @@ export function Dashboard({
   onNavigate: (page: string) => void;
   onOpenAskAi?: () => void;
 }) {
-  const { actor } = useActor();
-  const rbacRole = toRbacRole(actor.role);
+  const { actor, role } = useActor();
+  const rbacRole = role;
   const [summary, setSummary] = useState<Summary | null>(null);
   // `summary === null` meant both "not asked yet" and "asked and failed", so a
   // refused fetch left both panels below spinning on "Loading…" indefinitely.

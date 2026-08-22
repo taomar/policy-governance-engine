@@ -75,10 +75,26 @@ export function consumeSessionAbsence(): SessionAbsence {
   return value === "expired" ? "expired" : "none";
 }
 
+/** Broadcast that the stored session changed.
+ *
+ *  React cannot observe `sessionStorage`, and the provider that resolves the
+ *  current role sits above the component that signs in — so a sign-in changes
+ *  storage without re-rendering the thing that reads it. The `storage` event
+ *  only fires in *other* tabs, which is exactly the case that does not matter
+ *  here. This is the same-tab counterpart.
+ */
+function announceSessionChange(): void {
+  window.dispatchEvent(new CustomEvent(SESSION_CHANGED_EVENT));
+}
+
+export const SESSION_CHANGED_EVENT = "policy-platform:session-changed";
+
 export function storeSession(session: Session): void {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  announceSessionChange();
 }
 
 export function clearSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);
+  announceSessionChange();
 }

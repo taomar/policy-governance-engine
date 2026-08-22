@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Divider, Input, Popover, Space, Tag, Typography } from "antd";
 import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
-import { useActor, toRbacRole } from "../ActorContext";
+import { useActor } from "../ActorContext";
 import { clearSession, getSession } from "../auth";
 import { ROLE_LABELS, ROLE_DESCRIPTIONS, type Role } from "../rbac";
 
@@ -21,13 +21,13 @@ const ROLE_TAG_COLOUR: Record<Role, string> = {
  * author/reviewer fields, not a privilege.
  */
 export function IdentityBadge() {
-  const { actor, setActor } = useActor();
+  const { actor, setActor, role } = useActor();
   const [open, setOpen] = useState(false);
   const [draftName, setDraftName] = useState(actor.name);
 
   useEffect(() => setDraftName(actor.name), [actor.name]);
 
-  const rbacRole = toRbacRole(actor.role);
+  const rbacRole = role;
   const roleLabel = ROLE_LABELS[rbacRole] ?? actor.role;
   const roleDesc = ROLE_DESCRIPTIONS[rbacRole] ?? "";
   const tagColour = ROLE_TAG_COLOUR[rbacRole] ?? "default";
