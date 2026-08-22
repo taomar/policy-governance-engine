@@ -305,6 +305,21 @@ class CandidateRuleResponse(BaseModel):
     rule: CanonicalRule
 
 
+class PaginatedCandidateRulesResponse(BaseModel):
+    """Paginated wrapper returned when ``limit`` is supplied to the
+    candidate-rules list endpoint.
+
+    Without ``limit`` the endpoint returns a bare ``list[CandidateRuleResponse]``
+    for backward compatibility.  The response type therefore changes based on a
+    query parameter — a deliberate, documented trade-off to keep every existing
+    caller working unchanged while new callers opt into pagination.
+    """
+
+    items: list[CandidateRuleResponse]
+    next_cursor: str | None = None
+    total: int
+
+
 class CandidateRuleReviewRequest(BaseModel):
     decision: Literal["approve", "reject"]
     reviewer: str

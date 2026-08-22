@@ -145,8 +145,10 @@ describe("F1: no severity badge is rendered for a zero count", () => {
 
 describe("F2: the answer names what decided it, in the answer block", () => {
   // The spies live in `scenarioSpies` at the top of this file, hoisted with the
-  // `vi.mock` that uses them. Aliased here so the tests below read unchanged.
-  const { testRuleScenario, computeScenario, evaluateScenario } = scenarioSpies;
+  // `vi.mock` that uses them. Only the compute route is driven from here; the
+  // other two are referenced through `scenarioSpies` where they are needed, so
+  // aliasing all three would leave two names unread.
+  const { computeScenario } = scenarioSpies;
 
   it("the engine route states 'Computed by the engine' inline with the verdict", async () => {
     const { RuleScenarioTester } = await import("./components/RuleScenarioTester");

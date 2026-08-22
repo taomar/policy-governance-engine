@@ -47,6 +47,19 @@ Create, list, update and delete projects; portfolio summary and workspace counts
 
 The review queue — draft, list, facets, edit, review, request-changes, override, bulk-review and export — plus `GET /api/policy-sets/{key}/policies`, which is the same rules grouped under the passage that stated them, and `POST /api/policy-sets/{key}/publish`.
 
+#### Cursor pagination on the candidate-rules list
+
+`GET /api/policy-sets/{key}/candidate-rules` supports opt-in cursor pagination:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | int (1–500) | absent | When present, return at most this many records and wrap the response in a `{ items, next_cursor, total }` envelope. When absent, the response is a bare JSON array (backward-compatible). |
+| `cursor` | string | absent | Opaque cursor from a previous page's `next_cursor`. Ignored when `limit` is absent. A malformed cursor returns 422. |
+
+**Response shape changes based on `limit`:** without `limit` the response is `CandidateRuleResponse[]`. With `limit` it is `{ items: CandidateRuleResponse[], next_cursor: string | null, total: int }`. This is a deliberate trade-off — a permanently-wrapped response would break every existing caller, while a parameter-gated shape lets new callers opt in.
+
+Uses keyset pagination over `(created_at, id)` so that mutations (e.g. approving a rule) during a walk do not cause records to be skipped — unlike offset pagination, the cursor anchors to a fixed point in the ordered set.
+
 ### What `ai` covers
 
 Status, ask, extract, extraction progress and runs, rewrite and apply, rewrite preview, draft-from-text, compare, policy-set summary, correlation runs, findings and dispositions, change explanation, generated subject names for a set's policies, generated handles for its rules and the lookup that serves them, and a plain-words reading of one policy's extracted record.

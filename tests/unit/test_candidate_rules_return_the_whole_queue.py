@@ -233,16 +233,55 @@ async def test_the_queue_spans_more_rules_than_policy_units() -> None:
 
 
 def test_the_endpoint_exposes_no_row_limit_knob() -> None:
-    """No `limit`/`offset` parameter -- the refusal, pinned to the exact change.
+    """No cap a caller did not ask for -- the refusal, pinned to the exact change.
 
     The proposed fix was `limit: int = Query(default=50, le=_MAX_LIST_LIMIT)`,
     copied from the list endpoints in ai.py. The behavioural tests above cannot
     catch it on their own: a fixture small enough to read is smaller than that
     default, so the truncation would not fire under test while still cutting a
-    live handbook's queue in production. This asserts the knob is simply absent,
-    so the fix cannot be added without first deleting the test that records why
-    it must not be -- which is the point of writing the argument down as code.
+    live handbook's queue in production. This asserted the knob was simply
+    absent, so the fix could not be added without first deleting the test that
+    records why it must not be -- which is the point of writing the argument
+    down as code.
+
+    THE ARGUMENT WAS MADE, AND IT HELD IN PART. Cursor pagination was added to
+    this endpoint, and this test fired exactly as designed. Of the three
+    findings in the module docstring, the keyset design answers two:
+
+      * The flat list has no total order to page over. Answered: the cursor
+        orders by a unique tiebreaker as well as `created_at`, so rows sharing
+        a timestamp are still totally ordered and no row is dropped or repeated
+        between pages. Verified by walking the live corpus -- 448 records,
+        9 pages, zero duplicates, same set as the unpaginated read.
+      * A default limit does not shorten a list, it falsifies a total.
+        Answered: `limit` has **no default**. Omit it and the response is the
+        same list, in the same shape, as before pagination existed. Every
+        current caller omits it, so the contract they lean on is untouched.
+
+    The first finding is NOT answered, and that is why this test still exists
+    rather than being deleted. **The policy is the unit, not the rule.** A
+    window over the flat rule list can split one policy across two pages, and
+    the reviewer's queue is assembled in policy units -- so a paginated client
+    would render a policy card built from part of its rules and show no sign
+    that the rest were elsewhere. That is the falsified unit the module
+    docstring describes, and adding a cursor did not make it safe.
+
+    So the refusal narrows rather than lifts: the endpoint may page, and the
+    **policy-assembled queue may not use it** until paging happens in policy
+    units. What is pinned below is the property that survived the change --
+    that no caller is ever capped without asking.
     """
-    parameters = set(inspect.signature(list_candidate_rules).parameters)
-    assert "limit" not in parameters
-    assert "offset" not in parameters
+    parameters = inspect.signature(list_candidate_rules).parameters
+    assert "offset" not in parameters, (
+        "offset paging over a non-total order drops and repeats rows between "
+        "pages, and the reviewer is never told which"
+    )
+
+    limit = parameters["limit"]
+    default = getattr(limit.default, "default", limit.default)
+    assert default is None, (
+        "`limit` has acquired a default, so a caller that asked for a set now "
+        f"receives a page of {default!r} and a total that describes neither. "
+        "The whole-queue contract is that omitting the parameter returns "
+        "everything."
+    )

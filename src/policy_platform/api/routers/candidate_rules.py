@@ -11,10 +11,14 @@ in place during review, which is explicitly allowed (see domain/models.py).
 """
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import uuid
+from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.api.schemas import (
@@ -26,6 +30,7 @@ from policy_platform.api.schemas import (
     CandidateRuleResponse,
     CandidateRuleReviewRequest,
     OverrideReviewRequest,
+    PaginatedCandidateRulesResponse,
     PublishCandidatesRequest,
     RequestChangesRequest,
 )
@@ -97,6 +102,22 @@ def _require_manager(actor_role: str) -> None:
             status_code=403,
             detail="Only a Policy Manager can perform this action. Switch your acting role in the header.",
         )
+
+
+def _encode_cursor(created_at: datetime, candidate_id: uuid.UUID) -> str:
+    """Build an opaque, URL-safe cursor from the keyset pair."""
+    payload = json.dumps([created_at.isoformat(), str(candidate_id)])
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    """Decode and validate a cursor, raising 422 on any malformed input."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode())
+        created_iso, id_hex = json.loads(raw)
+        return datetime.fromisoformat(created_iso), uuid.UUID(id_hex)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid or malformed pagination cursor.")
 
 
 def _to_response(candidate) -> CandidateRuleResponse:
@@ -201,7 +222,7 @@ async def draft_candidate_rule(
     return _to_response(candidate)
 
 
-@router.get("/{key}/candidate-rules", response_model=list[CandidateRuleResponse])
+@router.get("/{key}/candidate-rules")
 async def list_candidate_rules(
     key: str,
     status: str | None = None,
@@ -210,14 +231,30 @@ async def list_candidate_rules(
     extraction_run_id: uuid.UUID | None = None,
     delta_status: str | None = None,
     include_superseded: bool = False,
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    cursor: Annotated[str | None, Query()] = None,
     session: AsyncSession = Depends(get_session),
-) -> list[CandidateRuleResponse]:
+) -> list[CandidateRuleResponse] | PaginatedCandidateRulesResponse:
     """The review queue, narrowed to whatever the reviewer is looking at.
 
-    `include_superseded` is opt-in and only meaningful alongside
-    `extraction_run_id`: it is how a reviewer opens a historical run to see what
-    it produced. Left off, this returns the current generation of rules, which
-    is what every other view means.
+    **Pagination (opt-in):** supply ``limit`` to receive a
+    ``PaginatedCandidateRulesResponse`` with ``items``, ``next_cursor``, and
+    ``total``.  Without ``limit`` the response is a bare
+    ``list[CandidateRuleResponse]`` — every existing caller keeps working
+    unchanged.
+
+    The response type changes based on the presence of ``limit``.  This is a
+    deliberate trade-off: a wrapper that is always present would break every
+    existing consumer, while a query-parameter–gated shape lets new callers
+    opt in without forcing a migration.
+
+    Uses keyset pagination over ``(created_at, id)`` so that rows whose
+    ``review_status`` changes mid-walk (the common case: a reviewer approves
+    a rule while paginating with a status filter) do not cause another record
+    to be skipped — unlike offset pagination, the cursor anchors to a fixed
+    point in the ordered set.
+
+    ``cursor`` without ``limit`` is ignored (there is nothing to paginate).
     """
 
     policy_set_repo = PolicySetRepository(session)
@@ -226,7 +263,27 @@ async def list_candidate_rules(
         raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
 
     candidate_repo = CandidateRuleRepository(session)
-    candidates = await candidate_repo.list_by_policy_set(
+
+    if limit is None:
+        # Unpaginated — exact existing behaviour.
+        candidates = await candidate_repo.list_by_policy_set(
+            policy_set.id,
+            review_status=status,
+            document_id=document_id,
+            document_version_id=document_version_id,
+            extraction_run_id=extraction_run_id,
+            delta_status=delta_status,
+            include_superseded=include_superseded,
+        )
+        return _with_successors([_to_response(c) for c in candidates])
+
+    # Paginated path.
+    cursor_created_at: datetime | None = None
+    cursor_id: uuid.UUID | None = None
+    if cursor is not None:
+        cursor_created_at, cursor_id = _decode_cursor(cursor)
+
+    candidates, total = await candidate_repo.list_by_policy_set_paginated(
         policy_set.id,
         review_status=status,
         document_id=document_id,
@@ -234,8 +291,18 @@ async def list_candidate_rules(
         extraction_run_id=extraction_run_id,
         delta_status=delta_status,
         include_superseded=include_superseded,
+        limit=limit,
+        cursor_created_at=cursor_created_at,
+        cursor_id=cursor_id,
     )
-    return _with_successors([_to_response(c) for c in candidates])
+
+    items = _with_successors([_to_response(c) for c in candidates])
+    next_cursor: str | None = None
+    if len(candidates) == limit:
+        last = candidates[-1]
+        next_cursor = _encode_cursor(last.created_at, last.id)
+
+    return PaginatedCandidateRulesResponse(items=items, next_cursor=next_cursor, total=total)
 
 
 def _with_successors(responses: list[CandidateRuleResponse]) -> list[CandidateRuleResponse]:

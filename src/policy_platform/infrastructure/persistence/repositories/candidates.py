@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.domain.models import (
@@ -106,6 +106,94 @@ class CandidateRuleRepository:
         stmt = stmt.order_by(CandidateRule.created_at, CandidateRule.id)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    def _apply_filters(
+        self,
+        stmt,
+        policy_set_id: uuid.UUID,
+        *,
+        review_status: str | None = None,
+        document_id: uuid.UUID | None = None,
+        document_version_id: uuid.UUID | None = None,
+        extraction_run_id: uuid.UUID | None = None,
+        delta_status: str | None = None,
+        include_superseded: bool = False,
+    ):
+        """Apply the standard candidate-rule filters to a statement.
+
+        Extracted so both the unpaginated and paginated paths share the same
+        filter logic without duplicating the join/where tree.
+        """
+        stmt = stmt.where(CandidateRule.policy_set_id == policy_set_id)
+        if not include_superseded:
+            stmt = stmt.where(CandidateRule.superseded_at.is_(None))
+        if review_status is not None:
+            stmt = stmt.where(CandidateRule.review_status == review_status)
+        if extraction_run_id is not None:
+            stmt = stmt.where(CandidateRule.extraction_run_id == extraction_run_id)
+        if delta_status is not None:
+            stmt = stmt.where(CandidateRule.delta_status == delta_status)
+        if document_version_id is not None or document_id is not None:
+            stmt = stmt.join(ExtractionRun, ExtractionRun.id == CandidateRule.extraction_run_id)
+            if document_version_id is not None:
+                stmt = stmt.where(ExtractionRun.document_version_id == document_version_id)
+            if document_id is not None:
+                stmt = stmt.join(
+                    DocumentVersion, DocumentVersion.id == ExtractionRun.document_version_id
+                ).where(DocumentVersion.document_id == document_id)
+        return stmt
+
+    async def list_by_policy_set_paginated(
+        self,
+        policy_set_id: uuid.UUID,
+        *,
+        review_status: str | None = None,
+        document_id: uuid.UUID | None = None,
+        document_version_id: uuid.UUID | None = None,
+        extraction_run_id: uuid.UUID | None = None,
+        delta_status: str | None = None,
+        include_superseded: bool = False,
+        limit: int,
+        cursor_created_at: datetime | None = None,
+        cursor_id: uuid.UUID | None = None,
+    ) -> tuple[list[CandidateRule], int]:
+        """Keyset-paginated candidate rules with total count.
+
+        The keyset is ``(created_at, id)`` — the same total order used by the
+        unpaginated query.  The cursor pair is decoded by the router; here it
+        is applied as a WHERE filter so the database seeks rather than scans.
+
+        Returns ``(page_rows, total_matching_count)``.
+        """
+        base = select(CandidateRule)
+        base = self._apply_filters(
+            base,
+            policy_set_id,
+            review_status=review_status,
+            document_id=document_id,
+            document_version_id=document_version_id,
+            extraction_run_id=extraction_run_id,
+            delta_status=delta_status,
+            include_superseded=include_superseded,
+        )
+
+        # Total count — same transaction, same filters.
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self._session.execute(count_stmt)).scalar_one()
+
+        # Keyset condition: after the cursor position in (created_at, id) order.
+        if cursor_created_at is not None and cursor_id is not None:
+            base = base.where(
+                (CandidateRule.created_at > cursor_created_at)
+                | (
+                    (CandidateRule.created_at == cursor_created_at)
+                    & (CandidateRule.id > cursor_id)
+                )
+            )
+
+        base = base.order_by(CandidateRule.created_at, CandidateRule.id).limit(limit)
+        result = await self._session.execute(base)
+        return list(result.scalars().all()), total
 
     async def get_by_id(self, candidate_id: uuid.UUID) -> CandidateRule | None:
         result = await self._session.execute(select(CandidateRule).where(CandidateRule.id == candidate_id))

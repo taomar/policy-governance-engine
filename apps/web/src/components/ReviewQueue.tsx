@@ -221,6 +221,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
   const [askTarget, setAskTarget] = useState<CandidateRule | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  /** The confirmation step for a bulk action — nothing is decided until the
+   *  reviewer accepts this dialog. Null when no confirmation is pending. */
+  const [bulkConfirm, setBulkConfirm] = useState<{
+    ids: string[];
+    decision: "approve" | "reject";
+  } | null>(null);
+  const [bulkRejectReason, setBulkRejectReason] = useState("");
   /** A review the user asked for that would leave part of a rule family behind,
    *  held until they say how to resolve the split. */
   const [familyPrompt, setFamilyPrompt] = useState<{
@@ -537,28 +544,41 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   /** Perform the review. Accepts one or many ids so the single-row buttons, the
    *  bulk bar, and the family-confirmation dialog all commit through one path
-   *  and therefore cannot drift in what they send or how they report it. */
-  const runReview = async (ids: string[], decision: "approve" | "reject") => {
+   *  and therefore cannot drift in what they send or how they report it.
+   *
+   *  `notes` is forwarded to the server for bulk actions — most importantly,
+   *  a rejection reason the reviewer wrote in the confirmation dialog. */
+  const runReview = async (ids: string[], decision: "approve" | "reject", notes?: string) => {
     if (ids.length === 0) return;
     setError(null);
     setFamilyPrompt(null);
+    setBulkConfirm(null);
     setBulkBusy(true);
     try {
       if (ids.length === 1) {
-        await api.reviewCandidateRule(selectedKey, ids[0], { decision, reviewer: identity });
+        await api.reviewCandidateRule(selectedKey, ids[0], { decision, reviewer: identity, notes });
         message.success(decision === "approve" ? "Rule approved" : "Rule rejected");
       } else {
         const result = await api.bulkReviewCandidateRules(selectedKey, {
           candidate_ids: ids,
           decision,
           reviewer: identity,
-          notes: "bulk review",
+          notes: notes || "bulk review",
         });
         if (result.skipped.length > 0) {
           // A partial result is not an error: the reviewed rules were reviewed.
-          // Reporting it as one made reviewers re-run the action.
+          // Reporting it as one made reviewers re-run the action. Name the
+          // skipped records so the reviewer knows which still need a decision.
+          const skippedNames = result.skipped.map((id) => {
+            const c = candidates.find((r) => r.id === id);
+            return c?.rule.title ?? id;
+          });
+          const MAX_NAMED = 5;
+          const named = skippedNames.slice(0, MAX_NAMED).join(", ");
+          const overflow = skippedNames.length > MAX_NAMED ? ` and ${skippedNames.length - MAX_NAMED} more` : "";
           message.warning(
-            `${result.reviewed} reviewed; ${result.skipped.length} skipped (already reviewed or published).`
+            `${result.reviewed} reviewed. Skipped (already decided or published): ${named}${overflow}.`,
+            8,
           );
         } else {
           message.success(`${result.reviewed} rule${result.reviewed === 1 ? "" : "s"} ${decision}d`);
@@ -580,7 +600,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
 
   /** Gate every review through the same two checks: attributable author, and
    *  no silently-split rule family. */
-  const requestReview = (ids: string[], decision: "approve" | "reject") => {
+  const requestReview = (ids: string[], decision: "approve" | "reject", notes?: string) => {
     setError(null);
     // An approval with no attributable author is not an audit trail. Reported
     // through `message` rather than the page-top Alert: the buttons are in a
@@ -599,7 +619,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
       setFamilyPrompt({ ids, decision, gaps });
       return;
     }
-    void runReview(ids, decision);
+    void runReview(ids, decision, notes);
   };
 
   const handleReview = (candidateId: string, decision: "approve" | "reject") =>
@@ -1072,7 +1092,11 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     setWorkspaceMode("list");
   };
 
-  /** Every reviewable record currently on screen.
+  /** Every reviewable record on the current page — never beyond it.
+   *
+   *  "Select all" applies to what is on screen and says so in its label.
+   *  Reaching records on another page would decide things the reviewer has not
+   *  scrolled past, which is the defect bulk review must not reintroduce.
    *
    *  In grouped mode a card shows the whole policy, including rules the search
    *  did not match, so "select all" has to reach them too: a bulk decision must
@@ -1080,13 +1104,10 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
    *  change what the action decides. */
   const selectableIds = (
     grouped
-      ? // A card can now hold a record with no draft row behind it, which the
-        // review surface never has. Filtered rather than asserted, so a
-        // published record could never be swept into a bulk decision.
-        policyCards.flatMap((card) =>
+      ? pagedPolicyCards.flatMap((card) =>
           card.rules.flatMap((entry) => (entry.candidate ? [entry.candidate] : [])),
         )
-      : filteredCandidates
+      : pagedCandidates
   )
     .filter((c) => candidateEditability(c.review_status).canReview)
     .map((c) => c.id);
@@ -1131,14 +1152,47 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     });
   };
 
-  const handleBulkReview = (decision: "approve" | "reject") =>
-    requestReview(Array.from(selectedIds), decision);
+  const handleBulkReview = (decision: "approve" | "reject") => {
+    // Nothing is decided here — the confirmation dialog is the decision point.
+    if (selectedIds.size === 0) return;
+    setBulkConfirm({ ids: Array.from(selectedIds), decision });
+    setBulkRejectReason("");
+  };
+
+  /** Accept the confirmation dialog and commit the bulk decision. */
+  const confirmBulkReview = () => {
+    if (!bulkConfirm) return;
+    const { ids, decision } = bulkConfirm;
+    if (decision === "reject" && !bulkRejectReason.trim()) return;
+    requestReview(ids, decision, decision === "reject" ? bulkRejectReason.trim() : undefined);
+  };
 
   /** How many passages the bulk selection touches — the unit the reviewer is
    *  working in, alongside the rule count the server will actually write to. */
   const selectedPolicyCount = policyCards.filter((card) =>
     card.reviewableIds.some((id) => selectedIds.has(id))
   ).length;
+
+  /** How many records under the current filter still need a decision.
+   *
+   *  Computed from the loaded set — when cursor pagination lands, this count
+   *  should be replaced by the server's `total` for the active filter so it
+   *  describes the full queue, not just the loaded page. Until then it is
+   *  honest about what it covers. */
+  const undecidedInFilter = useMemo(
+    () => filteredCandidates.filter((c) => candidateEditability(c.review_status).canReview).length,
+    [filteredCandidates],
+  );
+
+  /** The names of the records about to be bulk-decided, looked up once when
+   *  the confirmation opens rather than on every render. */
+  const bulkConfirmNames = useMemo(() => {
+    if (!bulkConfirm) return [];
+    return bulkConfirm.ids.map((id) => {
+      const c = candidates.find((r) => r.id === id);
+      return { id, title: c?.rule.title ?? id };
+    });
+  }, [bulkConfirm, candidates]);
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2332,20 +2386,39 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             />
 
             {selectableIds.length > 0 && (
-              <div className="bulk-bar">
+              <div className="bulk-bar" role="toolbar" aria-label="Bulk review actions">
                 <Space size={16} wrap style={{ width: "100%", justifyContent: "space-between" }}>
-                  <Checkbox
-                    checked={selectedIds.size === selectableIds.length && selectableIds.length > 0}
-                    onChange={toggleSelectAllVisible}
-                  >
-                    {selectedIds.size > 0
-                      ? grouped
-                        ? `${selectedPolicyCount} ${selectedPolicyCount === 1 ? "policy" : "policies"} selected · ${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"}`
-                        : `${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"} selected`
-                      : grouped
-                        ? `Select all ${listCards.length} ${listCards.length === 1 ? "policy" : "policies"} in this filter`
-                        : `Select all ${selectableIds.length} in this filter`}
-                  </Checkbox>
+                  <Space size={8} wrap>
+                    <Checkbox
+                      checked={selectedIds.size === selectableIds.length && selectableIds.length > 0}
+                      indeterminate={selectedIds.size > 0 && selectedIds.size < selectableIds.length}
+                      onChange={toggleSelectAllVisible}
+                      aria-label={
+                        selectedIds.size > 0
+                          ? `${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"} selected`
+                          : `Select all ${selectableIds.length} on this page`
+                      }
+                    >
+                      {selectedIds.size > 0
+                        ? grouped
+                          ? `${selectedPolicyCount} ${selectedPolicyCount === 1 ? "policy" : "policies"} selected · ${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"}`
+                          : `${selectedIds.size} ${selectedIds.size === 1 ? "rule" : "rules"} selected`
+                        : grouped
+                          ? `Select all ${pagedPolicyCards.length} ${pagedPolicyCards.length === 1 ? "policy" : "policies"} on this page`
+                          : `Select all ${selectableIds.length} on this page`}
+                    </Checkbox>
+                    {undecidedInFilter > 0 && (
+                      <Text
+                        type="secondary"
+                        data-testid="undecided-count"
+                        aria-live="polite"
+                      >
+                        {/* Counted from the loaded set — see the comment on
+                            `undecidedInFilter` for the pagination caveat. */}
+                        {undecidedInFilter} undecided in this view
+                      </Text>
+                    )}
+                  </Space>
                   <Space>
                     <Button
                       type="primary"
@@ -2705,6 +2778,63 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           void runReview(Array.from(whole), familyPrompt.decision);
         }}
       />
+      {/* Bulk review confirmation — the decision gate.
+          Nothing is committed until the reviewer accepts this dialog. */}
+      <Modal
+        open={bulkConfirm !== null}
+        title={bulkConfirm?.decision === "approve"
+          ? `Approve ${bulkConfirm?.ids.length ?? 0} rule${(bulkConfirm?.ids.length ?? 0) === 1 ? "" : "s"}?`
+          : `Reject ${bulkConfirm?.ids.length ?? 0} rule${(bulkConfirm?.ids.length ?? 0) === 1 ? "" : "s"}?`}
+        okText={bulkConfirm?.decision === "approve" ? "Approve" : "Reject"}
+        okButtonProps={{
+          danger: bulkConfirm?.decision === "reject",
+          disabled: bulkConfirm?.decision === "reject" && !bulkRejectReason.trim(),
+          loading: bulkBusy,
+        }}
+        cancelButtonProps={{ disabled: bulkBusy }}
+        onOk={confirmBulkReview}
+        onCancel={() => setBulkConfirm(null)}
+        width={520}
+        data-testid="bulk-confirm-modal"
+      >
+        <div className="bulk-confirm-list" data-testid="bulk-confirm-records">
+          {(() => {
+            const MAX_SHOWN = 10;
+            const shown = bulkConfirmNames.slice(0, MAX_SHOWN);
+            const remaining = bulkConfirmNames.length - MAX_SHOWN;
+            return (
+              <>
+                <ul style={{ paddingInlineStart: 20, margin: "8px 0" }}>
+                  {shown.map((r) => (
+                    <li key={r.id}>{r.title}</li>
+                  ))}
+                </ul>
+                {remaining > 0 && (
+                  <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                    …and {remaining} more rule{remaining === 1 ? "" : "s"}.
+                  </Text>
+                )}
+              </>
+            );
+          })()}
+        </div>
+        {bulkConfirm?.decision === "reject" && (
+          <div style={{ marginTop: 12 }}>
+            <Text strong style={{ display: "block", marginBottom: 4 }}>
+              Reason for rejection
+            </Text>
+            <TextArea
+              rows={3}
+              value={bulkRejectReason}
+              onChange={(e) => setBulkRejectReason(e.target.value)}
+              placeholder="Why are these rules being rejected? This is recorded on every rule."
+              data-testid="bulk-reject-reason"
+              aria-label="Reason for rejection"
+              maxLength={2000}
+            />
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
