@@ -19,6 +19,7 @@ import type { CandidateRule, CanonicalRule } from "./api";
 import { ActorProvider } from "./ActorContext";
 import { CandidateRow } from "./components/CandidateRow";
 import { PolicyInspector } from "./components/PolicyInspector";
+import * as ruleIdentity from "./ruleIdentity";
 
 beforeEach(() => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -201,6 +202,56 @@ describe("the inspector's tab strip", () => {
     // A pane that has been opened stays built — going to Logic and back must
     // not discard what the reviewer had scrolled to.
     expect(screen.getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
+  });
+
+  it("does not run an unopened tab's body, not merely hide it", () => {
+    // The assertion above cannot tell a lazy inspector from an eager one.
+    // Antd does not mount a hidden pane either way, so "the text is absent"
+    // holds even when every body was constructed and thrown away — which is
+    // exactly the cost this surface pays per row, on a policy that can hold
+    // seventy of them.
+    //
+    // So this watches for *work*, not for DOM. `withRuleIdentity` runs while
+    // the Overview body is being built and nowhere else, and Overview is
+    // opened here only on the second half of the test. An eager inspector
+    // calls it on the first render regardless of which tab is showing.
+    //
+    // This is the guard that was missing: the lazy construction landed on a
+    // sibling branch, was lost when this branch forked, and every tab test
+    // still passed without it.
+    const spy = vi.spyOn(ruleIdentity, "withRuleIdentity");
+    const row = candidate("R1");
+
+    function Harness() {
+      const [tab, setTab] = useState("logic");
+      return (
+        <ActorProvider>
+          <PolicyInspector
+            rule={row.rule}
+            policySetKey="set"
+            variant="embedded"
+            recordKind="candidate"
+            recordLabel="candidate"
+            activeTabKey={tab}
+            onTabChange={setTab}
+            notesTarget={{ entityType: "candidate_rule", entityId: row.id, title: "Review discussion" }}
+          />
+        </ActorProvider>
+      );
+    }
+
+    render(<Harness />);
+
+    // Logic is showing. Overview was never opened, so its body was never built.
+    expect(screen.getByText(ONLY_IN_LOGIC)).toBeTruthy();
+    expect(spy).not.toHaveBeenCalled();
+
+    // Opening it builds it, which is the other half of the property: lazy, not absent.
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(screen.getByText(ONLY_IN_OVERVIEW)).toBeTruthy();
+    expect(spy).toHaveBeenCalled();
+
+    spy.mockRestore();
   });
 
   it("keeps the logic tree the reviewer already reads, rather than a second rendering of it", () => {

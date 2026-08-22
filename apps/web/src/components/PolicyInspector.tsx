@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button, Collapse, Descriptions, Empty, Space, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
@@ -184,6 +184,26 @@ export function PolicyInspector({
   const [ownTabKey, setOwnTabKey] = useState("overview");
   const tabKey = activeTabKey ?? ownTabKey;
   const changeTab = onTabChange ?? setOwnTabKey;
+
+  // A tab's body is built when its reader first opens it, and kept afterwards.
+  //
+  // Both halves matter and they pull in opposite directions. Keeping a pane once
+  // built is deliberate: going to Logic and back must not discard a scenario the
+  // reviewer had typed, so `destroyOnHidden` is the wrong instrument. But this
+  // surface is now drawn inside every open rule of a policy, not only once on a
+  // page of its own, and a policy can hold seventy rules. Building eight bodies
+  // for every row — seven of which nobody asked for — is a cost paid per row and
+  // per re-render, and it is the cost that shows when a reviewer works down a
+  // long policy.
+  //
+  // A ref rather than state because visiting a tab already re-renders this
+  // component; recording it must not schedule a second render. Adding the active
+  // key here, before the bodies are built, is what guarantees the tab a reader
+  // just moved to is present in the same pass.
+  const builtTabs = useRef<Set<string>>(new Set());
+  builtTabs.current.add(tabKey);
+  const bodyOf = (key: string, build: () => ReactNode): ReactNode =>
+    builtTabs.current.has(key) ? build() : null;
   const [clausesById, setClausesById] = useState<Map<string, Clause>>(new Map());
   const [docMetaByVersionId, setDocMetaByVersionId] = useState<Map<string, DocumentMeta>>(new Map());
   const [bodyViewer, setBodyViewer] = useState<{ documentVersionId: string; clauseId: string | null; page: number | null } | null>(null);
@@ -299,10 +319,12 @@ export function PolicyInspector({
   // Carries the same `_identity` block as the canonical and DMN views so all
   // three downloads name the rule, its documents, and its Search keys
   // identically — the rule body alone never mentioned Search at all.
-  const ruleJson = withRuleIdentity(rule, rule);
-  const overviewJsonBlock = <JsonView value={ruleJson} downloadName={`${rule.rule_id}.json`} maxHeight={420} />;
-
-  const overview = (
+  const overview = () => {
+    const ruleJson = withRuleIdentity(rule, rule);
+    const overviewJsonBlock = (
+      <JsonView value={ruleJson} downloadName={`${rule.rule_id}.json`} maxHeight={420} />
+    );
+    return (
     <div className="inspector-pane">
       {rule.description && (
         <Paragraph type="secondary">{readableDescription(rule.description)}</Paragraph>
@@ -560,13 +582,14 @@ export function PolicyInspector({
         ]}
       />
     </div>
-  );
+    );
+  };
 
   // The logic, scope and JSON panes live in `ruleTabPanes` because they are
   // now rendered in two places: here, on the full-record surface, and inside
   // the row the rule stands in. One definition, so the two cannot drift into
   // two readings of one record.
-  const logic = (
+  const logic = () => (
     <RuleLogicPane
       rule={rule}
       allRules={allRules}
@@ -574,9 +597,9 @@ export function PolicyInspector({
     />
   );
 
-  const scope = <RuleScopePane rule={rule} allRules={allRules} onSelectRule={onSelectRule} />;
+  const scope = () => <RuleScopePane rule={rule} allRules={allRules} onSelectRule={onSelectRule} />;
 
-  const history = (
+  const history = () => (
     <div className="inspector-pane">
       {policySetKey && versions && versions.length > 0 && (
         <div className="rule-card-section">
@@ -612,7 +635,7 @@ export function PolicyInspector({
     </div>
   );
 
-  const notes = (
+  const notes = () => (
     <div className="inspector-pane">
       <NotesPanel
         entityType={notesTarget?.entityType ?? "rule"}
@@ -627,10 +650,15 @@ export function PolicyInspector({
   // simply don't get this tab rather than showing a broken one. Withheld from a
   // reference view for the same reason Notes is: running a scenario is acting on
   // a rule, and this one was arrived at by way of something else.
-  const testScenario =
-    policySetKey && !shownAsReference ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
+  //
+  // The gate is a boolean and the body is a builder, deliberately: whether the
+  // tab exists has to be settled while the strip is drawn, but what it holds
+  // does not have to be built until somebody opens it.
+  const offersTestScenario = Boolean(policySetKey) && !shownAsReference;
+  const testScenario = () =>
+    policySetKey ? <RuleScenarioTester policySetKey={policySetKey} rule={rule} /> : null;
 
-  const json = <RuleJsonPane rule={rule} sourceLabels={sourceLabels} />;
+  const json = () => <RuleJsonPane rule={rule} sourceLabels={sourceLabels} />;
 
   return (
     <div className={`policy-inspector${variant === "embedded" ? " policy-inspector--embedded" : ""}`}>
@@ -816,8 +844,8 @@ export function PolicyInspector({
         onChange={changeTab}
         className="policy-inspector-tabs"
         items={[
-          { key: "overview", label: "Overview", children: overview },
-          { key: "logic", label: "Logic", children: logic },
+          { key: "overview", label: "Overview", children: bodyOf("overview", overview) },
+          { key: "logic", label: "Logic", children: bodyOf("logic", logic) },
           {
             key: "readiness",
             label: (
@@ -830,14 +858,14 @@ export function PolicyInspector({
                 )}
               </span>
             ),
-            children: (
+            children: bodyOf("readiness", () => (
               <div className="inspector-pane">
                 <DecisionReadinessView rule={rule} />
               </div>
-            ),
+            )),
           },
-          { key: "scope", label: "Scope", children: scope },
-          ...(testScenario
+          { key: "scope", label: "Scope", children: bodyOf("scope", scope) },
+          ...(offersTestScenario
             ? [
                 {
                   key: "test-scenario",
@@ -851,13 +879,15 @@ export function PolicyInspector({
                       {" Test scenario"}
                     </span>
                   ),
-                  children: testScenario,
+                  children: bodyOf("test-scenario", testScenario),
                 },
               ]
             : []),
-          { key: "history", label: "History", children: history },
-          ...(!shownAsReference ? [{ key: "notes", label: "Notes", children: notes }] : []),
-          { key: "json", label: "JSON", children: json },
+          { key: "history", label: "History", children: bodyOf("history", history) },
+          ...(!shownAsReference
+            ? [{ key: "notes", label: "Notes", children: bodyOf("notes", notes) }]
+            : []),
+          { key: "json", label: "JSON", children: bodyOf("json", json) },
         ]}
       />
 
