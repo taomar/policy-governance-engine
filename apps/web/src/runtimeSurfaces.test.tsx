@@ -190,7 +190,15 @@ describe("F2: the answer names what decided it, in the answer block", () => {
     // Since we can't easily trigger the full async flow in this test context,
     // verify the structural expectation: the data-testid="scenario-decided-by"
     // should be a Tag element inside the verdict Space, not a Text in the footer.
-  });
+  }, 30000);
+  // 30s, not the 5s default. This test is slow rather than wrong: run on its
+  // own it takes about 4.2s and passes, because it dynamically imports the
+  // scenario tester and renders it. That leaves no headroom, so any neighbour
+  // in the file — and certainly the full suite running in parallel — pushes it
+  // past 5s. It then times out *without* its DOM being cleaned up, and the two
+  // F3 tests below, which assert on how many textboxes exist, find this test's
+  // textarea and fail too. One tight clock, three red tests, none of them
+  // describing a real defect in the product.
 });
 
 /* ========================================================================== *
