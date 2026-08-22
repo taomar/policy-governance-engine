@@ -133,6 +133,9 @@ type ReviewWorkspaceMode = "list" | "split" | "detail";
 
 const STATUS_FILTERS = ["all", "candidate", "changes_requested", "approved", "rejected", "published"] as const;
 
+/** Why the bulk actions are inert, phrased as the next thing to do. */
+const BULK_NEEDS_SELECTION = "Select one or more records first.";
+
 const STATUS_COLOR: Record<string, string> = {
   candidate: "blue",
   changes_requested: "orange",
@@ -2420,16 +2423,29 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     )}
                   </Space>
                   <Space>
+                    {/* Both actions carry the count and the same reason when
+                        disabled. Asymmetry here is not cosmetic: these two
+                        buttons are the moment a person commits a decision to
+                        governed content, and a pair that describes itself
+                        differently invites the reader to think they differ in
+                        scope. The title says why the button is dead, so a
+                        greyed control is never a dead end. */}
                     <Button
                       type="primary"
                       disabled={selectedIds.size === 0 || bulkBusy}
                       loading={bulkBusy}
                       onClick={() => handleBulkReview("approve")}
+                      title={selectedIds.size === 0 ? BULK_NEEDS_SELECTION : undefined}
                     >
                       Approve selected ({selectedIds.size})
                     </Button>
-                    <Button danger disabled={selectedIds.size === 0 || bulkBusy} onClick={() => handleBulkReview("reject")}>
-                      Reject selected
+                    <Button
+                      danger
+                      disabled={selectedIds.size === 0 || bulkBusy}
+                      onClick={() => handleBulkReview("reject")}
+                      title={selectedIds.size === 0 ? BULK_NEEDS_SELECTION : undefined}
+                    >
+                      Reject selected ({selectedIds.size})
                     </Button>
                   </Space>
                 </Space>
