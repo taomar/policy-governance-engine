@@ -20,6 +20,7 @@ import {
   policyTestApi,
   PolicyPlatformApiError,
   type ApprovedPolicyVersion,
+  type AssembledPolicy,
   type CanonicalRule,
   type Clause,
   type PolicyTestListItem,
@@ -73,6 +74,15 @@ export function PolicyValidationLab({
   const [runVersionId, setRunVersionId] = useState<string | null>(null);
   const [suiteVersionId, setSuiteVersionId] = useState<string | null>(null);
   const [rules, setRules] = useState<CanonicalRule[]>([]);
+  // The policies of the version under test. The unit here is the POLICY: a
+  // policy is decided as a whole and its rules are read within it, so the
+  // selector groups by policy and counts in policies. This list used to be
+  // absent and the lab worked on a flat rule array while calling the rules
+  // "policies" in its own copy -- it counted `selectedRuleIds` and printed
+  // "N policies", which is the same unit drift the review queue was corrected
+  // for. `route` on each policy is the server's own reading of whether the
+  // policy is engine-decided, judged, or mixed.
+  const [versionPolicies, setVersionPolicies] = useState<AssembledPolicy[]>([]);
   const [rulesByVersionId, setRulesByVersionId] = useState<Record<string, CanonicalRule[]>>({});
   const [batches, setBatches] = useState<PolicyTestBatch[]>([]);
   const [regressionTests, setRegressionTests] = useState<PolicyTestListItem[]>([]);
@@ -144,15 +154,22 @@ export function PolicyValidationLab({
   useEffect(() => {
     if (!versionId) {
       setRules([]);
+      setVersionPolicies([]);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    api
-      .getVersionRules(policySetKey, versionId)
-      .then((versionRules) => {
+    Promise.all([
+      api.getVersionRules(policySetKey, versionId),
+      // Asked for together, not lazily: the selector cannot draw a single row
+      // until it knows which policy each rule belongs to, and a two-stage load
+      // would show a flat rule list first — the very shape this replaces.
+      api.listVersionPolicies(policySetKey, versionId).catch(() => [] as AssembledPolicy[]),
+    ])
+      .then(([versionRules, policies]) => {
         if (cancelled) return;
         setRules(versionRules);
+        setVersionPolicies(policies);
         setRulesByVersionId((current) => ({ ...current, [versionId]: versionRules }));
         setSelectedRuleIds(new Set());
       })
@@ -208,21 +225,106 @@ export function PolicyValidationLab({
   }, [batches, policySetKey, regressionTests, retiredRegressionTests]);
 
   const selectedVersion = versions.find((version) => version.id === versionId) ?? null;
-  const executableRules = useMemo(
-    () => rules.filter((rule) => rule.machine_executable && rule.rule_type !== "definition"),
-    [rules],
-  );
   const excludedDefinitionCount = rules.filter((rule) => rule.rule_type === "definition").length;
   const excludedDocumentationCount = rules.filter(
     (rule) => rule.rule_type !== "definition" && !rule.machine_executable,
   ).length;
-  const ruleTypeOptions = useMemo(
-    () => Array.from(new Set(executableRules.map((rule) => rule.rule_type))).sort(),
-    [executableRules],
+
+  /** The version under test, in policy units.
+   *
+   *  One entry per policy, carrying every rule stated under it — including the
+   *  judged ones. Those used to be filtered out of `executableRules` before the
+   *  selector ever saw them, which on this corpus meant the reader was shown an
+   *  empty list and a dead button: 56 of 56 published rules on the largest
+   *  project are AI Ready, and the judged route is the product rather than the
+   *  exception. Hiding them said the version had nothing in it.
+   *
+   *  The join is by rule id, which `AssembledPolicy` and the flat rule list
+   *  share. The policies endpoint carries the grouping and the route; the flat
+   *  list carries `machine_executable` and `rule_type`, which the grouping's
+   *  lighter projection leaves null. Neither is sufficient alone.
+   */
+  const policyUnits = useMemo(() => {
+    const ruleById = new Map(rules.map((rule) => [rule.rule_id, rule]));
+    const claimed = new Set<string>();
+
+    const units = versionPolicies.map((policy) => {
+      const ids = (policy.rules ?? []).map((rule) => rule.rule_id);
+      const members: CanonicalRule[] = [];
+      for (const id of ids) {
+        const full = ruleById.get(id);
+        if (full) {
+          members.push(full);
+          claimed.add(id);
+        }
+      }
+      const engineDecided = members.filter(
+        (rule) => rule.machine_executable && rule.rule_type !== "definition",
+      );
+      const definitions = members.filter((rule) => rule.rule_type === "definition");
+      return {
+        key: policy.provision_id ?? policy.key ?? policy.heading,
+        heading: policy.heading,
+        headingPath: policy.heading_path ?? [],
+        rules: members,
+        engineDecided,
+        definitions,
+        judged: members.filter(
+          (rule) => !rule.machine_executable && rule.rule_type !== "definition",
+        ),
+      };
+    });
+
+    // A rule the grouping did not place still belongs to the reader. Losing it
+    // silently is the failure this whole surface exists to prevent.
+    const orphans = rules.filter((rule) => !claimed.has(rule.rule_id));
+    if (orphans.length > 0) {
+      units.push({
+        key: "__ungrouped__",
+        heading: "Not filed under a policy heading",
+        headingPath: [],
+        rules: orphans,
+        engineDecided: orphans.filter(
+          (rule) => rule.machine_executable && rule.rule_type !== "definition",
+        ),
+        definitions: orphans.filter((rule) => rule.rule_type === "definition"),
+        judged: orphans.filter(
+          (rule) => !rule.machine_executable && rule.rule_type !== "definition",
+        ),
+      });
+    }
+    return units;
+  }, [rules, versionPolicies]);
+
+  /** Policies holding at least one rule the engine can run blind. */
+  const testablePolicies = useMemo(
+    () => policyUnits.filter((unit) => unit.engineDecided.length > 0),
+    [policyUnits],
   );
-  const visibleRules = useMemo(() => {
+
+  /** How many policies the current selection covers — the unit the reader
+   *  chose in, so the unit the count has to be reported in. */
+  const selectedPolicyCount = useMemo(
+    () =>
+      policyUnits.filter((unit) =>
+        unit.engineDecided.some((rule) => selectedRuleIds.has(rule.rule_id)),
+      ).length,
+    [policyUnits, selectedRuleIds],
+  );
+
+  const ruleTypeOptions = useMemo(
+    () => Array.from(new Set(rules.map((rule) => rule.rule_type))).sort(),
+    [rules],
+  );
+  /** The policies to draw, with each policy's rules filtered by the toolbar.
+   *
+   *  A policy stays on screen while any of its rules matches, so narrowing the
+   *  view never silently drops the unit the reader is deciding in — the same
+   *  property the review queue's filters hold.
+   */
+  const visiblePolicyUnits = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return executableRules.filter((rule) => {
+    const matches = (rule: CanonicalRule) => {
       if (ruleTypeFilter !== "all" && rule.rule_type !== ruleTypeFilter) return false;
       if (effectFilter !== "all" && rule.effect.type !== effectFilter) return false;
       if (!query) return true;
@@ -231,8 +333,12 @@ export function PolicyValidationLab({
         rule.rule_id.toLowerCase().includes(query) ||
         rule.effect.action.toLowerCase().includes(query)
       );
-    });
-  }, [executableRules, search, ruleTypeFilter, effectFilter]);
+    };
+    return policyUnits
+      .map((unit) => ({ ...unit, visibleRules: unit.rules.filter(matches) }))
+      .filter((unit) => unit.visibleRules.length > 0);
+  }, [policyUnits, search, ruleTypeFilter, effectFilter]);
+
   const exactRulesForVersion = (requestedVersionId: string | null | undefined): CanonicalRule[] | null => {
     if (!requestedVersionId) return null;
     if (rulesByVersionId[requestedVersionId]) return rulesByVersionId[requestedVersionId];
@@ -723,16 +829,35 @@ export function PolicyValidationLab({
             <div>
               <Text strong>Policies under test</Text>
               <Text type="secondary">
-                {selectedRuleIds.size} selected · {executableRules.length} testable · {excludedDefinitionCount} definitions excluded ·{" "}
-                {excludedDocumentationCount} not testable by the deterministic engine
+                {/* Counted in policies, because a policy is what the reader
+                    selects and what the product decides as a unit. The rule
+                    figures are named as rules so neither can be read as the
+                    other -- this line used to print `selectedRuleIds.size`
+                    followed by the word "policies". */}
+                {selectedPolicyCount} of {testablePolicies.length} polic
+                {testablePolicies.length === 1 ? "y" : "ies"} selected ·{" "}
+                {selectedRuleIds.size} rule{selectedRuleIds.size === 1 ? "" : "s"} the engine will run ·{" "}
+                {excludedDocumentationCount} judged · {excludedDefinitionCount} definitions
               </Text>
             </div>
             <Button
               size="small"
-              onClick={() => setSelectedRuleIds(new Set(executableRules.slice(0, 12).map((rule) => rule.rule_id)))}
-              disabled={executableRules.length === 0}
+              onClick={() =>
+                setSelectedRuleIds(
+                  // Selects whole policies, not a rule window: taking the first
+                  // twelve *rules* could stop halfway through a policy and put
+                  // a half-covered policy into a batch the reader believes
+                  // covers it.
+                  new Set(
+                    testablePolicies
+                      .slice(0, 12)
+                      .flatMap((unit) => unit.engineDecided.map((rule) => rule.rule_id)),
+                  ),
+                )
+              }
+              disabled={testablePolicies.length === 0}
             >
-              Select deterministic
+              Select engine-decided policies
             </Button>
           </div>
           <div className="validation-workbench-body">
@@ -775,12 +900,20 @@ export function PolicyValidationLab({
               </Button>
             </div>
             <Text type="secondary" className="validation-filter-summary" data-testid="validation-lab-scope">
-              Showing {visibleRules.length} of {rules.length} rules from published v{selectedVersion?.version_number ?? "—"}.{" "}
+              {/* Reported in policies first. The rule figures follow, each
+                  named as the route it takes: a judged rule is not an
+                  exclusion or a gap, it is the other route, and on this corpus
+                  it is the overwhelming majority. Wording it as "excluded"
+                  told the reader the version was mostly unusable. */}
+              Showing {policyUnits.length} polic{policyUnits.length === 1 ? "y" : "ies"} from published v
+              {selectedVersion?.version_number ?? "—"}, holding {rules.length} rule
+              {rules.length === 1 ? "" : "s"}.{" "}
               {excludedDocumentationCount > 0 && (
                 <>{excludedDocumentationCount} rule{excludedDocumentationCount === 1 ? " takes" : "s take"} the AI Ready
                 route — {excludedDocumentationCount === 1 ? "its" : "their"} test is stated in
-                words and decided by a judge reading the case, not by the deterministic engine this
-                lab exercises. </>
+                words and decided by a judge reading the case. This lab seals and re-runs the
+                engine-decided ones; the judged ones are checked by putting a case to the policy in
+                Test a Case. </>
               )}
               {excludedDefinitionCount > 0 && (
                 <>{excludedDefinitionCount} definition{excludedDefinitionCount === 1 ? " is" : "s are"} excluded because
@@ -788,44 +921,90 @@ export function PolicyValidationLab({
               )}
             </Text>
             <div className="validation-rule-list">
-              {visibleRules.map((rule) => (
-                <div
-                  key={rule.rule_id}
-                  className={`validation-rule-row${rule.machine_executable ? "" : " is-disabled"}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setPolicyPreviewTab("overview");
-                    setPolicyPreview(rule);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setPolicyPreviewTab("overview");
-                      setPolicyPreview(rule);
-                    }
-                  }}
-                >
-                  <Checkbox
-                    checked={selectedRuleIds.has(rule.rule_id)}
-                    disabled={!rule.machine_executable}
-                    onChange={() => toggleRule(rule.rule_id)}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                  <span className="validation-rule-copy">
-                    <strong>{rule.title}</strong>
-                    <small>
-                      {rule.rule_id} · {rule.rule_type} · {rule.required_facts.length} facts · {rule.evidence.length} sources
-                    </small>
-                    <em>{ruleDecisionSummary(rule).text}</em>
-                  </span>
-                  <PolicyEffectBadge effect={rule.effect} size="small" />
-                  <Tag color={rule.machine_executable ? "green" : "default"}>
-                    {rule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}
-                  </Tag>
-                </div>
-              ))}
-              {!loading && visibleRules.length === 0 && <Text type="secondary">No matching policies.</Text>}
+              {visiblePolicyUnits.map((unit) => {
+                const runnable = unit.engineDecided.map((rule) => rule.rule_id);
+                const selectedHere = runnable.filter((id) => selectedRuleIds.has(id)).length;
+                return (
+                  <div key={unit.key} className="validation-policy-group">
+                    {/* The policy's own row. Selecting here selects the policy,
+                        which is the unit this lab is asked to cover; the rules
+                        below are what it is made of. */}
+                    <div className="validation-policy-group__head">
+                      <Checkbox
+                        checked={runnable.length > 0 && selectedHere === runnable.length}
+                        indeterminate={selectedHere > 0 && selectedHere < runnable.length}
+                        disabled={runnable.length === 0}
+                        onChange={(event) => {
+                          setSelectedRuleIds((current) => {
+                            const next = new Set(current);
+                            for (const id of runnable) {
+                              if (event.target.checked) next.add(id);
+                              else next.delete(id);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                      <span className="validation-policy-group__copy">
+                        <strong>{unit.heading}</strong>
+                        <small>
+                          {unit.rules.length} rule{unit.rules.length === 1 ? "" : "s"} ·{" "}
+                          {unit.engineDecided.length} engine-decided · {unit.judged.length} judged
+                          {unit.definitions.length > 0
+                            ? ` · ${unit.definitions.length} definition${unit.definitions.length === 1 ? "" : "s"}`
+                            : ""}
+                        </small>
+                      </span>
+                      <Tag color={unit.engineDecided.length > 0 ? "green" : "default"}>
+                        {unit.engineDecided.length === 0
+                          ? "Judged route"
+                          : unit.judged.length === 0
+                            ? "Engine route"
+                            : "Mixed route"}
+                      </Tag>
+                    </div>
+                    {unit.visibleRules.map((rule) => (
+                      <div
+                        key={rule.rule_id}
+                        className={`validation-rule-row${rule.machine_executable ? "" : " is-disabled"}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setPolicyPreviewTab("overview");
+                          setPolicyPreview(rule);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setPolicyPreviewTab("overview");
+                            setPolicyPreview(rule);
+                          }
+                        }}
+                      >
+                        <Checkbox
+                          checked={selectedRuleIds.has(rule.rule_id)}
+                          disabled={!rule.machine_executable}
+                          onChange={() => toggleRule(rule.rule_id)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                        <span className="validation-rule-copy">
+                          <strong>{rule.title}</strong>
+                          <small>
+                            {rule.rule_id} · {rule.rule_type} · {rule.required_facts.length} facts ·{" "}
+                            {rule.evidence.length} sources
+                          </small>
+                          <em>{ruleDecisionSummary(rule).text}</em>
+                        </span>
+                        <PolicyEffectBadge effect={rule.effect} size="small" />
+                        <Tag color={rule.machine_executable ? "green" : "default"}>
+                          {rule.machine_executable ? DETERMINISTIC_LABEL.yes : DETERMINISTIC_LABEL.no}
+                        </Tag>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {!loading && visiblePolicyUnits.length === 0 && <Text type="secondary">No matching policies.</Text>}
             </div>
           </div>
         </section>
@@ -891,9 +1070,14 @@ export function PolicyValidationLab({
                   tooltip={{ formatter: (value) => `${value} tests per policy` }}
                 />
                 <Text type="secondary">
+                  {/* The multiplicand is the rule count, because the batch is
+                      built per rule the engine will run. Saying "policies"
+                      here overstated it whenever one policy held several
+                      engine-decided rules, and understated nothing — it was
+                      simply the wrong noun for the number beside it. */}
                   {selectedRuleIds.size === 0
                     ? "Select policies to calculate the batch size."
-                    : `${selectedRuleIds.size} policies × ${testsPerPolicy} tests = ${selectedRuleIds.size * testsPerPolicy} blind scenarios`}
+                    : `${selectedRuleIds.size} engine-decided rule${selectedRuleIds.size === 1 ? "" : "s"} across ${selectedPolicyCount} polic${selectedPolicyCount === 1 ? "y" : "ies"} × ${testsPerPolicy} tests = ${selectedRuleIds.size * testsPerPolicy} blind scenarios`}
                 </Text>
               </div>
             ) : (
@@ -940,7 +1124,8 @@ export function PolicyValidationLab({
                     : "1 scenario"}
                 </strong>
                 <em>
-                  {selectedRuleIds.size} polic{selectedRuleIds.size === 1 ? "y" : "ies"} · v
+                  {selectedPolicyCount} polic{selectedPolicyCount === 1 ? "y" : "ies"} ·{" "}
+                  {selectedRuleIds.size} rule{selectedRuleIds.size === 1 ? "" : "s"} · v
                   {selectedVersion?.version_number ?? "—"}
                 </em>
               </span>

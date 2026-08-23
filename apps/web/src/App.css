@@ -9694,6 +9694,50 @@
   scrollbar-gutter: stable;
 }
 
+/* A policy and the rules stated under it. The policy is the unit this lab
+   covers, so it gets a row of its own that reads as a heading rather than as
+   another rule: its rules are indented beneath it and share its left rule. */
+.validation-policy-group {
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.validation-policy-group:last-child {
+  border-bottom: none;
+}
+
+.validation-policy-group__head {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 9px 7px;
+  background: var(--slate-50);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.validation-policy-group__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.validation-policy-group__copy strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.validation-policy-group__copy small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.validation-policy-group .validation-rule-row {
+  padding-left: 26px;
+}
+
 .validation-rule-row {
   min-height: 54px;
   padding: 7px 9px;
