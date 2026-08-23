@@ -10,8 +10,26 @@ from __future__ import annotations
 
 import pytest
 
-from policy_platform.contracts.conditions import ConditionOperator, FactComparisonCondition
-from policy_platform.contracts.policy import AmbiguityStatus, Effect, EffectType, RuleType
+from policy_platform.contracts.conditions import (
+    AllCondition,
+    ConditionOperator,
+    FactComparisonCondition,
+)
+from policy_platform.contracts.formulation import (
+    CanonicalPolicy,
+    CanonicalPolicyRule,
+    CanonicalRuleType,
+    RuleFormulation,
+)
+from policy_platform.contracts.policy import (
+    AmbiguityStatus,
+    CanonicalRule,
+    Effect,
+    EffectType,
+    EvidenceReference,
+    PolicyFact,
+    RuleType,
+)
 from policy_platform.infrastructure.quality import ai_quality
 from tests.fixtures.factories import make_rule
 
@@ -241,6 +259,186 @@ class TestBeingDecidedByReadingIsNotAFinding:
         findings = ai_quality._deterministic_findings([rule])
 
         assert [f for f in findings if f["category"] == "definition_carries_effect"]
+
+
+def _ambiguity_queue_rule(
+    *,
+    rule_id: str,
+    title: str,
+    source_text: str,
+    subject: str,
+    predicate: str,
+    obj: str,
+    condition: str | None,
+    effect_action: str,
+    rule_type: RuleType = RuleType.ROUTING,
+    effect_type: EffectType = EffectType.REQUIRE_ACTION,
+) -> CanonicalRule:
+    rule = make_rule(
+        rule_id,
+        AllCondition(all=[]),
+        effect_action=effect_action,
+        effect_type=effect_type,
+        rule_type=rule_type,
+        machine_executable=False,
+    )
+    rule.title = title
+    rule.ambiguity_status = AmbiguityStatus.HUMAN_JUDGMENT_REQUIRED
+    rule.formulation = RuleFormulation(
+        canonical=CanonicalPolicy(
+            source_text=source_text,
+            rule=CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.CONDITIONAL_OUTCOME,
+                subject=subject,
+                predicate=predicate,
+                object=obj,
+                condition=condition,
+            ),
+        )
+    )
+    rule.fact_model = [
+        PolicyFact(name="subject", source_phrase=subject),
+        PolicyFact(name="outcome", source_phrase=obj),
+    ]
+    rule.evidence = [EvidenceReference(document_version_id="ais-v1", source_hash="hash")]
+    return rule
+
+
+class TestNonBlockingAmbiguityReadsTheStoredDecision:
+    """A stale ambiguity label is a backlog item, not a medium defect."""
+
+    def test_determinate_absence_penalties_are_reported_only_as_low_backlog(self) -> None:
+        """Verbatim AIS records the user flagged as false positives.
+
+        The extractor left `human_judgment_required` on these rows, but the
+        stored rule now says both when it applies and what follows. They still
+        belong in the review queue, but not beside duplicate IDs, inverted
+        effects or other medium/high defects.
+        """
+
+        rules = [
+            _ambiguity_queue_rule(
+                rule_id="AI-0546f131da",
+                title="Absence deduction Five (5) days",
+                source_text=(
+                    "14. | Absence without written permission\nor justified excuse for "
+                    "(7 to 10) days\nwithin a contract year | Four (4) days deduction "
+                    "حسم (4) أربعة أيام |  |  | Five (5) days deduction حسم (5) خمسة أيام"
+                ),
+                subject="Absence",
+                predicate="deduction",
+                obj="Five (5) days",
+                condition=(
+                    "without written permission or justified excuse for (7 to 10) days "
+                    "within a contract year"
+                ),
+                effect_action="deduction Five (5) days",
+            ),
+            _ambiguity_queue_rule(
+                rule_id="AI-094805140c",
+                title="Absence Termination with Saudi Service Award",
+                source_text=(
+                    "14. | Absence without written permission\nor justified excuse for "
+                    "(7 to 10) days\nwithin a contract year | Termination with Saudi "
+                    "Service Award, if it doesn’t exceed 30 days of absence فصل من الخدمة مع المكافأة"
+                ),
+                subject="Absence",
+                predicate="Termination with",
+                obj="Saudi Service Award",
+                condition=(
+                    "without written permission or justified excuse for (7 to 10) days "
+                    "within a contract year"
+                ),
+                effect_action="Termination with Saudi Service Award",
+            ),
+        ]
+
+        findings = ai_quality._non_blocking_ambiguity_findings(rules)
+
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "low"
+        assert findings[0]["affected_rule_ids"] == ["AI-0546f131da", "AI-094805140c"]
+        assert "2 are decidable as written; 0 cannot yield" in findings[0]["finding"]
+        assert "not a deterministic finding that the stored rule is wrong" in findings[0]["recommendation"]
+
+    def test_subjective_or_deferred_outcomes_are_not_special_cased(self) -> None:
+        """The backlog check must not pretend to know every vague phrase.
+
+        These are from the same AIS queue as the determinate absence penalties.
+        They use subjective/deferred words, but those examples are not a safe
+        discriminator: a vocabulary of vagueness can never be complete. The
+        quality report therefore says only that extraction flagged review.
+        """
+
+        rules = [
+            _ambiguity_queue_rule(
+                rule_id="AI-38bd462f55",
+                title="the administration will take the appropriate measures",
+                source_text=(
+                    "In the case that this has taken place, the administration will "
+                    "take the appropriate measures."
+                ),
+                subject="the administration",
+                predicate="take",
+                obj="the appropriate measures",
+                condition="In the case that this has taken place",
+                effect_action="take the appropriate measures",
+            ),
+            _ambiguity_queue_rule(
+                rule_id="AI-ec8637e822",
+                title="action will be taken according to the school policy",
+                source_text=(
+                    "Employees are responsible for the proper care and use of the schools’ "
+                    "property. At the end of each working day, we require that employees "
+                    "turn off projectors, air conditioning and computers. In the case that "
+                    "these rules are not abided by, action will be taken according to the "
+                    "school policy."
+                ),
+                subject="action",
+                predicate="be taken",
+                obj="according to the school policy",
+                condition="In the case that these rules are not abided by",
+                effect_action="be taken according to the school policy",
+            ),
+        ]
+
+        findings = ai_quality._non_blocking_ambiguity_findings(rules)
+
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "low"
+        assert findings[0]["affected_rule_ids"] == ["AI-38bd462f55", "AI-ec8637e822"]
+        assert "2 are decidable as written; 0 cannot yield" in findings[0]["finding"]
+
+    def test_informational_records_are_counted_separately_from_decidable_backlog(self) -> None:
+        """The principled no-verdict predicate is read, not re-derived.
+
+        This fixture mirrors the live maternity-salary row: it has a source
+        ambiguity label, but the effect says the record does not produce an
+        allow/deny/obligation verdict. The finding should name that separately
+        from rules a judge can decide as written.
+        """
+
+        rule = _ambiguity_queue_rule(
+            rule_id="AI-6b024bddb2",
+            title="The maternity leave salary will be according to the procedures of the Ministry of Labour",
+            source_text=(
+                "The maternity leave salary will be according to the procedures "
+                "of the Ministry of Labour."
+            ),
+            subject="The maternity leave salary",
+            predicate="be according to",
+            obj="the procedures of the Ministry of Labour",
+            condition=None,
+            effect_action="be according to the procedures of the Ministry of Labour",
+            rule_type=RuleType.CALCULATION,
+            effect_type=EffectType.INFORMATIONAL,
+        )
+
+        findings = ai_quality._non_blocking_ambiguity_findings([rule])
+
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "low"
+        assert "0 are decidable as written; 1 cannot yield" in findings[0]["finding"]
 
 
 class TestDefinitionsCarryingEffects:

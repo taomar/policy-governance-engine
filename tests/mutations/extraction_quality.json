@@ -53,5 +53,14 @@
       "tests/unit/test_extraction_quality_checks.py",
       "tests/unit/test_judge_readiness.py"
     ]
+  },
+  {
+    "name": "ambiguity review backlog is reported as a medium defect again",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
+    "find": "            \"severity\": \"low\",\n            \"category\": \"ambiguity\",",
+    "replace": "            \"severity\": \"medium\",\n            \"category\": \"ambiguity\",",
+    "tests": [
+      "tests/unit/test_ai_quality.py::TestNonBlockingAmbiguityReadsTheStoredDecision"
+    ]
   }
 ]

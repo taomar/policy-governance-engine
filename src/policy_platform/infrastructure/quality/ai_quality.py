@@ -22,6 +22,7 @@ from policy_platform.contracts.policy import (
     EvaluationMode,
     unanswered_for_judge,
     unrunnable_reasons,
+    yields_no_verdict,
 )
 from policy_platform.domain.models import QualityRun
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
@@ -1205,29 +1206,39 @@ def _degenerate_predicate_findings(rules: list[CanonicalRule]) -> list[dict]:
 
 
 def _non_blocking_ambiguity_findings(rules: list[CanonicalRule]) -> list[dict]:
-    """One finding for the non-blocking ambiguity backlog, not one per rule.
+    """One low-severity backlog finding for non-blocking ambiguity labels.
 
-    A per-rule finding is right when each row needs its own decision. Ambiguity
-    that the extractor flagged for human judgment is a queue with a known size,
-    and emitting one row per rule pushes genuinely distinct problems (duplicate
-    ids, conflicting effects) off the end of a report that is read top-down.
+    `ambiguity_status` is the extractor recording that AI drafting did not
+    bypass review. It is not, by itself, evidence that the published rule is
+    wrong: many AI Ready records yield a verdict once a judge reads the stored
+    sentence, condition and effect. Report the queue size because it is useful
+    operationally, but keep it below real package defects.
     """
     flagged = [r for r in rules if r.ambiguity_status.value not in ("none", "blocking")]
     if not flagged:
         return []
+    cannot_yield_verdict = 0
+    for r in flagged:
+        if yields_no_verdict(r) or unanswered_for_judge(r):
+            cannot_yield_verdict += 1
+    decidable = len(flagged) - cannot_yield_verdict
     by_status = collections.Counter(r.ambiguity_status.value for r in flagged)
     breakdown = ", ".join(f"{count} {status}" for status, count in sorted(by_status.items()))
     return [
         {
-            "severity": "medium",
+            "severity": "low",
             "category": "ambiguity",
             "finding": (
-                f"{len(flagged)} of {len(rules)} rule(s) need human judgment on wording ({breakdown})."
+                f"{len(flagged)} of {len(rules)} rule(s) are in the ambiguity review backlog "
+                f"because extraction flagged their source wording ({breakdown}). "
+                f"{decidable} are decidable as written; {cannot_yield_verdict} cannot yield "
+                f"a verdict or still lack judge-facing inputs."
             ),
             "affected_rule_ids": [r.rule_id for r in flagged],
             "recommendation": (
-                "Work these through the Review Queue. This records that the source wording needs a "
-                "human decision — it is not an extraction failure."
+                "Work these through the Review Queue before treating the source wording as fully "
+                "reviewed. This is a review backlog count, not a deterministic finding that the "
+                "stored rule is wrong."
             ),
             "source": "deterministic",
         }
