@@ -15,7 +15,10 @@ from typing import Final, Literal
 from pydantic import BaseModel, Field
 
 from policy_platform.contracts.conditions import ConditionNode
-from policy_platform.contracts.formulation import RuleFormulation
+from policy_platform.contracts.formulation import (
+    RuleFormulation,
+    _COURTESY_MODALITIES,
+)
 
 CANONICAL_SCHEMA_VERSION = "1.0"
 
@@ -637,7 +640,48 @@ def _sentence_states_a_test(source_text: str) -> bool:
     return bool(_A_PERIOD.search(text) or _AN_AUTHORITY.search(text))
 
 
-def _states_its_test(core: object | None, source_text: str = "") -> bool:
+def _carries_deontic_force(modality: str) -> bool:
+    """Whether the modal slot puts its subject under an obligation, permission or ban.
+
+    The complement of `states_no_testable_proposition`'s courtesy set, and
+    deliberately expressed as "not a request" rather than as a list of modals.
+    A closed list of deontic operators would have to be complete to be safe, and
+    a policy corpus writes them 78 different ways — "shall", "must", "may not",
+    "are expected to", "reserves the right to", "has a moral obligation to",
+    "is strictly prohibited". Missing one would call a real rule silent, which
+    is the failure this whole area keeps producing.
+
+    Absence is not force. A record with no modal slot has not been shown to
+    regulate anything by this route — but see `_effect_is_determinate`, which
+    reads the same property off a slot this one cannot see.
+    """
+
+    text = " ".join((modality or "").split())
+    if not text:
+        return False
+    return text.casefold() not in _COURTESY_MODALITIES
+
+
+#: Effects that are only ever reached by determining something about the source.
+#:
+#: DENY is produced by reading an actual negation — `states_a_negation` looks in
+#: the modal word, the predicate and the subject, because policy prose puts it
+#: in all three. ALLOW comes from a permission, entitlement or eligibility type.
+#: Neither is a default, so either one is the pipeline stating that it worked
+#: out what this record does.
+#:
+#: REQUIRE_ACTION is deliberately absent. It is the fallback for obligation and
+#: conditional_outcome, so it carries no information — treating it as force
+#: would accept every record that reached this point and leave the check with
+#: nothing to say.
+_A_DETERMINATE_EFFECT = frozenset({EffectType.DENY, EffectType.ALLOW})
+
+
+def _states_its_test(
+    core: object | None,
+    source_text: str = "",
+    effect_type: "EffectType | None" = None,
+) -> bool:
     """Whether the record carries the rule's operative content, anywhere.
 
     Deliberately generous about *where*, and strict about *whether*. A sentence
@@ -668,6 +712,26 @@ def _states_its_test(core: object | None, source_text: str = "") -> bool:
     it carries operative content of its own — see `_sentence_states_a_test`. A
     genuinely empty record, whose sentence is a heading or a bare subject and
     verb, still answers False here.
+
+    The third instance of the same lesson is the categorical rule. "Slippers are
+    strictly not allowed" has no condition, no threshold and no object — the
+    forbidden thing *is* the subject — so a shape test written as `predicate and
+    (object or threshold)` reads it as silent. It is not silent. Asked "may I
+    wear slippers?" it answers, every time, without needing a case to test
+    against. Thirteen prohibitions were reported this way in one evaluation:
+    "Smoking is not allowed", "Nepotism of any degree is not tolerated",
+    "Alcohol and drugs are strictly forbidden".
+
+    So a subject, a deontic operator and a predicate together answer this
+    question. That is what a rule *is* — someone or something, put under an
+    obligation, a permission or a ban. Whether it then says it well enough is
+    other checks' work and they already do it: `action_fragment` catches a
+    predicate that is not something a reader could carry out,
+    `degenerate_predicate` catches one too short to mean anything,
+    `record_does_not_stand_alone` catches one that needs its neighbours, and
+    `source_condition_not_captured` catches a dependency the source stated and
+    the decomposition dropped. This check asking all of those again, more
+    crudely and from a narrower view, is what produced the false positives.
     """
 
     def text(name: str) -> str:
@@ -682,6 +746,22 @@ def _states_its_test(core: object | None, source_text: str = "") -> bool:
         return True
     if text("predicate") and (text("object") or text("threshold")):
         return True
+    # A complete deontic proposition: something regulated, the force applied to
+    # it, and what is done. A categorical rule states its test by having none —
+    # it applies whenever its subject is in scope.
+    #
+    # The force is read from two places because policy prose writes it in two.
+    # "Slippers are strictly not allowed" puts it in the modal slot; "Nepotism
+    # of any degree is not tolerated" leaves that slot empty and carries the
+    # negation in the predicate, where only the projection saw it. Reading the
+    # modal word alone is the same one-slot narrowness that produced the
+    # findings this branch exists to remove, and `states_a_negation` already
+    # records the lesson: source text uses both.
+    if text("subject") and text("predicate"):
+        if effect_type in _A_DETERMINATE_EFFECT:
+            return True
+        if _carries_deontic_force(text("modality")):
+            return True
     return _sentence_states_a_test(source_text)
 
 
@@ -753,7 +833,7 @@ def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
     missing: list[str] = []
     if not (canonical and (canonical.source_text or "").strip()):
         missing.append("the sentence it came from")
-    if not _states_its_test(core, readable):
+    if not _states_its_test(core, readable, rule.effect.type if rule.effect else None):
         missing.append("what it requires")
     if not rule.fact_model:
         missing.append("what a case must establish")

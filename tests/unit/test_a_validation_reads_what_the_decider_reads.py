@@ -48,7 +48,13 @@ Both directions, because widening a check's context must not make it vacuous:
 
 from __future__ import annotations
 
-from policy_platform.contracts.policy import _sentence_states_a_test, _states_its_test
+import pytest
+
+from policy_platform.contracts.policy import (
+    EffectType,
+    _sentence_states_a_test,
+    _states_its_test,
+)
 
 
 class _Core:
@@ -59,6 +65,7 @@ class _Core:
             "condition", "prerequisite", "constraint",
             "trigger", "temporal_constraint", "deadline",
             "predicate", "object", "threshold",
+            "subject", "modality",
         ):
             setattr(self, name, fields.get(name, ""))
 
@@ -93,6 +100,102 @@ def test_the_structured_slots_still_answer_first() -> None:
 def test_no_context_and_no_slots_is_still_silent() -> None:
     assert _states_its_test(_Core(), "") is False
     assert _states_its_test(None, "") is False
+
+
+class TestACategoricalRuleStatesItsTestByHavingNone:
+    """The third instance, and the one that survived the first two fixes.
+
+    "Slippers are strictly not allowed" has no condition, no threshold and no
+    object — the forbidden thing *is* the subject — so a shape test written as
+    `predicate and (object or threshold)` read it as silent. It is not silent.
+    Asked "may I wear slippers?" it answers, every time, without needing a case
+    to test against.
+
+    Thirteen prohibitions were reported this way in a single evaluation of the
+    AIS handbook, at high severity: "Smoking is not allowed", "Nepotism of any
+    degree is not tolerated", "Alcohol and drugs are strictly forbidden",
+    "head coverings or head wraps not allowed".
+
+    Same fault as the two above it and the same correction: the check was
+    reading less than the decider does.
+    """
+
+    #: Verbatim from the AIS handbook, with the decomposition as extracted.
+    #: Each names the regulated thing in the subject and the force in the modal
+    #: slot, and none carries an object because there is nothing to act upon.
+    _BANS_WITH_A_MODAL = [
+        ("Slippers", "strictly not allowed", "are allowed"),
+        ("Breakfast or lunch gatherings", "are not allowed", "are allowed"),
+        ("'Noisy' accessories", "not allowed", "are allowed"),
+        ("head coverings or head wraps", "not allowed", "are allowed"),
+        ("Smoking", "is not allowed", "is allowed"),
+        ("Alcohol and drugs", "strictly forbidden", "are forbidden"),
+        ("Any other connections to the AIS internet/network", "strictly forbidden", "are forbidden"),
+    ]
+
+    @pytest.mark.parametrize("subject,modality,predicate", _BANS_WITH_A_MODAL)
+    def test_a_ban_naming_its_subject_says_what_it_requires(
+        self, subject: str, modality: str, predicate: str
+    ) -> None:
+        core = _Core(subject=subject, modality=modality, predicate=predicate)
+        assert _states_its_test(core, f"{subject} {modality}.") is True
+
+    def test_the_force_is_read_from_the_predicate_too(self) -> None:
+        """"Nepotism of any degree is not tolerated" writes no modal word.
+
+        The negation is in the predicate, where `states_a_negation` already
+        looks — it reads the modal word, the predicate and the subject, because
+        policy prose uses all three. Reading only the modal slot here left this
+        record reported after the other twelve were cleared, which is the same
+        one-slot narrowness in miniature.
+
+        Rather than re-derive the negation with a second vocabulary, the
+        projection's own conclusion is read: a DENY effect is only ever reached
+        by determining that the source forbids something.
+        """
+
+        core = _Core(subject="Nepotism of any degree", predicate="is not tolerated")
+        source = "Nepotism of any degree is not tolerated at Arab International Schools."
+
+        assert _states_its_test(core, source) is False, (
+            "without the effect there is nothing here to read force from — "
+            "this is the honest answer for the slots alone"
+        )
+        assert _states_its_test(core, source, EffectType.DENY) is True
+
+    def test_require_action_is_not_evidence_of_force(self) -> None:
+        """The guard that stops this widening swallowing the check.
+
+        DENY and ALLOW are conclusions. REQUIRE_ACTION is the fallback for
+        obligation and conditional_outcome, so accepting it as force would
+        clear every record that reaches this point and leave the check with
+        nothing to say.
+        """
+
+        core = _Core(subject="The Foundation", predicate="operates")
+        assert _states_its_test(core, "The Foundation operates.", EffectType.REQUIRE_ACTION) is False
+
+    def test_a_subject_and_predicate_without_force_is_still_reported(self) -> None:
+        """The anti-vacuity case, and the reason force is required at all.
+
+        "X does Y" is a description. Without a deontic operator nothing has been
+        put under an obligation, a permission or a ban, and a judge is left with
+        a statement of fact rather than a rule.
+        """
+
+        assert _states_its_test(_Core(subject="The Foundation", predicate="operates"), "") is False
+
+    def test_a_request_is_not_force(self) -> None:
+        """"Please" asks. A record whose only modal is a courtesy states no rule.
+
+        Such records are marked informational at extraction and
+        `unanswered_for_judge` returns early for them, so this can only be
+        reached by calling the function directly — but it must be sound on its
+        own terms, or the next caller inherits a hole.
+        """
+
+        core = _Core(subject="you", modality="Please", predicate="check with")
+        assert _states_its_test(core, "Please check with HR") is False
 
 
 class TestWhatCountsAsOperativeContent:

@@ -47,7 +47,7 @@
   {
     "name": "an AI Ready record is never checked for sufficiency",
     "file": "src/policy_platform/contracts/policy.py",
-    "find": "    if not _states_its_test(core, readable):\n        missing.append(\"what it requires\")",
+    "find": "    if not _states_its_test(core, readable, rule.effect.type if rule.effect else None):\n        missing.append(\"what it requires\")",
     "replace": "    if False:\n        missing.append(\"what it requires\")",
     "tests": [
       "tests/unit/test_extraction_quality_checks.py",
