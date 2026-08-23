@@ -32,6 +32,61 @@
   --shadow-pop: var(--shadow-md);
 }
 
+@container (max-width: 62rem) {
+  .validation-suite-register {
+    overflow-x: visible;
+  }
+
+  .validation-suite-head {
+    display: none;
+  }
+
+  .validation-suite-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 5px;
+  }
+
+  .validation-suite-row > span:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .validation-suite-row > span:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-top: 5px;
+    border-top: 1px solid var(--border);
+  }
+
+  .validation-suite-row > .ant-tag {
+    grid-column: 2;
+    grid-row: 1;
+    margin-inline-end: 0;
+  }
+
+  .validation-suite-row > span:nth-child(4) {
+    grid-column: 1;
+    grid-row: 3;
+    color: var(--text);
+    font-size: 10px;
+  }
+
+  .validation-suite-row > span:nth-child(5) {
+    grid-column: 1;
+    grid-row: 4;
+    color: var(--text-muted);
+    font-size: 9.5px;
+  }
+
+  .validation-suite-row-actions {
+    grid-column: 2;
+    grid-row: 3 / 5;
+    align-items: flex-end;
+    flex-direction: column;
+  }
+}
+
 .app-shell {
   height: 100vh;
   width: 100%;
@@ -246,12 +301,13 @@
    here, so the fix lives here too — not in whatever supplies the title. */
 
 .app-header {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
   gap: 14px;
-  padding: 0 22px;
+  padding-inline: clamp(14px, 1.4vw, 22px);
   border-bottom: 1px solid var(--border);
   height: 52px;
   line-height: 1.4;
@@ -339,6 +395,24 @@
   font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+@container (max-width: 70rem) {
+  .status-label {
+    display: none;
+  }
+
+  .status-pill {
+    width: 22px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@container (max-width: 56rem) {
+  .actor-switcher-role {
+    display: none;
+  }
 }
 
 .status-dot {
@@ -537,7 +611,7 @@
  * own `ch` caps, which is a measure of line length rather than of monitor. */
 .page-inner {
   width: 100%;
-  padding: 16px 22px 32px;
+  padding: 16px clamp(14px, 1.4vw, 22px) 32px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -717,8 +791,8 @@
    summary at the top of the card body — the answer to "who can do what". */
 .entity-band {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  gap: 1px;
   background: #f7f7fa;
   border: 1px solid #e2e3eb;
   border-radius: 7px;
@@ -726,16 +800,13 @@
 }
 
 .entity-band-row {
+  background: #f7f7fa;
   display: flex;
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
   padding: 9px 11px;
   font-size: 13px;
-}
-
-.entity-band-row:first-child {
-  border-right: 1px solid #e2e3eb;
 }
 
 .entity-band-icon {
@@ -1046,11 +1117,12 @@
   flex-direction: column;
   gap: 4px;
   width: 100%;
+  container-type: inline-size;
 }
 
 .evidence-provenance-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1083,6 +1155,12 @@
 
 .evidence-provenance-search {
   grid-column: 1 / -1;
+}
+
+@container (max-width: 38rem) {
+  .evidence-provenance-search {
+    grid-column: auto;
+  }
 }
 
 /* Heading context sits between the citation line and the ID grid, in both of
@@ -1138,20 +1216,6 @@
   line-height: 1.6;
 }
 
-@media (max-width: 700px) {
-  .evidence-provenance-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .evidence-provenance-search {
-    grid-column: auto;
-  }
-
-  .validation-policy-filters {
-    grid-template-columns: minmax(0, 1fr) repeat(2, 140px) auto;
-  }
-}
-
 .evidence-quote-missing {
   font-size: 12.5px;
   font-style: italic;
@@ -1189,14 +1253,16 @@
 .projects-page-header,
 .review-page-header,
 .policies-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   min-height: 48px;
 }
 
 .dashboard-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
 }
 
 .dashboard-page-header > div,
@@ -1281,7 +1347,8 @@
 .dashboard-pressure-strip {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  gap: 1px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: rgb(255 255 255 / 78%);
@@ -1296,7 +1363,7 @@
   grid-template-columns: 23px minmax(0, 1fr);
   align-items: start;
   gap: 7px;
-  border-right: 1px solid var(--border);
+  background: rgb(255 255 255 / 78%);
 }
 
 .dashboard-pressure-strip > div:last-child {
@@ -1617,14 +1684,15 @@
 
 .dashboard-workflow-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
 }
 
 .dashboard-workflow-list button {
   appearance: none;
   border: 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface);
   min-width: 0;
   min-height: 92px;
   padding: 14px 16px;
@@ -1636,10 +1704,6 @@
   text-align: left;
   cursor: pointer;
   transition: background-color var(--transition-fast);
-}
-
-.dashboard-workflow-list button:last-child {
-  border-right: 0;
 }
 
 .dashboard-workflow-list button:hover {
@@ -1681,16 +1745,21 @@
 /* ---------- Project overview lifecycle flow ---------- */
 
 .project-flow {
+  container-type: inline-size;
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
-  background: #fff;
+  gap: 1px;
+  background: #eef0f4;
   border: 1px solid #eef0f4;
   border-radius: var(--r-lg);
   overflow: hidden;
 }
 
 .project-flow-step {
-  flex: 1;
+  flex: 1 1 min(18rem, 100%);
+  min-width: 0;
+  background: #fff;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1704,7 +1773,7 @@
 }
 
 .project-flow-step:not(:first-child) {
-  border-left: 1px solid #eef0f4;
+  border-left: 0;
 }
 
 .project-flow-step-attn .project-flow-value {
@@ -1768,7 +1837,7 @@
 }
 
 .project-flow-connector {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 0 2px;
@@ -1806,13 +1875,13 @@
 .project-overview-grid,
 .project-overview-lower-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(32rem, 100%), 1fr));
   gap: var(--section-gap);
   align-items: stretch;
 }
 
 .project-overview-lower-grid {
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.5fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(30rem, 100%), 1fr));
 }
 
 .project-overview-panel {
@@ -1853,7 +1922,9 @@
 .project-state-grid {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: 7px;
   overflow: hidden;
@@ -1862,7 +1933,7 @@
 .project-state-grid > div {
   min-width: 0;
   padding: 8px 9px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .project-state-grid > div:last-child {
@@ -1887,12 +1958,12 @@
 .project-review-schedule {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
   gap: 10px;
 }
 
 .project-review-schedule {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
@@ -1930,7 +2001,8 @@
 
 .project-readiness-docket {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(390px, 0.85fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(34rem, 100%), 1fr));
+  gap: 1px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -1940,10 +2012,11 @@
 
 .project-readiness-section {
   min-width: 0;
+  background: var(--surface);
 }
 
 .project-readiness-section:first-child {
-  border-right: 1px solid var(--border);
+  border-right: 0;
 }
 
 .project-readiness-heading {
@@ -2016,7 +2089,9 @@
 .project-readiness-metrics {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -2029,7 +2104,7 @@
   display: flex;
   justify-content: center;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .project-readiness-metrics > div:last-child {
@@ -2066,7 +2141,9 @@
 .project-readiness-signals {
   margin-top: 9px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -2082,7 +2159,7 @@
 }
 
 .project-readiness-signals > div + div {
-  border-left: 1px solid var(--border);
+  border-left: 0;
 }
 
 .project-readiness-signals > div > .anticon {
@@ -2191,7 +2268,9 @@
 .policy-index-readiness__facts {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -2200,7 +2279,7 @@
 .policy-index-readiness__facts > div {
   min-width: 0;
   padding: 7px 8px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .policy-index-readiness__facts > div:last-child {
@@ -2370,100 +2449,7 @@
   max-height: 228px;
 }
 
-@media (max-width: 1050px) {
-  .project-overview-grid,
-  .project-overview-lower-grid {
-    grid-template-columns: 1fr;
-  }
 
-  .project-readiness-docket {
-    grid-template-columns: 1fr;
-  }
-
-  .project-readiness-section:first-child {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-@media (max-width: 700px) {
-  .project-flow {
-    flex-direction: column;
-  }
-
-  .project-flow-step:not(:first-child) {
-    border-left: none;
-    border-top: 1px solid #eef0f4;
-  }
-
-  .project-flow-connector {
-    display: none;
-  }
-
-  .project-state-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .project-state-grid > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .project-state-grid > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .project-state-meta,
-  .project-review-schedule {
-    grid-template-columns: 1fr;
-  }
-
-  .project-readiness-metrics,
-  .governance-role-register,
-  .policy-index-readiness__facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .project-readiness-metrics > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .policy-index-readiness__facts > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .project-readiness-metrics > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .policy-index-readiness__facts > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .project-readiness-signals,
-  .project-governance-schedule {
-    grid-template-columns: 1fr;
-  }
-
-  .project-readiness-signals > div + div {
-    border-top: 1px solid var(--border);
-    border-left: 0;
-  }
-
-  .project-readiness-heading {
-    grid-template-columns: 24px minmax(0, 1fr);
-  }
-
-  .policy-index-readiness__header {
-    grid-template-columns: 24px minmax(0, 1fr);
-  }
-
-  .project-readiness-heading > .ant-tag,
-  .project-readiness-heading > .ant-btn,
-  .policy-index-readiness__header > .ant-btn {
-    grid-column: 2 / -1;
-    justify-self: start;
-  }
-}
 
 /* ---------- Policy Sets / shared page bits ---------- */
 
@@ -2802,10 +2788,11 @@
 .project-register-summary {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 1px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -2817,7 +2804,7 @@
   flex-direction: column;
   justify-content: center;
   gap: 1px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .project-register-summary > div:last-child {
@@ -2846,6 +2833,7 @@
 }
 
 .project-register {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -3062,23 +3050,7 @@
   transition: color var(--transition-fast), transform var(--transition-fast);
 }
 
-.project-register-loading,
-.project-register-empty {
-  min-height: 220px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  display: grid;
-  place-items: center;
-}
-
-.project-register-empty-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-@media (max-width: 1280px) {
+@container (max-width: 78rem) {
   .project-register-columns {
     display: none;
   }
@@ -3101,91 +3073,9 @@
   }
 }
 
-@media (max-width: 1000px) {
-  /* Nothing to reflow here any more: the dashboard panels are already
-   * full-width stacked siblings at every width, so there is no two-column
-   * arrangement to collapse. */
-  .dashboard-pressure-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard-pressure-strip > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .dashboard-pressure-strip > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-@media (max-width: 760px) {
-  .dashboard-page-header,
-  .projects-page-header,
-  .review-page-header,
-  .policies-page-header {
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  .dashboard-role-tag {
-    margin-top: 0;
-  }
-
-  .dashboard-priority {
-    padding: 18px;
-    gap: 16px;
-  }
-
-  .dashboard-pressure-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard-pressure-strip > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .dashboard-pressure-strip > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .dashboard-readiness-row {
-    grid-template-columns: 24px minmax(0, 1fr) 16px;
-  }
-
-  .dashboard-readiness-signals {
-    grid-column: 2 / -1;
-    align-items: flex-start;
-    flex-flow: row wrap;
-  }
-
-  .dashboard-workflow-list {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-workflow-list button {
-    min-height: 76px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .dashboard-workflow-list button:last-child {
-    border-bottom: 0;
-  }
-
-  .project-register-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .project-register-summary > div:nth-child(3n) {
-    border-right: 0;
-  }
-
-  .project-register-summary > div:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--border);
-  }
-
+@container (max-width: 46rem) {
   .project-register-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
     row-gap: 10px;
     min-height: 0;
     padding: 12px;
@@ -3199,16 +3089,26 @@
     top: 18px;
     right: 12px;
   }
-
-  .entity-band {
-    grid-template-columns: 1fr;
-  }
-
-  .entity-band-row:first-child {
-    border-right: 0;
-    border-bottom: 1px solid #e2e3eb;
-  }
 }
+
+.project-register-loading,
+.project-register-empty {
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+}
+
+.project-register-empty-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+
+
 
 /* ---------- Ask AI drawer (custom chat UI) ---------- */
 
@@ -3967,7 +3867,7 @@
 
 .review-record-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
   gap: 1px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -4006,11 +3906,6 @@
   color: #5b4db1;
 }
 
-@media (max-width: 760px) {
-  .review-record-grid {
-    grid-template-columns: 1fr;
-  }
-}
 
 .extract-panel {
   margin-top: 10px;
@@ -4211,31 +4106,7 @@
    the actor switcher) leave the breadcrumb almost no room. Drop the status
    *labels* first — the coloured Badge dots still convey API/AI state — so the
    breadcrumb keeps enough width to stay legible instead of ellipsing away. */
-@media (max-width: 1120px) {
-  .status-label {
-    display: none;
-  }
 
-  .status-pill {
-    width: 22px;
-    padding: 0;
-    justify-content: center;
-  }
-}
-
-@media (max-width: 900px) {
-  .page-inner {
-    padding: 14px 14px 28px;
-  }
-
-  .app-header {
-    padding: 0 14px;
-  }
-
-  .actor-switcher-role {
-    display: none;
-  }
-}
 
 /* ==========================================================================
    Policies tab — master/detail workspace
@@ -4369,7 +4240,7 @@
 }
 
 .policies-toolbar-select {
-  min-width: 148px;
+  min-width: clamp(128px, 12vw, 148px);
 }
 
 .policies-toolbar-chips {
@@ -5061,7 +4932,7 @@
 
 /* Narrow panel: the identifier drops beneath the text it belongs to rather
    than competing with it for width. */
-@container (max-width: 640px) {
+@container (max-width: 40rem) {
   .policy-attr {
     grid-template-columns: 112px minmax(0, 1fr);
     row-gap: 2px;
@@ -5073,7 +4944,7 @@
 }
 
 /* Narrower still: one column, each part on its own line. */
-@container (max-width: 380px) {
+@container (max-width: 24rem) {
   .policy-attr {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6286,8 +6157,8 @@
 
 .summary-stat-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
   background: #f8f9fa;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -6298,7 +6169,7 @@
 .summary-stat {
   text-align: center;
   padding: 9px 7px;
-  border-right: 1px solid var(--border);
+  background: #f8f9fa;
 }
 
 .summary-stat:last-child {
@@ -6347,8 +6218,8 @@
 
 .summary-breakdown-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+  gap: clamp(12px, 1.5vw, 24px);
 }
 
 .summary-bars {
@@ -6360,7 +6231,7 @@
 
 .summary-bar-row {
   display: grid;
-  grid-template-columns: 150px 1fr 32px;
+  grid-template-columns: minmax(min(10rem, 38%), 0.44fr) minmax(6rem, 1fr) minmax(28px, auto);
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
@@ -6395,38 +6266,7 @@
 
 /* ---------- Responsive tweaks ---------- */
 
-@media (max-width: 1100px) {
-  .policies-toolbar-select {
-    min-width: 128px;
-  }
-}
 
-@media (max-width: 720px) {
-  .summary-breakdown-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .summary-stat-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .summary-stat {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .summary-stat:nth-child(even) {
-    border-right: 0;
-  }
-
-  .summary-stat:nth-last-child(-n + 2) {
-    border-bottom: 0;
-  }
-
-  .summary-bar-row {
-    grid-template-columns: 100px 1fr 28px;
-  }
-}
 
 /* ---------- Tests workspace ---------- */
 
@@ -6450,17 +6290,18 @@
 .tests-summary-strip {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: 1px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--border);
   overflow: hidden;
 }
 
 .tests-summary-strip > div {
   min-height: 46px;
   padding: 8px 11px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -6493,7 +6334,7 @@
 
 .tests-control-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 1.35fr) minmax(320px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
   gap: 14px;
   align-items: stretch;
 }
@@ -6535,7 +6376,7 @@
 
 .tests-kind-chips {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
   gap: 8px;
 }
 
@@ -6574,7 +6415,7 @@
 
 .tests-main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: repeat(auto-fit, minmax(min(34rem, 100%), 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -6587,8 +6428,8 @@
 }
 
 .tests-side-column {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
   gap: 14px;
   min-width: 0;
   position: sticky;
@@ -6614,7 +6455,7 @@
 
 .tests-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
   gap: 12px;
 }
 
@@ -6655,6 +6496,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -6730,7 +6572,7 @@
 
 .tests-flow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 0.65fr) auto minmax(0, 0.8fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -6744,6 +6586,10 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+.tests-flow > strong {
+  display: none;
 }
 
 .tests-flow span {
@@ -6789,59 +6635,8 @@
   margin-bottom: 12px;
 }
 
-@media (max-width: 1280px) {
-  .tests-main-grid {
-    grid-template-columns: 1fr;
-  }
 
-  .tests-side-column {
-    position: static;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
-@media (max-width: 980px) {
-  .tests-control-grid,
-  .tests-card-grid,
-  .tests-side-column {
-    grid-template-columns: 1fr;
-  }
-
-  .tests-flow {
-    grid-template-columns: 1fr;
-  }
-
-  .tests-flow > strong {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .tests-summary-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .tests-summary-strip > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .tests-summary-strip > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .tests-card-body {
-    flex-direction: column;
-  }
-
-  .tests-card-actions {
-    align-items: flex-start;
-  }
-
-  .tests-kind-chips {
-    grid-template-columns: 1fr;
-  }
-}
 
 
 /* ==========================================================================
@@ -6945,7 +6740,7 @@
 
 .quality-history-row {
   display: grid;
-  grid-template-columns: minmax(150px, auto) 1fr auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -6986,6 +6781,7 @@
 
 .quality-history-counts {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 4px;
   white-space: nowrap;
 }
@@ -7001,15 +6797,6 @@
   text-align: center;
 }
 
-@media (max-width: 860px) {
-  .quality-history-row {
-    grid-template-columns: 1fr auto;
-    row-gap: 6px;
-  }
-  .quality-history-meta {
-    grid-column: 1 / -1;
-  }
-}
 
 /* ── Explainable quality findings ─────────────────────────────────────────
    The register states the accusation compactly. The drawer joins that finding
@@ -7018,7 +6805,7 @@
 
 .quality-report-summary {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -7050,8 +6837,11 @@
 .quality-report-summary dl {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(78px, 1fr));
-  border-left: 1px solid var(--border);
+  grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr));
+  gap: 1px;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  background: var(--border);
 }
 
 .quality-report-summary dl > div {
@@ -7061,7 +6851,7 @@
   justify-content: center;
   flex-direction: column;
   gap: 1px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .quality-report-summary dl > div:last-child {
@@ -7123,6 +6913,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -7131,14 +6922,18 @@
 }
 
 .quality-findings-filters {
-  flex: 0 0 auto;
+  flex: 1 1 22rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 7px;
 }
 
 .quality-filter-select {
-  width: 160px;
+  width: 100%;
 }
 
 .quality-finding-register {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -7292,6 +7087,35 @@
   transition: color var(--transition-fast), transform var(--transition-fast);
 }
 
+@container (max-width: 62rem) {
+  .quality-finding-register-head {
+    display: none;
+  }
+
+  .quality-finding-row {
+    grid-template-columns: 92px minmax(0, 1fr) minmax(12rem, 0.72fr) 108px;
+  }
+
+  .quality-finding-row-action {
+    display: none;
+  }
+}
+
+@container (max-width: 42rem) {
+  .quality-finding-row {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .quality-finding-row-policies,
+  .quality-finding-row-open {
+    grid-column: 2 / -1;
+  }
+
+  .quality-finding-row-open {
+    justify-content: flex-start;
+  }
+}
+
 .quality-finding-row:hover .quality-finding-row-open .anticon {
   color: var(--brand);
   transform: translateX(2px);
@@ -7431,7 +7255,9 @@
 .quality-finding-boundary {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -7440,7 +7266,7 @@
 .quality-finding-boundary > div {
   min-width: 0;
   padding: 8px 10px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .quality-finding-boundary > div:last-child {
@@ -7465,6 +7291,7 @@
 .quality-finding-analysis {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -7472,7 +7299,8 @@
 .quality-finding-acceptance,
 .quality-finding-resolution {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 1px;
 }
 
 .quality-finding-explanation,
@@ -7483,10 +7311,11 @@
 .quality-finding-analysis article {
   min-width: 0;
   padding: 10px 12px;
+  background: var(--surface);
 }
 
 .quality-finding-analysis article + article {
-  border-left: 1px solid var(--border);
+  border-left: 0;
 }
 
 .quality-finding-analysis article > span {
@@ -7553,7 +7382,9 @@
 .quality-conflict-mechanics {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -7562,7 +7393,7 @@
 .quality-conflict-mechanics > div {
   min-width: 0;
   padding: 8px 10px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .quality-conflict-mechanics > div:last-child {
@@ -7585,6 +7416,7 @@
 }
 
 .quality-policy-comparison {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   overflow: hidden;
@@ -7627,6 +7459,25 @@
   gap: 9px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+@container (max-width: 42rem) {
+  .quality-policy-evidence {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .quality-policy-evidence > .ant-btn {
+    grid-column: 2 / -1;
+    width: fit-content;
+  }
+
+  .quality-policy-evidence-decision {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .quality-policy-evidence-decision .anticon {
+    display: none;
+  }
 }
 
 .quality-policy-evidence:last-child {
@@ -7791,117 +7642,7 @@
   font-size: 9.5px;
 }
 
-@media (max-width: 1000px) {
-  .quality-report-summary {
-    grid-template-columns: 1fr;
-  }
 
-  .quality-report-summary dl {
-    border-top: 1px solid var(--border);
-    border-left: 0;
-  }
-
-  .quality-finding-register-head {
-    display: none;
-  }
-
-  .quality-finding-row {
-    grid-template-columns: 92px minmax(0, 1fr) 190px 108px;
-  }
-
-  .quality-finding-row-action {
-    display: none;
-  }
-}
-
-@media (max-width: 700px) {
-  .quality-report-summary dl {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .quality-report-summary dl > div:nth-child(3) {
-    border-right: 0;
-  }
-
-  .quality-report-summary dl > div:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .quality-findings-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .quality-findings-filters,
-  .quality-filter-select {
-    width: 100%;
-  }
-
-  .quality-findings-filters {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quality-finding-row {
-    grid-template-columns: 82px minmax(0, 1fr);
-  }
-
-  .quality-finding-row-policies {
-    grid-column: 2 / -1;
-  }
-
-  .quality-finding-row-open {
-    grid-column: 2 / -1;
-    justify-content: flex-start;
-  }
-
-  .quality-finding-boundary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quality-finding-boundary > div:nth-child(even) {
-    border-right: 0;
-  }
-
-  .quality-finding-boundary > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .quality-finding-explanation,
-  .quality-finding-acceptance,
-  .quality-finding-resolution,
-  .quality-conflict-mechanics {
-    grid-template-columns: 1fr;
-  }
-
-  .quality-finding-analysis article + article,
-  .quality-conflict-mechanics > div {
-    border-left: 0;
-    border-right: 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .quality-conflict-mechanics > div:first-child {
-    border-top: 0;
-  }
-
-  .quality-policy-evidence {
-    grid-template-columns: 24px minmax(0, 1fr);
-  }
-
-  .quality-policy-evidence > .ant-btn {
-    grid-column: 2 / -1;
-    width: fit-content;
-  }
-
-  .quality-policy-evidence-decision {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .quality-policy-evidence-decision .anticon {
-    display: none;
-  }
-}
 
 /* Recent governance activity (audit trail) on the project Overview tab.
    Rows are dense on purpose: this is a scannable log, not a reading surface. */
@@ -7934,11 +7675,6 @@
   margin-inline-end: 0;
 }
 
-@media (max-width: 640px) {
-  .activity-item-head {
-    gap: 4px;
-  }
-}
 
 /* ---------- AI rule composer (Review queue draft panel) ---------- */
 
@@ -8565,8 +8301,9 @@
 }
 
 .change-values {
+  container-type: inline-size;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
   gap: 10px;
   align-items: center;
 }
@@ -8596,6 +8333,7 @@
 }
 
 .change-arrow {
+  display: none;
   color: #8c8c8c;
   font-size: 13px;
 }
@@ -8604,15 +8342,6 @@
   margin-top: 14px;
 }
 
-@media (max-width: 900px) {
-  .change-values {
-    grid-template-columns: 1fr;
-  }
-  .change-arrow {
-    transform: rotate(90deg);
-    justify-self: center;
-  }
-}
 
 /* ---------------------------------------------------------------------------
    Evaluation target — states what an action will actually run against.
@@ -8733,7 +8462,9 @@
 .quality-methodology > div {
   margin-top: 9px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  gap: 1px;
+  background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -8744,7 +8475,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .quality-methodology article:last-child {
@@ -8762,20 +8493,6 @@
   line-height: 1.45;
 }
 
-@media (max-width: 700px) {
-  .quality-methodology > div {
-    grid-template-columns: 1fr;
-  }
-
-  .quality-methodology article {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .quality-methodology article:last-child {
-    border-bottom: 0;
-  }
-}
 
 /* ---------------------------------------------------------------------------
    Explainer card — a worked example instead of a paragraph of prose.
@@ -9129,11 +8846,6 @@
   width: 152px;
 }
 
-@media (max-width: 1100px) {
-  .tests-triage-actions .ant-btn {
-    flex: 1 1 auto;
-  }
-}
 
 /* ---------- Density layer ----------
    Applied globally rather than per page: the airiness was not one bad card, it
@@ -9414,17 +9126,18 @@
 
 .validation-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: 1px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--border);
   overflow: hidden;
 }
 
 .validation-steps > div {
   min-height: 42px;
   padding: 7px 10px;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -9635,7 +9348,7 @@
   border-bottom: 1px solid var(--border);
   background: #fbfbfc;
   display: grid;
-  grid-template-columns: 34px minmax(260px, 1fr) auto auto;
+  grid-template-columns: 34px minmax(min(20rem, 100%), 1fr);
   align-items: center;
   gap: 12px;
 }
@@ -9685,6 +9398,8 @@
   margin: 0;
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
+  grid-column: span 1;
 }
 
 .validation-run-metrics > div {
@@ -9726,7 +9441,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 7px;
+  grid-column: 1 / -1;
 }
 
 .validation-run-actions .ant-btn {
@@ -9741,6 +9458,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
@@ -9773,6 +9491,7 @@
   min-height: 28px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 18px;
   color: var(--text-muted);
   font-size: 9.5px;
@@ -9791,7 +9510,7 @@
 
 .validation-policy-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px 140px auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
   gap: 7px;
 }
 
@@ -10092,7 +9811,7 @@
 
 .validation-target-summary {
   display: grid;
-  grid-template-columns: auto minmax(140px, auto) auto minmax(80px, auto) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
   align-items: center;
   gap: 6px 9px;
   padding: 8px 10px;
@@ -10116,7 +9835,8 @@
 .validation-target-summary > div {
   min-width: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 4px;
   overflow-x: auto;
 }
@@ -10161,6 +9881,7 @@
 }
 
 .validation-register {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow-x: auto;
@@ -10358,6 +10079,51 @@
   gap: 10px;
 }
 
+@container (max-width: 62rem) {
+  .validation-register {
+    overflow-x: visible;
+  }
+
+  .validation-register-head {
+    display: none;
+  }
+
+  .validation-register-group {
+    min-width: 0;
+    padding-left: 10px;
+  }
+
+  .validation-register-row {
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    row-gap: 6px;
+    padding: 9px 10px;
+  }
+
+  .validation-register-index {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .validation-register-scenario {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .validation-register-comparison {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    margin-left: 0;
+  }
+
+  .validation-register-row > span:last-child {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+}
+
 .validation-register-group > span {
   min-width: 0;
   display: flex;
@@ -10397,7 +10163,7 @@
   border-bottom: 1px solid var(--border);
   background: #fff;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px 90px 100px;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
   align-items: center;
   gap: 10px;
   color: var(--text);
@@ -10648,6 +10414,7 @@
 }
 
 .validation-assertion-register {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
@@ -10688,6 +10455,33 @@
   font-size: 9px;
 }
 
+@container (max-width: 42rem) {
+  .validation-assertion-register {
+    overflow: visible;
+  }
+
+  .validation-assertion-head {
+    display: none;
+  }
+
+  .validation-assertion-register > div:not(.validation-assertion-head) {
+    min-height: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px 10px;
+    padding: 8px 9px;
+  }
+
+  .validation-assertion-register > div:not(.validation-assertion-head) > span:first-child {
+    grid-column: 1 / -1;
+    color: var(--text-heading);
+    font-weight: 600;
+  }
+
+  .validation-assertion-register > div:not(.validation-assertion-head) > .ant-tag {
+    grid-column: 1 / -1;
+  }
+}
+
 .validation-test-detail .ant-tabs-content {
   min-height: 300px;
 }
@@ -10695,14 +10489,17 @@
 .validation-suite-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
 }
 
 .validation-suite-actions .ant-select {
-  min-width: 190px;
+  min-width: min(190px, 100%);
+  flex: 1 1 190px;
 }
 
 .validation-suite-register {
+  container-type: inline-size;
   overflow-x: auto;
 }
 
@@ -10774,7 +10571,7 @@
 }
 
 .validation-regression-header-state {
-  min-width: 218px;
+  min-width: min(218px, 100%);
   padding: 8px 10px;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
@@ -10878,14 +10675,16 @@
 .validation-regression-brief dl {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
   border-top: 1px solid var(--border);
+  background: var(--border);
 }
 
 .validation-regression-brief dl > div {
   min-width: 0;
   padding: 8px 10px;
-  border-right: 1px solid var(--border);
+  background: #fbfbfc;
 }
 
 .validation-regression-brief dl > div:last-child {
@@ -11039,7 +10838,7 @@
   padding: 8px 9px;
   border-bottom: 1px solid var(--border);
   display: grid;
-  grid-template-columns: 72px 180px minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
   align-items: start;
   gap: 8px;
 }
@@ -11063,243 +10862,7 @@
   font-size: 10.5px;
 }
 
-@media (max-width: 1000px) {
-  .validation-register {
-    overflow-x: visible;
-  }
 
-  .validation-register-head {
-    display: none;
-  }
-
-  .validation-register-group {
-    min-width: 0;
-    padding-left: 10px;
-  }
-
-  .validation-register-row {
-    min-width: 0;
-    min-height: 0;
-    grid-template-columns: 24px minmax(0, 1fr) auto;
-    row-gap: 6px;
-    padding: 9px 10px;
-  }
-
-  .validation-register-index {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .validation-register-scenario {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .validation-register-comparison {
-    grid-column: 2 / -1;
-    grid-row: 2;
-    margin-left: 0;
-  }
-
-  .validation-register-row > span:last-child {
-    grid-column: 3;
-    grid-row: 1;
-    justify-self: end;
-  }
-
-  .validation-suite-register {
-    overflow-x: visible;
-  }
-
-  .validation-suite-head {
-    display: none;
-  }
-
-  .validation-suite-row {
-    min-width: 0;
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 5px;
-  }
-
-  .validation-suite-row > span:first-child {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .validation-suite-row > span:nth-child(2) {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    padding-top: 5px;
-    border-top: 1px solid var(--border);
-  }
-
-  .validation-suite-row > .ant-tag {
-    grid-column: 2;
-    grid-row: 1;
-    margin-inline-end: 0;
-  }
-
-  .validation-suite-row > span:nth-child(4) {
-    grid-column: 1;
-    grid-row: 3;
-    color: var(--text);
-    font-size: 10px;
-  }
-
-  .validation-suite-row > span:nth-child(5) {
-    grid-column: 1;
-    grid-row: 4;
-    color: var(--text-muted);
-    font-size: 9.5px;
-  }
-
-  .validation-suite-row-actions {
-    grid-column: 2;
-    grid-row: 3 / 5;
-    align-items: flex-end;
-    flex-direction: column;
-  }
-
-  /* `.validation-config-grid` is intrinsic now (auto-fit + minmax), so it
-     wraps to one column on its own and needs no override here. Its pane
-     borders do still need to switch from a vertical rule to a horizontal one
-     when the panes stack — but "stacked" is now a fact about the grid, not
-     about the viewport, so that is expressed below with :not() on the row
-     rather than re-guessed at a pixel width. */
-
-  .validation-policy-filters {
-    grid-template-columns: minmax(0, 1fr) repeat(2, 140px) auto;
-  }
-
-  .validation-run-masthead {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
-
-  .validation-run-metrics,
-  .validation-run-actions {
-    grid-column: 1 / -1;
-  }
-
-  .validation-run-metrics {
-    justify-content: flex-start;
-  }
-
-  .validation-run-actions {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 700px) {
-  .validation-assertion-register {
-    overflow: visible;
-  }
-
-  .validation-assertion-head {
-    display: none;
-  }
-
-  .validation-assertion-register > div:not(.validation-assertion-head) {
-    min-height: 0;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 5px 10px;
-    padding: 8px 9px;
-  }
-
-  .validation-assertion-register > div:not(.validation-assertion-head) > span:first-child {
-    grid-column: 1 / -1;
-    color: var(--text-heading);
-    font-weight: 600;
-  }
-
-  .validation-assertion-register > div:not(.validation-assertion-head) > .ant-tag {
-    grid-column: 1 / -1;
-  }
-
-  .validation-lab-header {
-    flex-direction: column;
-  }
-
-  .validation-regression-header-state {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .validation-regression-brief dl {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .validation-regression-brief dl > div:nth-child(3) {
-    border-right: 0;
-  }
-
-  .validation-regression-brief dl > div:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--border);
-  }
-
-  .validation-suite-actions {
-    width: 100%;
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .validation-suite-actions .ant-select,
-  .validation-suite-actions .ant-btn {
-    width: 100%;
-  }
-
-  .validation-version-control {
-    width: 100%;
-  }
-
-  .validation-policy-filters {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .validation-policy-filters .ant-input-affix-wrapper {
-    grid-column: 1 / -1;
-  }
-
-  .validation-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .validation-rule-row {
-    grid-template-columns: 18px minmax(0, 1fr) auto;
-  }
-
-  .validation-rule-row > .ant-tag:last-child {
-    display: none;
-  }
-
-  .validation-history-list > button {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .validation-history-list > button > :nth-child(2),
-  .validation-history-list > button > :nth-child(4) {
-    display: none;
-  }
-
-  .validation-target-summary {
-    grid-template-columns: auto 1fr;
-  }
-
-  .validation-target-summary > div {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-
-  .validation-run-guard {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .validation-run-context {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
-  }
-}
 
 /* Each kind chip repeated its business question as body text, which is what
    made a simple 8-way filter 681px tall. The same sentence is already on the
