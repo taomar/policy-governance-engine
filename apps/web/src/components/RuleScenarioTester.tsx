@@ -62,6 +62,7 @@ import {
 import { resolveClausesById } from "../clauseCache";
 import { DETERMINISTIC_LABEL, engineDecidesRule } from "../ruleExecutability";
 import { MarkedQuotation } from "./MarkedQuotation";
+import { LongRunWait } from "./LongRunWait";
 import {
   COMPUTED_ANSWER,
   JUDGED_ANSWER,
@@ -99,6 +100,8 @@ export function RuleScenarioTester({
   const [judged, setJudged] = useState<ScenarioEvaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   // The rule's source clauses, resolved from evidence offsets to real verbatim
   // text through the shared cache (see `resolveClausesById`) so the sentence the
   // judge reads is on the card, not behind "View source". `resolving` keeps the
@@ -110,6 +113,13 @@ export function RuleScenarioTester({
   // other surface that asks (see `engineDecidesRule`). Two copies of this
   // question is what let a rule be offered a decider that would refuse it.
   const engineDecides = engineDecidesRule(rule);
+
+  // Ticks only while a scenario is open.
+  useEffect(() => {
+    if (startedAt === null) return;
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
 
   // Switching rules while this tab is open should not show a stale answer
   // from a different rule under the new title/condition.
@@ -152,6 +162,8 @@ export function RuleScenarioTester({
 
   const run = async () => {
     setLoading(true);
+    setStartedAt(Date.now());
+    setElapsedMs(0);
     setError(null);
     try {
       if (engineDecides) {
@@ -175,6 +187,7 @@ export function RuleScenarioTester({
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setLoading(false);
+      setStartedAt(null);
     }
   };
 
@@ -258,6 +271,20 @@ export function RuleScenarioTester({
       </Space>
 
       {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+
+      {startedAt !== null ? (
+        <LongRunWait
+          className="scenario-test-wait"
+          headline={engineDecides ? "Running the engine on this case" : "A judge is reading this policy against your case"}
+          detail={
+            engineDecides
+              ? "The AI reads your case into the facts this rule declares, then the deterministic engine computes the verdict from those facts."
+              : "This rule's test is stated in words, so a judge reads the rule against your case and returns a verdict with its confidence."
+          }
+          expected="10 to 60 seconds"
+          elapsedMs={elapsedMs}
+        />
+      ) : null}
 
       {judged && (
         <div className="scenario-test-result" data-testid="scenario-answer">

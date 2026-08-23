@@ -34,6 +34,7 @@ import { JsonView } from "./JsonView";
 import { ruleDecisionSummary } from "../ruleDisplay";
 import { resolveGuardRule, guardRuleHeadline, guardRuleDetail } from "./guardRuleResolution";
 import { resolveClausesById } from "../clauseCache";
+import { LongRunWait } from "./LongRunWait";
 import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Title, Text, Paragraph } = Typography;
@@ -100,6 +101,8 @@ export function PolicyValidationLab({
   const [guidance, setGuidance] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generateStartedAt, setGenerateStartedAt] = useState<number | null>(null);
+  const [generateElapsedMs, setGenerateElapsedMs] = useState(0);
   const [running, setRunning] = useState(false);
   const [activating, setActivating] = useState(false);
   const [suiteRunning, setSuiteRunning] = useState(false);
@@ -225,6 +228,15 @@ export function PolicyValidationLab({
   }, [batches, policySetKey, regressionTests, retiredRegressionTests]);
 
   const selectedVersion = versions.find((version) => version.id === versionId) ?? null;
+
+  // Ticks only while a generation is open. Sealing scenarios calls the model
+  // once per selected rule, so this is the slowest thing this surface does and
+  // the one most likely to be mistaken for a hang.
+  useEffect(() => {
+    if (generateStartedAt === null) return;
+    const timer = window.setInterval(() => setGenerateElapsedMs(Date.now() - generateStartedAt), 1000);
+    return () => window.clearInterval(timer);
+  }, [generateStartedAt]);
   const excludedDefinitionCount = rules.filter((rule) => rule.rule_type === "definition").length;
   const excludedDocumentationCount = rules.filter(
     (rule) => rule.rule_type !== "definition" && !rule.machine_executable,
@@ -450,6 +462,8 @@ export function PolicyValidationLab({
       return;
     }
     setGenerating(true);
+    setGenerateStartedAt(Date.now());
+    setGenerateElapsedMs(0);
     setError(null);
     try {
       const batch = await policyTestApi.generateBatch(policySetKey, {
@@ -473,6 +487,7 @@ export function PolicyValidationLab({
       setError(caught instanceof PolicyPlatformApiError ? caught.detail : String(caught));
     } finally {
       setGenerating(false);
+      setGenerateStartedAt(null);
     }
   };
 
@@ -1145,6 +1160,15 @@ export function PolicyValidationLab({
                 {authoringMode === "generated" ? "Generate scenarios" : "Prepare scenario"}
               </Button>
             </div>
+            {generateStartedAt !== null ? (
+              <LongRunWait
+                className="validation-generate-wait"
+                headline="Writing scenarios and sealing their expected outcomes"
+                detail="Each selected rule is sent to the model with the policy's own JSON. The expectations are committed before anything runs, which is what makes the run that follows blind."
+                expected="30 seconds to a few minutes, depending on how many scenarios you asked for"
+                elapsedMs={generateElapsedMs}
+              />
+            ) : null}
           </div>
         </section>
       </div>

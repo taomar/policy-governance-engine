@@ -40,6 +40,7 @@ import {
   trendAgainstPrior,
 } from "../qualityTrend";
 import { QualityFindingDrawer } from "./QualityFindingDrawer";
+import { LongRunWait } from "./LongRunWait";
 import type { QualityRuleRecord } from "./QualityFindingDrawer";
 
 const { Title, Text, Paragraph } = Typography;
@@ -190,6 +191,8 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   // that was examined and came back clean.
   const [notEvaluated, setNotEvaluated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [evaluationStartedAt, setEvaluationStartedAt] = useState<number | null>(null);
+  const [evaluationElapsedMs, setEvaluationElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -262,6 +265,16 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
 
   useEffect(loadHistory, [loadHistory]);
 
+  // The clock the wait panel shows. Ticks only while an evaluation is open.
+  useEffect(() => {
+    if (evaluationStartedAt === null) return;
+    const timer = window.setInterval(
+      () => setEvaluationElapsedMs(Date.now() - evaluationStartedAt),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [evaluationStartedAt]);
+
   // What the page shows on arrival is the last evaluation somebody asked for,
   // read back from storage. Opening the page used to *perform* an evaluation:
   // a couple of minutes of AI review, and a new row in the history below, for
@@ -297,6 +310,11 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
   const runEvaluation = async () => {
     if (!selectedKey) return;
     setLoading(true);
+    // Only the evaluation runs a clock. The two other callers of `setLoading`
+    // read a stored run, which returns immediately — showing a wait panel with
+    // an elapsed timer for those would announce a wait that is not happening.
+    setEvaluationStartedAt(Date.now());
+    setEvaluationElapsedMs(0);
     setError(null);
     setReport(null);
     setNotEvaluated(null);
@@ -318,6 +336,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
       setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setLoading(false);
+      setEvaluationStartedAt(null);
     }
   };
 
@@ -511,6 +530,19 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                 It records the result, so the history below can compare this run against the one before it.
               </Text>
             </div>
+            {evaluationStartedAt !== null ? (
+              <LongRunWait
+                className="eval-launch-wait"
+                headline="Reading every record in this version"
+                detail={
+                  scope === "published"
+                    ? "The deterministic checks run first over the stored policy data, then the AI review reads each record against its source evidence."
+                    : "The deterministic checks run first over the candidate records, then the AI review reads each one against its source evidence."
+                }
+                expected="one to three minutes"
+                elapsedMs={evaluationElapsedMs}
+              />
+            ) : null}
             <details className="quality-methodology">
               <summary>How the quality evaluation works and what counts as acceptable</summary>
               <div>

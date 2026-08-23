@@ -3993,6 +3993,21 @@
   background: var(--surface-2, var(--surface));
 }
 
+/* The shared long-request wait panel (`LongRunWait`). Three surfaces used to
+   show a spinning button and nothing else while an AI call ran for minutes;
+   they now render this, matching the upload and case-runner panels above so a
+   wait looks the same wherever the reader meets one. */
+.long-run-wait,
+.eval-launch-wait,
+.validation-generate-wait,
+.scenario-test-wait {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--surface-2, var(--surface));
+}
+
 .documents-register {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
