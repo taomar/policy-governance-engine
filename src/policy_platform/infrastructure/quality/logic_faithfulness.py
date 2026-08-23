@@ -169,6 +169,24 @@ _REVERSING_RE = re.compile(
 )
 
 
+#: Coordinating conjunctions a decomposition supplies to join clauses the
+#: sentence states separately. Glue, not content.
+#:
+#: "Any employee found guilty may be released if not disclosed prior to the
+#: hiring/interview process" states two conditions in two grammatical shapes — a
+#: participle and an if-clause — and a decomposition that captures both has to
+#: join them with a word the sentence never wrote. Requiring the claim to be a
+#: subsequence of the source then reports a correct conjunctive decomposition as
+#: wording "the policy never used", at blocking severity.
+#:
+#: A closed subset of a closed grammatical class, and the exclusions are the
+#: point. `nor` and `neither` are coordinators too and are absent because they
+#: reverse — see `_REVERSING_RE`, which must keep seeing them. `but` and `yet`
+#: are contrastive and change what the conjunction asserts. `for` and `so` are
+#: causal. Only `and` and `or`, which combine, are treated as glue.
+_JOINING_WORDS = frozenset({"and", "or"})
+
+
 def _subsequence_gap_words(claim: str, source: str) -> list[str] | None:
     """The source words a claim steps over *between* its own words.
 
@@ -184,6 +202,12 @@ def _subsequence_gap_words(claim: str, source: str) -> list[str] | None:
     at its first available position. That can only widen a gap, never narrow
     one, so the caller reads the result as evidence a claim *may* have stepped
     over something rather than proof it did.
+
+    A joining word the claim supplies and the source does not contain is passed
+    over rather than failing the match — see `_JOINING_WORDS`. It is passed over
+    only when the source really does not have it available; where the sentence
+    wrote its own "and", that one is matched normally and any words it steps
+    over are still counted.
     """
 
     claim_words = _normalise(claim).split()
@@ -197,6 +221,8 @@ def _subsequence_gap_words(claim: str, source: str) -> list[str] | None:
         try:
             found = source_words.index(word, cursor)
         except ValueError:
+            if word in _JOINING_WORDS:
+                continue
             return None
         if not first:
             skipped.extend(source_words[cursor:found])
