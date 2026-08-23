@@ -115,7 +115,7 @@ export function EffectivePolicyModal({
           <ApartmentOutlined />
           <span>Effective policy</span>
           <Tag variant="filled">
-            {policy.cases.length} rules · 1 policy
+            {policy.cases.length} rule{policy.cases.length === 1 ? "" : "s"} · 1 policy
           </Tag>
         </Space>
       }

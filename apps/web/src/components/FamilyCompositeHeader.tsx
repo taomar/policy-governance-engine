@@ -52,7 +52,7 @@ export function FamilyCompositeHeader({
         </Text>
         <Tooltip title="These rules state one policy. They were extracted separately because the source states each variant on its own row or clause.">
           <Tag variant="filled" className="family-composite-count">
-            {composite.memberCount} rules · 1 policy
+            {composite.memberCount} rule{composite.memberCount === 1 ? "" : "s"} · 1 policy
           </Tag>
         </Tooltip>
         {composite.memberCount > 1 && (

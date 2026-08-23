@@ -238,6 +238,83 @@ _SHAPE_SEVERITY: dict[MismatchShape, LogicFindingSeverity] = {
 }
 
 
+#: Verbs that head an impersonal obligation: "It is mandatory to sign…".
+#: The construction states a duty without naming who bears it, so the obliged
+#: party is the addressee — exactly as in the courtesy imperative below.
+#:
+#: Tight on purpose. "It is the responsibility of the supervisor to inform
+#: their staff" does not match, and must not: it names its bearer, and that
+#: bearer is quotable from the sentence.
+_IMPERSONAL_OBLIGATION_RE = re.compile(
+    r"^\s*it\s+is\s+\w+\s+(?:to|that)\b",
+    re.IGNORECASE,
+)
+
+#: A courtesy marker opening the sentence. What follows it is an imperative:
+#: no other construction begins this way.
+_COURTESY_OPENER_RE = re.compile(
+    r"^\s*(?:[-•*\u2022]\s*)?(?:\d+[.)]\s*)?(?:please|kindly)\b",
+    re.IGNORECASE,
+)
+
+#: The subject an English sentence implies when it states none.
+_THE_ADDRESSEE = frozenset({"you", "your", "yourself", "the reader"})
+
+
+def _sentence_states_no_subject(source: str) -> bool:
+    """Whether the source sentence has no surface subject to quote.
+
+    English writes two everyday constructions that state a duty and name nobody
+    to bear it. The courtesy imperative drops its subject — "Please view
+    Appendix A for the Penalty Schedule" — and the impersonal moves the duty
+    into a predicate adjective: "It is mandatory to sign a commitment to attend
+    all activities". In both, the obliged party is the addressee, and in both
+    the subject position is *empty in the source by construction*.
+
+    That matters because `check_attributes_are_quoted` requires every attribute
+    to be quotable from the sentence. Asked of a subject the sentence cannot
+    contain, the requirement can never be met, so a correct decomposition of an
+    imperative gets reported for supplying its subject "from outside" — the same
+    fault as requiring a head noun to repeat, which penalised anaphora, the
+    device that exists to avoid repetition.
+
+    DELIBERATELY NOT COVERED: the bare imperative, "Ensure social distancing is
+    maintained at all times". It is a real construction and it is genuinely
+    subject-less, but separating it from an ordinary declarative — "Employees
+    shall comply" — requires knowing that "Ensure" is a verb and "Employees" is
+    a noun. That is a part-of-speech judgement, and the only ways to fake it
+    here are a verb list or a capitalisation heuristic. A verb list is a content
+    classifier by another name; the capitalisation heuristic was tried and is
+    simply wrong, because an imperative opening a sentence is capitalised like
+    anything else. Neither instance in the live corpus is a bare imperative, so
+    the honest position is to cover what can be identified structurally and to
+    say plainly what is not covered.
+    """
+
+    text = (source or "").strip()
+    if not text:
+        return False
+    return bool(
+        _IMPERSONAL_OBLIGATION_RE.match(text) or _COURTESY_OPENER_RE.match(text)
+    )
+
+
+def _is_the_implied_subject(phrase: str, role: str, source: str) -> bool:
+    """The addressee, standing in for a subject the sentence never wrote.
+
+    Withheld narrowly: only for the `subject` role, only when the phrase is the
+    second-person pronoun, and only when the sentence genuinely states no
+    subject. A record that names some *other* party the sentence never mentions
+    is still reported — that is the case this check exists for.
+    """
+
+    if role != "subject":
+        return False
+    if " ".join((phrase or "").split()).casefold() not in _THE_ADDRESSEE:
+        return False
+    return _sentence_states_no_subject(source)
+
+
 def check_attributes_are_quoted(
     assessment: EvaluabilityAssessment,
     source_text: str,
@@ -267,6 +344,11 @@ def check_attributes_are_quoted(
     findings: list[LogicFinding] = []
     for attribute in assessment.attributes_referenced:
         if _is_quoted_from(attribute.phrase, source_text):
+            continue
+        # An imperative and an impersonal obligation state no subject. Their
+        # subject is the addressee, and it is absent from the sentence because
+        # English writes it that way, not because anything was invented.
+        if _is_the_implied_subject(attribute.phrase, attribute.role, source_text):
             continue
         shape = classify_mismatch(attribute.phrase, source_text)
         if shape is MismatchShape.DECOMPOSED:

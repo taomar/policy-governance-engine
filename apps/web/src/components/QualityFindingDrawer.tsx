@@ -28,6 +28,10 @@ import { DETERMINISTIC_LABEL } from "../ruleExecutability";
 
 const { Text, Title } = Typography;
 
+function ruleUnit(count: number): string {
+  return `${count} rule${count === 1 ? "" : "s"}`;
+}
+
 interface QualityFindingDrawerProps {
   finding: QualityFinding | null;
   onClose: () => void;
@@ -63,7 +67,7 @@ const CATEGORY_INTERPRETATION: Record<string, FindingInterpretation> = {
   decision_gap: {
     headline: "A boundary case has no declared policy outcome",
     meaning:
-      "The affected policies define neighboring conditions but leave at least one input between them. The evaluator can reach that input without finding a rule that decides it.",
+      "The affected rules define neighboring conditions but leave at least one input between them. The evaluator can reach that input without finding a rule that decides it.",
   },
   coverage_gap: {
     headline: "A real-world scenario falls outside the written coverage",
@@ -73,12 +77,12 @@ const CATEGORY_INTERPRETATION: Record<string, FindingInterpretation> = {
   rule_conflict: {
     headline: "These policies can prescribe competing outcomes",
     meaning:
-      "More than one affected policy can govern the same decision, but the package does not state which policy takes precedence when their outcomes differ.",
+      "More than one affected rule can govern the same decision, but the package does not state which rule takes precedence when their outcomes differ.",
   },
   conflicting_effect: {
     headline: "Equivalent decisions carry opposing effects",
     meaning:
-      "The affected policies target the same action but do not agree on whether it is allowed or denied.",
+      "The affected rules target the same action but do not agree on whether it is allowed or denied.",
   },
   scope_and_precedence: {
     headline: "Scope and precedence do not identify the controlling policy",
@@ -147,7 +151,7 @@ function standardFor(finding: QualityFinding): FindingStandard {
       acceptable:
         "The policies cannot apply to the same subject and time, or an explicit priority, override, or supersession rule identifies the controlling outcome.",
       unacceptable:
-        "A reachable case satisfies multiple affected policies, their outcomes differ, and no approved precedence rule resolves them.",
+        "A reachable case satisfies multiple affected rules, their outcomes differ, and no approved precedence rule resolves them.",
       questions: [
         "Can these policies apply to the same person, asset, request, and effective date?",
         "Which outcome must control when they overlap?",
@@ -173,13 +177,13 @@ function standardFor(finding: QualityFinding): FindingStandard {
   if (category === "not_machine_executable") {
     return {
       impact:
-        "The affected policies cannot participate in deterministic evaluation, so automated coverage is materially lower than the published rule count suggests.",
+        "The affected rules cannot participate in deterministic evaluation, so automated coverage is materially lower than the published rule count suggests.",
       acceptable:
         "Manual handling is intentional, documented, and the policy is not represented or consumed as machine-enforceable.",
       unacceptable:
         "A caller relies on these policies for automated decisions or coverage reporting before their fact and output mappings are complete.",
       questions: [
-        "Which affected policies are intended to be automated?",
+        "Which affected rules are intended to be automated?",
         "Which trusted fact, output, temporal, or decision mappings are missing?",
         "Who owns enrichment and re-publication?",
       ],
@@ -264,7 +268,7 @@ function sourceText(rule: CanonicalRule): string {
   return (
     rule.formulation?.canonical?.source_text ||
     rule.description ||
-    "No source excerpt is stored on this policy record."
+    "No source excerpt is stored on this rule record."
   );
 }
 
@@ -361,7 +365,7 @@ export function QualityFindingDrawer({
             >
               Back to quality finding
             </Button>
-            <strong>Read-only policy record</strong>
+            <strong>Read-only rule record</strong>
           </div>
         ) : (
           "Quality finding evidence"
@@ -438,7 +442,7 @@ export function QualityFindingDrawer({
               <dt>Evidence set</dt>
               <dd>
                 {finding.affected_rule_ids.length > 0
-                  ? `${finding.affected_rule_ids.length} referenced polic${finding.affected_rule_ids.length === 1 ? "y" : "ies"}`
+                  ? `${ruleUnit(finding.affected_rule_ids.length)} referenced`
                   : "Policy-set-level control"}
               </dd>
             </div>
@@ -490,7 +494,7 @@ export function QualityFindingDrawer({
                 <span><SafetyCertificateOutlined /> How to close this finding</span>
                 <p>
                   {finding.recommendation ||
-                    "Review the affected policy records and document the intended controlling behavior."}
+                    "Review the affected rule records and document the intended controlling behavior."}
                 </p>
               </article>
             </div>
@@ -499,20 +503,20 @@ export function QualityFindingDrawer({
           {loading ? (
             <div className="quality-finding-loading">
               <Spin size="small" />
-              <Text type="secondary">Resolving the affected policies from the evaluated version…</Text>
+              <Text type="secondary">Finding the affected rules in the evaluated version…</Text>
             </div>
           ) : error ? (
-            <Alert type="error" showIcon title="Affected policies could not be loaded" description={error} />
+            <Alert type="error" showIcon title="Affected rules could not be loaded" description={error} />
           ) : finding.affected_rule_ids.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="This is a policy-set-level finding; it does not accuse one specific policy record."
+              description="This is a policy-set-level finding; it does not accuse one specific rule."
             />
           ) : (
             <>
               <dl className="quality-conflict-mechanics" aria-label="Finding comparison summary">
                 <div>
-                  <dt>Policy records involved</dt>
+                  <dt>Rule records involved</dt>
                   <dd>{resolvedRules.length || finding.affected_rule_ids.length}</dd>
                 </div>
                 <div>
@@ -529,7 +533,7 @@ export function QualityFindingDrawer({
                 </div>
                 <div>
                   <dt>Effective windows</dt>
-                  <dd>{windowsOverlap === null ? "One policy" : windowsOverlap ? "Overlap" : "Do not overlap"}</dd>
+                  <dd>{windowsOverlap === null ? "One rule" : windowsOverlap ? "Overlap" : "Do not overlap"}</dd>
                 </div>
               </dl>
 
@@ -543,7 +547,7 @@ export function QualityFindingDrawer({
                       Canonical decisions from {reportScope === "published" ? `published v${version?.version_number ?? "?"}` : "the evaluated candidate set"}
                     </Text>
                   </div>
-                  <Tag>{resolvedRules.length} resolved</Tag>
+                  <Tag>{ruleUnit(resolvedRules.length)} found</Tag>
                 </div>
 
                 <div className="quality-policy-comparison-list">
@@ -603,7 +607,7 @@ export function QualityFindingDrawer({
                           }}
                         >
                           <ReadOutlined />
-                          View policy record
+                          View rule record
                           <RightOutlined />
                         </Button>
                       </article>
@@ -617,7 +621,7 @@ export function QualityFindingDrawer({
                     className="quality-show-all-policies"
                     onClick={() => setShowAllAffected(true)}
                   >
-                    Show all {resolvedRules.length} affected policies
+                    Show all {ruleUnit(resolvedRules.length)} affected
                   </Button>
                 )}
 
@@ -625,7 +629,7 @@ export function QualityFindingDrawer({
                   <Alert
                     type="warning"
                     showIcon
-                    title={`${unresolvedReferences.length} referenced policy record${unresolvedReferences.length === 1 ? "" : "s"} could not be resolved`}
+                    title={`${ruleUnit(unresolvedReferences.length)} referenced could not be found`}
                     description={
                       reportScope === "candidates"
                         ? "Candidate evaluations are stored, but candidate records can later be superseded or rejected. The original finding remains immutable."

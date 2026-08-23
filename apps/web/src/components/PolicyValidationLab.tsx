@@ -1203,7 +1203,7 @@ export function PolicyValidationLab({
               </Text>
             </div>
             <dl className="validation-run-metrics">
-              <div><dt>Policies</dt><dd>{activeBatch.selected_rule_ids.length}</dd></div>
+              <div><dt>Rules</dt><dd>{activeBatch.selected_rule_ids.length}</dd></div>
               <div><dt>Scenarios</dt><dd>{activeBatch.tests.length}</dd></div>
               <div><dt>Pass</dt><dd className="is-pass">{passingTests.length}</dd></div>
               <div><dt>Fail</dt><dd className={failingTests.length ? "is-fail" : ""}>{failingTests.length}</dd></div>
@@ -1255,7 +1255,7 @@ export function PolicyValidationLab({
             <div className="validation-run-context">
               <span>Latest proof <strong>v{latestProofVersion?.version_number ?? "—"}</strong></span>
               <span>Next run target <strong>v{runTargetVersion?.version_number ?? "—"}</strong></span>
-              <span>Selected policies <strong>{activeBatch.selected_rule_ids.length}</strong></span>
+              <span>Selected rules <strong>{activeBatch.selected_rule_ids.length}</strong></span>
               <span>Grounding <strong>{activeBatch.grounding_mode === "json_only" ? "Full JSON" : "JSON + hybrid Search"}</strong></span>
               <span>Commitment <strong>SHA-256</strong></span>
             </div>
@@ -1295,7 +1295,7 @@ export function PolicyValidationLab({
                     <span>
                       <strong>{targetRule?.title ?? (groupRules ? ruleId : "Policy record loading…")}</strong>
                       <small>
-                        {ruleId} · {groupItems.length} scenarios · policy from v{groupVersion?.version_number ?? "?"}
+                        {ruleId} · {groupItems.length} scenarios · rule from v{groupVersion?.version_number ?? "?"}
                       </small>
                     </span>
                     <Tag color={!executed ? "default" : passed === groupItems.length ? "green" : "gold"}>
@@ -1396,7 +1396,7 @@ export function PolicyValidationLab({
                   <small>
                     generated from v{batch.version_number}
                     {latestRunVersion ? ` · last run v${latestRunVersion.version_number}` : ""} ·{" "}
-                    {GROUNDING_LABEL[batch.grounding_mode]} · {batch.selected_rule_ids.length} policies
+                    {GROUNDING_LABEL[batch.grounding_mode]} · {batch.selected_rule_ids.length} rule{batch.selected_rule_ids.length === 1 ? "" : "s"}
                   </small>
                 </span>
                 <span>{batch.tests.length} scenarios</span>

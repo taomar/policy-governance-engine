@@ -60,6 +60,10 @@ function formatCategory(cat: string): string {
     .join(" ");
 }
 
+function ruleUnit(count: number): string {
+  return `${count} rule${count === 1 ? "" : "s"}`;
+}
+
 function addRuleReference(
   lookup: Map<string, QualityRuleRecord[]>,
   reference: string,
@@ -444,7 +448,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
     {} as Record<string, number>
   );
 
-  const affectedPolicyCount = useMemo(
+  const affectedRuleReferenceCount = useMemo(
     () => new Set((report?.findings ?? []).flatMap((finding) => finding.affected_rule_ids)).size,
     [report],
   );
@@ -743,8 +747,8 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                    <dd>{counts.low ?? 0}</dd>
                  </div>
                  <div>
-                   <dt>Policies referenced</dt>
-                   <dd>{affectedPolicyCount}</dd>
+                   <dt>Rules referenced</dt>
+                   <dd>{affectedRuleReferenceCount}</dd>
                  </div>
                  <div>
                    <dt>AI to confirm</dt>
@@ -791,7 +795,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                  <div className="quality-finding-register-head" aria-hidden="true">
                    <span>Risk</span>
                    <span>What the evaluation found</span>
-                   <span>Affected policies</span>
+                   <span>Affected rules</span>
                    <span>Recommended decision</span>
                    <span>Evidence</span>
                  </div>
@@ -802,9 +806,9 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
                    const affectedTitles = affectedRecords.map((record) => record.rule.title);
                    const affectedLabel =
                      affectedRecords.length > finding.affected_rule_ids.length
-                       ? `${affectedRecords.length} records`
+                       ? `${ruleUnit(affectedRecords.length)} found`
                        : finding.affected_rule_ids.length > 0
-                         ? `${finding.affected_rule_ids.length} polic${finding.affected_rule_ids.length === 1 ? "y" : "ies"}`
+                         ? ruleUnit(finding.affected_rule_ids.length)
                          : "Policy-set level";
                    return (
                      <button
