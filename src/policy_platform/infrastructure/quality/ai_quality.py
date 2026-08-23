@@ -1400,16 +1400,22 @@ async def evaluate_policy_set_quality(
     pending_candidates = await candidate_repo.list_by_policy_set(policy_set.id, review_status="candidate")
 
     findings = _deterministic_findings(rules)
-    findings.append(
-        {
-            "severity": "low",
-            "category": "review_backlog",
-            "finding": f"{len(pending_candidates)} candidate rule(s) awaiting human review",
-            "affected_rule_ids": [],
-            "recommendation": "Review the pending candidates in the Review Queue." if pending_candidates else "",
-            "source": "deterministic",
-        }
-    )
+    # Only when there is a backlog. An empty queue is not a finding: the report
+    # is read top-down and every row costs a reader attention, so "0 candidate
+    # rule(s) awaiting human review" spends it saying nothing. The line below
+    # already knew — it withheld the recommendation when the queue was empty
+    # and emitted the row anyway.
+    if pending_candidates:
+        findings.append(
+            {
+                "severity": "low",
+                "category": "review_backlog",
+                "finding": f"{len(pending_candidates)} candidate rule(s) awaiting human review",
+                "affected_rule_ids": [],
+                "recommendation": "Review the pending candidates in the Review Queue.",
+                "source": "deterministic",
+            }
+        )
 
     if use_ai_review:
         ai_review_used = await _run_ai_review(rules, findings, policy_set_key)
