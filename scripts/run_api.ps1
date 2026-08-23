@@ -66,6 +66,42 @@ if ($converter -eq "docling") {
     }
 }
 
+# Refuse to start when something already answers on this port.
+#
+# Binding 0.0.0.0 succeeds even while another process holds 127.0.0.1 on the
+# same port, and Windows routes connections to the *more specific* address. So
+# a stale server keeps serving every request while the new one logs "Uvicorn
+# running" and receives nothing. Nothing in the output says the code under test
+# is not the code being served.
+#
+# That cost a full 45-page extraction run: the rules came back projected by
+# code from a commit earlier the same day, and the fix under test looked like
+# it had failed. It is the same failure the handover records twice — a build
+# reviewed a day old while being told the code had landed.
+#
+# Checking the port rather than the bind is what catches it, because the bind
+# is not what goes wrong.
+$existing = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+if ($existing) {
+    $lines = foreach ($conn in $existing) {
+        $owner = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+        "    {0}:{1}  pid {2}  {3}  started {4}" -f `
+            $conn.LocalAddress, $conn.LocalPort, $conn.OwningProcess,
+            $(if ($owner) { $owner.ProcessName } else { "?" }),
+            $(if ($owner) { $owner.StartTime } else { "?" })
+    }
+    throw @"
+Port $Port is already being served:
+$($lines -join "`n")
+
+Starting now would bind $BindHost and still leave that process answering
+127.0.0.1, so requests would reach the old code while this one logs a clean
+startup. Stop it first:
+
+    Stop-Process -Id $($existing[0].OwningProcess) -Force
+"@
+}
+
 # Bound to 0.0.0.0 by default, not 127.0.0.1: browsers resolve localhost to ::1
 # first, and an IPv4-only bind then fails in the browser while curl still
 # succeeds — which makes the fault look like a CORS or application error.
