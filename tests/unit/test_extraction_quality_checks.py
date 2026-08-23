@@ -319,12 +319,21 @@ def test_a_record_missing_only_its_operative_content_is_reported():
     decomposition states no test at all, cannot be decided by anyone — and it
     is the case a coarser check misses, because every other question has an
     answer.
+
+    The sentence is deliberately operatively empty as well as the slots. This
+    check reads what a judge reads, and a judge reads the sentence: the fixture
+    used to strip the slots while leaving "requires the approval of the
+    reviewer" in place, which states a test perfectly well and is decidable by
+    anyone reading it. That record's problem is an empty extraction, not a
+    silent policy, and reporting it as "the record does not say what it
+    requires" told a reader their document was deficient when it was not. See
+    `test_a_validation_reads_what_the_decider_reads`.
     """
 
     from policy_platform.contracts.policy import EvidenceReference
     from policy_platform.infrastructure.extraction.policy_facts import facts_for
 
-    rule = _record("R1", sentence=SENTENCE)
+    rule = _record("R1", sentence="The exceptional increase applies.")
     silent = rule.formulation.model_copy(
         update={
             "canonical": rule.formulation.canonical.model_copy(

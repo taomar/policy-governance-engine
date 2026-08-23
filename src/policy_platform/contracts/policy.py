@@ -7,6 +7,7 @@ generated source code.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from enum import Enum
 from typing import Final, Literal
@@ -557,7 +558,86 @@ def attributes_for(rule: object | None, facts: list[PolicyFact]) -> PolicyAttrib
     return PolicyAttributes(applies=rows(APPLIES_ATTRIBUTES), outcome=rows(OUTCOME_ATTRIBUTES))
 
 
-def _states_its_test(core: object | None) -> bool:
+#: Marks that a clause carries operative content rather than naming a thing.
+#: The categories are not invented here — they are the ones `assess()` already
+#: uses to separate a decidable record from an underspecified one, which calls a
+#: record empty when it has "no value, condition, time, place, authority or
+#: permissive modality". This mirrors that list so there is one definition of
+#: operative content in the codebase rather than a second, weaker one.
+#:
+#: A first attempt covered only quantities and subordinating links, and left two
+#: real records reported: "officially documented once a year" and "finalized ...
+#: annually ... approved by GMU Board of Trustees". Both state when a thing
+#: happens, one names who approves it, and neither carries a digit. Missing them
+#: was the same too-narrow reading this whole change exists to correct.
+#: Enough words to be a clause rather than a heading. Section titles in the
+#: corpora run to four words ("Salaries and deductions", "Working hours",
+#: "Documents required to be on file"); the shortest operative sentences run to
+#: eight or more. Six sits between them and is only ever consulted for the two
+#: weaker signals below.
+_WORDS_IN_A_CLAUSE = 6
+
+_A_QUANTITY = re.compile(r"\d")
+_A_SUBORDINATING_LINK = re.compile(
+    r"\b(if|when|unless|until|where|provided|subject to|in the case of|"
+    r"in case|upon|after|before|during|within|per|each|every)\b",
+    re.IGNORECASE,
+)
+#: A period or recurrence — "time" in the list above. A rule that says when a
+#: thing recurs has stated something a case can be judged against.
+_A_PERIOD = re.compile(
+    r"\b(annual|annually|month|monthly|week|weekly|day|daily|year|yearly|"
+    r"quarter|quarterly|once|twice|hour|hourly|semester|term)\w*\b",
+    re.IGNORECASE,
+)
+#: A delegation — "authority" in the list above. `assess()` treats a named
+#: authority as DISCRETIONARY rather than UNDERSPECIFIED for exactly this
+#: reason: the record says who decides, which is not nothing.
+_AN_AUTHORITY = re.compile(
+    r"\b(approv|authoris|authoriz|sign-off|signoff|discretion|consent|"
+    r"permission|endorse|ratif)\w*\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_states_a_test(source_text: str) -> bool:
+    """Whether the record's own sentence carries something to decide on.
+
+    Only consulted when the decomposition is empty, and only to separate two
+    situations a single verdict used to merge: a document that says nothing
+    from an extraction that captured nothing. The first is the reader's problem
+    and worth reporting; the second is ours and is a different finding.
+
+    Not an attempt to understand the sentence. A judge does that. This asks the
+    much smaller question of whether there is operative content present at all —
+    a quantity, a period, a delegation, or a clause making one thing depend on
+    another. A sentence with none of those is a heading or a bare assertion, and
+    a record carrying only that really does leave a judge with nothing.
+    """
+
+    text = (source_text or "").strip()
+    if not text:
+        return False
+    # A quantity or a subordinating link is operative wherever it appears —
+    # neither shows up in a heading.
+    if _A_QUANTITY.search(text) or _A_SUBORDINATING_LINK.search(text):
+        return True
+    # A period or a delegation is a weaker signal, because the same words name
+    # things as well as govern them: "Working hours" is a heading and "hours"
+    # is not a rule. This was caught by the negative case in this check's own
+    # tests, which is what those cases are for.
+    #
+    # A heading is a noun phrase; a rule is a clause. Requiring enough words to
+    # be a clause separates them without needing to parse one — "Working hours"
+    # and "Salaries and deductions" do not reach it, while "documented once a
+    # year" and "approved by the Board of Trustees" do, in the sentences they
+    # actually came from.
+    if len(text.split()) < _WORDS_IN_A_CLAUSE:
+        return False
+    return bool(_A_PERIOD.search(text) or _AN_AUTHORITY.search(text))
+
+
+def _states_its_test(core: object | None, source_text: str = "") -> bool:
     """Whether the record carries the rule's operative content, anywhere.
 
     Deliberately generous about *where*, and strict about *whether*. A sentence
@@ -567,6 +647,27 @@ def _states_its_test(core: object | None) -> bool:
     that reads only a field named `condition` reports the other two as gaps. It
     did: 29 of 46 records were called incomplete by a check looking in one
     place.
+
+    `source_text` is the rest of that lesson. Widening from one field to six
+    still never left the decomposition, and the decomposition is not what
+    decides an AI Ready record — a judge reads the record's own sentence. So a
+    record whose slots are empty while its sentence states the rule in full was
+    reported as saying nothing:
+
+        "Salaries are paid at AIS on monthly base in Saudi Riyals; transfers
+        are made directly to the employee's local bank account on the 30th of
+        each month."
+
+    That names the payer, the period, the currency, the channel and the date.
+    The finding said the record "does not say what it requires", and asked a
+    compliance officer to fix a policy that was already complete. The defect was
+    ours: the extraction left the slots empty.
+
+    Those two situations need telling apart rather than merging, so the
+    sentence is only consulted when the slots are empty, and it counts only when
+    it carries operative content of its own — see `_sentence_states_a_test`. A
+    genuinely empty record, whose sentence is a heading or a bare subject and
+    verb, still answers False here.
     """
 
     def text(name: str) -> str:
@@ -574,12 +675,14 @@ def _states_its_test(core: object | None) -> bool:
         return value.strip() if isinstance(value, str) else ""
 
     if core is None:
-        return False
+        return _sentence_states_a_test(source_text)
     if text("condition") or text("prerequisite") or text("constraint"):
         return True
     if text("trigger") or text("temporal_constraint") or text("deadline"):
         return True
-    return bool(text("predicate") and (text("object") or text("threshold")))
+    if text("predicate") and (text("object") or text("threshold")):
+        return True
+    return _sentence_states_a_test(source_text)
 
 
 def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
@@ -596,10 +699,16 @@ def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
 
     canonical = rule.formulation.canonical if rule.formulation else None
     core = canonical.rule if canonical else None
+    # The context this validation is entitled to: everything the deciding party
+    # reads. On the AI Ready route that is the record's own sentence, not the
+    # decomposition alone — asking whether a record "says" something while
+    # looking at less than the judge sees is how a complete policy gets reported
+    # as silent.
+    readable = (canonical.source_text if canonical else "") or rule.description or ""
     missing: list[str] = []
     if not (canonical and (canonical.source_text or "").strip()):
         missing.append("the sentence it came from")
-    if not _states_its_test(core):
+    if not _states_its_test(core, readable):
         missing.append("what it requires")
     if not rule.fact_model:
         missing.append("what a case must establish")
