@@ -93,6 +93,7 @@ from policy_platform.contracts.formulation import (
     ExtractionStatus,
     PolicyFormulation,
     RuleFormulation,
+    states_no_testable_proposition,
 )
 from policy_platform.contracts.passage import PolicyPassage
 from policy_platform.infrastructure.extraction.passage_extractor import _normalize
@@ -167,6 +168,19 @@ from policy_platform.infrastructure.extraction.quantity_projection import (
 #: See `ai_quality._definition_effect_findings` for the defect this closes and
 #: `_apply_combining_algorithm` for why an informational effect never competes
 #: on the allow/deny axis.
+#:
+#: `recommendation` and `ambiguous` are deliberately *not* here, and the reason
+#: is worth recording because the obvious change is wrong. They look like the
+#: same case — a recommendation "cannot decide anything" — but the rule type is
+#: a label, not the content. "No one should use profanity" is formulated
+#: `recommendation` and decides perfectly well: asked "may I use profanity?" it
+#: answers no. Mapping the type to INFORMATIONAL silently disarmed nine
+#: negated-subject prohibitions taken verbatim from RUN-83257A81, because the
+#: negation branch below only fires on REQUIRE_ACTION and ALLOW.
+#:
+#: Whether a record can yield a verdict is a property of what it *says*, so it
+#: is read from the evaluability assessment further down (see
+#: `_yields_no_verdict`) rather than guessed from its type.
 _RULE_TYPE_MAP: dict[CanonicalRuleType, tuple[RuleType, EffectType]] = {
     CanonicalRuleType.OBLIGATION: (RuleType.OBLIGATION, EffectType.REQUIRE_ACTION),
     CanonicalRuleType.PROHIBITION: (RuleType.PROHIBITION, EffectType.DENY),
@@ -2463,6 +2477,22 @@ def formulation_to_candidate_rules(
             EffectType.ALLOW,
         ) and states_a_negation(canonical_rule):
             rule_type, effect_type = RuleType.PROHIBITION, EffectType.DENY
+
+        # A record that states no testable proposition decides nothing, and
+        # must not be projected as though it could.
+        #
+        # Placed *after* the negation branch on purpose: whatever else we can
+        # or cannot read out of a sentence, a negation we can read is a
+        # decision, and it keeps its DENY.
+        #
+        # `rule_type` is deliberately left alone. HUMAN_JUDGMENT_REQUIREMENT is
+        # the honest description of what the record is *for*; what changes is
+        # the effect, which is what every consumer reads to decide whether the
+        # record takes part in a determination.
+        elif effect_type is not EffectType.INFORMATIONAL and states_no_testable_proposition(
+            canonical_rule
+        ):
+            effect_type = EffectType.INFORMATIONAL
 
         decisions = formulation.decisions_for(index)
         outcomes = [derive_condition_outcome(dec, index) for dec in decisions]

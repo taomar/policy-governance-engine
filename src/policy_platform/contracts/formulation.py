@@ -235,6 +235,81 @@ class CanonicalPolicyRule(_OmitEmptyModel):
     source_origin: str | None = None
 
 
+#: Modal slots that ask rather than direct. A closed function-word class.
+#:
+#: A deontic operator makes a proposition a case can satisfy or fail: "shall",
+#: "must", "may", "is entitled to", "shall not", "strictly forbidden" — and the
+#: soft ones too, because "should" and "are expected to" still decide. Asked
+#: "did the employee do it?", every one of them answers.
+#:
+#: A courtesy marker does not. "Please check with the HR department about the
+#: latest Covid regulations as these are subject to change as per the Ministry
+#: of Health" states no proposition: there is no case a reader can put to it
+#: that comes back satisfied or not satisfied, because its whole content is "go
+#: and ask". Projected as REQUIRE_ACTION it looked like a rule with a missing
+#: test, and the decidability checks duly reported the *document* as deficient
+#: — "the record does not say what it requires", "the source uses conditional
+#: language and the decomposition records no condition". Both true of the
+#: record, neither a defect in the policy.
+#:
+#: Held closed and domain-neutral for the same reason `_DOCUMENT_NOUNS` is, and
+#: matched on the `modality` field alone, never on the sentence: a list that may
+#: only contain politeness markers cannot quietly grow into a content
+#: classifier. Across a 1,150-rule corpus of two staff handbooks it matches 2
+#: records and disarms no decision — the other 76 distinct modalities in that
+#: corpus all carry force, including every soft one.
+_COURTESY_MODALITIES = frozenset(
+    {
+        "please",
+        "kindly",
+        "we ask that",
+        "we request that",
+        "we would ask that",
+        "you are welcome to",
+        "feel free to",
+    }
+)
+
+
+def states_no_testable_proposition(rule: CanonicalPolicyRule | None) -> bool:
+    """True when the record cannot yield a verdict, whatever it is about.
+
+    Two independent grounds, both read off the canonical record rather than
+    inferred from the sentence:
+
+    *The modal slot asks rather than directs.* See `_COURTESY_MODALITIES`.
+
+    *The formulator typed the rule `ambiguous`.* That is the extraction saying,
+    in its own vocabulary, that it could not settle what the sentence decides.
+    A record carrying that admission must not then contribute a decision: doing
+    so asserts downstream exactly the thing the extraction declined to
+    determine. This is the stronger of the two signals, and the more general —
+    it needs no vocabulary at all.
+
+    What this deliberately does *not* use is `Evaluability`. It is the obvious
+    candidate and it is backwards for this purpose, which measurement showed
+    and reasoning did not: the Covid guidance above assesses `decidable`
+    (subject, predicate and object are all stated), while "Alcohol and drugs
+    are strictly forbidden" assesses `underspecified` (no value, condition,
+    time, place or authority). Evaluability measures whether the rule gives you
+    something to *test against*; a categorical prohibition needs nothing to
+    test against and decides anyway. Routing on it would have stripped DENY
+    from eleven live prohibitions across the corpus.
+
+    Nor does it use the rule *type* alone. "No one should use profanity" is
+    typed `recommendation` and decides perfectly well; treating the type as the
+    answer disarmed nine negated-subject prohibitions taken verbatim from
+    RUN-83257A81.
+    """
+
+    if rule is None:
+        return False
+    if rule.rule_type is CanonicalRuleType.AMBIGUOUS:
+        return True
+    modality = " ".join((rule.modality or "").split()).casefold()
+    return modality in _COURTESY_MODALITIES
+
+
 class CanonicalPolicy(_OmitEmptyModel):
     """One extracted policy statement. Spec Sections 38 / 93.
 

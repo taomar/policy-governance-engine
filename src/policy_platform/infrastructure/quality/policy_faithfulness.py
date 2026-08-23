@@ -33,7 +33,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from policy_platform.contracts.policy import CanonicalRule, EffectType
+from policy_platform.contracts.policy import (
+    CanonicalRule,
+    EffectType,
+    yields_no_verdict,
+)
 
 #: Negations as they appear in policy prose. Matched on word boundaries so
 #: "cannot" counts and "notify" does not.
@@ -402,6 +406,14 @@ def check_source_conditions_reached_canonical(
     to"; judged with its sibling the sentence is fully captured, and it was
     reported blocking for a decomposition that had lost nothing.
     """
+
+    # A record that decides nothing has no decision to be incomplete. "Please
+    # check with the HR department about the latest Covid regulations as these
+    # are subject to change" states a conditional ("subject to") and captures no
+    # condition, both true, neither a defect: the record is guidance, and its
+    # whole content is "go and ask". See `yields_no_verdict`.
+    if yields_no_verdict(rule):
+        return None
 
     formulation = rule.formulation
     canonical = formulation.canonical if formulation else None

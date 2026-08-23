@@ -685,6 +685,45 @@ def _states_its_test(core: object | None, source_text: str = "") -> bool:
     return _sentence_states_a_test(source_text)
 
 
+def yields_no_verdict(rule: "CanonicalRule") -> bool:
+    """Whether this record can decide anything at all.
+
+    An informational record states something — a definition, a calculated
+    value, a recommendation, or a sentence the extraction could not settle. It
+    does not authorize, forbid or oblige, so there is no case a reader can put
+    to it that comes back satisfied or not satisfied. The engine already knows
+    this (`_apply_combining_algorithm` never lets an informational effect
+    compete) and so does the XACML projection (it maps to no decision).
+
+    The checks that judge a record did not, and that was a category error with
+    a cost. Asked of "Please check with the HR department about the latest Covid
+    regulations as these are subject to change as per the Ministry of Health":
+
+        the record does not say what it requires
+        the source uses conditional language and the decomposition records no
+        condition, prerequisite, trigger or constraint at all
+
+    Both are true and neither is a defect. The record is guidance; its entire
+    content is "go and ask". Reporting it as an incomplete rule tells a
+    compliance officer to repair a sentence that is doing its job, and buries
+    the findings that are real.
+
+    So a check asking "does this decide well" asks this first. A record that
+    decides nothing is not a broken decision.
+
+    This reads the effect and nothing else, deliberately. Whether a record can
+    yield a verdict is decided once, at extraction, by
+    `states_no_testable_proposition`, and written into the effect — which is
+    already the field every other consumer reads for exactly this purpose
+    (`_apply_combining_algorithm`, `xacml_projection`). Re-deriving the same
+    judgement here from the canonical record would put one policy in two
+    places, and the two can then disagree about the same rule.
+    """
+
+    effect = getattr(rule, "effect", None)
+    return getattr(effect, "type", None) == EffectType.INFORMATIONAL
+
+
 def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
     """What a judge would not find in this record, in its own words.
 
@@ -696,6 +735,12 @@ def unanswered_for_judge(rule: "CanonicalRule") -> list[str]:
     document say, what does the rule require, what must be established about a
     case, what follows, and where did this come from.
     """
+
+    # A record that decides nothing is not a broken decision — see
+    # `yields_no_verdict`. Asked of a recommendation or a definition, every
+    # question below is a category error.
+    if yields_no_verdict(rule):
+        return []
 
     canonical = rule.formulation.canonical if rule.formulation else None
     core = canonical.rule if canonical else None
