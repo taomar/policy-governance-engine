@@ -550,9 +550,22 @@ class TestHeaderRowIsEvidencedNotAssumed:
 
 
 class _StubRow:
+    """One row's geometry, with a distinct x-slice per column.
+
+    The cells used to share a single bbox spanning the whole row. That was
+    enough while the only thing read from a row was `bbox`, for provenance —
+    but a real pdfplumber row gives each column its own x-range, and a cell
+    that spans several columns is how a merged banner is expressed. A stub
+    where every cell covers every column says "every header cell is a banner
+    over all the others", which is not a table any parser would produce.
+    """
+
     def __init__(self, top: float, cell_count: int):
         self.bbox = (0.0, top, 100.0, top + 10.0)
-        self.cells = [(0.0, top, 100.0, top + 10.0)] * cell_count
+        width = 100.0 / cell_count if cell_count else 100.0
+        self.cells = [
+            (i * width, top, (i + 1) * width, top + 10.0) for i in range(cell_count)
+        ]
 
 
 class _StubPage:

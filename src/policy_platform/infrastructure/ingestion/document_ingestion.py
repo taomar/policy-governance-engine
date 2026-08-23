@@ -692,6 +692,73 @@ def _containing_table(
     return None
 
 
+def _banner_columns(row_objects: list) -> dict[int, int]:
+    """Row-0 cells that span several row-1 cells, mapped to how many they cover.
+
+    A two-row table header — a merged banner over the sub-labels that divide it —
+    is emitted by ``table.extract()`` as a row 0 with empty strings beside the
+    banner and a row 1 that looks like data. Read from the strings alone the two
+    rows are indistinguishable from a legitimate stub crosstab (``['', 'Q1',
+    'Q2']`` over ``['North', '10', '20']``), where row 0 *is* the whole header
+    and row 1 *is* data. That is why this was left alone for a while: any
+    string-only rule had to be balanced between the two, and tuning that balance
+    to the corpora in hand is what constraint 1 forbids.
+
+    Geometry settles it without appealing to any document's words. pdfplumber
+    gives each row a cell per column position, ``None`` where no cell boundary
+    starts. On the reproduction case (GMU staff handbook, page 30) row 0 reads
+    ``[(56,80), (80,156), (156,508), None, None, None, None]`` and row 1 reads
+    ``[None, None, (156,209), (209,265), (265,380), (380,448), (448,508)]``:
+    the banner at column 2 covers x 156–508, which row 1 divides into five. In
+    an ordinary table each row-0 cell covers exactly one row-1 cell, so nothing
+    is flagged.
+
+    Measured over every PDF in the corpus: 84 tables with two or more rows, 4
+    flagged, and all 4 are that same GMU table in duplicate copies of the file.
+    No other table in any document trips it.
+
+    Returns ``{column_index: covered_count}`` for the spanning cells, empty when
+    the header occupies one row — which is the ordinary case.
+    """
+
+    if len(row_objects) < 2:
+        return {}
+    row0 = row_objects[0].cells
+    row1 = [cell for cell in row_objects[1].cells if cell is not None]
+    if not row1:
+        return {}
+
+    spanning: dict[int, int] = {}
+    for column_index, cell in enumerate(row0):
+        if cell is None:
+            continue
+        left, right = cell[0], cell[2]
+        # A tolerance of one point: these are floats from a rendered page, and
+        # a sub-label's edge is drawn on the banner's edge, not near it.
+        covered = sum(1 for other in row1 if other[0] >= left - 1 and other[2] <= right + 1)
+        if covered > 1:
+            spanning[column_index] = covered
+    return spanning
+
+
+def _join_header_rows(banner: str, sub_label: str) -> str:
+    """One column's label when the header occupies two rows.
+
+    Both halves are kept verbatim and the separator is structural, the same
+    contract the row text itself keeps with ``" | "``: nothing here invents a
+    word that is not in the document. A column under the banner reads
+    ``Itemization · Salary Range``; a column beside it, where only one row
+    carries a label, reads that label alone rather than gaining a stray
+    separator.
+    """
+
+    banner, sub_label = banner.strip(), sub_label.strip()
+    if banner and sub_label:
+        # Already-identical halves are one label written twice, not two.
+        return banner if banner == sub_label else f"{banner} · {sub_label}"
+    return banner or sub_label
+
+
 def _table_to_blocks(
     table, table_id: str, page_index: int, lines: list[_Line]
 ) -> tuple[list[_Block], list[IngestionDiagnostic]]:
@@ -731,19 +798,55 @@ def _table_to_blocks(
     has_headers, header_diagnostic = _column_labels_for(
         rows, table_id=table_id, page=page_index
     )
-    headers = (
-        [
-            _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
-            for column_index, cell in enumerate(rows[0])
+
+    # A header split across two rows is still one header. When row 0 carries a
+    # banner over columns that row 1 sub-divides, both rows are the header: read
+    # row 1 as data and it becomes a phantom provision whose text is the
+    # sub-labels themselves, filed under headers that are empty for exactly the
+    # columns it names.
+    banner = _banner_columns(row_objects) if has_headers and len(rows) > 1 else {}
+
+    if banner:
+        headers = [
+            _join_header_rows(
+                _cell_in_reading_order(table, row_objects, 0, column_index, (rows[0][column_index] or "").strip()),
+                _cell_in_reading_order(table, row_objects, 1, column_index, (rows[1][column_index] or "").strip()),
+            )
+            for column_index in range(len(rows[0]))
         ]
-        if has_headers
-        else []
-    )
+    else:
+        headers = (
+            [
+                _cell_in_reading_order(table, row_objects, 0, column_index, (cell or "").strip())
+                for column_index, cell in enumerate(rows[0])
+            ]
+            if has_headers
+            else []
+        )
 
     if header_diagnostic is not None:
         diagnostics.append(header_diagnostic)
 
-    data_rows = list(enumerate(rows))[1:] if has_headers else list(enumerate(rows))
+    if banner:
+        widest = max(banner.values())
+        diagnostics.append(
+            IngestionDiagnostic(
+                code="table_header_spans_multiple_rows",
+                severity="info",
+                page=page_index,
+                detail=(
+                    f"table {table_id}: row 0 carries {len(banner)} banner cell(s) over columns "
+                    f"row 1 sub-divides (widest covers {widest}); rows 0-1 read as one header"
+                ),
+            )
+        )
+
+    if banner:
+        data_rows = list(enumerate(rows))[2:]
+    elif has_headers:
+        data_rows = list(enumerate(rows))[1:]
+    else:
+        data_rows = list(enumerate(rows))
 
     blocks: list[_Block] = []
     for row_index, row in data_rows:

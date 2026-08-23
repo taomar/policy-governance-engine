@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -150,7 +150,22 @@ async def _run_count(maker, policy_set_id: uuid.UUID) -> int:
         return int(result.scalar_one())
 
 
-async def _seed_run(maker, policy_set_id: uuid.UUID, scope: str) -> uuid.UUID:
+async def _seed_run(
+    maker, policy_set_id: uuid.UUID, scope: str, *, run_at: datetime | None = None
+) -> uuid.UUID:
+    """Store one quality run, optionally at a stated time.
+
+    `run_at` is a parameter because two runs seeded back to back land on the
+    *same* timestamp: `datetime.now` reads a clock whose resolution on this
+    platform is coarser than the gap between two inserts. The repository breaks
+    that tie on `id`, which makes the query's order stable — but the ids are
+    random uuid4s, so "which of the two is newest" then came down to which uuid
+    happened to sort higher, and a test asserting that the *second* insert wins
+    passed or failed by coin flip.
+
+    A test about recency should state the recency it means rather than hope the
+    clock ticked.
+    """
     run_id = uuid.uuid4()
     async with maker() as session:
         session.add(
@@ -167,7 +182,7 @@ async def _seed_run(maker, policy_set_id: uuid.UUID, scope: str) -> uuid.UUID:
                 methodology_version="2",
                 findings_json=[STORED_FINDING],
                 triggered_by="",
-                run_at=datetime.now(timezone.utc),
+                run_at=run_at or datetime.now(timezone.utc),
             )
         )
         await session.commit()
@@ -261,7 +276,11 @@ class TestReadingDoesNotEvaluate:
 
     async def test_the_latest_run_is_the_one_returned(self, client) -> None:
         http, maker, policy_set_id, _ = client
-        await _seed_run(maker, policy_set_id, "published")
+        # Stated an hour apart, so "latest" means what the test says it means.
+        # Seeding both at `now` left the two runs sharing a timestamp and the
+        # answer decided by whichever random uuid sorted higher.
+        earlier = datetime.now(timezone.utc) - timedelta(hours=1)
+        await _seed_run(maker, policy_set_id, "published", run_at=earlier)
         newest = await _seed_run(maker, policy_set_id, "published")
 
         body = (await http.get(f"/api/ai/policy-sets/{POLICY_SET_KEY}/quality")).json()
