@@ -216,6 +216,65 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", folded).strip().casefold()
 
 
+#: Lines the application writes into what Stage 1 reads, which are not document
+#: text. `ai_extraction._render_batch` prefixes every clause with an addressing
+#: label, its section name, and — for a table row — its column names, so the
+#: model can tell one clause from the next and read a row in context.
+#:
+#: `_render_passages` already strips them before Stage 2, in its own words
+#: because they are "non-policy strings to misread as content". Stage 1 sees
+#: them, and sometimes copies one into a passage.
+#:
+#: The shapes are anchored to the start of a line and mirror exactly what
+#: `_render_batch` emits. They are not a guess about what a document might
+#: contain: `(section:` appears in 0 of 362 parsed clauses of the corpus this
+#: was found on, because the string exists only in what this application
+#: renders.
+_APPLICATION_SCAFFOLDING = (
+    re.compile(r"^\s*\[clause_ref=[^\]]*\]\s*", re.IGNORECASE),
+    re.compile(r"^\s*\(section:[^)]*\)\s*", re.IGNORECASE),
+    re.compile(r"^\s*\(columns?:[^)]*\)\s*", re.IGNORECASE),
+)
+
+
+def strip_application_scaffolding(passage_text: str) -> str:
+    """Remove the application's own labels from the front of a passage.
+
+    A passage is the product's promise that these words are in the customer's
+    document. `verify_verbatim` proves it by containment — against the *rendered
+    batch*, which is the document plus the labels this application added. So a
+    passage that copied a label was verified against the copy of the label
+    sitting in the very text it was checked against, and passed.
+
+    The result reaches a reviewer as the sentence the policy states, travels
+    into the record's `source_text`, is quoted as evidence, and on the AI Ready
+    route is what a judge reads to decide a case. Sixteen records in one
+    extraction of a staff handbook began with "(section: Table of Violations and
+    Penalties)", which that handbook does not say anywhere.
+
+    It is also, measurably, most of Stage 1's run-to-run variance. Comparing two
+    extractions of the same file: 42 spans differed, 38 of them by exactly this
+    prefix — the model copying the label on one run and not the other. The
+    re-segmentation proposal held for a user decision was aimed at boundary
+    variance; this is what that variance mostly was.
+
+    Only leading labels are removed, and only whole ones. A passage is a
+    contiguous span, so a label the model copied can only be at its front; a
+    parenthesis mid-sentence is the document's own and is left alone.
+    """
+
+    text = passage_text or ""
+    changed = True
+    while changed:
+        changed = False
+        for pattern in _APPLICATION_SCAFFOLDING:
+            stripped = pattern.sub("", text, count=1)
+            if stripped != text:
+                text = stripped
+                changed = True
+    return text.strip()
+
+
 def verify_verbatim(passage_text: str, source_text: str) -> bool:
     """True when `passage_text` really occurs inside `source_text`.
 
@@ -223,6 +282,13 @@ def verify_verbatim(passage_text: str, source_text: str) -> bool:
     instructed to self-validate, but self-reporting is not evidence: the whole
     point of a verbatim stage is that its output is *checkable*, so it is
     checked here rather than assumed.
+
+    Note what `source_text` is at the call site: the rendered batch, which is
+    the document *plus* this application's addressing labels. Containment
+    against it cannot distinguish a span of the document from a span of the
+    scaffolding, which is why `strip_application_scaffolding` runs before this
+    rather than inside it — the labels have to be gone before the question is
+    asked, not forgiven while answering it.
     """
 
     if not passage_text.strip():
@@ -422,6 +488,11 @@ class PassageExtractorAgent:
         rejected: list[PolicyPassage] = []
         repaired = 0
         for passage in extraction.policy_passages:
+            # The application's own labels are not the customer's document.
+            # Removed before verification, not after: `source_text` here is the
+            # rendered batch, so a copied label would otherwise be verified
+            # against itself. See `strip_application_scaffolding`.
+            passage.text = strip_application_scaffolding(passage.text)
             if verify_verbatim(passage.text, source_text):
                 kept.append(passage)
                 continue
