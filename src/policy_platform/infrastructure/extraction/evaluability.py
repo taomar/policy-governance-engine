@@ -365,12 +365,40 @@ def assess(rule: CanonicalPolicyRule | None, source_text: str = "") -> Evaluabil
     # them, so a reader is sent somewhere the record does not go. The document
     # is intact — the slice is not — which is why this is `malformed` and not
     # `underspecified`.
-    dangling = dangling_referents(rule, source_text)
-    if dangling:
+    #
+    # ONLY when the slice actually lost the antecedent. `UnresolvedReferent`
+    # already separates the two cases and this verdict used to ignore the
+    # separation: a pointer whose evidence still carries the sentence before it
+    # was reported as a damaged decomposition needing re-extraction, in exactly
+    # the same words and at the same blocking severity as one whose evidence
+    # holds a single sentence and cannot contain the antecedent at all.
+    #
+    # The measured case: "If there are workshops, meetings, or other events on
+    # Saturdays, you may be asked to attend. In the case of absences on that
+    # day, there will be action taken according to the administration
+    # procedures." The condition says "that day"; the antecedent is "Saturdays",
+    # in the record's own evidence, one sentence earlier. `_resolves_locally`
+    # asks whether the *head noun* recurs — "day" against "Saturdays" — so it
+    # answers no. That is a lexical test standing in for a semantic one, and
+    # anaphora exists precisely so that prose does not repeat the noun: a
+    # document that said "on that Saturday" would read worse and pass. The
+    # check therefore fired on well-formed writing and told a compliance officer
+    # their published policy was damaged.
+    #
+    # So a pointer whose evidence kept its neighbour is not malformed. It is not
+    # silently dropped either — `dangling_referents` still reports it, and
+    # `record_does_not_stand_alone` is the check that speaks to "read this with
+    # its passage". What changes is that it no longer claims the extraction is
+    # broken, because on this evidence it is not.
+    lost_their_antecedent = [
+        item for item in dangling_referents(rule, source_text)
+        if not item.source_carries_a_neighbour
+    ]
+    if lost_their_antecedent:
         return verdict(
             Evaluability.MALFORMED,
             "the extraction cut this record away from wording it depends on: "
-            + "; ".join(item.as_reason() for item in dangling),
+            + "; ".join(item.as_reason() for item in lost_their_antecedent),
         )
 
     # A stated test wins over a delegation. "not exceeding 5% ... and subject
