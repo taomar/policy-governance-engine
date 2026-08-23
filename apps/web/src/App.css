@@ -522,21 +522,56 @@
   height: calc(100vh - 52px);
 }
 
+/* The shell fills the screen at every size.
+ *
+ * It used to stop at 1440px and centre itself, which on a 1920 monitor left
+ * 256px of dead space and on a 2560 left 896 — more than a third of the width
+ * unusable. Two pages had already been special-cased out of it with `:has()`
+ * and a larger hand-picked number (1760px), which is the same fix twice and
+ * still a guess: any monitor wider than the guess wastes the difference.
+ *
+ * A reading-width cap is the right idea for PROSE and the wrong idea for a
+ * shell. This product's pages are policy registers, review queues, diffs and
+ * side-by-side panes — content that uses width rather than suffering from it.
+ * Prose is capped where prose actually is: eight blocks already carry their
+ * own `ch` caps, which is a measure of line length rather than of monitor. */
 .page-inner {
-  max-width: 1440px;
-  margin: 0 auto;
+  width: 100%;
   padding: 16px 22px 32px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-/* The Policies workspace is a two-pane data view, not prose — the 1320px
-   reading-width cap that suits every other page just wastes half a wide
-   monitor here. Scoped with :has() so no other page is affected and so the
-   widening degrades to the default cap on engines without :has() support. */
+/* Prose stops at a readable measure; everything else keeps the width.
+ *
+ * This is the half of the old 1440px shell cap that was worth keeping, moved
+ * to where it belongs. Removing the shell cap let a paragraph on the Quality
+ * page run to 2282px on a 2560 monitor — about 280 characters a line, against
+ * the 40–80 a reader can actually track. Capping the SHELL fixed that by
+ * making tables and side-by-side panes narrow too, which is why it wasted a
+ * third of a wide monitor and why two pages had already been special-cased
+ * out of it.
+ *
+ * `ch` because the constraint is line length, not screen size: 92ch is the
+ * same measure whatever the monitor and whatever the font size the reader has
+ * chosen. It only bites when a container is wide enough to make a line
+ * unreadable, so on a narrow pane it changes nothing.
+ *
+ * Scoped to standalone paragraphs. Typography inside a table cell, a tag, a
+ * list row or a description item is a data value and is left alone — it must
+ * line up with its column, not with a reading measure. */
+.page-inner p,
+.page-inner .ant-typography-secondary,
+.page-inner .ant-alert-description {
+  max-width: 92ch;
+}
+
+/* The Policies workspace keeps its wider side padding. The `max-width: 1760px`
+   that used to sit here is gone with the shell cap it was escaping: this rule
+   existed only to opt one page out of a 1440px ceiling, and there is no
+   ceiling to opt out of now. */
 .page-inner:has(.policies-workspace--desktop) {
-  max-width: 1760px;
   padding-left: 24px;
   padding-right: 24px;
 }
@@ -6396,7 +6431,6 @@
 /* ---------- Tests workspace ---------- */
 
 .page-inner:has(.tests-workspace) {
-  max-width: 1760px;
   padding-left: 24px;
   padding-right: 24px;
 }
@@ -9433,11 +9467,69 @@
   color: var(--success);
 }
 
+/* Two panes when two fit, one when they do not — decided by the space this
+   grid actually has, not by the width of the window.
+
+   `auto-fit` + `minmax(min(340px, 100%), 1fr)` is the whole rule. The track
+   floor is the narrowest a pane stays useful at; `min(…, 100%)` keeps that
+   floor from becoming an overflow on a viewport narrower than the floor
+   itself. When two tracks no longer fit, the second wraps on its own.
+
+   This replaces a `minmax(0, 1.25fr) minmax(340px, 0.75fr)` base plus a
+   `max-width: 1000px` override that flipped it to a single column. That pair
+   is a cliff: from 1100 down to 1001 the right pane is crushed against its
+   340px floor, and at 1000 it snaps to full width. The breakpoint also had to
+   be guessed, and it was guessed for one screen — which is why the file had
+   twelve different thresholds, each added when somebody noticed one thing
+   breaking at one size. */
+/* Two panes when two fit, one when they do not — decided by the space this
+   row actually has, not by the width of the window.
+ *
+ * Flex wrap rather than `auto-fit` grid, because the two panes are not peers:
+ * the selector lists policies and wants the room, the generator is a column of
+ * controls and does not. `auto-fit` can only make equal tracks, which flattened
+ * a deliberate 1.25/0.75 split to 50/50. Giving each pane its own flex-basis
+ * keeps the proportion while both fit, and `flex-wrap` drops the second pane to
+ * its own row the moment the bases no longer do — the same wrapping behaviour,
+ * with the ratio preserved.
+ *
+ * `min(…, 100%)` on each basis stops a basis wider than the container from
+ * becoming an overflow.
+ *
+ * This replaces a `minmax(0, 1.25fr) minmax(340px, 0.75fr)` base plus a
+ * `max-width: 1000px` override flipping it to one column. That pair is a cliff:
+ * from 1100 down to 1001 the right pane is crushed against a 340px floor, then
+ * at 1000 it snaps to full width. The threshold also had to be guessed, and was
+ * guessed for one screen — which is why this file grew twelve different
+ * breakpoints, each added when somebody noticed one thing break at one size. */
 .validation-config-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
-  gap: 0;
+  display: flex;
+  flex-wrap: wrap;
+  /* 1px of the container's own colour, showing between the panes as their
+     separator — see `.validation-workbench-pane`. */
+  gap: 1px;
+  background: var(--border);
   align-items: stretch;
+}
+
+/* Both panes grow by 1, and the asymmetry lives in the basis.
+ *
+ * Not `flex-grow: 1.25 / 0.75`, which is the obvious way to write a 1.25/0.75
+ * split and is wrong here. When the grow values on a flex line sum to less
+ * than one, only that fraction of the free space is distributed — so a pane
+ * alone on its row after wrapping stops short of filling it. Measured: a
+ * generator with grow 0.75 alone in an 802px row took 340 + 0.75 × 462 = 686px
+ * and left 116px of the row empty.
+ *
+ * With grow 1 on both, a wrapped pane always fills its row, and while the two
+ * share a row the different bases keep the selector wider — which is the thing
+ * the ratio was expressing. */
+.validation-config-grid > .validation-policy-selector {
+  flex: 1 1 min(520px, 100%);
+}
+
+.validation-config-grid > .validation-generator {
+  flex: 1 1 min(340px, 100%);
 }
 
 .validation-workbench {
@@ -9451,11 +9543,19 @@
 .validation-workbench-pane {
   min-width: 0;
   overflow: hidden;
+  /* Paints over the grid's hairline background, so the 1px gap between panes
+     is what the reader sees as the rule. */
+  background: var(--surface);
 }
 
-.validation-workbench-pane + .validation-workbench-pane {
-  border-left: 1px solid var(--border);
-}
+/* The separator is the gap, not a border on one edge.
+ *
+ * A `border-left` on the second pane is a claim that the panes sit side by
+ * side, which stopped being knowable once the grid started wrapping on its own
+ * — and the old answer was a second rule under a media query, guessing the
+ * width at which the border should become a `border-top` instead. Letting a
+ * 1px gap show the container's background through works in whichever direction
+ * the panes happen to sit, at every width, with nothing to guess. */
 
 .validation-policy-selector,
 .validation-generator {
@@ -11060,19 +11160,12 @@
     flex-direction: column;
   }
 
-  .validation-config-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .validation-workbench-pane + .validation-workbench-pane {
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .validation-policy-selector,
-  .validation-generator {
-    height: 420px;
-  }
+  /* `.validation-config-grid` is intrinsic now (auto-fit + minmax), so it
+     wraps to one column on its own and needs no override here. Its pane
+     borders do still need to switch from a vertical rule to a horizontal one
+     when the panes stack — but "stacked" is now a fact about the grid, not
+     about the viewport, so that is expressed below with :not() on the row
+     rather than re-guessed at a pixel width. */
 
   .validation-policy-filters {
     grid-template-columns: minmax(0, 1fr) repeat(2, 140px) auto;
