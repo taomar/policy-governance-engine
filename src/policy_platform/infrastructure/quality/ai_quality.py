@@ -526,26 +526,126 @@ def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
     cannot fix is not a decision to put in front of them.
     """
 
-    findings: list[dict] = []
+    entries: list[tuple[CanonicalRule, LogicFinding]] = []
     for rule in rules:
         canonical = rule.formulation.canonical if rule.formulation else None
         if canonical is None:
             continue
         for finding in judge_logic(canonical, rule.effect).findings:
-            findings.append(
-                {
-                    "severity": _LOGIC_SEVERITY[finding.severity],
-                    "category": finding.code,
-                    "finding": (
-                        f"Rule '{rule.title}' ({rule.rule_id}): {finding.claim!r} — "
-                        f"{finding.detail}. Source: {finding.source_excerpt[:200]!r}"
-                    ),
-                    "affected_rule_ids": [rule.rule_id],
-                    "recommendation": _logic_recommendation(finding),
-                    "source": "deterministic",
-                }
-            )
+            entries.append((rule, finding))
+    return _group_logic_faithfulness_entries(entries)
+
+
+def _group_logic_faithfulness_entries(entries: list[tuple[CanonicalRule, LogicFinding]]) -> list[dict]:
+    """Collapse repeated source-level extraction defects without hiding rules.
+
+    Only re-extraction findings can be grouped: their own severity says the
+    remedy is to read the source structure again rather than edit one stored
+    rule. The root-cause key is deliberately structural: same category,
+    severity, mismatch shape, challenged claim, explanatory detail and cited
+    source location. Singletons keep the old per-rule text byte-for-byte.
+    """
+
+    grouped: dict[tuple, list[tuple[CanonicalRule, LogicFinding]]] = collections.defaultdict(list)
+    ordered_keys: list[tuple] = []
+    for rule, finding in entries:
+        key = _logic_root_cause_key(rule, finding)
+        if key is None:
+            key = ("single", id(rule), id(finding))
+        if key not in grouped:
+            ordered_keys.append(key)
+        grouped[key].append((rule, finding))
+
+    findings: list[dict] = []
+    for key in ordered_keys:
+        group = grouped[key]
+        if len(group) == 1:
+            findings.append(_logic_finding_report(group[0][0], group[0][1]))
+            continue
+        findings.append(_grouped_logic_finding_report(group))
     return findings
+
+
+def _logic_root_cause_key(rule: CanonicalRule, finding: LogicFinding) -> tuple | None:
+    if finding.severity is not LogicFindingSeverity.REEXTRACTION:
+        return None
+    source_location = _primary_source_location(rule)
+    if source_location is None:
+        return None
+    return (
+        _LOGIC_SEVERITY[finding.severity],
+        finding.code,
+        finding.shape.value if finding.shape else "",
+        finding.claim,
+        finding.detail,
+        _logic_recommendation(finding),
+        source_location,
+    )
+
+
+def _primary_source_location(rule: CanonicalRule) -> tuple[str, int | None, str] | None:
+    evidence = rule.evidence[0] if rule.evidence else None
+    if evidence is None:
+        canonical = rule.formulation.canonical if rule.formulation else None
+        source_text = (canonical.source_text or "").strip() if canonical else ""
+        return ("", None, source_text) if source_text else None
+    source_id = str(evidence.source_hash or evidence.document_version_id or "")
+    section = " ".join((evidence.section or "").split())
+    if not source_id and evidence.page is None and not section:
+        return None
+    return (source_id, evidence.page, section)
+
+
+def _logic_finding_report(rule: CanonicalRule, finding: LogicFinding) -> dict:
+    return {
+        "severity": _LOGIC_SEVERITY[finding.severity],
+        "category": finding.code,
+        "finding": (
+            f"Rule '{rule.title}' ({rule.rule_id}): {finding.claim!r} — "
+            f"{finding.detail}. Source: {finding.source_excerpt[:200]!r}"
+        ),
+        "affected_rule_ids": [rule.rule_id],
+        "recommendation": _logic_recommendation(finding),
+        "source": "deterministic",
+    }
+
+
+def _grouped_logic_finding_report(group: list[tuple[CanonicalRule, LogicFinding]]) -> dict:
+    first_rule, first_finding = group[0]
+    affected_rule_ids = [rule.rule_id for rule, _ in group]
+    location = _format_source_location(first_rule)
+    examples = "; ".join(f"{rule.rule_id}: {rule.title}" for rule, _ in group[:3])
+    if len(group) > 3:
+        examples += f"; and {len(group) - 3} more"
+    return {
+        "severity": _LOGIC_SEVERITY[first_finding.severity],
+        "category": first_finding.code,
+        "finding": (
+            f"This grouped finding covers {len(group)} rules that share one "
+            f"{first_finding.code} finding because the same "
+            f"derived claim {first_finding.claim!r} has the same mismatch shape "
+            f"({first_finding.shape.value if first_finding.shape else 'unknown'}) at the same "
+            f"source location{location}. This points to one source-level extraction issue, "
+            f"not {len(group)} independent rule wording issues. Affected rules: "
+            f"{', '.join(affected_rule_ids)}. Examples: {examples}. "
+            f"{first_finding.detail}. Source example: {first_finding.source_excerpt[:200]!r}"
+        ),
+        "affected_rule_ids": affected_rule_ids,
+        "recommendation": _logic_recommendation(first_finding),
+        "source": "deterministic",
+    }
+
+
+def _format_source_location(rule: CanonicalRule) -> str:
+    evidence = rule.evidence[0] if rule.evidence else None
+    if evidence is None:
+        return ""
+    parts = []
+    if evidence.page is not None:
+        parts.append(f"page {evidence.page}")
+    if evidence.section:
+        parts.append(f"section {evidence.section!r}")
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _source_sentence(rule: CanonicalRule) -> str:

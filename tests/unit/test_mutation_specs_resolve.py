@@ -52,8 +52,8 @@ def test_there_are_mutation_specs_to_check():
     assert MUTATIONS.is_dir(), f"mutation spec directory is missing: {MUTATIONS}"
     specs = _specs()
     assert specs, f"no mutation specs found in {MUTATIONS}"
-    assert len(specs) == 33, (
-        f"expected the 33 recorded mutations, found {len(specs)} — if a mutation was "
+    assert len(specs) == 34, (
+        f"expected the 34 recorded mutations, found {len(specs)} — if a mutation was "
         "added or retired deliberately, update this count so the change is visible"
     )
 

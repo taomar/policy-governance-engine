@@ -62,5 +62,14 @@
     "tests": [
       "tests/unit/test_ai_quality.py::TestNonBlockingAmbiguityReadsTheStoredDecision"
     ]
+  },
+  {
+    "name": "root-cause grouping ignores source location",
+    "file": "src/policy_platform/infrastructure/quality/ai_quality.py",
+    "find": "        _logic_recommendation(finding),\n        source_location,\n    )",
+    "replace": "        _logic_recommendation(finding),\n    )",
+    "tests": [
+      "tests/unit/test_ai_quality.py::TestLogicFaithfulnessRootCauseGrouping::test_same_code_different_source_causes_stay_separate"
+    ]
   }
 ]

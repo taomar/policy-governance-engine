@@ -31,12 +31,82 @@ from policy_platform.contracts.policy import (
     RuleType,
 )
 from policy_platform.infrastructure.quality import ai_quality
+from policy_platform.infrastructure.quality.logic_faithfulness import (
+    LogicFinding,
+    LogicFindingSeverity,
+    MismatchShape,
+)
 from tests.fixtures.factories import make_rule
 
 
 def _rule(rule_id: str = "R1"):
     return make_rule(
         rule_id, FactComparisonCondition(fact="amount", operator=ConditionOperator.EXISTS, value=None)
+    )
+
+
+_CORPUS_SOURCE_HASH = "a4ab80af24640509976881a36b76895b474558f3cb5a1b4fa564d0bf7faf07e9"
+_CORPUS_DOCUMENT_ID = "71927920-6f56-43b2-bdb3-45e3fbbede7a"
+_VISITOR_ROW_SOURCE = (
+    "2. |  | Receiving visitors not related to work\n"
+    "in the jobsite without management\n"
+    "permission | Written warning إنذار كتابي |  |  | 10% deduction حسم %10 |  |  | "
+    "15% deduction حسم %15 |  |  | 25%deduction حسم %25 |  |  | "
+    "استقبال زائرين في غير أمور عمل المنشأة في .ةرادلإا نم نذا نود لمعلا نكامأ | .2 |"
+)
+_TOOLS_ROW_SOURCE = (
+    "3. |  | Use of Program tools, equipment or\n"
+    "supply materials for private purposes\n"
+    "without permission. | Written Warning إنذار كتابي |  |  | 10% deduction حسم %10 |  |  | "
+    "25%deduction حسم %25 |  |  | 50%deduction حسم %50 |  |  | "
+    "استعمال آلات ومعدات وأدوات المنشأة لأغراض خاصة دون إذن. | .3 |"
+)
+_PROBATION_SOURCE = (
+    "For exceptional circumstances, the probation period can be extended for an additional "
+    "30 to 90 days; this will be explained to the employee if actioned."
+)
+
+
+def _corpus_logic_rule(
+    rule_id: str,
+    *,
+    source_text: str = _VISITOR_ROW_SOURCE,
+    page: int = 24,
+    section: str = "Table of Violations and Penalties",
+    claim: str = "1 Time; 2 Time; 3 Time; 4 Time",
+):
+    rule = make_rule(
+        rule_id,
+        AllCondition(all=[]),
+        effect_type=EffectType.REQUIRE_ACTION,
+        effect_action="apply the stated penalty",
+    )
+    return rule.model_copy(
+        update={
+            "title": f"verbatim corpus record {rule_id}",
+            "evidence": [
+                EvidenceReference(
+                    document_version_id=_CORPUS_DOCUMENT_ID,
+                    source_hash=_CORPUS_SOURCE_HASH,
+                    page=page,
+                    section=section,
+                    clause_id=rule_id,
+                )
+            ],
+            "formulation": RuleFormulation(
+                source_index=0,
+                canonical=CanonicalPolicy(
+                    source_text=source_text,
+                    rule=CanonicalPolicyRule(
+                        rule_type=CanonicalRuleType.CONDITIONAL_OUTCOME,
+                        subject="Receiving visitors not related to work in the jobsite without management permission",
+                        predicate="results in",
+                        object="Written warning إنذار كتابي",
+                        condition=claim,
+                    ),
+                ),
+            ),
+        }
     )
 
 
@@ -216,6 +286,91 @@ class TestAiReviewOutcomeIsReported:
 
         assert used is False
         assert findings == []
+
+
+class TestLogicFaithfulnessRootCauseGrouping:
+    def test_reextraction_findings_with_one_source_root_cause_are_grouped(self, monkeypatch) -> None:
+        monkeypatch.setattr(ai_quality, "judge_logic", lambda *_: _logic_result(_reextraction_finding()))
+
+        findings = ai_quality._logic_faithfulness_findings(
+            [
+                _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE),
+                _corpus_logic_rule("AI-ff1d9fe646", source_text=_TOOLS_ROW_SOURCE),
+            ]
+        )
+
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "medium"
+        assert findings[0]["category"] == "attribute_not_in_source"
+        assert findings[0]["affected_rule_ids"] == ["AI-68b73b78fd", "AI-ff1d9fe646"]
+        assert "covers 2 rules" in findings[0]["finding"]
+        assert "same source location" in findings[0]["finding"]
+
+    def test_same_code_different_source_causes_stay_separate(self, monkeypatch) -> None:
+        monkeypatch.setattr(ai_quality, "judge_logic", lambda *_: _logic_result(_reextraction_finding()))
+
+        findings = ai_quality._logic_faithfulness_findings(
+            [
+                _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE),
+                _corpus_logic_rule(
+                    "AI-f323d3a422",
+                    source_text=_PROBATION_SOURCE,
+                    page=9,
+                    section="7.4. THE PROBATION PERIOD",
+                ),
+            ]
+        )
+
+        assert len(findings) == 2
+        assert [f["affected_rule_ids"] for f in findings] == [["AI-68b73b78fd"], ["AI-f323d3a422"]]
+        assert all("covers 2 rules" not in f["finding"] for f in findings)
+
+    def test_different_severities_never_merge(self, monkeypatch) -> None:
+        calls: list[LogicFindingSeverity] = []
+
+        def fake_judge(*_) -> object:
+            severity = (
+                LogicFindingSeverity.BLOCKING
+                if len(calls) == 1
+                else LogicFindingSeverity.REEXTRACTION
+            )
+            calls.append(severity)
+            return _logic_result(_reextraction_finding(severity=severity))
+
+        monkeypatch.setattr(ai_quality, "judge_logic", fake_judge)
+
+        findings = ai_quality._logic_faithfulness_findings(
+            [
+                _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE),
+                _corpus_logic_rule("AI-ff1d9fe646", source_text=_TOOLS_ROW_SOURCE),
+            ]
+        )
+
+        assert len(findings) == 2
+        assert {f["severity"] for f in findings} == {"high", "medium"}
+        assert [f["affected_rule_ids"] for f in findings] == [["AI-68b73b78fd"], ["AI-ff1d9fe646"]]
+
+
+def _reextraction_finding(
+    *, severity: LogicFindingSeverity = LogicFindingSeverity.REEXTRACTION
+) -> LogicFinding:
+    return LogicFinding(
+        code="attribute_not_in_source",
+        severity=severity,
+        shape=MismatchShape.CONCATENATED,
+        claim="1 Time; 2 Time; 3 Time; 4 Time",
+        source_excerpt=_VISITOR_ROW_SOURCE,
+        detail=(
+            "the extraction target derived from canonical 'condition' carries a cell boundary, "
+            "so several of the row's values were read into one attribute. The document's "
+            "structure was flattened when it was read; re-extract the source rather than "
+            "editing the wording, which cannot separate values the record no longer holds apart"
+        ),
+    )
+
+
+def _logic_result(*findings: LogicFinding) -> object:
+    return type("_LogicResult", (), {"findings": list(findings)})()
 
 
 class TestBeingDecidedByReadingIsNotAFinding:
