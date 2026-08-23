@@ -293,6 +293,19 @@ def dangling_referents(
     return unresolved_referents(fields, f"{source_text} {carried}", source_text)
 
 
+#: The words English uses to negate a verb phrase. A closed function-word
+#: class — these are all of them, not a sample — so it cannot grow into a
+#: content classifier.
+#:
+#: Consulted ONLY on words the predicate dropped from the modality, never on
+#: the sentence. `formulation_mapping.is_negative_modality` is the fuller test
+#: and is used everywhere a modality is judged as a whole; it is not imported
+#: here because that module imports this one, and the cycle is not worth
+#: breaking for six words. If a third notion of negation ever appears, all
+#: three belong in one place.
+_NEGATION_PARTICLES = frozenset({"not", "never", "no", "cannot", "nor", "neither"})
+
+
 def _predicate_repeats_modality(rule: CanonicalPolicyRule) -> bool:
     """True when the predicate swallowed the modal word.
 
@@ -311,6 +324,45 @@ def _predicate_repeats_modality(rule: CanonicalPolicyRule) -> bool:
     if not modality or not predicate:
         return False
     return predicate[0] == modality[-1]
+
+
+def _words_the_predicate_dropped(rule: CanonicalPolicyRule) -> list[str]:
+    """The modality's words that the predicate did not keep.
+
+    Only meaningful once `_predicate_repeats_modality` holds: the two fields
+    then carry one verb phrase, and the predicate is the shorter copy. What it
+    lost is what separates a harmless duplication from a damaging one.
+    """
+
+    modality = (rule.modality or "").strip().casefold().split()
+    predicate = (rule.predicate or "").strip().casefold().split()
+    if not modality or not predicate:
+        return []
+    return [word for word in modality[:-1] if word not in predicate]
+
+
+def _predicate_dropped_the_negation(rule: CanonicalPolicyRule) -> bool:
+    """The predicate is the modality with its negation removed.
+
+    This is the damaging half of the mis-split, and it needs saying apart from
+    the harmless half:
+
+        "Smoking is not allowed"   modality 'is not allowed'   predicate 'allowed'
+        "Alcohol ... are strictly forbidden"
+                                   modality 'are strictly forbidden'
+                                   predicate 'forbidden'
+
+    Both are one verb phrase written into two fields. Only the first inverts:
+    read on its own, its predicate says the document permits what the document
+    forbids. The second is redundant and says nothing false.
+
+    Reported as one finding, both got the same sentence — "the verb is
+    unreliable" — which understates the first and overstates the second. A
+    reviewer triaging a report cannot tell which two of four records state the
+    opposite of their source.
+    """
+
+    return any(word in _NEGATION_PARTICLES for word in _words_the_predicate_dropped(rule))
 
 
 def assess(rule: CanonicalPolicyRule | None, source_text: str = "") -> EvaluabilityAssessment:
@@ -354,6 +406,16 @@ def assess(rule: CanonicalPolicyRule | None, source_text: str = "") -> Evaluabil
             "canonical 'predicate' is empty, so the rule states no test",
         )
     if _predicate_repeats_modality(rule):
+        if _predicate_dropped_the_negation(rule):
+            dropped = " ".join(_words_the_predicate_dropped(rule))
+            return verdict(
+                Evaluability.MALFORMED,
+                f"canonical 'predicate' is the modality '{rule.modality}' with "
+                f"'{dropped}' removed, so the predicate alone reads "
+                f"'{rule.predicate}' — the opposite of what the source states. "
+                "Anything reading the predicate without the modality inverts "
+                "this rule",
+            )
         return verdict(
             Evaluability.MALFORMED,
             f"canonical 'predicate' repeats the modality '{rule.modality}', "
