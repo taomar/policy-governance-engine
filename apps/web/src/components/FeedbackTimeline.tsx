@@ -86,8 +86,8 @@ export function FeedbackTimeline({ policySetKey, submittedBy, epoch }: FeedbackT
       <Timeline
         items={items.map((item) => ({
           key: item.id,
-          children: (
-            <Space direction="vertical" size={2}>
+          content: (
+            <Space orientation="vertical" size={2}>
               <Space size={8} wrap>
                 <Tag color={STATUS_COLOR[item.status]}>{item.status}</Tag>
                 <Text type="secondary">{new Date(item.submitted_at).toLocaleString()}</Text>

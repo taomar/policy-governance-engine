@@ -606,7 +606,7 @@ ${groupDividerCss.split(",\n")
               type="info"
               closable
               className="rbac-readonly-banner"
-              message={access.blockedReason}
+              title={access.blockedReason}
             />
           ) : null;
         })()}
@@ -640,7 +640,7 @@ ${groupDividerCss.split(",\n")
         confirmLoading={editSaving}
         destroyOnHidden
       >
-        {editError && <Alert type="error" showIcon message={editError} style={{ marginBottom: 12 }} />}
+        {editError && <Alert type="error" showIcon title={editError} style={{ marginBottom: 12 }} />}
         <Form layout="vertical" form={form}>
           <Form.Item label="Name" name="name" rules={[{ required: true, message: "Enter a name" }]}>
             <Input />
@@ -721,7 +721,7 @@ ${groupDividerCss.split(",\n")
         confirmLoading={reviewSaving}
         destroyOnHidden
       >
-        {reviewError && <Alert type="error" showIcon message={reviewError} style={{ marginBottom: 12 }} />}
+        {reviewError && <Alert type="error" showIcon title={reviewError} style={{ marginBottom: 12 }} />}
         <Paragraph type="secondary">
           Records that this policy set was reviewed today. Optionally set the next review due date.
         </Paragraph>

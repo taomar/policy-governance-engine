@@ -107,7 +107,7 @@ export function ActivityPanel({ policySetKey, limit = 25 }: Props) {
         </Tooltip>
       </div>
       <div className="project-overview-panel__body">
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
       {loading && <Spin />}
       {!loading && visible.length === 0 && (
         <Empty
@@ -119,7 +119,7 @@ export function ActivityPanel({ policySetKey, limit = 25 }: Props) {
         <Timeline
           items={visible.map((event) => ({
             color: EVENT_COLOR[event.event_type] ?? "gray",
-            children: (
+            content: (
               <div className="activity-item">
                 <div className="activity-item-head">
                   <Tag color={EVENT_COLOR[event.event_type] ?? "default"}>

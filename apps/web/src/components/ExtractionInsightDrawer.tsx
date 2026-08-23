@@ -205,7 +205,7 @@ export default function ExtractionInsightDrawer({
       title: "Text",
       dataIndex: "text",
       render: (value: string, record) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text>{value}</Text>
           {/* The offsets are what make a citation checkable rather than
               plausible, so they are shown rather than kept for machines. */}
@@ -231,11 +231,11 @@ export default function ExtractionInsightDrawer({
       {loading ? (
         <Spin />
       ) : error ? (
-        <Alert type="error" message={error} showIcon />
+        <Alert type="error" title={error} showIcon />
       ) : !coverage ? (
         <Empty description="No extraction detail for this version" />
       ) : (
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="large" style={{ width: "100%" }}>
           <Space size="large" wrap>
             <Statistic title="Canonical leaves" value={coverage.total_leaf_elements} />
             <Statistic
@@ -254,7 +254,7 @@ export default function ExtractionInsightDrawer({
             <Alert
               type="error"
               showIcon
-              message={`${unaccounted.size} element(s) received no disposition`}
+              title={`${unaccounted.size} element(s) received no disposition`}
               description={
                 <Paragraph style={{ marginBottom: 0 }}>
                   These were never considered by the run. That is different from an element
@@ -269,7 +269,7 @@ export default function ExtractionInsightDrawer({
             <Alert
               type="warning"
               showIcon
-              message={`${plan.uncovered_target_ids.length} element(s) belong to no reading unit`}
+              title={`${plan.uncovered_target_ids.length} element(s) belong to no reading unit`}
               description="Extraction would never have been shown this content."
             />
           )}
@@ -284,12 +284,12 @@ export default function ExtractionInsightDrawer({
                 // other and nothing on screen looks wrong.
                 label: `Document (${canonical?.total_elements ?? 0})`,
                 children: (
-                  <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                  <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
                     {canonical && !canonical.is_complete && (
                       <Alert
                         type="warning"
                         showIcon
-                        message={`Showing ${canonical.elements.length} of ${canonical.total_elements} elements`}
+                        title={`Showing ${canonical.elements.length} of ${canonical.total_elements} elements`}
                         description="The rest could not be retrieved, so this tab is part of the document rather than all of it."
                       />
                     )}

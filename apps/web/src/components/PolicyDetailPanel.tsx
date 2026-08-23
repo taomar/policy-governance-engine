@@ -883,7 +883,7 @@ export function PolicyDetailPanel({
                     maxHeight={420}
                   />
                 ) : leanState === "error" ? (
-                  <Space direction="vertical" size={8}>
+                  <Space orientation="vertical" size={8}>
                     <Text type="danger">
                       {leanError ?? "Could not load the lean projection."}
                     </Text>

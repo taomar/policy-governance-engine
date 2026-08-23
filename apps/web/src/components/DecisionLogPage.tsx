@@ -173,10 +173,10 @@ export function DecisionLogPage({ policySetKey }: { policySetKey: string }) {
         </Button>
       </div>
 
-      {error && <Alert type="error" message={error} showIcon style={{ marginTop: 16 }} />}
+      {error && <Alert type="error" title={error} showIcon style={{ marginTop: 16 }} />}
 
       <Card size="small" style={{ marginTop: 16, marginBottom: 16 }}>
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={12} style={{ width: "100%" }}>
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as StatusFilter)} options={STATUS_OPTIONS} />
           <Space wrap>
             <Input.Search
@@ -230,7 +230,7 @@ export function DecisionLogPage({ policySetKey }: { policySetKey: string }) {
         destroyOnHidden
       >
         {detailLoading && <Text type="secondary">Loading…</Text>}
-        {detailError && <Alert type="error" message={detailError} showIcon />}
+        {detailError && <Alert type="error" title={detailError} showIcon />}
         {detail && (
           <>
             <Descriptions size="small" column={1} bordered style={{ marginBottom: 20 }}>

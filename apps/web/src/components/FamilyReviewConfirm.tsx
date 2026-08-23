@@ -72,7 +72,7 @@ export function FamilyReviewConfirm({
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message={
+        title={
           leftTotal === 1
             ? "1 related rule would be left unreviewed"
             : `${leftTotal} related rules would be left unreviewed`
@@ -102,7 +102,7 @@ export function FamilyReviewConfirm({
             dataSource={gap.left}
             renderItem={(item) => (
               <List.Item>
-                <Space direction="vertical" size={0} style={{ width: "100%" }}>
+                <Space orientation="vertical" size={0} style={{ width: "100%" }}>
                   <Text style={{ fontSize: 13 }}>{item.rule.title}</Text>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {item.rule.rule_id} · rev {item.rule.rule_revision} · {item.review_status}

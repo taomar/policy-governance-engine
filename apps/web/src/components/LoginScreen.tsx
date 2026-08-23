@@ -64,7 +64,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           {absence === "expired" && !error && (
             <Alert
               type="info"
-              message="Your session expired. Sign in again to continue where you left off."
+              title="Your session expired. Sign in again to continue where you left off."
               showIcon
               style={{ marginBottom: 16 }}
             />

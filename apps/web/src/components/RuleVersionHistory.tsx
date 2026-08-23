@@ -90,7 +90,7 @@ export function RuleVersionHistory({ policySetKey, rule, versions, currentVersio
   }
 
   if (error) {
-    return <Alert type="error" showIcon message={error} />;
+    return <Alert type="error" showIcon title={error} />;
   }
 
   if (!lineage || lineage.kind === "no-prior") {
@@ -104,7 +104,7 @@ export function RuleVersionHistory({ policySetKey, rule, versions, currentVersio
 
   if (lineage.kind === "new") {
     return (
-      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
         <Tag color="green">NEW IN v{currentVersionNumber}</Tag>
         <Text type="secondary">This rule did not exist in v{lineage.prevVersionNumber} — it was introduced here.</Text>
       </Space>
@@ -113,7 +113,7 @@ export function RuleVersionHistory({ policySetKey, rule, versions, currentVersio
 
   if (lineage.kind === "unchanged") {
     return (
-      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
         <Tag color="default">UNCHANGED SINCE v{lineage.prevVersionNumber}</Tag>
         <Text type="secondary">
           None of this rule's tracked fields (title, description, type, effect, condition, priority, effective
@@ -126,7 +126,7 @@ export function RuleVersionHistory({ policySetKey, rule, versions, currentVersio
   const fieldEntries = Object.entries(lineage.changedFields);
 
   return (
-    <Space direction="vertical" size={10} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={10} style={{ width: "100%" }}>
       <Tag color="purple">CHANGED SINCE v{lineage.prevVersionNumber}</Tag>
       <Text type="secondary">
         What changed between v{lineage.prevVersionNumber} and v{currentVersionNumber} for this specific rule:

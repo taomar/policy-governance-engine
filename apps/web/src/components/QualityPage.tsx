@@ -143,7 +143,7 @@ export function QualityRouteApplicability({
       className="quality-route-applicability"
       type="info"
       showIcon
-      message={
+      title={
         `${distinctChecks} route-specific check${distinctChecks === 1 ? "" : "s"} ` +
         `did not apply to every record in this run`
       }
@@ -461,7 +461,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
         that must be confirmed against the canonical policies and source evidence before they are treated as defects.
       </Paragraph>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
       {!scoped && policySets.length === 0 && <Text type="secondary">Create a policy set first.</Text>}
 
       {selectedKey && (
@@ -562,7 +562,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
               sequence tells you whether the policy set is improving — each row is
               compared against the run before it.
             </Paragraph>
-            {historyError && <Alert type="error" showIcon message={historyError} />}
+            {historyError && <Alert type="error" showIcon title={historyError} />}
             {historyLoading && history.length === 0 && <Spin size="small" />}
             {!historyLoading && history.length === 0 && !historyError && (
               <Empty
@@ -647,7 +647,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
               className="quality-historic-banner"
               type="info"
               showIcon
-              message="Viewing a past evaluation"
+              title="Viewing a past evaluation"
               description="These findings are from a stored run and reflect the rules as they were at that time — they are not a live check of the current state."
               action={
                 <Button size="small" onClick={runEvaluation}>
@@ -662,7 +662,7 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
               className="quality-historic-banner"
               type="info"
               showIcon
-              message="No evaluation recorded yet"
+              title="No evaluation recorded yet"
               description={`${notEvaluated} Until then this page has nothing to report — which is not the same as reporting that there is nothing wrong.`}
               action={
                 <Button size="small" type="primary" onClick={runEvaluation} disabled={runDisabled}>
@@ -834,8 +834,8 @@ export function QualityPage({ policySetKey }: { policySetKey?: string } = {}) {
             Saved PolicyTest cases whose most recent run against the active version did not pass. Tests that have
             never been run are not counted here — see the Tests tab to run or review them.
           </Paragraph>
-          {failingError && <Alert type="error" showIcon message={failingError} style={{ marginBottom: 12 }} />}
-          <Space direction="vertical" style={{ width: "100%" }} size={12}>
+          {failingError && <Alert type="error" showIcon title={failingError} style={{ marginBottom: 12 }} />}
+          <Space orientation="vertical" style={{ width: "100%" }} size={12}>
             {failingTests.map((item) => (
               <Card key={item.test.id} size="small" className="finding-card">
                 <Space size={8} wrap style={{ marginBottom: 8 }}>

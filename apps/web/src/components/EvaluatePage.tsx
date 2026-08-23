@@ -227,7 +227,7 @@ export function EvaluatePage() {
         nothing it answers is written to this audit trail.
       </Paragraph>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       <Card
         title={

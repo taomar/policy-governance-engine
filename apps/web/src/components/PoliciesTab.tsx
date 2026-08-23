@@ -971,7 +971,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
         </Space>
       </div>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       {versions.length === 0 ? (
         <Card>
@@ -982,7 +982,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
-                <Space direction="vertical" size={8} style={{ maxWidth: 560 }}>
+                <Space orientation="vertical" size={8} style={{ maxWidth: 560 }}>
                   <Text strong>
                     {pipeline.approved} approved rule{pipeline.approved === 1 ? " is" : "s are"} waiting to be
                     published.
@@ -1010,7 +1010,7 @@ export function PoliciesTab({ policySetKey, onNavigate }: PoliciesTabProps) {
           ) : (
             <Empty
               description={
-                <Space direction="vertical" size={4}>
+                <Space orientation="vertical" size={4}>
                   <Text>No published policies yet for this project.</Text>
                   <Text type="secondary">
                     {pipeline && pipeline.pending > 0 ? (

@@ -1931,7 +1931,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
         </Space>
       </div>
 
-      {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+      {error && <Alert type="error" showIcon title={error} closable onClose={() => setError(null)} />}
       {!scoped && policySets.length === 0 && (
         <Text type="secondary">Create a policy set first (Policy Sets page).</Text>
       )}
@@ -1945,7 +1945,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
           type="success"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`${approvedReadyScale(
+          title={`${approvedReadyScale(
             approvedDrawerPolicies.length,
             approvedUnpublished.length,
           )} ready to publish`}
@@ -2007,13 +2007,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 </Col>
                 <Col xs={24} xl={15}>
               <Form layout="vertical" onSubmitCapture={handleDraft}>
-                {draftError && <Alert type="error" showIcon message={draftError} style={{ marginBottom: 16 }} />}
+                {draftError && <Alert type="error" showIcon title={draftError} style={{ marginBottom: 16 }} />}
                 {loadedAiRuleId && (
                   <Alert
                     type="success"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message="Filled in from your description"
+                    title="Filled in from your description"
                     description="Every field below is yours to change. Nothing is saved until you submit it for review."
                     closable
                     onClose={() => setLoadedAiRuleId(null)}
@@ -2125,7 +2125,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                     />
 
                     <Form.Item label="Condition (AND of comparisons — use Advanced mode for OR/NOT/nested logic)">
-                      <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                      <Space orientation="vertical" style={{ width: "100%" }} size={8}>
                         {conditionRows.map((row, i) => (
                           <Space.Compact key={i} style={{ width: "100%" }}>
                             <Input
@@ -2371,7 +2371,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
               )}
             </Space>
 
-            {qualityError && <Alert type="warning" showIcon message={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
+            {qualityError && <Alert type="warning" showIcon title={qualityError} style={{ marginBottom: 16 }} closable onClose={() => setQualityError(null)} />}
 
             {selectionNote && (
               <Text
@@ -2467,7 +2467,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                         type="warning"
                         showIcon
                         style={{ marginBottom: 12 }}
-                        message="The passage grouping could not be loaded, so these rules are listed one at a time."
+                        title="The passage grouping could not be loaded, so these rules are listed one at a time."
                         description={
                           <>
                             {policiesError}{" "}
@@ -2605,7 +2605,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                       {filteredCandidates.length === 0 && (
                         <div className="review-empty-state">
                           {emptyState.status === "success" ? (
-                            <Alert type="success" showIcon message={emptyState.title} description={emptyState.detail} />
+                            <Alert type="success" showIcon title={emptyState.title} description={emptyState.detail} />
                           ) : (
                             <Empty description={emptyState.title}>
                               {emptyState.detail && <Text type="secondary">{emptyState.detail}</Text>}
@@ -2686,7 +2686,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 <Alert
                   type="warning"
                   showIcon
-                  message="Set your name in the application header before publishing."
+                  title="Set your name in the application header before publishing."
                   className="publish-identity-warning"
                 />
               )}
@@ -2709,7 +2709,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
                 type="success"
                 showIcon
                 style={{ marginTop: 16 }}
-                message={`Published: version ${publishResult.version_number}, ${publishResult.rule_count} rule(s)`}
+                title={`Published: version ${publishResult.version_number}, ${publishResult.rule_count} rule(s)`}
               />
             )}
             </div>

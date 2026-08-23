@@ -130,7 +130,7 @@ export function RuleLogicPane({
           <Text strong className="rule-card-section-title">
             <CrownOutlined /> Precedence
           </Text>
-          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={6} style={{ width: "100%" }}>
             {rule.is_explicit_override && <Tag color="purple">Explicit override — outranks otherwise-applicable rules</Tag>}
             {rule.supersedes_rule_ids.length > 0 && (
               <div className="rule-card-scope">
@@ -247,7 +247,7 @@ export function RuleScopePane({
           <Text strong className="rule-card-section-title">
             Classification
           </Text>
-          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={6} style={{ width: "100%" }}>
             {rule.tags.length > 0 && (
               <Space size={4} wrap>
                 {rule.tags.map((t) => (

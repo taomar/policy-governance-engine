@@ -47,7 +47,7 @@ export function ConditionRouteNote({
       className="condition-route"
       type="info"
       showIcon
-      message={
+      title={
         <Space size={8} wrap>
           <Text strong>How this one is decided</Text>
           {route.route && <Tag color={route.color}>{route.route}</Tag>}

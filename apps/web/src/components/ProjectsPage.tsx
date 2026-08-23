@@ -250,7 +250,7 @@ export function ProjectsPage({
         </div>
       </header>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       {policySets.length > 0 && (
         <dl className="project-register-summary" aria-label="Project portfolio totals">
@@ -479,7 +479,7 @@ export function ProjectsPage({
         okText="Create Project"
         destroyOnHidden
       >
-        {createError && <Alert type="error" showIcon message={createError} style={{ marginBottom: 12 }} />}
+        {createError && <Alert type="error" showIcon title={createError} style={{ marginBottom: 12 }} />}
         <Form layout="vertical" form={form}>
           <Form.Item label="Key" name="key" rules={[{ required: true, message: "Enter a unique key" }]}>
             <Input placeholder="expense-policy" />

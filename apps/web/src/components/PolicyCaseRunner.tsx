@@ -128,7 +128,7 @@ function AllRulesReference({
   const remainder = rules.filter((rule) => !citedIds.has(rule.rule_id));
 
   const list = (shown: readonly CanonicalRule[]) => (
-    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={8} style={{ width: "100%" }}>
       {shown.map((rule) => (
         <div key={rule.rule_id} className="policy-case-reading__rule">
           <NamedRule policySetKey={policySetKey} ruleId={rule.rule_id} variant="block" />
@@ -212,7 +212,7 @@ function GroundingLine({ grounding }: { grounding: InformationalGrounding | unde
           type="warning"
           showIcon
           data-testid="policy-case-grounding-refused"
-          message={
+          title={
             fabricated_citations.length === 1
               ? "A citation naming no rule in this policy was refused"
               : `${fabricated_citations.length} citations naming no rule in this policy were refused`
@@ -229,7 +229,7 @@ function GroundingLine({ grounding }: { grounding: InformationalGrounding | unde
           type="warning"
           showIcon
           data-testid="policy-case-grounding-oversize"
-          message="This policy was too large to read in one grounded pass"
+          title="This policy was too large to read in one grounded pass"
           description="No single answer was composed from it, so no rule was silently left unread. The rules are listed below to read directly."
         />
       ) : null}
@@ -255,7 +255,7 @@ function InformationalPanel({
         <Alert
           type={status === "no_rule_bears" ? "info" : "warning"}
           showIcon
-          message={
+          title={
             status === "no_rule_bears"
               ? "No rule in this policy bears on your question"
               : status === "declined"
@@ -552,7 +552,7 @@ function KeepAsGuard({
         showIcon
         style={{ marginTop: 16 }}
         data-testid="policy-case-guard-kept"
-        message={keptCount === 1 ? "Kept as a guard." : `Kept as ${keptCount} guards.`}
+        title={keptCount === 1 ? "Kept as a guard." : `Kept as ${keptCount} guards.`}
         description="It has not run yet. It runs first on the next version you publish, and on every publish after, flagging this case under Quality if the determination ever changes."
       />
     );
@@ -580,7 +580,7 @@ function KeepAsGuard({
           type="error"
           showIcon
           style={{ marginTop: 8 }}
-          message={error}
+          title={error}
           data-testid="policy-case-guard-error"
         />
       ) : null}
@@ -617,7 +617,7 @@ function GuardFromCase({
         showIcon
         style={{ marginTop: 16 }}
         data-testid="policy-case-not-guardable"
-        message="This informational answer cannot be kept as a guard."
+        title="This informational answer cannot be kept as a guard."
         description="A guard re-runs one rule's determination on a set of facts. This answer is composed by this app from several rules and states no single rule's verdict, so there is nothing deterministic for a guard to re-run."
       />
     );
@@ -638,7 +638,7 @@ function GuardFromCase({
         showIcon
         style={{ marginTop: 16 }}
         data-testid="policy-case-not-guardable"
-        message="This determination cannot be kept as a guard."
+        title="This determination cannot be kept as a guard."
         description="It is settled by a rule the judge read in words, which states no facts. A guard re-runs deterministic facts, so there is nothing here for one to re-run."
       />
     );
@@ -653,7 +653,7 @@ function GuardFromCase({
         showIcon
         style={{ marginTop: 16 }}
         data-testid="policy-case-not-guardable"
-        message="A guard needs a published policy to attach to."
+        title="A guard needs a published policy to attach to."
         description="This grouping is read from the draft and is not persisted as a policy set, so there is nothing for a guard to re-run against yet."
       />
     );
@@ -671,7 +671,7 @@ function GuardFromCase({
         showIcon
         style={{ marginTop: 16 }}
         data-testid="policy-case-not-guardable"
-        message="Keep this as a guard once the policy is published."
+        title="Keep this as a guard once the policy is published."
         description="A guard re-runs on every future published version. This case was put to the draft, whose rules may still change before they are published, so there is no published version yet for a guard to protect."
       />
     );
@@ -944,7 +944,7 @@ export function PolicyCaseRunner({
                 title: "Answer",
                 key: "answer",
                 render: (_: unknown, row: CaseAnswer) => (
-                  <Space direction="vertical" size={2}>
+                  <Space orientation="vertical" size={2}>
                     {row.label ? (
                       <Tag color={row.color}>{row.label}</Tag>
                     ) : (

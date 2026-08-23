@@ -238,7 +238,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                   <Text strong className="rule-card-section-title">
                     <CrownOutlined /> Precedence
                   </Text>
-                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                  <Space orientation="vertical" size={6} style={{ width: "100%" }}>
                     {rule.is_explicit_override && (
                       <Tag color="purple">Explicit override — outranks otherwise-applicable rules</Tag>
                     )}
@@ -338,7 +338,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                   <Text strong className="rule-card-section-title">
                     Classification
                   </Text>
-                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                  <Space orientation="vertical" size={6} style={{ width: "100%" }}>
                     {rule.tags.length > 0 && (
                       <Space size={4} wrap>
                         {rule.tags.map((t) => (
@@ -400,7 +400,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                     </Text>
                   </div>
                 ) : (
-                  <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <Space orientation="vertical" size={10} style={{ width: "100%" }}>
                     {rule.evidence.map((ev, idx) => {
                       const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
                       const docMeta = docMetaByVersionId.get(ev.document_version_id);

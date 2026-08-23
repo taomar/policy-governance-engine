@@ -108,7 +108,7 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
           type="warning"
           showIcon
           data-testid="split-defect-finding"
-          message={splitDefect.heading}
+          title={splitDefect.heading}
           description={
             <div className="decision-readiness-defect">
               <Paragraph type="secondary" className="decision-readiness-gloss">
@@ -131,7 +131,7 @@ export function DecisionReadinessView({ rule }: { rule: CanonicalRule }) {
         <Alert
           type="info"
           showIcon
-          message={
+          title={
             <Space size={8} wrap>
               <Tag color={verdict.color}>{verdict.label}</Tag>
               {deciders.length > 0 && (

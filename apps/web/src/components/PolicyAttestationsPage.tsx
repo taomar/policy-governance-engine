@@ -204,12 +204,12 @@ export function PolicyAttestationsPage({ policySetKey }: { policySetKey: string 
         )}
       </div>
 
-      {error && <Alert type="error" message={error} showIcon style={{ marginTop: 16 }} />}
+      {error && <Alert type="error" title={error} showIcon style={{ marginTop: 16 }} />}
       {!isManager && (
         <Alert
           type="info"
           showIcon
-          message={actorRoleRefusalText({
+          title={actorRoleRefusalText({
             required_role: "policy_manager",
             action: "launch_attestation_campaign",
           })}
@@ -233,7 +233,7 @@ export function PolicyAttestationsPage({ policySetKey }: { policySetKey: string 
         {!loading && filteredRows.length === 0 ? (
           <Empty description="No attestations here yet" style={{ marginTop: 32 }} />
         ) : (
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={12} style={{ width: "100%" }}>
             {filteredRows.map((row) => (
               <Card key={row.id} size="small" className="policy-exception-card" loading={loading}>
                 <div className="policy-exception-card-header">
@@ -285,7 +285,7 @@ export function PolicyAttestationsPage({ policySetKey }: { policySetKey: string 
         width={600}
         destroyOnHidden
       >
-        {createError && <Alert type="error" message={createError} showIcon style={{ marginBottom: 16 }} />}
+        {createError && <Alert type="error" title={createError} showIcon style={{ marginBottom: 16 }} />}
         <Form form={form} layout="vertical">
           <Form.Item
             name="policy_version_id"

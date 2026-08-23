@@ -260,7 +260,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
             // from a dropdown does not look withheld, it looks like it never
             // existed — so a reviewer looking for an older run would conclude
             // it was never performed rather than that the list stops here.
-            <Space direction="vertical" size={0} data-testid="correlation-run-picker">
+            <Space orientation="vertical" size={0} data-testid="correlation-run-picker">
               <Select
                 value={selectedRunId}
                 onChange={(v) => {
@@ -294,7 +294,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
         human has to supply a missing definition before it can be settled.
       </Paragraph>
 
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       {selectedRun && (
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -406,7 +406,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
         />
       )}
 
-      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={12} style={{ width: "100%" }}>
         {visible.map((finding) => (
           <Card
             key={finding.id}
@@ -504,7 +504,7 @@ export function CorrelationPage({ policySetKey }: { policySetKey: string }) {
                 type="info"
                 showIcon
                 style={{ marginTop: 8 }}
-                message="Needed to settle this"
+                title="Needed to settle this"
                 description={
                   <ul style={{ margin: 0, paddingLeft: 18 }}>
                     {finding.requirements.map((r, i) => (

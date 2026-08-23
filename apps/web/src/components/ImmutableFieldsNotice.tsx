@@ -46,7 +46,7 @@ export function ImmutableFieldsNotice({
       showIcon
       icon={<LockOutlined />}
       style={{ marginBottom: 16 }}
-      message={
+      title={
         <Space size={8} wrap>
           <Text strong style={{ fontSize: 13 }}>
             Some fields are set by the platform, not by you

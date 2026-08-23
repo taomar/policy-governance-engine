@@ -116,7 +116,7 @@ export function ReviewFilterBar({
 
   return (
     <div className="review-filter-bar">
-      <Space direction="vertical" size={10} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={10} style={{ width: "100%" }}>
         <Space wrap size={10} align="center">
           <FilterOutlined style={{ color: "#8c8c8c" }} />
           <Text strong style={{ fontSize: 13 }}>
@@ -229,7 +229,7 @@ export function ReviewFilterBar({
             {removed.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing was dropped" />
             ) : (
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <Space orientation="vertical" size={8} style={{ width: "100%" }}>
                 {removed.map((r) => (
                   <div key={r.id} className="review-removed-row">
                     <Space size={6} wrap>

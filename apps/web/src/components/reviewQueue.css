@@ -13,9 +13,14 @@
   margin-inline-start: 8px;
 }
 
-/* F7 — Feedback register rows matching the candidate queue idiom. */
+/* F7 — Feedback register rows matching the candidate queue idiom.
+   Tokens are the project's own. These three rules arrived carrying GitHub
+   Primer names (--color-border, --color-border-muted, --color-fg-muted) with
+   Primer hex fallbacks. None of those variables is defined in this app, so the
+   fallback was what actually rendered — three colours outside the palette,
+   reached through names that read as though a design system supplied them. */
 .feedback-register {
-  border: 1px solid var(--color-border, #d0d7de);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -28,7 +33,7 @@
 }
 
 .feedback-row--ruled {
-  border-bottom: 1px solid var(--color-border-muted, #d8dee4);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .feedback-row__main {
@@ -48,7 +53,7 @@
 }
 
 .feedback-row__date {
-  color: var(--color-fg-muted, #656d76);
+  color: var(--text-secondary);
   font-size: 0.85em;
 }
 

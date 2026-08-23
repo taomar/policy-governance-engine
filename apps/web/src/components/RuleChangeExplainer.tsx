@@ -101,13 +101,13 @@ export function RuleChangeExplainer({ candidateId }: { candidateId: string }) {
   }
 
   if (error) {
-    return <Alert type="error" showIcon message={error} action={<Button size="small" onClick={load}>Retry</Button>} />;
+    return <Alert type="error" showIcon title={error} action={<Button size="small" onClick={load}>Retry</Button>} />;
   }
 
   if (!data) return null;
 
   if (!data.comparable) {
-    return <Alert type="info" showIcon message={data.reason ?? "Nothing to compare against."} />;
+    return <Alert type="info" showIcon title={data.reason ?? "Nothing to compare against."} />;
   }
 
   const nothingChanged = data.semantic_changes.length === 0 && data.wording_changes.length === 0;
@@ -131,7 +131,7 @@ export function RuleChangeExplainer({ candidateId }: { candidateId: string }) {
         <Alert
           type="success"
           showIcon
-          message="No field differences — this rule is identical to the previous extraction."
+          title="No field differences — this rule is identical to the previous extraction."
         />
       )}
 
@@ -165,7 +165,7 @@ export function RuleChangeExplainer({ candidateId }: { candidateId: string }) {
           className="change-narrative"
           icon={<BulbOutlined />}
           showIcon
-          message="AI reading of the diff above"
+          title="AI reading of the diff above"
           description={<Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>{data.narrative}</Paragraph>}
         />
       )}

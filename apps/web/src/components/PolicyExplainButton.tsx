@@ -179,7 +179,7 @@ export function PolicyExplainButton({
             type="info"
             showIcon={false}
             className="policy-explain__scope"
-            message={
+            title={
               <Text type="secondary">
                 This describes what this app extracted, not what the document
                 says. The two agree only if the extraction is right, and that is
@@ -200,7 +200,7 @@ export function PolicyExplainButton({
               type="warning"
               showIcon
               data-testid="policy-explain-failed"
-              message="The request did not complete"
+              title="The request did not complete"
               description={
                 <>
                   <p>{failure}</p>
@@ -261,7 +261,7 @@ export function PolicyExplainButton({
                   type="info"
                   showIcon
                   data-testid="policy-explain-none"
-                  message="No reading was written for this policy"
+                  title="No reading was written for this policy"
                   description={unavailableReason(result)}
                 />
               )}

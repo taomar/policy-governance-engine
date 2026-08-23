@@ -125,11 +125,13 @@ describe("a signed-in viewer is offered no governed-content action", () => {
     await renderRegisterAs("viewer");
     const names = screen.queryAllByRole("button").map((b) => b.textContent);
     expect(names.filter((n) => /new project/i.test(n ?? ""))).toEqual([]);
-    // 60s, not the 5s default: `vi.resetModules()` means the first render in
+    // 120s, not the 5s default: `vi.resetModules()` means the first render in
     // this block re-imports the whole page module graph. That costs seconds on
-    // an idle worker and tens of seconds when the full suite is running in
-    // parallel, where 20s was still not enough.
-  }, 60000);
+    // an idle worker and over a minute when the full suite runs in parallel on
+    // a machine also hosting Postgres, the API and the dev server. The budget
+    // bounds a hang, not a slow machine — a viewer who *is* offered the button
+    // fails the assertion immediately and never reaches the clock.
+  }, 120000);
 
   it("tells a viewer who can create one instead of leaving them stuck", async () => {
     await renderRegisterAs("viewer");
@@ -138,12 +140,12 @@ describe("a signed-in viewer is offered no governed-content action", () => {
     // sentence is present, not that it appears exactly once.
     const found = await screen.findAllByText(/A Policy Author creates projects/i);
     expect(found.length).toBeGreaterThan(0);
-  }, 60000);
+  }, 120000);
 
   it("still offers creation to a policy author", async () => {
     await renderRegisterAs("policy_author");
     await waitFor(() => {
       expect(screen.queryAllByRole("button", { name: /new project/i }).length).toBeGreaterThan(0);
     });
-  }, 60000);
+  }, 120000);
 });

@@ -229,7 +229,7 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                 type="warning"
                 showIcon
                 data-testid="ask-rule-failed"
-                message={<span lang={t.language.tag}>{t.language.copy.failedHeading}</span>}
+                title={<span lang={t.language.tag}>{t.language.copy.failedHeading}</span>}
                 description={
                   <>
                     <p>
@@ -246,7 +246,7 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                 type="info"
                 showIcon
                 data-testid="ask-rule-empty"
-                message={
+                title={
                   <span lang={t.language.tag}>
                     <DirectionalText>{t.language.copy.emptyAnswerNote}</DirectionalText>
                   </span>
@@ -272,7 +272,7 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                         ? "ask-rule-grounded-nothing"
                         : "ask-rule-coverage"
                     }
-                    message={
+                    title={
                       <span lang={t.language.tag}>
                         <DirectionalText align>
                           {fillCounts(
@@ -312,7 +312,7 @@ export function AskAiModal({ scope, subjectLabel, wider, ask, onClose }: AskAiMo
                     showIcon
                     className="ask-rule-unquoted"
                     data-testid="ask-rule-unquoted"
-                    message={
+                    title={
                       <span lang={t.language.tag}>
                         <DirectionalText align>{t.language.copy.noQuotedTextNote}</DirectionalText>
                       </span>

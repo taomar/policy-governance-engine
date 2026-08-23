@@ -69,7 +69,7 @@ export function EvaluationResultView({ response }: { response: EvaluationRespons
           type="warning"
           showIcon
           style={{ marginBottom: 20 }}
-          message="Aggregate limit breached"
+          title="Aggregate limit breached"
           description={
             <ul style={{ margin: 0, paddingLeft: 20 }}>
               {response.aggregate_breaches!.map((b) => (
@@ -88,7 +88,7 @@ export function EvaluationResultView({ response }: { response: EvaluationRespons
           type="info"
           showIcon
           style={{ marginBottom: 20 }}
-          message="Advice"
+          title="Advice"
           description={
             <>
               <Paragraph type="secondary" style={{ margin: "0 0 8px" }}>

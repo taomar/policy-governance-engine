@@ -54,7 +54,7 @@ function TraceItems({ step }: { step: DraftTraceStep }) {
 
   if (step.key === "formulate") {
     return (
-      <Space direction="vertical" size={6} style={{ width: "100%", marginTop: 6 }}>
+      <Space orientation="vertical" size={6} style={{ width: "100%", marginTop: 6 }}>
         {step.items.map((item, i) => (
           <div key={i} className="ai-trace-item">
             <Paragraph style={{ margin: 0, fontSize: 12 }} italic>
@@ -84,7 +84,7 @@ function TraceItems({ step }: { step: DraftTraceStep }) {
 
   if (step.key === "derive") {
     return (
-      <Space direction="vertical" size={6} style={{ width: "100%", marginTop: 6 }}>
+      <Space orientation="vertical" size={6} style={{ width: "100%", marginTop: 6 }}>
         {step.items.map((item, i) => (
           <div key={i} className="ai-trace-item">
             <Text strong style={{ fontSize: 12 }}>
@@ -111,7 +111,7 @@ function TraceItems({ step }: { step: DraftTraceStep }) {
   }
 
   return (
-    <Space direction="vertical" size={4} style={{ width: "100%", marginTop: 6 }}>
+    <Space orientation="vertical" size={4} style={{ width: "100%", marginTop: 6 }}>
       {step.items.map((item, i) => (
         <Text key={i} type="secondary" style={{ fontSize: 11 }}>
           {str(item.item)} — {str(item.reason)}
@@ -252,7 +252,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
         {busy ? "Formulating…" : "Generate rule"}
       </Button>
 
-      {error && <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginTop: 12 }} />}
 
       {busy && (
         <div style={{ textAlign: "center", padding: "20px 0" }}>
@@ -284,7 +284,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
             style={{ marginTop: 12 }}
             items={result.trace.map((step) => ({
               color: STATUS_COLOR[step.status],
-              children: (
+              content: (
                 <div>
                   <Text strong style={{ fontSize: 12 }}>
                     {step.label}
@@ -302,7 +302,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
             <Alert
               type="warning"
               showIcon
-              message="No rule could be formulated from that statement"
+              title="No rule could be formulated from that statement"
               description="The agent read the text but found no policy-bearing obligation, permission, prohibition or definition in it. Try stating who it applies to, what they must or may do, and under what condition."
             />
           ) : (
@@ -310,7 +310,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
               <Text strong style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Generated {result.rules.length === 1 ? "rule" : `rules (${result.rules.length})`}
               </Text>
-              <Space direction="vertical" size={8} style={{ width: "100%", marginTop: 8 }}>
+              <Space orientation="vertical" size={8} style={{ width: "100%", marginTop: 8 }}>
                 {result.rules.map((rule) => {
                   const isLoaded = loadedRuleId === rule.rule_id;
                   return (
@@ -353,7 +353,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
             type="info"
             showIcon
             style={{ marginTop: 12 }}
-            message="This draft cites no source document"
+            title="This draft cites no source document"
             description="Rules extracted from an uploaded document carry clause-level evidence. A rule you author here has none, because there is no source text to point at — you are the source. It is saved as a candidate and still goes through the normal review."
           />
         </div>
@@ -384,7 +384,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
               Run test
             </Button>
           </Space>
-          {testError && <Alert type="error" showIcon message={testError} style={{ marginTop: 8 }} />}
+          {testError && <Alert type="error" showIcon title={testError} style={{ marginTop: 8 }} />}
           {testResult && (
             <div style={{ marginTop: 10 }}>
               <Space size={6} wrap>

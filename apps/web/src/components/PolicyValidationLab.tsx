@@ -488,7 +488,7 @@ export function PolicyValidationLab({
         </div>
       </header>
 
-          {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
+          {error && <Alert type="error" showIcon title={error} closable onClose={() => setError(null)} />}
           {!actor.name.trim() && (
             <div className="validation-actor-warning">
               <WarningOutlined />

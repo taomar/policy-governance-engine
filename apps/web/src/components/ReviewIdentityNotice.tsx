@@ -30,7 +30,7 @@ export function ReviewIdentityNotice({
     <Alert
       type="warning"
       showIcon
-      message={notice}
+      title={notice}
       className="review-identity-warning"
     />
   );

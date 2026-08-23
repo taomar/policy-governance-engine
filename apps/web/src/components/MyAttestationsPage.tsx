@@ -119,7 +119,7 @@ export function MyAttestationsPage() {
         </Button>
       </Space.Compact>
 
-      {error && <Alert type="error" message={error} showIcon style={{ marginTop: 16, maxWidth: 640 }} />}
+      {error && <Alert type="error" title={error} showIcon style={{ marginTop: 16, maxWidth: 640 }} />}
 
       <div style={{ marginTop: 24 }}>
         {!searched ? (
@@ -130,7 +130,7 @@ export function MyAttestationsPage() {
         ) : sortedRows.length === 0 ? (
           <Empty description="No attestations found for that name or email" style={{ marginTop: 32 }} />
         ) : (
-          <Space direction="vertical" size={12} style={{ width: "100%", maxWidth: 720 }}>
+          <Space orientation="vertical" size={12} style={{ width: "100%", maxWidth: 720 }}>
             {sortedRows.map((row) => {
               const policySet = policySetById.get(row.policy_set_id);
               return (

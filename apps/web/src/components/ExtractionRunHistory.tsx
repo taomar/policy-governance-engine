@@ -138,7 +138,7 @@ export default function ExtractionRunHistory({ documentVersionId, refreshKey = 0
     };
   }, [documentVersionId, refreshKey]);
 
-  if (error) return <Alert type="warning" showIcon message={`Could not load run history: ${error}`} />;
+  if (error) return <Alert type="warning" showIcon title={`Could not load run history: ${error}`} />;
   if (runs === null) return <Text type="secondary">Loading run history…</Text>;
   if (runs.length === 0) {
     return (
@@ -156,7 +156,7 @@ export default function ExtractionRunHistory({ documentVersionId, refreshKey = 0
   }
 
   return (
-    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={8} style={{ width: "100%" }}>
       <Text type="secondary">
         Every extraction of this version. Re-running replaces the current run&rsquo;s <strong>unreviewed</strong>{" "}
         candidates so the queue never contains two runs at once; rules you have already approved or rejected are never

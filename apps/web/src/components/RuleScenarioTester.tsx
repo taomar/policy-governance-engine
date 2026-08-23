@@ -186,7 +186,7 @@ export function RuleScenarioTester({
       <Alert
         type="info"
         showIcon
-        message={
+        title={
           engineDecides
             ? "The engine computes this rule's comparison"
             : "A judge reads this rule against your case"
@@ -257,7 +257,7 @@ export function RuleScenarioTester({
         </Button>
       </Space>
 
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       {judged && (
         <div className="scenario-test-result" data-testid="scenario-answer">
@@ -448,7 +448,7 @@ function RuleSourceText({
           source document, so there is no original wording to quote.
         </Paragraph>
       ) : (
-        <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 8 }}>
+        <Space orientation="vertical" size={10} style={{ width: "100%", marginTop: 8 }}>
           {evidence.map((ev, idx) => {
             const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
             if (clause) {

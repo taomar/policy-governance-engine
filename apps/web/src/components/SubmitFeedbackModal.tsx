@@ -81,7 +81,7 @@ export function SubmitFeedbackModal({
         type="info"
         showIcon
         className="feedback-modal-alert"
-        message="This policy remains current and in force."
+        title="This policy remains current and in force."
         description="Your feedback will be sent to a reviewer — it does not change the policy's status or take it out of service."
       />
 

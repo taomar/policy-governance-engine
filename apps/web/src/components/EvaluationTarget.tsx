@@ -110,7 +110,7 @@ export function EvaluationTargetBanner({
   }
 
   if (error) {
-    return <Alert type="error" showIcon message={`Could not determine what ${actionLabel} would run against: ${error}`} />;
+    return <Alert type="error" showIcon title={`Could not determine what ${actionLabel} would run against: ${error}`} />;
   }
 
   if (scope === "published") {
@@ -119,7 +119,7 @@ export function EvaluationTargetBanner({
         <Alert
           type="warning"
           showIcon
-          message="No published version yet"
+          title="No published version yet"
           description={
             emptyHint ??
             `${actionLabel} runs against the active published version, and this policy set does not have one. Approve rules in Review, then publish a version first.`
@@ -159,7 +159,7 @@ export function EvaluationTargetBanner({
       <Alert
         type="warning"
         showIcon
-        message="No unpublished rules to check"
+        title="No unpublished rules to check"
         description={
           emptyHint ??
           `${actionLabel} reads rules that are still in review. Extract a document or draft a rule first.`

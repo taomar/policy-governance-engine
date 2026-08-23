@@ -130,7 +130,7 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
         </Button>
       </div>
       <div className="project-overview-panel__body">
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
 
       {!summary && !loading && !error && (
         <Text type="secondary">
@@ -187,7 +187,7 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
             <Alert
               type="warning"
               showIcon
-              message="AI narrative unavailable"
+              title="AI narrative unavailable"
               description="The deterministic breakdown below is still exact; the plain-English narrative could not be generated (AI may be disabled or the call failed)."
               style={{ margin: "12px 0" }}
             />
@@ -218,7 +218,7 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
                 key: "coverage",
                 label: "Scope coverage (who / where this policy set applies to)",
                 children: (
-                  <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <Space orientation="vertical" size={10} style={{ width: "100%" }}>
                     {SCOPE_DIMENSIONS.map((dim) => (
                       <div key={dim}>
                         <Text type="secondary" style={{ display: "block", marginBottom: 4 }}>
@@ -246,7 +246,7 @@ export function PolicySetSummaryPanel({ policySetKey }: { policySetKey: string }
                       key: "overrides",
                       label: `Explicit overrides (${stats.explicit_overrides_count})`,
                       children: (
-                        <Space direction="vertical" size={6}>
+                        <Space orientation="vertical" size={6}>
                           {stats.explicit_overrides.map((o) => (
                             <div key={o.rule_id}>
                               <Text>{o.title}</Text>{" "}

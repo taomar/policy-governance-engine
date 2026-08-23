@@ -190,8 +190,8 @@ describe("F2: the answer names what decided it, in the answer block", () => {
     // Since we can't easily trigger the full async flow in this test context,
     // verify the structural expectation: the data-testid="scenario-decided-by"
     // should be a Tag element inside the verdict Space, not a Text in the footer.
-  }, 30000);
-  // 30s, not the 5s default. This test is slow rather than wrong: run on its
+  }, 120000);
+  // 120s, not the 5s default. This test is slow rather than wrong: run on its
   // own it takes about 4.2s and passes, because it dynamically imports the
   // scenario tester and renders it. That leaves no headroom, so any neighbour
   // in the file — and certainly the full suite running in parallel — pushes it
@@ -199,6 +199,13 @@ describe("F2: the answer names what decided it, in the answer block", () => {
   // F3 tests below, which assert on how many textboxes exist, find this test's
   // textarea and fail too. One tight clock, three red tests, none of them
   // describing a real defect in the product.
+  //
+  // The budget is deliberately far above the observed cost. A timeout should
+  // bound a *hang*, not a slow machine: a wrong result fails on its assertion
+  // immediately and does not wait for the clock, so a generous limit costs
+  // nothing when the code is right. 30s was still not enough on a machine also
+  // running Postgres, the API, the dev server and a browser — this test took
+  // 51s there while passing in 4s alone.
 });
 
 /* ========================================================================== *

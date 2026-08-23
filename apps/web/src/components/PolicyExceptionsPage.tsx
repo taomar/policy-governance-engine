@@ -205,7 +205,7 @@ export function PolicyExceptionsPage({ policySetKey }: { policySetKey: string })
         </Button>
       </div>
 
-      {error && <Alert type="error" message={error} showIcon style={{ marginTop: 16 }} />}
+      {error && <Alert type="error" title={error} showIcon style={{ marginTop: 16 }} />}
 
       <Segmented
         style={{ marginTop: 16 }}
@@ -223,7 +223,7 @@ export function PolicyExceptionsPage({ policySetKey }: { policySetKey: string })
         {!loading && filteredRows.length === 0 ? (
           <Empty description="No exception requests here yet" style={{ marginTop: 32 }} />
         ) : (
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={12} style={{ width: "100%" }}>
             {filteredRows.map((row) => {
               const rule = row.rule_id ? rulesById.get(row.rule_id) : null;
               return (
@@ -293,7 +293,7 @@ export function PolicyExceptionsPage({ policySetKey }: { policySetKey: string })
         width={560}
         destroyOnHidden
       >
-        {createError && <Alert type="error" message={createError} showIcon style={{ marginBottom: 16 }} />}
+        {createError && <Alert type="error" title={createError} showIcon style={{ marginBottom: 16 }} />}
         <Form form={form} layout="vertical">
           <Form.Item
             name="rule_id"

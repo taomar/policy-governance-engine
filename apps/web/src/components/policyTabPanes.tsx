@@ -985,7 +985,7 @@ function PolicyPlainWords({
           type="warning"
           showIcon
           data-testid="overview-plain-words-failed"
-          message="The request did not complete"
+          title="The request did not complete"
           description={
             <>
               <p>{failure}</p>
@@ -1698,7 +1698,7 @@ export function PolicyTestsPane({
           showIcon
           closable
           onClose={testing.dismissError}
-          message="That did not complete"
+          title="That did not complete"
           description={<DirectionalText>{testing.error}</DirectionalText>}
           style={{ marginBottom: 12 }}
           data-testid="policy-test-error"
@@ -1734,7 +1734,7 @@ export function PolicyTestsPane({
             title: "Rule",
             dataIndex: "title",
             render: (title: string, row: RuleTestRow) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <DirectionalText>{title}</DirectionalText>
                 {row.awaitingReview > 0 ? (
                   <Text type="secondary" style={{ fontSize: 12 }}>

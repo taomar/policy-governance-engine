@@ -21,8 +21,6 @@
   --brand-700: #6d28d9;
   --brand-800: #5b21b6;
   --brand-900: #4c1d95;
-  --brand-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #a855f7 100%);
-  --brand-gradient-hover: linear-gradient(135deg, #4338ca 0%, #6d28d9 55%, #9333ea 100%);
 
   /* ---------- Neutrals ---------- */
   --slate-25: #fbfcfe;

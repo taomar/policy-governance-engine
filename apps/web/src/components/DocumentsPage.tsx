@@ -276,7 +276,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         </Paragraph>
       </div>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
       {uploadMessage && (
         <Alert
           type={uploadProblem ? "warning" : "success"}
@@ -388,7 +388,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
         {loading ? (
           <Text type="secondary">Loading…</Text>
         ) : (
-          <Space direction="vertical" style={{ width: "100%" }} size={10}>
+          <Space orientation="vertical" style={{ width: "100%" }} size={10}>
             {documents.map((doc) => (
               <article key={doc.id} className="document-record">
                 <div className="document-record__header">
@@ -509,7 +509,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                   (v) =>
                     extractOpenFor === v.id && (
                       <div key={`extract-${v.id}`} className="extract-panel">
-                        <Space direction="vertical" style={{ width: "100%" }}>
+                        <Space orientation="vertical" style={{ width: "100%" }}>
                           <Space>
                             {!scoped && (
                               <>
@@ -535,13 +535,13 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                           <ExtractionProgressPanel documentVersionId={v.id} running={extractingId === v.id} />
 
                           {extractResults[v.id] && "error" in extractResults[v.id] && (
-                            <Alert type="error" showIcon message={(extractResults[v.id] as { error: string }).error} />
+                            <Alert type="error" showIcon title={(extractResults[v.id] as { error: string }).error} />
                           )}
                           {extractResults[v.id] && "created" in extractResults[v.id] && (
                             <Alert
                               type="success"
                               showIcon
-                              message={`Created ${(extractResults[v.id] as ExtractResult).created.length} candidate rule(s)${
+                              title={`Created ${(extractResults[v.id] as ExtractResult).created.length} candidate rule(s)${
                                 (extractResults[v.id] as ExtractResult).skipped.length > 0
                                   ? `, skipped ${(extractResults[v.id] as ExtractResult).skipped.length}`
                                   : ""

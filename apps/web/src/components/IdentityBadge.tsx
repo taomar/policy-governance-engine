@@ -33,7 +33,7 @@ export function IdentityBadge() {
   const tagColour = ROLE_TAG_COLOUR[rbacRole] ?? "default";
 
   const content = (
-    <Space direction="vertical" size={12} className="actor-switcher-popover">
+    <Space orientation="vertical" size={12} className="actor-switcher-popover">
       <div>
         <Text type="secondary" className="actor-field-label">
           Your name

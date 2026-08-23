@@ -114,7 +114,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
         independent extraction runs, not a bug in the diff itself.
       </Paragraph>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
       {!scoped && policySets.length === 0 && <Text type="secondary">Create a policy set first.</Text>}
 
       {selectedKey && versions.length > 0 && (
@@ -170,7 +170,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
 
           {result.added.length > 0 && (
             <Card title="Added Rules">
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Space orientation="vertical" style={{ width: "100%" }} size={8}>
                 {result.added.map((r) => (
                   <div key={r.rule_id}>
                     <RuleDiffRow
@@ -204,7 +204,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
 
           {result.removed.length > 0 && (
             <Card title="Removed Rules">
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Space orientation="vertical" style={{ width: "100%" }} size={8}>
                 {result.removed.map((r) => (
                   <div key={r.rule_id}>
                     <RuleDiffRow
@@ -233,7 +233,7 @@ export function ComparePage({ policySetKey }: { policySetKey?: string } = {}) {
 
           {result.changed.length > 0 && (
             <Card title="Changed Rules">
-              <Space direction="vertical" style={{ width: "100%" }} size={16}>
+              <Space orientation="vertical" style={{ width: "100%" }} size={16}>
                 {result.changed.map((c) => (
                   <section key={c.rule_id} className="compare-change-record">
                     <div className="compare-change-record__header">

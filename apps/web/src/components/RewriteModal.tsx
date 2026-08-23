@@ -96,14 +96,14 @@ export function RewriteModal({
         </Button>
       </Space.Compact>
 
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       {suggestion && (
         <>
           <Alert
             type="info"
             showIcon
-            message={
+            title={
               <>
                 <strong>What changed:</strong> {suggestion.explanation}
               </>

@@ -316,7 +316,7 @@ export function ProjectOverviewTab({
 
   return (
     <>
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       <div className="project-flow project-flow--overview">
         {steps.map((step, idx) => (
@@ -465,13 +465,13 @@ export function ProjectOverviewTab({
                   {policyIndexLoading ? (
                     <Text type="secondary">Loading the recorded index state…</Text>
                   ) : policyIndexError ? (
-                    <Alert type="error" showIcon message="Could not read the recorded policy index state" description={policyIndexError} />
+                    <Alert type="error" showIcon title="Could not read the recorded policy index state" description={policyIndexError} />
                   ) : policyIndexState && policyIndexCopy ? (
                     <Space orientation="vertical" size={8} style={{ width: "100%" }}>
                       <Alert
                         type={policyIndexCopy.tone}
                         showIcon
-                        message={policyIndexCopy.title}
+                        title={policyIndexCopy.title}
                         description={
                           <Space orientation="vertical" size={4}>
                             <Text>{policyIndexCopy.detail}</Text>
@@ -483,7 +483,7 @@ export function ProjectOverviewTab({
                         <Alert
                           type={rebuildNotice.type}
                           showIcon
-                          message={rebuildNotice.message}
+                          title={rebuildNotice.message}
                           description={rebuildNotice.description}
                         />
                       ) : null}
@@ -536,9 +536,9 @@ export function ProjectOverviewTab({
                 {policyIndexLoading ? (
                   <Text type="secondary">Loading the recorded index state…</Text>
                 ) : policyIndexError ? (
-                  <Alert type="error" showIcon message="Could not read the recorded policy index state" description={policyIndexError} />
+                  <Alert type="error" showIcon title="Could not read the recorded policy index state" description={policyIndexError} />
                 ) : policyIndexState && policyIndexCopy ? (
-                  <Alert type={policyIndexCopy.tone} showIcon message={policyIndexCopy.title} description={policyIndexCopy.detail} />
+                  <Alert type={policyIndexCopy.tone} showIcon title={policyIndexCopy.title} description={policyIndexCopy.detail} />
                 ) : null}
               </div>
             )}

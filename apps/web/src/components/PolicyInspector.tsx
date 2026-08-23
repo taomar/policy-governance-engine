@@ -383,7 +383,7 @@ export function PolicyInspector({
           rule.related_rule_ids.length > 0 ||
           rule.group_label) && (
           <Descriptions.Item label="Relationships">
-            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={4} style={{ width: "100%" }}>
               {rule.is_explicit_override && (
                 <Tag color="purple" icon={<CrownOutlined />} variant="filled">
                   Explicit override
@@ -465,7 +465,7 @@ export function PolicyInspector({
             </Text>
           </div>
         ) : (
-          <Space direction="vertical" size={10} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={10} style={{ width: "100%" }}>
             {rule.evidence.map((ev, idx) => {
               const clause = ev.clause_id ? clausesById.get(ev.clause_id) : undefined;
               const docMeta = docMetaByVersionId.get(ev.document_version_id);

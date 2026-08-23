@@ -42,7 +42,7 @@ export function EffectivePolicyModal({
       key: "label",
       width: "26%",
       render: (label: string, row: EffectiveCase) => (
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <Text strong>{label}</Text>
           <Text type="secondary" className="effective-policy-ruleid">
             {row.ruleId}
@@ -60,7 +60,7 @@ export function EffectivePolicyModal({
         }
         if (row.when.kind === "stated") {
           return (
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               {row.when.lines.map((line) => (
                 <Text key={line}>{line}</Text>
               ))}
@@ -82,7 +82,7 @@ export function EffectivePolicyModal({
       key: "then",
       width: "26%",
       render: (_: unknown, row: EffectiveCase) => (
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <Text>{row.then || "—"}</Text>
           {row.effectType && (
             <Tag variant="filled" className="effective-policy-flag">
@@ -97,7 +97,7 @@ export function EffectivePolicyModal({
       key: "status",
       width: "12%",
       render: (_: unknown, row: EffectiveCase) => (
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <Tag variant="filled">{row.reviewStatus}</Tag>
         </Space>
       ),
@@ -125,7 +125,7 @@ export function EffectivePolicyModal({
         showIcon
         icon={<EyeOutlined />}
         className="effective-policy-banner"
-        message="View only"
+        title="View only"
         description="Assembled from the rules below to show what they state together. It is not itself a rule: nothing here is stored, published or evaluated, and decisions are still made on the individual rules."
       />
 
@@ -155,7 +155,7 @@ export function EffectivePolicyModal({
           type="warning"
           showIcon
           className="effective-policy-banner"
-          message="The same case is stated more than once"
+          title="The same case is stated more than once"
           description={`${policy.duplicateLabels.join(", ")} — either the source repeats itself, or extraction produced a duplicate. Both need a decision before this policy can be relied on.`}
         />
       )}
@@ -165,7 +165,7 @@ export function EffectivePolicyModal({
           type="warning"
           showIcon
           className="effective-policy-banner"
-          message="Cases are in different review states"
+          title="Cases are in different review states"
           description="Approving only what is visible would leave this policy partly decided."
         />
       )}

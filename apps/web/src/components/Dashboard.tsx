@@ -380,12 +380,12 @@ export function Dashboard({
         </Tag>
       </header>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
       {roleUnrecognised && (
         <Alert
           type="warning"
           showIcon
-          message="Your role was not recognised by this build. You have been given read-only access. Sign in again or contact an administrator."
+          title="Your role was not recognised by this build. You have been given read-only access. Sign in again or contact an administrator."
           style={{ marginBottom: 16 }}
         />
       )}

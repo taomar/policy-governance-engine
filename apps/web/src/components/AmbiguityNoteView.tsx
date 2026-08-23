@@ -81,7 +81,7 @@ export function AmbiguityNoteView({
       className="ambiguity-note ambiguity-note--banner"
       type={note.severity}
       showIcon
-      message={note.label}
+      title={note.label}
       description={body}
     />
   );

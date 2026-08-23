@@ -343,14 +343,14 @@ export function EditRuleModal(props: EditRuleModalProps) {
         </Button>,
       ]}
     >
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       {isRevise && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`Creating revision ${rule.rule_revision + 1} of ${rule.rule_id}`}
+          title={`Creating revision ${rule.rule_revision + 1} of ${rule.rule_id}`}
           description={
             <>
               This starts pre-filled with the currently published rule (revision {rule.rule_revision}). It's saved as
@@ -420,7 +420,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
                   <Alert
                     type="error"
                     showIcon
-                    message={populateError}
+                    title={populateError}
                     style={{ marginTop: 8 }}
                     closable
                     onClose={() => setPopulateError(null)}
@@ -430,7 +430,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
                   <Alert
                     type="success"
                     showIcon
-                    message={
+                    title={
                       <>
                         <strong>AI updated:</strong> {populateExplanation}
                       </>
@@ -535,7 +535,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
               />
 
               <Form.Item label="Condition (AND of comparisons — switch to Advanced mode for OR/NOT/nested logic)">
-                <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Space orientation="vertical" style={{ width: "100%" }} size={8}>
                   {conditionRows.map((row, i) => (
                     <Space.Compact key={i} style={{ width: "100%" }}>
                       <Input
@@ -587,7 +587,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
                     <Alert
                       type="warning"
                       showIcon
-                      message="AI advisory only — not a real evaluation"
+                      title="AI advisory only — not a real evaluation"
                       description="This uses AI reasoning to sanity-check wording against a scenario. It does not run the deterministic evaluation engine and its verdict isn't authoritative — use the Evaluate page for production-grade results."
                       style={{ marginBottom: 16 }}
                     />
@@ -623,7 +623,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
                         {evaluating ? "Reasoning…" : "Evaluate with AI"}
                       </Button>
                     </Space>
-                    {evalError && <Alert type="error" showIcon message={evalError} style={{ marginBottom: 16 }} />}
+                    {evalError && <Alert type="error" showIcon title={evalError} style={{ marginBottom: 16 }} />}
                     {evalResult && (
                       <div>
                         <Space style={{ marginBottom: 8 }}>
@@ -667,7 +667,7 @@ export function EditRuleModal(props: EditRuleModalProps) {
           {previewRule ? (
             <RuleCard rule={previewRule} defaultExpanded hideNotes />
           ) : (
-            <Alert type="warning" showIcon message="Fix the JSON above to see a preview." />
+            <Alert type="warning" showIcon title="Fix the JSON above to see a preview." />
           )}
         </Col>
       </Row>

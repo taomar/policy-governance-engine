@@ -502,7 +502,7 @@ export function QualityFindingDrawer({
               <Text type="secondary">Resolving the affected policies from the evaluated version…</Text>
             </div>
           ) : error ? (
-            <Alert type="error" showIcon message="Affected policies could not be loaded" description={error} />
+            <Alert type="error" showIcon title="Affected policies could not be loaded" description={error} />
           ) : finding.affected_rule_ids.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -625,7 +625,7 @@ export function QualityFindingDrawer({
                   <Alert
                     type="warning"
                     showIcon
-                    message={`${unresolvedReferences.length} referenced policy record${unresolvedReferences.length === 1 ? "" : "s"} could not be resolved`}
+                    title={`${unresolvedReferences.length} referenced policy record${unresolvedReferences.length === 1 ? "" : "s"} could not be resolved`}
                     description={
                       reportScope === "candidates"
                         ? "Candidate evaluations are stored, but candidate records can later be superseded or rejected. The original finding remains immutable."

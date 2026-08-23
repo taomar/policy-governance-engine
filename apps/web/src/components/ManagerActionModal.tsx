@@ -109,7 +109,7 @@ export function ManagerActionModal({
         </Button>,
       ]}
     >
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
 
       <Paragraph type="secondary">
         {mode === "request-changes"
