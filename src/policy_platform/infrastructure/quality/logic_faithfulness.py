@@ -345,6 +345,7 @@ def check_attributes_are_quoted(
     assessment: EvaluabilityAssessment,
     source_text: str,
     inherited_context: bool = False,
+    document_text: str = "",
 ) -> list[LogicFinding]:
     """Every attribute the evaluator is told to find must be in the source.
 
@@ -365,6 +366,13 @@ def check_attributes_are_quoted(
     parent clause. It is a modifier on what the reviewer is told, not the axis
     that decides severity: a declared provenance cannot make an invented word
     quoted, and reading it as though it could is what mis-ranked this check.
+
+    `document_text` is the rest of that lesson, and it is the evidence the
+    check was missing. Read the first line of this docstring: an attribute must
+    be in *the document*. The implementation compared it against one sentence,
+    so a phrase the document states in a governing clause and a phrase nobody
+    wrote were indistinguishable — and both blocked. See
+    `_the_document_says_it_elsewhere`.
     """
 
     findings: list[LogicFinding] = []
@@ -379,20 +387,82 @@ def check_attributes_are_quoted(
         shape = classify_mismatch(attribute.phrase, source_text)
         if shape is MismatchShape.DECOMPOSED:
             continue
+        elsewhere = _the_document_says_it_elsewhere(attribute.phrase, document_text)
         findings.append(
             LogicFinding(
                 code="attribute_not_in_source",
-                severity=_SHAPE_SEVERITY[shape],
+                severity=_severity_for(shape, elsewhere),
                 shape=shape,
                 claim=attribute.phrase,
                 source_excerpt=source_text[:400],
-                detail=_attribute_detail(shape, attribute.role, inherited_context),
+                detail=_attribute_detail(shape, attribute.role, inherited_context, elsewhere),
             )
         )
     return findings
 
 
-def _attribute_detail(role_shape: MismatchShape, role: str, inherited: bool) -> str:
+def _the_document_says_it_elsewhere(claim: str, document_text: str) -> bool:
+    """Whether the document states this phrase in some other extracted sentence.
+
+    The evidence that separates a phrase inherited from a governing clause from
+    one nobody wrote — and the two were indistinguishable while this check read
+    a single sentence.
+
+    "3.2. Salary increase ... depending on the financial position of the
+    University, subject to the approval of the President" opens a section whose
+    numbered sub-clauses each become a rule. Those rules carry the stem's
+    conditions, correctly: that is what a governing stem is for. Compared
+    against their own sentence the conditions appear from nowhere, so all seven
+    on the AD-103 corpus were reported as fabrications, at blocking severity —
+    the rank reserved for a record stating something the source does not.
+
+    They do not. Every one appears verbatim in the sentence of the record cut
+    from the stem itself. A wholly invented party — "the Chief Financial
+    Officer" against a document naming only a Board of Trustees — appears in
+    none of them. Measured across both corpora: 11 of 11 inherited phrases are
+    found elsewhere, 3 of 3 invented controls are not, and the one paraphrase
+    ("the extension of the probation period", for a sentence reading "the
+    probation period can be extended") is not either, which is right, because
+    the document does not use those words anywhere.
+
+    This is evidence, not provenance. `LogicFindingSeverity` records that
+    keying severity off a declared `source_origin` was tried and "correlated
+    100% with provenance being declared and 0% with what had actually gone
+    wrong". A declared provenance is the record's own claim about itself; this
+    reads the document and checks.
+
+    Empty `document_text` answers False, so a caller that does not supply the
+    corpus gets exactly the behaviour this check had before.
+    """
+
+    return bool(document_text) and _is_quoted_from(claim, document_text)
+
+
+def _severity_for(shape: MismatchShape, says_it_elsewhere: bool) -> LogicFindingSeverity:
+    """Rank the mismatch, then let document evidence lower a blocking verdict.
+
+    Only ever downward, and only from BLOCKING. BLOCKING means the record
+    states something the source does not; once the source is shown to state it,
+    that sentence is simply false and the finding has to stop making it. What
+    remains is a real question — the phrase belongs to a different clause than
+    the one this record quotes — which is what REVIEW is for.
+
+    REEXTRACTION is untouched: a flattened table row is damage from how the
+    document was read, and finding its text elsewhere says nothing about that.
+    """
+
+    severity = _SHAPE_SEVERITY[shape]
+    if says_it_elsewhere and severity is LogicFindingSeverity.BLOCKING:
+        return LogicFindingSeverity.REVIEW
+    return severity
+
+
+def _attribute_detail(
+    role_shape: MismatchShape,
+    role: str,
+    inherited: bool,
+    says_it_elsewhere: bool = False,
+) -> str:
     """Say what went wrong in the words that are true of *this* mismatch."""
 
     lead = f"the extraction target derived from canonical '{role}'"
@@ -408,6 +478,16 @@ def _attribute_detail(role_shape: MismatchShape, role: str, inherited: bool) -> 
             f"{lead} quotes the sentence in order but steps over a word that "
             "reverses it, so the attribute states the opposite of the source "
             "while reading as a clean quotation"
+        )
+    # The document has been shown to state these words in another sentence, so
+    # the record did not invent them. What is left is a linkage question.
+    if says_it_elsewhere:
+        return (
+            f"{lead} is not in this record's own sentence, but the document does "
+            "state it in another sentence — most often a governing clause whose "
+            "conditions this record correctly carries. A reviewer should confirm "
+            "the record is cut from that clause rather than borrowing from an "
+            "unrelated one"
         )
     if role_shape is MismatchShape.SUPPLIED:
         return (
@@ -430,6 +510,7 @@ def check_parties_are_quoted(
     assessment: EvaluabilityAssessment,
     source_text: str,
     inherited_context: bool = False,
+    document_text: str = "",
 ) -> list[LogicFinding]:
     """Every named party must be in the source.
 
@@ -443,6 +524,15 @@ def check_parties_are_quoted(
     and only contiguity failed — the claim dropping a single linking word. A
     quality check that overclaims its own finding is the defect this module
     exists to catch, sitting inside the checker.
+
+    `document_text` is the same overclaim one level out. "the rule asserts a
+    party the document does not name" is a statement about the *document*, and
+    it was being made after reading one sentence. A rule cut from a numbered
+    sub-clause carries the approver its governing stem named, and said of that
+    the sentence is false. Said of "the Chief Financial Officer" in a document
+    naming only a Board of Trustees it is true, and still blocks — which is the
+    property that made this worth doing rather than exonerating on a declared
+    provenance. See `_the_document_says_it_elsewhere`.
     """
 
     findings: list[LogicFinding] = []
@@ -452,22 +542,29 @@ def check_parties_are_quoted(
         shape = classify_mismatch(party.name, source_text)
         if shape is MismatchShape.DECOMPOSED:
             continue
+        elsewhere = _the_document_says_it_elsewhere(party.name, document_text)
         findings.append(
             LogicFinding(
                 code="party_not_in_source",
-                severity=_SHAPE_SEVERITY[shape],
+                severity=_severity_for(shape, elsewhere),
                 shape=shape,
                 claim=party.name,
                 source_excerpt=source_text[:400],
                 detail=_party_detail(
-                    shape, party.role.value, party.source_field, inherited_context
+                    shape, party.role.value, party.source_field, inherited_context, elsewhere
                 ),
             )
         )
     return findings
 
 
-def _party_detail(shape: MismatchShape, role: str, source_field: str, inherited: bool) -> str:
+def _party_detail(
+    shape: MismatchShape,
+    role: str,
+    source_field: str,
+    inherited: bool,
+    says_it_elsewhere: bool = False,
+) -> str:
     """Say only what this mismatch establishes about the party."""
 
     lead = f"the {role} named from '{source_field}'"
@@ -482,6 +579,16 @@ def _party_detail(shape: MismatchShape, role: str, source_field: str, inherited:
             f"{lead} quotes the sentence in order but steps over a word that "
             "reverses it, so the party is attached to the opposite of what the "
             "document says"
+        )
+    # The document names them in another sentence, so the rule did not invent
+    # the party. What is left is whether this record is the right one to carry
+    # it, which is a linkage question and not a fabrication.
+    if says_it_elsewhere:
+        return (
+            f"{lead} is not in this record's own sentence, but the document names "
+            "them in another — most often the governing clause this record's "
+            "provision sits under. A reviewer should confirm the record is cut "
+            "from that clause rather than borrowing a party from an unrelated one"
         )
     if shape is MismatchShape.SUPPLIED:
         return (
@@ -706,12 +813,23 @@ class LogicVerdict(BaseModel):
         return not self.blocking
 
 
-def judge_logic(policy: CanonicalPolicy | None, effect: Effect | None = None) -> LogicVerdict:
+def judge_logic(
+    policy: CanonicalPolicy | None,
+    effect: Effect | None = None,
+    document_text: str = "",
+) -> LogicVerdict:
     """Form the logic, then judge it against the sentence it came from.
 
     `effect` is optional so existing callers asking only about a formulation
     keep working. Pass it wherever the projected effect exists: the polarity
     cross-check is the one judgement here that cannot be made without it.
+
+    `document_text` is everything the document is known to say — in practice
+    the source sentences of every record extracted from it, joined. Optional
+    for the same reason, and omitting it reproduces this pass's behaviour
+    exactly. Supplying it is what lets the two quotation checks tell a phrase
+    inherited from a governing clause from one nobody wrote, which reading a
+    single sentence cannot do. See `_the_document_says_it_elsewhere`.
     """
 
     if policy is None:
@@ -724,7 +842,7 @@ def judge_logic(policy: CanonicalPolicy | None, effect: Effect | None = None) ->
     inherited = bool((getattr(policy.rule, "source_origin", None) or "").strip())
     findings: list[LogicFinding] = []
     for quotation_check in _QUOTATION_CHECKS:
-        findings.extend(quotation_check(assessment, source_text, inherited))
+        findings.extend(quotation_check(assessment, source_text, inherited, document_text))
     for check in _CHECKS:
         findings.extend(check(assessment, source_text))
     findings.extend(check_polarity_survives_projection(policy, effect))

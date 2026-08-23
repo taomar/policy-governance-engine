@@ -527,11 +527,25 @@ def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
     """
 
     entries: list[tuple[CanonicalRule, LogicFinding]] = []
+    # Everything the document is known to say, assembled once from the records
+    # themselves. A governing clause is extracted as a record like any other, so
+    # a condition a numbered sub-clause inherits from its stem is quotable from
+    # a sibling's sentence even when it appears nowhere in the sub-clause's own.
+    # Without this the two quotation checks report an inherited phrase and an
+    # invented one identically, and both block. See
+    # `logic_faithfulness._the_document_says_it_elsewhere`.
+    document_text = " || ".join(
+        canonical.source_text
+        for canonical in (
+            rule.formulation.canonical if rule.formulation else None for rule in rules
+        )
+        if canonical is not None and canonical.source_text
+    )
     for rule in rules:
         canonical = rule.formulation.canonical if rule.formulation else None
         if canonical is None:
             continue
-        for finding in judge_logic(canonical, rule.effect).findings:
+        for finding in judge_logic(canonical, rule.effect, document_text).findings:
             entries.append((rule, finding))
     return _group_logic_faithfulness_entries(entries)
 
