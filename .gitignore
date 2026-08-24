@@ -59,7 +59,25 @@ skills/
 !.env.example
 !*.env.example
 
-# The local-only documentation tree. `docs/internal/` is the single home for
+# Bearer tokens and session credentials written to a file.
+#
+# Added after one was created during a debugging session: a token was saved to
+# `scratch_token.txt` at the repository root to exercise an endpoint, and
+# nothing would have stopped it being committed. The existing credential rules
+# named `.env*`, `local-accounts*` and `*.pem` -- the shapes that had been used
+# before -- and a bearer token in a text file is none of them.
+#
+# Matched by extension rather than by the word, because the word alone is not a
+# credential: `test_a_model_call_reports_its_token_cost.py` counts model
+# tokens, and `key-vault-secrets.bicep` declares infrastructure. Both must stay
+# published, and both are asserted so in
+# `test_publication_excludes_private_material`.
+*token*.txt
+*token*.json
+*.token
+.token
+.tokens
+
 # decision records, audits and failure analyses, and planning that has been
 # decided but not built. One rule covers the whole tree, so a new report of any
 # of those kinds is local by being filed in the right place rather than by

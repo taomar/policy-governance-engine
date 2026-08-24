@@ -142,6 +142,17 @@ MUST_NOT_PUBLISH: dict[str, tuple[str, ...]] = {
         ".local-accounts.dev.txt",
         ".local-signing-key.pem",
         "some-key.pem",
+        # A bearer token written to a file. One of these was created at the
+        # repository root during a debugging session, to exercise an endpoint
+        # that needed authentication, and no rule would have stopped it being
+        # committed -- the credential rules named `.env*`, `local-accounts*`
+        # and `*.pem`, which are the shapes that had been used before.
+        "scratch_token.txt",
+        "api_token.txt",
+        "auth-token.txt",
+        "token.json",
+        ".token",
+        "session.token",
     ),
 }
 
@@ -154,6 +165,11 @@ MUST_STILL_PUBLISH: tuple[str, ...] = (
     "src/policy_platform/infrastructure/docling/handoff.py",
     "docs/configuration.md",
     "README.md",
+    # The token rules are matched by extension, not by the word, because the
+    # word alone is not a credential. This test counts a model call's tokens;
+    # the Bicep module declares where secrets live without holding one.
+    "tests/unit/test_a_model_call_reports_its_token_cost.py",
+    "infra/modules/key-vault-secrets.bicep",
 )
 
 
