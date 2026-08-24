@@ -61,7 +61,7 @@ References:
 | Application Insights code-level instrumentation | Pending |
 | Live Azure deployment validation | Pending |
 
-See [Security roadmap](security-roadmap.md) and [Known limitations](known-limitations.md).
+See [Known limitations](known-limitations.md).
 
 ## Not used
 

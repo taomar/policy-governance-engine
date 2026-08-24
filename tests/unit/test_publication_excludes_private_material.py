@@ -19,6 +19,22 @@ else -- a build artefact, a new tool's cache directory. Nothing connected a
 line in it to the decision it was carrying, so removing one looked like tidying
 up.
 
+WHERE THEY LIVE NOW. All of the above are collected under `docs/internal/`, so
+filing a new decision record or audit in the right directory is what keeps it
+local, rather than someone remembering to add a rule for it. The older
+per-path rules are kept as a rearguard: a rule that is only correct about
+where a file sits today stops being a rule the moment somebody recreates it
+where it used to live.
+
+WHY `security-roadmap.md` IS NAMED TWICE BELOW. It was published. A list of
+this system's authentication and authorization gaps, marked pending, sat in a
+public repository while every other document of its kind was correctly local.
+No rule matched it because the rules named the directories internal writing
+happened to use -- `adr/`, `failures/`, `todo/` -- and that one file sat at the
+top level of `docs/` beside the product documentation. It is asserted here as
+both a shape that must not publish and a path that must not be tracked,
+because those are two different failures and it suffered the second one.
+
 WHY BY SHAPE. Every rule here is checked against names that do not exist yet,
 because that is how the two real gaps in this repository were found. A single
 `.env` line left `.env.local`, `.env.production` and
@@ -92,6 +108,26 @@ MUST_NOT_PUBLISH: dict[str, tuple[str, ...]] = {
         "docs/repair-passes.md",
         "docs/running-path.md",
         "docs/drift-report.md",
+        "docs/security-roadmap.md",
+    ),
+    # The consolidated home for all of the above. Checked as its own category
+    # because the rule that covers it is one line: if that line goes, every
+    # decision record, audit and unbuilt design in the repository publishes at
+    # once, and no other test here would notice.
+    "the local-only documentation tree": (
+        "docs/internal/adr/0001-something.md",
+        "docs/internal/audits/some-failure.md",
+        "docs/internal/audits/drift-report.md",
+        "docs/internal/planning/security-roadmap.md",
+        "docs/internal/planning/next.md",
+        "docs/internal/handover/HANDOVER.md",
+        "docs/internal/handover/running-path.md",
+        "docs/internal/README.md",
+        "docs/internal/anything-nobody-has-written-yet.md",
+        # git is case-sensitive where this filesystem is not, so a directory
+        # spelled this way would publish from a machine that cannot tell the
+        # two apart.
+        "docs/Internal/planning/security-roadmap.md",
     ),
     "environment files": (
         ".env",
@@ -183,6 +219,14 @@ def test_nothing_private_is_already_tracked():
                 "repair-passes",
                 "running-path",
                 "drift-report",
+                # Published for months on a public repository: a list of
+                # authentication and authorization gaps, marked pending. Every
+                # other document of its kind was local. It was missed because
+                # the rules named the directories internal writing happened to
+                # use, and this one sat at the top level of `docs/` beside the
+                # product documentation, so nothing matched it.
+                "security-roadmap",
+                "docs/internal/",
             )
         )
         # The product's own handoff module and spec legitimately carry the word.

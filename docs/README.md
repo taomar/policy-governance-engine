@@ -34,7 +34,6 @@ Start with the [User guide](user-guide.md) to see the product, or [How we work](
 | [Azure prerequisites](azure-prerequisites.md) | Pending deployment checklist |
 | [Azure operations](azure-operations.md) | Future runbook |
 | [Deployment options](azure-deployment-options.md) | Alternative hosting/security options |
-| [Security roadmap](security-roadmap.md) | Pending authentication, RBAC, and managed identity |
 
 ## Technical reference
 
@@ -45,7 +44,9 @@ Start with the [User guide](user-guide.md) to see the product, or [How we work](
 
 ## Kept on the workstation
 
-Some pages are deliberately not published. Failure analyses, drift reports, the step-by-step account of what this build actually executes, and designs that have been decided but not built are written for whoever is doing the work. They describe how the product went wrong, or what it is not yet — which is not what a reader should have to sift through to learn how it behaves today.
+Some pages are deliberately not published. They live together under `docs/internal/` — decision records in `docs/internal/adr/`, failure analyses and drift reports in `docs/internal/audits/`, and designs that have been decided but not built in `docs/internal/planning/`. They are written for whoever is doing the work, and they describe how the product went wrong or what it is not yet, which is not what a reader should have to sift through to learn how it behaves today.
+
+The unpublished set includes the **security roadmap**: the itemised list of authentication and authorization work still outstanding. What that roadmap concludes is stated plainly in the repository README and in [Known limitations](known-limitations.md) — the current build authenticates nothing and is for a trusted environment. The itemised gap list is kept local because a public checklist of specific unclosed gaps is an invitation rather than a disclosure, and the honest summary is published without it.
 
 What the product **is** lives in the pages above; what it does **not** do is in [Known limitations](known-limitations.md), which is published and guarded.
 

@@ -46,7 +46,14 @@ WEB = ROOT / "apps" / "web" / "src"
 DOCS = ROOT / "docs"
 
 #: Documents whose purpose is recording the wording that was removed.
-_FAILURE_RECORD = DOCS / "failures"
+#:
+#: This is the whole local-only tree rather than the audit directory alone.
+#: Nothing under `docs/internal/` is published -- it is excluded by
+#: `.gitignore` and asserted so by `test_publication_excludes_private_material`
+#: -- so none of it is documentation a reader can reach, and a guard about what
+#: a reader is told has no business scanning it. Naming the one subdirectory
+#: that happened to hold these records is what broke when they moved.
+_FAILURE_RECORD = DOCS / "internal"
 
 #: Prose that frames the AI Ready route as a shortfall.
 #:
@@ -531,8 +538,9 @@ def test_no_readiness_framing_in_the_documentation():
     package should be — presenting the ordinary case as a gap to close, in the
     one document written for the person least able to tell it was wrong.
 
-    `docs/failures/` is excluded for the same reason docstrings are: its whole
-    purpose is recording the wording that was removed and why.
+    `docs/internal/` is excluded for the same reason docstrings are: its whole
+    purpose is recording the wording that was removed and why, and none of it
+    is published.
     """
 
     offenders: list[str] = []
@@ -629,7 +637,7 @@ def test_the_retired_route_names_are_gone_from_the_service():
 
 
 def test_the_retired_route_names_are_gone_from_the_documentation():
-    """`docs/failures/` is excluded: recording retired wording is its purpose."""
+    """`docs/internal/` is excluded: recording retired wording is its purpose."""
 
     offenders: list[str] = []
     examined = 0

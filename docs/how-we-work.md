@@ -82,17 +82,18 @@ Check [Standards](standards.md) before introducing a vocabulary. XACML 3.0 is al
 
 ## What stays on the workstation
 
-The repository is public. Three kinds of file are deliberately kept out of it, and `.gitignore` enforces each — they are absent by decision, not by oversight, so do not add them back as tracked files.
+The repository is public. Several kinds of file are deliberately kept out of it, and `.gitignore` enforces each — they are absent by decision, not by oversight, so do not add them back as tracked files. Everything in the second group below lives together under `docs/internal/`, so filing a document in the right directory is what keeps it local, rather than anyone remembering to add a rule for it.
 
 | Kept local | Why |
 |---|---|
 | **Environment files** — `.env`, `.env.local`, `infra/parameters/*.env` | They hold real endpoints, logins and keys. Only the `*.example` templates are published, carrying placeholders. `.env` alone did not cover the variants, which is how a real Azure endpoint reached a published example file once. |
-| **Decision records** — `docs/adr/` | Reasoning about a choice, written for whoever is making it. The decision's *outcome* belongs in the code comment and the commit message, where it cannot drift from what shipped. |
-| **Task lists** — `docs/todo/`, `TODO.md` | A list of intentions dates immediately and describes work rather than the product. Open work belongs in the tracker; a defect worth remembering belongs in a test that fails. |
-| **Failure analyses** — `docs/failures/`, `docs/drift-report.md` | Records of how the product went wrong. Valuable to whoever is fixing it, misleading to whoever is trying to learn what it does now. |
-| **Unfinished designs** — `docs/repair-passes.md` | Decided and not built. A published page describing behaviour that does not exist is worse than no page. |
-| **The running path** — `docs/running-path.md` | A step-by-step account of what this build actually executes, including which designed stages are unreachable. Internal working knowledge, not product documentation. |
-| **Session records** — `docs/HANDOVER.md` | Session history, verbatim instructions and failure analyses, written for whoever picks the work up next. |
+| **Decision records** — `docs/internal/adr/` | Reasoning about a choice, written for whoever is making it. The decision's *outcome* belongs in the code comment and the commit message, where it cannot drift from what shipped. |
+| **Task lists** — `docs/internal/planning/`, `TODO.md` | A list of intentions dates immediately and describes work rather than the product. Open work belongs in the tracker; a defect worth remembering belongs in a test that fails. |
+| **Audits and failure analyses** — `docs/internal/audits/` | Records of how the product went wrong, including drift reports and UI audits. Valuable to whoever is fixing it, misleading to whoever is trying to learn what it does now. |
+| **Unfinished designs** — `docs/internal/planning/repair-passes.md` | Decided and not built. A published page describing behaviour that does not exist is worse than no page. |
+| **The security roadmap** — `docs/internal/planning/security-roadmap.md` | The itemised list of authentication and authorization gaps still open. That the current build authenticates nothing *is* published, in the README and [Known limitations](known-limitations.md), because a user must know it. The item-by-item checklist is not, because a specific list of unclosed gaps on a public repository is an invitation rather than a disclosure. |
+| **The running path** — `docs/internal/handover/running-path.md` | A step-by-step account of what this build actually executes, including which designed stages are unreachable. Internal working knowledge, not product documentation. |
+| **Session records** — `docs/internal/handover/HANDOVER.md` | Session history, verbatim instructions and failure analyses, written for whoever picks the work up next. |
 
 The general rule: **publish what the product is, keep what the work was.** A reader of this repository should be able to understand the system without reading anyone's notes about building it. What the product does *not* do is still published, in [Known limitations](known-limitations.md) — a boundary a user must know is part of the product, not part of the work.
 
@@ -131,7 +132,7 @@ If your change **puts a new module on the production path** — anything reachab
 .\.venv-graph\Scripts\python.exe scripts/running_path_closure.py
 ```
 
-It computes the call closure from the two entry points and reports modules on it that the running-path page (`docs/running-path.md`, kept on the workstation) does not name. Read what it names and decide; roughly four findings in five are worth acting on, which is why it is a script and not a build-failing guard.
+It computes the call closure from the two entry points and reports modules on it that the running-path page (`docs/internal/handover/running-path.md`, kept on the workstation) does not name. Read what it names and decide; roughly four findings in five are worth acting on, which is why it is a script and not a build-failing guard.
 
 The trigger is the point. A step added to the running system and left off that page is how a documented pipeline and a running one diverged before, and the person best placed to catch it is the one adding the module — who is also the person least likely to know the page exists. That is why the instruction lives here, next to the checks everyone runs, rather than only on the page it serves.
 

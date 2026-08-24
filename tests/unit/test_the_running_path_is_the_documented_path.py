@@ -43,13 +43,26 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_PAGE = _REPO_ROOT / "docs" / "running-path.md"
+
+#: Where the page is kept. The local-only documentation was consolidated under
+#: `docs/internal/`, and the page moved with it. Both locations are tried,
+#: because pinning the single path that happens to be current is what turned
+#: this module from "running in full" into "skipping silently" the moment the
+#: file was moved -- the skip below is written for a published clone that never
+#: had the page, and it read identically to a guard that had simply stopped
+#: looking. Absence is a policy; a stale path is a failure; they must not look
+#: alike.
+_PAGE_LOCATIONS = (
+    _REPO_ROOT / "docs" / "internal" / "handover" / "running-path.md",
+    _REPO_ROOT / "docs" / "running-path.md",
+)
+_PAGE = next((path for path in _PAGE_LOCATIONS if path.exists()), _PAGE_LOCATIONS[0])
 _SOURCE_ROOT = _REPO_ROOT / "src" / "policy_platform"
 
 pytestmark = pytest.mark.skipif(
     not _PAGE.exists(),
     reason=(
-        "docs/running-path.md is deliberately local-only and absent from the "
+        "running-path.md is deliberately local-only and absent from the "
         "published repository. These checks run wherever the page is kept."
     ),
 )

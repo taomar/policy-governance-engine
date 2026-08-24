@@ -59,6 +59,23 @@ skills/
 !.env.example
 !*.env.example
 
+# The local-only documentation tree. `docs/internal/` is the single home for
+# decision records, audits and failure analyses, and planning that has been
+# decided but not built. One rule covers the whole tree, so a new report of any
+# of those kinds is local by being filed in the right place rather than by
+# someone remembering to add a line here.
+#
+# Scoped to `docs/` on purpose. The `todo/` rules below can be matched anywhere
+# because no source tree is called that, but `internal/` is a package convention
+# in several ecosystems -- broadening this to `**/internal/` would silently stop
+# publishing real source, and code that git quietly refuses to track is a worse
+# failure than a note that leaks. The case variant is listed because git is
+# case-sensitive where this filesystem is not, so `docs/Internal/` would
+# otherwise publish from a machine that cannot tell the two apart.
+docs/internal/
+docs/Internal/
+**/docs/internal/
+
 # Working notes. Decision records and task lists are reasoning aids for whoever
 # is doing the work, not documentation of the product, so they are kept beside
 # the code and out of the published repository. `docs/adr/` is listed above with
@@ -88,10 +105,20 @@ todos.md
 # is exactly what a reader of the published repository should not have to sift
 # through to learn how it behaves. Kept on disk; maintained as a rule so the next
 # report of this kind is local without anyone having to remember.
+# The paths these documents used to occupy, kept as a rearguard after they moved
+# into `docs/internal/`. A rule that is only correct about where a file is today
+# stops being a rule the moment someone recreates it where it used to live.
+#
+# `docs/security-roadmap.md` is listed because it was not caught by any of these
+# and published: a list of authentication and authorization gaps, marked pending,
+# on a public repository. Every other document of its kind was local. It was
+# missed because the rules named the directories that internal writing happened
+# to use and this one sat at the top level beside the product documentation.
 docs/failures/
 docs/drift-report.md
 docs/repair-passes.md
 docs/running-path.md
+docs/security-roadmap.md
 
 # Session working records. The handover is written for whoever picks the work up
 # on this machine -- session history, verbatim instructions, failure analyses --

@@ -79,7 +79,6 @@ def _roots(doc: Path) -> list[Path]:
 _EXPECTED_ABSENT: dict[str, str] = {
     # Documented precisely because they do not exist. The sentence around each
     # of these says so; the reference is the subject of a negative claim.
-    "docs/adr/": "known-limitations.md records that ADRs are cited in code but absent",
     ".github/workflows/": "configuration.md records that no CI pipeline exists yet",
     # Real when the platform runs, absent from a clean checkout by design.
     ".venv-graph/": "git-ignored virtual environment",
@@ -95,8 +94,24 @@ _EXPECTED_ABSENT: dict[str, str] = {
 }
 
 
+#: The local-only tree is excluded on purpose.
+#:
+#: `docs/internal/` holds audits, decision records and session handovers, and a
+#: large part of what they say is *history*: "the failure record in
+#: `docs/failures/` covers this", written when that directory was where the
+#: record lived. When those documents were consolidated under `docs/internal/`,
+#: every such sentence became a reference to a path that no longer exists --
+#: and correcting them would be rewriting an account of what happened at the
+#: time to match the filesystem of today.
+#:
+#: The guard exists so that a reader following a path in the documentation
+#: finds something there. Nothing in this tree is published, so it has no such
+#: reader; the published pages, which do, are still checked in full.
+_LOCAL_ONLY = DOCS / "internal"
+
+
 def _documents() -> list[Path]:
-    found = sorted(DOCS.rglob("*.md"))
+    found = sorted(doc for doc in DOCS.rglob("*.md") if _LOCAL_ONLY not in doc.parents)
     readme = ROOT / "README.md"
     if readme.is_file():
         found.append(readme)

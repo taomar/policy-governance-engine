@@ -173,7 +173,7 @@ The suite needs the `graph` extra: 13 modules import Docling directly, and in a 
 - Search is grounding, not execution.
 - Azure deployment and production authorization remain pending.
 
-See [Known limitations](docs/known-limitations.md) and the [Security roadmap](docs/security-roadmap.md).
+See [Known limitations](docs/known-limitations.md).
 
 ## Documentation
 
@@ -183,7 +183,6 @@ See [Known limitations](docs/known-limitations.md) and the [Security roadmap](do
 | [How we work](docs/how-we-work.md) | Engineering agreements and the reasoning behind them |
 | [Standards](docs/standards.md) | Which standard governs which decision |
 | [Architecture](docs/architecture.md) | System boundaries and trust model |
-| [The running path](docs/running-path.md) | What this build actually executes, step by step, named by symbol |
 | [Extraction run coverage](docs/extraction-run-coverage.md) | What a finished run promises, and what it does not |
 | [Relationships](docs/relationships.md) | How rules are linked, and what is not claimed |
 | [Docling](docs/docling.md) | Document conversion and graph discovery |
@@ -195,6 +194,5 @@ See [Known limitations](docs/known-limitations.md) and the [Security roadmap](do
 | [Testing](docs/testing.md) | Commands and coverage boundaries |
 | [Azure deployment](docs/azure-deployment.md) | Container Apps architecture, what gets deployed, and the `azd up` procedure |
 | [Data model](docs/data-model.md) | Tables and lifecycle invariants |
-| [Failure reports](docs/failures/README.md) | What went wrong, measured from the running system, and what generalises |
 
 Ingestion specifications and the full standards survey remain under `docs/` as technical reference.

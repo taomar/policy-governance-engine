@@ -50,7 +50,7 @@ DOCS = ROOT / "docs"
 
 #: Documents whose purpose is recording the wording that was removed. The same
 #: exclusion the older guard makes, for the same reason.
-_FAILURE_RECORD = DOCS / "failures"
+_FAILURE_RECORD = DOCS / "internal"
 
 #: The route whose test is decided by a person reading it. Word sequences, so
 #: the hyphenated, spaced and underscored spellings are all covered without any
