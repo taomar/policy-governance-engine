@@ -189,9 +189,20 @@ describe("the Evaluate form's empty state", () => {
 
     render(<EvaluatePage />);
 
-    expect(await screen.findByText(/no active version/i, undefined, { timeout: 15000 })).toBeTruthy();
+    expect(await screen.findByText(/no published version yet/i, undefined, { timeout: 15000 })).toBeTruthy();
     expect(screen.queryByText(/no rules yet/i)).toBeNull();
     expect(screen.queryByText(/No required facts found/i)).toBeNull();
+  });
+
+  it("settles an empty version list as no published version instead of loading forever", async () => {
+    withSetAndActiveVersion([]);
+
+    render(<EvaluatePage />);
+
+    expect(await screen.findByText(/no published version yet/i, undefined, { timeout: 15000 })).toBeTruthy();
+    expect(screen.queryByText(/loading the selected version/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /run evaluation/i }).closest("button")?.disabled).toBe(true);
+    expect(getVersionRules).not.toHaveBeenCalled();
   });
 
   it("does not assert a rule count while the rules are still loading", async () => {

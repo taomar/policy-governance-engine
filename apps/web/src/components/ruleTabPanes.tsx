@@ -71,7 +71,7 @@ export function RuleRefTags({
           );
         }
         return (
-          <Text key={rid} code copyable={{ text: rid }} type="secondary">
+          <Text key={rid} code copyable={{ text: rid, tooltips: [`Copy referenced rule ID ${rid}`, "Copied referenced rule ID"] }} type="secondary">
             <Tooltip title="Referenced rule not found in this version (renamed, superseded, or from a different policy set)">
               {rid}
             </Tooltip>
@@ -388,7 +388,11 @@ export function RuleJsonPane({
           have it reconstructed here.
         </Text>
       )}
-      <JsonView value={selectedJson.value} downloadName={selectedJson.downloadName} />
+      <JsonView
+        value={selectedJson.value}
+        downloadName={selectedJson.downloadName}
+        copyLabel={`Copy ${selectedJson.title.toLowerCase()} JSON for rule ${rule.rule_id}`}
+      />
     </div>
   );
 }
@@ -405,23 +409,23 @@ export function RuleTechnicalMetadata({ rule }: { rule: CanonicalRule }) {
           children: (
             <Descriptions size="small" column={1} bordered className="rule-card-descriptions">
               <Descriptions.Item label="Policy set ID">
-                <Text className="entity-id-row" copyable={{ text: rule.policy_set_id }}>
+                <Text className="entity-id-row" copyable={{ text: rule.policy_set_id, tooltips: [`Copy policy set ID ${rule.policy_set_id}`, "Copied policy set ID"] }}>
                   {rule.policy_set_id}
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="Policy version ID">
-                <Text className="entity-id-row" copyable={{ text: rule.policy_version_id }}>
+                <Text className="entity-id-row" copyable={{ text: rule.policy_version_id, tooltips: [`Copy policy version ID ${rule.policy_version_id}`, "Copied policy version ID"] }}>
                   {rule.policy_version_id}
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="Rule ID">
-                <Text className="entity-id-row" copyable={{ text: rule.rule_id }}>
+                <Text className="entity-id-row" copyable={{ text: rule.rule_id, tooltips: [`Copy rule ID ${rule.rule_id}`, "Copied rule ID"] }}>
                   {rule.rule_id}
                 </Text>
               </Descriptions.Item>
               {rule.lineage.extraction_run_id && (
                 <Descriptions.Item label="AI extraction run ID">
-                  <Text className="entity-id-row" copyable={{ text: rule.lineage.extraction_run_id }}>
+                  <Text className="entity-id-row" copyable={{ text: rule.lineage.extraction_run_id, tooltips: [`Copy AI extraction run ID ${rule.lineage.extraction_run_id}`, "Copied AI extraction run ID"] }}>
                     {rule.lineage.extraction_run_id}
                   </Text>
                 </Descriptions.Item>

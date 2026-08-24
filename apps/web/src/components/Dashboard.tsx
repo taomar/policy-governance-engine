@@ -51,6 +51,7 @@ interface Summary {
   regressionGuardCount: number | null;
   validationCount: number | null;
   highFindingCount: number | null;
+  qualityEvaluatedCount: number | null;
 }
 
 interface ProjectReadiness {
@@ -88,6 +89,25 @@ const PREVIEW_ROWS = 6;
  * is the part that tells one project from another. See `distinctNames`.
  */
 const READINESS_NAME_BUDGET = 58;
+
+export function qualitySummary(
+  highFindingCount: number | null | undefined,
+  evaluatedCount: number | null | undefined,
+  projectCount: number | null | undefined,
+): { value: string | number | null | undefined; detail: string; tone: "risk" | "neutral" } {
+  if ((projectCount ?? 0) > 0 && (evaluatedCount ?? 0) === 0) {
+    return { value: "Not evaluated", detail: "Run Quality to establish a baseline", tone: "neutral" };
+  }
+  const high = highFindingCount ?? null;
+  return {
+    value: high === 0 ? "None" : high,
+    detail:
+      evaluatedCount !== null && evaluatedCount !== undefined && projectCount && evaluatedCount < projectCount
+        ? `${evaluatedCount} of ${projectCount} projects checked`
+        : "latest quality checks",
+    tone: high ? "risk" : "neutral",
+  };
+}
 
 interface ToolLink {
   label: string;
@@ -226,6 +246,7 @@ export function Dashboard({
           regressionGuardCount: null,
           validationCount: null,
           highFindingCount: null,
+          qualityEvaluatedCount: null,
         };
         setSummary(base);
         setDataState("ready");
@@ -260,6 +281,7 @@ export function Dashboard({
             regressionGuardCount: insights.reduce((total, item) => total + item.regression_test_count, 0),
             validationCount: insights.reduce((total, item) => total + item.test_count, 0),
             highFindingCount: insights.reduce((total, item) => total + (item.latest_quality_high ?? 0), 0),
+            qualityEvaluatedCount: insights.filter((item) => item.latest_quality_at !== null).length,
           });
         } catch (caught) {
           setError(`Portfolio loaded, but readiness insights are unavailable: ${describeApiFailure(caught)}`);
@@ -315,6 +337,7 @@ export function Dashboard({
   const liveRecords = summary?.liveCandidateCount;
   const directRoute = summary?.directRouteCount;
   const readingRoute = summary?.readingRouteCount;
+  const quality = qualitySummary(summary?.highFindingCount, summary?.qualityEvaluatedCount, summary?.policySetCount);
   const pressure = [
     {
       label: "Awaiting review",
@@ -328,12 +351,10 @@ export function Dashboard({
     },
     {
       label: "High findings",
-      // Zero findings is good news — say "None" rather than rendering a bare 0
-      // that reads as a defect count.
-      value: summary?.highFindingCount === 0 ? "None" : summary?.highFindingCount,
-      detail: "latest quality checks",
+      value: quality.value,
+      detail: quality.detail,
       icon: <WarningOutlined />,
-      tone: summary?.highFindingCount ? "risk" : "neutral",
+      tone: quality.tone,
     },
     {
       // Was "Deterministic", valued as executable/published. On an unpublished

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Button,
@@ -110,6 +110,7 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
   // per-document-version, and a boolean would spin the button on every version
   // panel while only one is actually running.
   const [extractingId, setExtractingId] = useState<string | null>(null);
+  const [activeExtractionByVersion, setActiveExtractionByVersion] = useState<Record<string, boolean>>({});
   //. Bumped after each run so the history table refetches without the panel
   //. having to know how history is loaded.
   const [runHistoryKey, setRunHistoryKey] = useState(0);
@@ -240,6 +241,12 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
       setAssigningId(null);
     }
   };
+
+  const noteExtractionActivity = useCallback((versionId: string, active: boolean) => {
+    setActiveExtractionByVersion((prev) =>
+      prev[versionId] === active ? prev : { ...prev, [versionId]: active },
+    );
+  }, []);
 
   // Only while a request is actually open and a file is in hand: the panel
   // states facts about that file, so it has nothing to say without one.
@@ -478,7 +485,9 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                     {
                       title: "",
                       key: "actions",
-                      render: (_: unknown, v) => (
+                      render: (_: unknown, v) => {
+                        const extractionActive = Boolean(activeExtractionByVersion[v.id] || extractingId === v.id);
+                        return (
                         <Space size={6}>
                           <Button
                             size="small"
@@ -493,17 +502,26 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                             <Button
                               size="small"
                               icon={<ThunderboltOutlined />}
-                              disabled={scoped ? false : policySets.length === 0}
+                              disabled={extractionActive || (scoped ? false : policySets.length === 0)}
                               onClick={() => setExtractOpenFor(extractOpenFor === v.id ? null : v.id)}
                             >
-                              Extract with AI
+                              {extractionActive ? "Extraction running — view progress" : "Extract with AI"}
                             </Button>
                           )}
                         </Space>
-                      ),
+                        );
+                      },
                     },
                   ]}
                 />
+                {doc.versions.map((v) => (
+                  <ExtractionProgressPanel
+                    key={`progress-${v.id}`}
+                    documentVersionId={v.id}
+                    running={extractingId === v.id}
+                    onActivityChange={(active) => noteExtractionActivity(v.id, active)}
+                  />
+                ))}
 
                 {doc.versions.map(
                   (v) =>
@@ -531,8 +549,6 @@ export function DocumentsPage({ onNavigate, policySetKey, policySetName }: Docum
                               Run Extraction
                             </Button>
                           </Space>
-
-                          <ExtractionProgressPanel documentVersionId={v.id} running={extractingId === v.id} />
 
                           {extractResults[v.id] && "error" in extractResults[v.id] && (
                             <Alert type="error" showIcon title={(extractResults[v.id] as { error: string }).error} />

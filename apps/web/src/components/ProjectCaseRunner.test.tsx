@@ -123,10 +123,13 @@ describe("project-wide case runner", () => {
     });
 
     render(<ActorProvider><ProjectWorkspace policySet={policySet()} /></ActorProvider>);
-    fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));
+    expect(screen.queryByRole("tab", { name: /test a case/i })).toBeNull();
+    expect(screen.getByText("Overview tab")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /test a case against a project/i }));
 
     expect(await screen.findByText(/Put a case to this project's published policies/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /test a case/i })).toBeNull();
+    expect(screen.getByText("Overview tab")).toBeTruthy();
   });
 
   it("states when retrieval did not narrow and labels the policies as evaluated, not retained", async () => {
@@ -400,7 +403,7 @@ describe("project-wide case runner", () => {
     render(<ActorProvider><ProjectWorkspace policySet={{ ...policySet(), key: "gmu" }} /></ActorProvider>);
     fireEvent.click(screen.getByRole("tab", { name: /Validation/i }));
     expect(await screen.findByText("Validation tab")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /test a case/i }));
+    fireEvent.click(screen.getByRole("button", { name: /test a case against a project/i }));
     fireEvent.change(await screen.findByTestId("project-case-scenario"), { target: { value: "Can the project answer?" } });
     fireEvent.click(screen.getByTestId("project-case-run"));
 

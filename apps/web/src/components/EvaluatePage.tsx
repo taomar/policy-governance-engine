@@ -70,6 +70,7 @@ export function EvaluatePage() {
   const [policySets, setPolicySets] = useState<PolicySet[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [versions, setVersions] = useState<ApprovedPolicyVersion[]>([]);
+  const [versionsLoadedFor, setVersionsLoadedFor] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string>("active");
   const [factFields, setFactFields] = useState<FactField[]>([]);
   const [factsLoad, setFactsLoad] = useState<FactsLoad>({ status: "loading" });
@@ -90,17 +91,25 @@ export function EvaluatePage() {
         setPolicySets(sets);
         if (sets.length > 0) setSelectedKey(sets[0].key);
       })
-      .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)));
+      .catch((e) => {
+        setError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+        setVersionsLoadedFor(selectedKey);
+        setFactsLoad({ status: "error" });
+      });
   }, []);
 
   useEffect(() => {
     if (!selectedKey) return;
     setError(null);
     setPrincipal({});
+    setVersions([]);
+    setVersionsLoadedFor(null);
+    setFactsLoad({ status: "loading" });
     api
       .listPolicyVersions(selectedKey)
       .then((v) => {
         setVersions(v);
+        setVersionsLoadedFor(selectedKey);
         setSelectedVersionId("active");
       })
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)));
@@ -155,8 +164,15 @@ export function EvaluatePage() {
         setFactsLoad({ status: "error" });
       }
     };
-    if (versions.length > 0) void loadFacts();
-  }, [selectedKey, selectedVersionId, versions]);
+    if (versionsLoadedFor !== selectedKey) return;
+    if (versions.length === 0) {
+      setFactFields([]);
+      setScopeOptions(EMPTY_SCOPE_OPTIONS);
+      setFactsLoad({ status: "no-active-version" });
+      return;
+    }
+    void loadFacts();
+  }, [selectedKey, selectedVersionId, versions, versionsLoadedFor]);
 
   const handleEvaluate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,7 +361,7 @@ export function EvaluatePage() {
                   </Text>
                 ) : factsLoad.status === "no-active-version" ? (
                   <Text type="secondary">
-                    This policy set has no active version — pick a specific version above to evaluate.
+                    No published version yet. Approve and publish a version before evaluating API calls.
                   </Text>
                 ) : factsLoad.ruleCount === 0 ? (
                   <Text type="secondary">
@@ -398,7 +414,13 @@ export function EvaluatePage() {
             </div>
           )}
 
-          <Button type="primary" icon={<PlayCircleOutlined />} htmlType="submit" loading={loading}>
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            htmlType="submit"
+            loading={loading}
+            disabled={factsLoad.status === "no-active-version"}
+          >
             {loading ? "Evaluating…" : "Run Evaluation"}
           </Button>
         </Form>

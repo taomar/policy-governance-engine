@@ -1649,13 +1649,13 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
             <div className="review-record-grid">
               <div>
                 <span>Candidate record ID</span>
-                <Text code copyable={{ text: selectedCandidate.id }}>
+                <Text code copyable={{ text: selectedCandidate.id, tooltips: [`Copy candidate record ID ${selectedCandidate.id}`, "Copied candidate record ID"] }}>
                   {selectedCandidate.id}
                 </Text>
               </div>
               <div>
                 <span>Extraction run ID</span>
-                <Text code copyable={{ text: selectedCandidate.extraction_run_id }}>
+                <Text code copyable={{ text: selectedCandidate.extraction_run_id, tooltips: [`Copy extraction run ID ${selectedCandidate.extraction_run_id}`, "Copied extraction run ID"] }}>
                   {selectedCandidate.extraction_run_id}
                 </Text>
               </div>

@@ -22,7 +22,6 @@ import { ruleTypeLabel } from "../ruleTypes";
 import { colorForCategory } from "../policyCategories";
 import { ambiguityMeta, describeScope, hasAmbiguityFlag, isEmptyCondition } from "../ruleDisplay";
 import { SemanticProjectionView, hasSemanticProjection } from "./SemanticProjectionView";
-import { DOCUMENT_GUIDANCE_TAG } from "../ruleTags";
 import { withRuleIdentity } from "../ruleIdentity";
 import { DirectionalText } from "./DirectionalText";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
@@ -124,9 +123,9 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
         <div className="rule-card-meta">
           <PolicyEffectBadge effect={rule.effect} size="small" />
           <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
-          {rule.tags.includes(DOCUMENT_GUIDANCE_TAG) && (
-            <Tooltip title="The subject of this statement is the document itself — what it is, who it is for, or how to read it. Kept for you to decide, but not treated as an enforceable rule.">
-              <Tag>Describes the document</Tag>
+          {rule.effect.type === "informational" && (
+            <Tooltip title="This record's own effect is informational: it supplies a meaning rather than deciding what happens in a case. It is still kept for human review before publication.">
+              <Tag>Supplies a meaning</Tag>
             </Tooltip>
           )}
           {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
@@ -136,7 +135,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
           <Text
             type="secondary"
             className="rule-card-id"
-            copyable={{ text: rule.rule_id, tooltips: ["Copy rule ID", "Copied!"] }}
+            copyable={{ text: rule.rule_id, tooltips: [`Copy rule ID ${rule.rule_id}`, "Copied rule ID"] }}
             onClick={(e) => e.stopPropagation()}
           >
             {rule.rule_id} · rev {rule.rule_revision}
@@ -246,7 +245,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                       <Text type="secondary" className="rule-card-scope">
                         Supersedes:{" "}
                         {rule.supersedes_rule_ids.map((rid, i) => (
-                          <Text key={rid} code copyable={{ text: rid }}>
+                          <Text key={rid} code copyable={{ text: rid, tooltips: [`Copy superseded rule ID ${rid}`, "Copied superseded rule ID"] }}>
                             {i > 0 ? ", " : ""}
                             {rid}
                           </Text>
@@ -357,7 +356,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                       <Text type="secondary" className="rule-card-scope">
                         <ApartmentOutlined /> Related rules:{" "}
                         {rule.related_rule_ids.map((rid, i) => (
-                          <Text key={rid} code copyable={{ text: rid }}>
+                          <Text key={rid} code copyable={{ text: rid, tooltips: [`Copy related rule ID ${rid}`, "Copied related rule ID"] }}>
                             {i > 0 ? ", " : ""}
                             {rid}
                           </Text>
@@ -376,12 +375,12 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                   <Descriptions.Item label="Effective from">{rule.effective_from}</Descriptions.Item>
                   <Descriptions.Item label="Effective to">{rule.effective_to ?? "—"}</Descriptions.Item>
                   <Descriptions.Item label="Policy set ID" span={2}>
-                    <Text className="entity-id-row" copyable={{ text: rule.policy_set_id }}>
+                    <Text className="entity-id-row" copyable={{ text: rule.policy_set_id, tooltips: [`Copy policy set ID ${rule.policy_set_id}`, "Copied policy set ID"] }}>
                       {rule.policy_set_id}
                     </Text>
                   </Descriptions.Item>
                   <Descriptions.Item label="Policy version ID" span={2}>
-                    <Text className="entity-id-row" copyable={{ text: rule.policy_version_id }}>
+                    <Text className="entity-id-row" copyable={{ text: rule.policy_version_id, tooltips: [`Copy policy version ID ${rule.policy_version_id}`, "Copied policy version ID"] }}>
                       {rule.policy_version_id}
                     </Text>
                   </Descriptions.Item>
@@ -500,6 +499,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                             }
                             downloadName={`${rule.rule_id}-canonical.json`}
                             maxHeight={320}
+                            copyLabel={`Copy canonical JSON for rule ${rule.rule_id}`}
                           />
                         ),
                       },
@@ -514,6 +514,7 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                             )}
                             downloadName={`${rule.rule_id}-dmn.json`}
                             maxHeight={320}
+                            copyLabel={`Copy DMN JSON for rule ${rule.rule_id}`}
                           />
                         ),
                       },

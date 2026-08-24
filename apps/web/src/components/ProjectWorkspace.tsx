@@ -178,13 +178,6 @@ const TAB_META: TabMeta[] = [
     count: "regression_tests",
   },
   {
-    key: "case-runner",
-    label: "Test a Case",
-    group: "assure",
-    icon: <ReadOutlined />,
-    hint: "Ask this project's published policies a plain-language case without leaving the workspace.",
-  },
-  {
     key: "exceptions",
     label: "Exceptions",
     group: "operate",
@@ -265,7 +258,7 @@ export function ProjectWorkspace({
   const { role } = useActor();
   const rbacRole = role;
   // These two header actions change governed content: "Edit" issues
-  // PATCH /api/policy-sets/{key} and "Mark Reviewed" POSTs .../review, both
+  // PATCH /api/policy-sets/{key} and "Record periodic review" POSTs .../review, both
   // classified AUTHOR by the server's authz.py. They sit in the workspace bar,
   // so without this gate they appeared on *every* tab for a viewer — including
   // tabs the surface map already labels read-only.
@@ -471,7 +464,11 @@ export function ProjectWorkspace({
               )}
             </div>
             <div className="ws-bar__meta">
-              <Text type="secondary" className="entity-id-row" copyable={{ text: policySet.key }}>
+              <Text
+                type="secondary"
+                className="entity-id-row"
+                copyable={{ text: policySet.key, tooltips: [`Copy project key ${policySet.key}`, "Copied project key"] }}
+              >
                 {policySet.key}
               </Text>
               <span className="ws-bar__sep">·</span>
@@ -510,9 +507,19 @@ export function ProjectWorkspace({
                   Edit
                 </Button>
                 <Button size="small" onClick={openReview}>
-                  Mark Reviewed
+                  Record periodic review
                 </Button>
               </>
+            )}
+            {canAccessTab(rbacRole, "case-runner") && (
+              <Button
+                size="small"
+                icon={<ReadOutlined />}
+                onClick={() => setCaseRunnerOpen(true)}
+                aria-label={`Test a case against ${policySet.name}`}
+              >
+                Test a Case
+              </Button>
             )}
           </div>
         </div>
@@ -710,20 +717,22 @@ ${groupDividerCss.split(",\n")
       </Modal>
 
       <Modal
-        title="Mark as Reviewed"
+        title="Record periodic review"
         open={reviewOpen}
         onCancel={() => {
           setReviewOpen(false);
           setReviewError(null);
         }}
         onOk={handleMarkReviewed}
-        okText="Mark Reviewed"
+        okText="Record review"
         confirmLoading={reviewSaving}
         destroyOnHidden
       >
         {reviewError && <Alert type="error" showIcon title={reviewError} style={{ marginBottom: 12 }} />}
         <Paragraph type="secondary">
-          Records that this policy set was reviewed today. Optionally set the next review due date.
+          Attests that a human completed the periodic review of this policy set today
+          (ISO 37301 §9.3). This does not approve candidates, publish rules, or change
+          the active version. Optionally set the next review due date.
         </Paragraph>
         <Form layout="vertical" form={reviewForm}>
           <Form.Item label="Next review due date (optional)" name="next_due_date">

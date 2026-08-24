@@ -291,7 +291,7 @@ export function PolicyInspector({
           );
         }
         return (
-          <Text key={rid} code copyable={{ text: rid }} type="secondary">
+          <Text key={rid} code copyable={{ text: rid, tooltips: [`Copy referenced rule ID ${rid}`, "Copied referenced rule ID"] }} type="secondary">
             <Tooltip title="Referenced rule not found in this version (renamed, superseded, or from a different policy set)">
               {rid}
             </Tooltip>
@@ -322,7 +322,7 @@ export function PolicyInspector({
   const overview = () => {
     const ruleJson = withRuleIdentity(rule, rule);
     const overviewJsonBlock = (
-      <JsonView value={ruleJson} downloadName={`${rule.rule_id}.json`} maxHeight={420} />
+      <JsonView value={ruleJson} downloadName={`${rule.rule_id}.json`} maxHeight={420} copyLabel={`Copy JSON for rule ${rule.rule_id}`} />
     );
     return (
     <div className="inspector-pane">
@@ -356,18 +356,18 @@ export function PolicyInspector({
          * invents a policy identifier for a rule: a rule states which policy it
          * belongs to, and that is a different pane's answer. */}
         <Descriptions.Item label="This rule">
-          <Text code copyable={{ text: rule.rule_id }}>
+          <Text code copyable={{ text: rule.rule_id, tooltips: [`Copy rule ID ${rule.rule_id}`, "Copied rule ID"] }}>
             {rule.rule_id}
           </Text>
         </Descriptions.Item>
         <Descriptions.Item label="The policy set it belongs to">
-          <Text code copyable={{ text: rule.policy_set_id }}>
+          <Text code copyable={{ text: rule.policy_set_id, tooltips: [`Copy policy set ID ${rule.policy_set_id}`, "Copied policy set ID"] }}>
             {rule.policy_set_id}
           </Text>
         </Descriptions.Item>
         {recordKind === "published" && (
           <Descriptions.Item label="The published version it was read at">
-            <Text code copyable={{ text: rule.policy_version_id }}>
+            <Text code copyable={{ text: rule.policy_version_id, tooltips: [`Copy policy version ID ${rule.policy_version_id}`, "Copied policy version ID"] }}>
               {rule.policy_version_id}
             </Text>
           </Descriptions.Item>
@@ -426,7 +426,7 @@ export function PolicyInspector({
               if (!sibling) {
                 return (
                   <div key={rid} className="inspector-decided-with-row">
-                    <Text code copyable={{ text: rid }} type="secondary">
+                    <Text code copyable={{ text: rid, tooltips: [`Copy related rule ID ${rid}`, "Copied related rule ID"] }} type="secondary">
                       {rid}
                     </Text>
                     <Text type="secondary">not in this version</Text>
@@ -530,14 +530,14 @@ export function PolicyInspector({
                         <div className="evidence-provenance-grid">
                           <div>
                             <span>Document version ID</span>
-                            <Text code copyable={{ text: ev.document_version_id }}>
+                            <Text code copyable={{ text: ev.document_version_id, tooltips: [`Copy document version ID ${ev.document_version_id}`, "Copied document version ID"] }}>
                               {ev.document_version_id}
                             </Text>
                           </div>
                           {ev.clause_id && (
                             <div>
                               <span>Clause ID</span>
-                              <Text code copyable={{ text: ev.clause_id }}>
+                              <Text code copyable={{ text: ev.clause_id, tooltips: [`Copy clause ID ${ev.clause_id}`, "Copied clause ID"] }}>
                                 {ev.clause_id}
                               </Text>
                             </div>
@@ -551,7 +551,7 @@ export function PolicyInspector({
                           {clause?.search_document_id && (
                             <div className="evidence-provenance-search">
                               <span>Azure AI Search ID · {clause.search_index}</span>
-                              <Text code copyable={{ text: clause.search_document_id }}>
+                              <Text code copyable={{ text: clause.search_document_id, tooltips: [`Copy Azure AI Search ID ${clause.search_document_id}`, "Copied Azure AI Search ID"] }}>
                                 {clause.search_document_id}
                               </Text>
                             </div>
@@ -730,7 +730,7 @@ export function PolicyInspector({
           <Tag title={rule.rule_type}>{ruleTypeLabel(rule.rule_type)}</Tag>
           {rule.category && <Tag color={colorForCategory(rule.category)}>{rule.category}</Tag>}
           {contextMeta}
-          <Text type="secondary" className="rule-card-id" copyable={{ text: rule.rule_id, tooltips: ["Copy rule ID", "Copied!"] }}>
+          <Text type="secondary" className="rule-card-id" copyable={{ text: rule.rule_id, tooltips: [`Copy rule ID ${rule.rule_id}`, "Copied rule ID"] }}>
             {rule.rule_id} · rev {rule.rule_revision}
           </Text>
         </Space>

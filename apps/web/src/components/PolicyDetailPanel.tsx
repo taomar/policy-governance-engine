@@ -881,6 +881,7 @@ export function PolicyDetailPanel({
                     value={policyJsonDocument(card, documentName)}
                     downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.json`}
                     maxHeight={420}
+                    copyLabel={`Copy full JSON for policy ${title.text || card.policy.key}`}
                   />
                 ) : leanState === "error" ? (
                   <Space orientation="vertical" size={8}>
@@ -896,6 +897,7 @@ export function PolicyDetailPanel({
                     value={leanPayload}
                     downloadName={`${(title.text || card.policy.key).replace(/[^\w.-]+/g, "_").slice(0, 80)}.lean.json`}
                     maxHeight={420}
+                    copyLabel={`Copy lean JSON for policy ${title.text || card.policy.key}`}
                   />
                 ) : (
                   <Text type="secondary">Preparing the lean projection…</Text>

@@ -234,7 +234,7 @@ export function AiRuleComposer({ policySetKey, onLoadRule, loadedRuleId }: AiRul
               style={{ cursor: "pointer", margin: 0 }}
               onClick={() => !busy && setText(ex)}
             >
-              example {i + 1}
+              {ex.length > 58 ? `${ex.slice(0, 55)}…` : ex}
             </Tag>
           </Tooltip>
         ))}

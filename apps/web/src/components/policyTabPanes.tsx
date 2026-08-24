@@ -55,6 +55,7 @@ import {
 } from "../askAnswerLanguage";
 import { NotesPanel } from "./NotesPanel";
 import { policyProvenance, whenItApplies } from "./policyProvenance";
+import { recordStance } from "../recordStance";
 import { RuleName } from "./RuleName";
 import { PolicyEffectBadge } from "./PolicyEffectBadge";
 import { RuleScenarioTester } from "./RuleScenarioTester";
@@ -235,7 +236,10 @@ function Identifier({ label, value }: { label: string; value: string }) {
       <Text type="secondary" style={{ fontSize: 12 }}>
         {label}
       </Text>
-      <Typography.Paragraph copyable={{ text: value }} style={{ marginBottom: 4 }}>
+      <Typography.Paragraph
+        copyable={{ text: value, tooltips: [`Copy ${label.toLowerCase()} ${value}`, `Copied ${label.toLowerCase()}`] }}
+        style={{ marginBottom: 4 }}
+      >
         <Text code>{value}</Text>
       </Typography.Paragraph>
     </div>
@@ -343,6 +347,7 @@ export function PolicyOverviewPane({
   const rules = recordRules(record);
   const composition = policyCompositionSentence(rules);
   const authorities = policyAuthorities(rules);
+  const meaningCount = rules.filter((rule) => recordStance(rule) === "supplies-meaning").length;
   const chain = policyProvenance(record, { runs, sightings });
   const spansPages =
     chain.placement.pages !== null &&
@@ -351,6 +356,20 @@ export function PolicyOverviewPane({
   return (
     <div className="policy-pane">
       <PolicySourcePane source={record.source} spansPages={spansPages} />
+
+      {meaningCount > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          className="policy-pane__section"
+          title={
+            meaningCount === rules.length
+              ? "This policy supplies a meaning"
+              : `${meaningCount} of this policy's rules supply a meaning`
+          }
+          description="The record's effect is informational, so it is source matter for definitions or context. It is reviewed before publication but does not decide what happens in a case."
+        />
+      )}
 
       <PolicyPlainWords
         key={chain.provisionKey}
@@ -369,7 +388,7 @@ export function PolicyOverviewPane({
             Policy key
           </Text>
           <Typography.Paragraph
-            copyable={{ text: chain.provisionKey }}
+            copyable={{ text: chain.provisionKey, tooltips: [`Copy policy key ${chain.provisionKey}`, "Copied policy key"] }}
             className="policy-pane__handle-value"
           >
             <Text code>{chain.provisionKey}</Text>
@@ -753,7 +772,7 @@ function PolicyRuleRoster({
                   </Tooltip>
                 )}
                 <Typography.Text
-                  copyable={{ text: entry.rule_id }}
+                  copyable={{ text: entry.rule_id, tooltips: [`Copy rule ID ${entry.rule_id}`, "Copied rule ID"] }}
                   className="policy-pane__rule-id"
                 >
                   <Text code>{entry.rule_id}</Text>
@@ -2060,4 +2079,3 @@ export function PolicyNotesPane({ record }: { record: PolicyRecordView }) {
     </div>
   );
 }
-

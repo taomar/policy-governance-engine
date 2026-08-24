@@ -47,6 +47,24 @@ function qualityFindingCount(insight: ProjectPortfolioInsight): number {
   );
 }
 
+export function portfolioQualitySummary(
+  highFindings: number,
+  evaluatedProjects: number,
+  projectCount: number,
+): { value: string | number; detail: string; risky: boolean } {
+  if (projectCount > 0 && evaluatedProjects === 0) {
+    return { value: "Not evaluated", detail: "Run Quality to establish a baseline", risky: false };
+  }
+  return {
+    value: highFindings === 0 ? "None" : highFindings,
+    detail:
+      evaluatedProjects < projectCount
+        ? `${evaluatedProjects} of ${projectCount} projects checked`
+        : "latest quality checks",
+    risky: highFindings > 0,
+  };
+}
+
 function projectStatus(
   project: PolicySet,
   insight: ProjectPortfolioInsight,
@@ -209,6 +227,7 @@ export function ProjectsPage({
       }
       acc.pendingPolicies += current?.review_pending_policies ?? 0;
       acc.highFindings += current?.latest_quality_high ?? 0;
+      if (current?.latest_quality_at) acc.qualityEvaluated += 1;
       // Route counts, each summed from what the records carry. Neither is
       // derived from the other or from the total -- see `projectRegisterRow`.
       acc.live += current?.live_candidate_count ?? 0;
@@ -223,6 +242,7 @@ export function ProjectsPage({
       pendingPolicies: 0,
       pendingPoliciesKnown: true,
       highFindings: 0,
+      qualityEvaluated: 0,
       live: 0,
       direct: 0,
       reading: 0,
@@ -230,6 +250,7 @@ export function ProjectsPage({
   );
   const pendingPolicies = totals.pendingPoliciesKnown ? totals.pendingPolicies : null;
   const totalRoutes = routeCell(totals.live, totals.direct, totals.reading);
+  const qualityTotals = portfolioQualitySummary(totals.highFindings, totals.qualityEvaluated, policySets.length);
 
   return (
     <div className="projects-page">
@@ -289,9 +310,10 @@ export function ProjectsPage({
             <dd>{pendingPolicies ?? totals.pending}</dd>
             <small>{recordScaleLabel(pendingPolicies, totals.pending)}</small>
           </div>
-          <div className={totals.highFindings > 0 ? "project-register-summary-risk" : undefined}>
+          <div className={qualityTotals.risky ? "project-register-summary-risk" : undefined}>
             <dt>High findings</dt>
-            <dd>{totals.highFindings}</dd>
+            <dd>{qualityTotals.value}</dd>
+            <small>{qualityTotals.detail}</small>
           </div>
         </dl>
       )}

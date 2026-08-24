@@ -74,6 +74,8 @@ interface JsonViewProps {
   downloadName?: string;
   /** Optional cap for the code area; capped viewers scroll vertically. */
   maxHeight?: CSSProperties["maxHeight"];
+  /** Object-specific label for the repeated copy control. */
+  copyLabel?: string;
 }
 
 /**
@@ -83,7 +85,7 @@ interface JsonViewProps {
  * grammar, which is proportionate here — pulling in a highlighter to render
  * one object would be far more weight than the problem deserves.
  */
-export function JsonView({ value, downloadName = "data.json", maxHeight }: JsonViewProps) {
+export function JsonView({ value, downloadName = "data.json", maxHeight, copyLabel }: JsonViewProps) {
   const [copied, setCopied] = useState(false);
 
   const json = useMemo(() => {
@@ -130,7 +132,8 @@ export function JsonView({ value, downloadName = "data.json", maxHeight }: JsonV
             size="small"
             icon={copied ? <CheckOutlined /> : <CopyOutlined />}
             onClick={copy}
-            title="Copy the full JSON to the clipboard"
+            title={copyLabel ?? "Copy the full JSON to the clipboard"}
+            aria-label={copyLabel ?? "Copy the full JSON to the clipboard"}
           >
             {copied ? "Copied" : "Copy"}
           </Button>

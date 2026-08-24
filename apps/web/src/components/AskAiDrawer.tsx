@@ -150,6 +150,7 @@ export function AskAiDrawer({
             icon={expanded ? <ShrinkOutlined /> : <ExpandOutlined />}
             onClick={() => setExpanded((v) => !v)}
             title={expanded ? "Collapse panel" : "Expand panel"}
+            aria-label={expanded ? "Collapse Ask AI panel" : "Expand Ask AI panel"}
           />
         </Space>
       }
@@ -163,8 +164,8 @@ export function AskAiDrawer({
         {turns.length === 0 && (
           <div className="ask-ai-empty">
             <Text type="secondary">
-              Ask about anything in your policies — e.g. "What is the P1 support response time?" or "How does
-              contractor equipment eligibility work?" Answers group verbatim source facts by topic, plus a separate
+              Ask about anything in your policies — e.g. "What does the handbook say about annual leave?" or "What
+              confidentiality duties apply to employees?" Answers group verbatim source facts by topic, plus a separate
               AI reflection for direct synthesis and analysis.
             </Text>
           </div>
@@ -250,7 +251,13 @@ export function AskAiDrawer({
           placeholder="Ask about a policy…"
           disabled={asking}
         />
-        <Button type="primary" icon={<SendOutlined />} onClick={handleAsk} disabled={asking || !question.trim()} />
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          onClick={handleAsk}
+          disabled={asking || !question.trim()}
+          aria-label="Send Ask AI question"
+        />
       </div>
     </Drawer>
   );

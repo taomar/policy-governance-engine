@@ -23,6 +23,8 @@ interface Props {
   documentVersionId: string;
   /** True while the extract request is in flight. */
   running: boolean;
+  /** Reports whether this version currently has visible extraction activity. */
+  onActivityChange?: (active: boolean) => void;
 }
 
 /** Poll interval. Batches take tens of seconds, so a faster poll would only add
@@ -207,7 +209,7 @@ const FIGURE_PHASE: Record<FigureKey, number> = {
  * Owns its own polling so the parent page carries no timer lifecycle, and so
  * the readout can be dropped next to any extraction trigger.
  */
-export default function ExtractionProgressPanel({ documentVersionId, running }: Props) {
+export default function ExtractionProgressPanel({ documentVersionId, running, onActivityChange }: Props) {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   // Whether the mount read has completed at least once. This separates "not
   // asked yet" (show a checking affordance) from "asked, nothing running"
@@ -293,6 +295,10 @@ export default function ExtractionProgressPanel({ documentVersionId, running }: 
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [documentVersionId, running]);
+
+  useEffect(() => {
+    onActivityChange?.(Boolean(running || progress?.active));
+  }, [onActivityChange, progress?.active, running]);
 
   if (!running && !progress?.active) {
     // Nothing is running for this document as far as this tab has been told. But

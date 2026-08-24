@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
@@ -11,10 +11,11 @@ import {
   SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary } from "../api";
+import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary, type SourceDocument } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
+import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import { routeCell } from "../projectRegisterRow";
 import { policyUnitCount, recordScaleLabel } from "../policyRecordFacts";
 import {
@@ -162,11 +163,15 @@ export function ProjectOverviewTab({
   const [rebuildingPolicyIndex, setRebuildingPolicyIndex] = useState(false);
   const [rebuildResult, setRebuildResult] = useState<PolicyIndexBuildResult | null>(null);
   const [latestQualityRun, setLatestQualityRun] = useState<QualityRunSummary | null | undefined>(undefined);
+  const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  const [activeExtractionByVersion, setActiveExtractionByVersion] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setError(null);
+      setSourceDocuments([]);
+      setActiveExtractionByVersion({});
       try {
         const [documents, versions, candidates] = await Promise.all([
           api.listDocuments(policySet.key),
@@ -178,6 +183,7 @@ export function ProjectOverviewTab({
           ? await api.getVersionRules(policySet.key, activeVersion.id)
           : [];
         if (cancelled) return;
+        setSourceDocuments(documents);
         const pendingCandidates = candidates.filter((candidate) =>
           ["candidate", "changes_requested"].includes(candidate.review_status),
         );
@@ -204,6 +210,12 @@ export function ProjectOverviewTab({
       cancelled = true;
     };
   }, [policySet.key]);
+
+  const noteExtractionActivity = useCallback((versionId: string, active: boolean) => {
+    setActiveExtractionByVersion((prev) =>
+      prev[versionId] === active ? prev : { ...prev, [versionId]: active },
+    );
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +294,7 @@ export function ProjectOverviewTab({
     stats?.readingRouteCount ?? 0,
   );
   const steps = buildOverviewSteps(stats, pending);
+  const activeExtractionCount = Object.values(activeExtractionByVersion).filter(Boolean).length;
   const policyIndexCopy = policyIndexState ? describePolicyIndexState(policyIndexState) : null;
   // The recorded state and what live retrieval just found are separate
   // measurements and may disagree — an index deleted in Azure leaves the record
@@ -347,6 +360,34 @@ export function ProjectOverviewTab({
           </div>
         ))}
       </div>
+
+      <section className="project-readiness-section project-extraction-activity" aria-label="Extraction activity">
+        <header className="project-readiness-heading">
+          <span className={`project-readiness-icon${activeExtractionCount > 0 ? " is-warning" : ""}`}>
+            <SyncOutlined spin={activeExtractionCount > 0} />
+          </span>
+          <div>
+            <Text strong>{activeExtractionCount > 0 ? "Extraction running" : "Extraction activity"}</Text>
+            <Text type="secondary">
+              {activeExtractionCount > 0
+                ? "Rules appear in Review as each batch commits."
+                : "This panel checks source versions and shows live extraction progress when one is running."}
+            </Text>
+          </div>
+        </header>
+        <div className="project-readiness-body">
+          {sourceDocuments.flatMap((doc) =>
+            doc.versions.map((version) => (
+              <ExtractionProgressPanel
+                key={version.id}
+                documentVersionId={version.id}
+                running={false}
+                onActivityChange={(active) => noteExtractionActivity(version.id, active)}
+              />
+            )),
+          )}
+        </div>
+      </section>
 
       <div className="project-readiness-docket">
         <section className="project-readiness-section project-readiness-published">
