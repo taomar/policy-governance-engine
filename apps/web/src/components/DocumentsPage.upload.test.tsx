@@ -200,7 +200,7 @@ describe("what the reviewer is told during the wait", () => {
         jsonResponse({
           version_number: 3,
           clause_count: CLAUSES_READ,
-          clauses_indexed: CLAUSES_INDEXED,
+          clauses_search_indexed: CLAUSES_INDEXED,
           extraction_error: null,
           ingestion_diagnostics: [],
         })
@@ -222,7 +222,7 @@ describe("what the reviewer is told when it returns", () => {
         jsonResponse({
           version_number: 3,
           clause_count: CLAUSES_READ,
-          clauses_indexed: CLAUSES_INDEXED,
+          clauses_search_indexed: CLAUSES_INDEXED,
           extraction_error: null,
           ingestion_diagnostics: [],
         })
@@ -232,7 +232,7 @@ describe("what the reviewer is told when it returns", () => {
     await waitFor(() => {
       expect(document.body.textContent).toContain(String(CLAUSES_READ));
     });
-    // The indexed count differs from the read count here, so it is stated.
+    // The search-indexed count differs from the read count here, so it is stated.
     expect(document.body.textContent).toContain(String(CLAUSES_INDEXED));
   });
 
@@ -244,7 +244,7 @@ describe("what the reviewer is told when it returns", () => {
         jsonResponse({
           version_number: 1,
           clause_count: 0,
-          clauses_indexed: 0,
+          clauses_search_indexed: 0,
           extraction_error: "no extractable text layer",
           ingestion_diagnostics: [{ code: "scanned_pages", message: "12 pages carry no text layer" }],
         })
@@ -309,11 +309,21 @@ describe("the pure pieces", () => {
     expect(uploadOutcome("a.pdf", { version_number: 1, clause_count: 2 }).message).toContain("2 clauses");
   });
 
-  it("stays quiet about the indexed count when it matches the read count", () => {
-    const same = uploadOutcome("a.pdf", { version_number: 1, clause_count: 7, clauses_indexed: 7 });
-    expect(same.message).not.toMatch(/searchable/);
-    const differs = uploadOutcome("a.pdf", { version_number: 1, clause_count: 7, clauses_indexed: 4 });
-    expect(differs.message).toMatch(/searchable/);
+  it("stays quiet about the search-indexed count when it matches the read count", () => {
+    const same = uploadOutcome("a.pdf", { version_number: 1, clause_count: 7, clauses_search_indexed: 7 });
+    expect(same.message).not.toMatch(/indexed for search/);
+    const differs = uploadOutcome("a.pdf", { version_number: 1, clause_count: 7, clauses_search_indexed: 4 });
+    expect(differs.message).toContain("4 indexed for search so far");
+  });
+
+  it("treats zero search-indexed clauses as a normal search state, not storage loss", () => {
+    const outcome = uploadOutcome("a.pdf", { version_number: 1, clause_count: 7, clauses_search_indexed: 0 });
+    expect(outcome.message).toContain("7 clauses read from it");
+    expect(outcome.message).toContain("none indexed for search yet");
+    // The count that was read is still stated, so a zero here cannot be read
+    // as "nothing was stored" -- which is what the old field name asserted.
+    expect(outcome.message).not.toMatch(/0 clauses/);
+    expect(outcome.problem).toBeNull();
   });
 
   it("reads diagnostic notes whatever shape they arrive in", () => {

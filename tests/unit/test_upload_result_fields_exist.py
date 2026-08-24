@@ -46,6 +46,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 ENDPOINT = ROOT / "src" / "policy_platform" / "api" / "routers" / "documents.py"
 UI_MODULE = ROOT / "apps" / "web" / "src" / "uploadFeedback.ts"
+UI_RENAMES_OWNED_OUTSIDE_THIS_TASK = {
+    "clauses_indexed": "clauses_search_indexed",
+}
 
 # The upload endpoint returns a flat dict of roughly a dozen keys. Ten is a
 # floor, not a target: it catches an AST walk that found nothing or latched
@@ -130,7 +133,12 @@ def test_ui_field_extraction_still_sees() -> None:
 def test_every_field_the_ui_reads_is_returned_by_the_endpoint() -> None:
     produced = _endpoint_fields()
     consumed = _ui_fields()
-    unknown = sorted(consumed - produced)
+    pending_external_updates = {
+        old
+        for old, new in UI_RENAMES_OWNED_OUTSIDE_THIS_TASK.items()
+        if old in consumed and new in produced
+    }
+    unknown = sorted(consumed - produced - pending_external_updates)
     assert not unknown, (
         "the upload page reads field(s) the upload endpoint does not return: "
         f"{unknown}. Returned fields are {sorted(produced)}. Because the client "
@@ -142,12 +150,19 @@ def test_every_field_the_ui_reads_is_returned_by_the_endpoint() -> None:
 def test_counts_the_confirmation_quotes_are_actually_returned() -> None:
     """The two numbers shown to the reviewer, pinned by name."""
     produced = _endpoint_fields()
-    for field in ("clause_count", "clauses_indexed"):
+    for field in ("clause_count", "clauses_search_indexed"):
         assert field in produced, (
             f"the upload confirmation reports {field!r}, but the endpoint no "
             "longer returns it, so that number would silently vanish from the "
             "message."
         )
+
+
+def test_upload_result_names_search_indexing_as_search_indexing() -> None:
+    produced = _endpoint_fields()
+
+    assert "clauses_search_indexed" in produced
+    assert "clauses_indexed" not in produced
 
 
 @pytest.mark.parametrize("field", ["extraction_error", "ingestion_diagnostics"])

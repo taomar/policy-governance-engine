@@ -101,7 +101,7 @@ export function uploadWaitState(
 export const UPLOAD_RESULT_FIELDS_READ = [
   "version_number",
   "clause_count",
-  "clauses_indexed",
+  "clauses_search_indexed",
   "extraction_error",
   "ingestion_diagnostics",
 ] as const;
@@ -118,8 +118,8 @@ export interface UploadOutcome {
 /**
  * Describe a finished upload from what the endpoint actually returned.
  *
- * The endpoint reports a clause count, an indexed count, a parse error and a
- * list of ingestion diagnostics, and the page previously showed none of them:
+ * The endpoint reports a clause count, a search-indexed count, a parse error
+ * and a list of ingestion diagnostics, and the page previously showed none of them:
  * a scanned PDF that yielded no readable text arrived as a plain green
  * "Uploaded" with no hint that nothing had been read out of it. The counts and
  * the diagnostics are the evidence that the document came through intact, so
@@ -128,7 +128,7 @@ export interface UploadOutcome {
 export function uploadOutcome(fileName: string, result: Record<string, unknown>): UploadOutcome {
   const version = result.version_number;
   const clauses = typeof result.clause_count === "number" ? result.clause_count : null;
-  const indexed = typeof result.clauses_indexed === "number" ? result.clauses_indexed : null;
+  const searchIndexed = typeof result.clauses_search_indexed === "number" ? result.clauses_search_indexed : null;
   const parseError = typeof result.extraction_error === "string" ? result.extraction_error : null;
   const diagnostics = Array.isArray(result.ingestion_diagnostics) ? result.ingestion_diagnostics : [];
 
@@ -147,8 +147,16 @@ export function uploadOutcome(fileName: string, result: Record<string, unknown>)
   const parts = [`Uploaded ${fileName} as version ${version}.`];
   if (clauses !== null) {
     const detail = [`${clauses} ${clauses === 1 ? "clause" : "clauses"} read from it`];
-    if (indexed !== null && indexed !== clauses) {
-      detail.push(`${indexed} of them searchable`);
+    if (searchIndexed !== null && searchIndexed !== clauses) {
+      // Search indexing is best-effort and lags the clauses themselves, so a
+      // shortfall here is an ordinary state rather than a fault. Said as a
+      // count of what is *stored* it read as data loss, which is what the
+      // field's old name asserted too.
+      detail.push(
+        searchIndexed === 0
+          ? "none indexed for search yet"
+          : `${searchIndexed} indexed for search so far`,
+      );
     }
     parts.push(`${detail.join(", ")}.`);
   }

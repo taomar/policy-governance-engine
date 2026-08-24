@@ -553,7 +553,8 @@ describe("the Overview is not a debugging panel", () => {
     const { container } = render(<PolicyOverviewPane record={record({ rules: [authored] })} />);
     const written = container.textContent ?? "";
 
-    expect(written).toContain("Drafted by this app, not yet reviewed by a person");
+    expect(written).toContain("Drafted by this app");
+    expect(written).not.toContain("not yet reviewed by a person");
     // The raw values belong on the JSON tab, which is what that tab is for.
     expect(written).not.toContain("ai_drafted");
     expect(written).not.toContain("policy-formulator");

@@ -296,7 +296,7 @@ async def upload_document(
         "content_hash": content_hash,
         "storage_path": str(storage_path),
         "clause_count": clause_count,
-        "clauses_indexed": indexed_count,
+        "clauses_search_indexed": indexed_count,
         "extraction_error": extraction_error,
         "ingestion_diagnostics": ingestion_diagnostics,
         # Same derivation the list view uses, so the sentence the uploader sees

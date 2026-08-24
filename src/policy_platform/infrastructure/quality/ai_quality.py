@@ -553,9 +553,9 @@ def _logic_faithfulness_findings(rules: list[CanonicalRule]) -> list[dict]:
 def _group_logic_faithfulness_entries(entries: list[tuple[CanonicalRule, LogicFinding]]) -> list[dict]:
     """Collapse repeated source-level extraction defects without hiding rules.
 
-    Only re-extraction findings can be grouped: their own severity says the
-    remedy is to read the source structure again rather than edit one stored
-    rule. The root-cause key is deliberately structural: same category,
+    Only findings whose remedy is tied to the cited source can be grouped:
+    re-extraction findings and review findings that the document states
+    elsewhere. The root-cause key is deliberately structural: same category,
     severity, mismatch shape, challenged claim, explanatory detail and cited
     source location. Singletons keep the old per-rule text byte-for-byte.
     """
@@ -581,7 +581,10 @@ def _group_logic_faithfulness_entries(entries: list[tuple[CanonicalRule, LogicFi
 
 
 def _logic_root_cause_key(rule: CanonicalRule, finding: LogicFinding) -> tuple | None:
-    if finding.severity is not LogicFindingSeverity.REEXTRACTION:
+    if finding.severity not in {
+        LogicFindingSeverity.REEXTRACTION,
+        LogicFindingSeverity.REVIEW,
+    }:
         return None
     source_location = _primary_source_location(rule)
     if source_location is None:

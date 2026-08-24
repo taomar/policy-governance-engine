@@ -306,6 +306,27 @@ class TestLogicFaithfulnessRootCauseGrouping:
         assert "covers 2 rules" in findings[0]["finding"]
         assert "same source location" in findings[0]["finding"]
 
+    def test_review_findings_with_one_source_root_cause_are_grouped(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            ai_quality,
+            "judge_logic",
+            lambda *_: _logic_result(_reextraction_finding(severity=LogicFindingSeverity.REVIEW)),
+        )
+
+        findings = ai_quality._logic_faithfulness_findings(
+            [
+                _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE),
+                _corpus_logic_rule("AI-ff1d9fe646", source_text=_TOOLS_ROW_SOURCE),
+            ]
+        )
+
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "low"
+        assert findings[0]["category"] == "attribute_not_in_source"
+        assert findings[0]["affected_rule_ids"] == ["AI-68b73b78fd", "AI-ff1d9fe646"]
+        assert "covers 2 rules" in findings[0]["finding"]
+        assert "same source location" in findings[0]["finding"]
+
     def test_same_code_different_source_causes_stay_separate(self, monkeypatch) -> None:
         monkeypatch.setattr(ai_quality, "judge_logic", lambda *_: _logic_result(_reextraction_finding()))
 
@@ -324,6 +345,37 @@ class TestLogicFaithfulnessRootCauseGrouping:
         assert len(findings) == 2
         assert [f["affected_rule_ids"] for f in findings] == [["AI-68b73b78fd"], ["AI-f323d3a422"]]
         assert all("covers 2 rules" not in f["finding"] for f in findings)
+
+    def test_review_findings_from_different_sources_stay_separate(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            ai_quality,
+            "judge_logic",
+            lambda *_: _logic_result(_reextraction_finding(severity=LogicFindingSeverity.REVIEW)),
+        )
+
+        findings = ai_quality._logic_faithfulness_findings(
+            [
+                _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE),
+                _corpus_logic_rule(
+                    "AI-f323d3a422",
+                    source_text=_PROBATION_SOURCE,
+                    page=9,
+                    section="7.4. THE PROBATION PERIOD",
+                ),
+            ]
+        )
+
+        assert len(findings) == 2
+        assert [f["affected_rule_ids"] for f in findings] == [["AI-68b73b78fd"], ["AI-f323d3a422"]]
+        assert all("covers 2 rules" not in f["finding"] for f in findings)
+
+    def test_single_review_finding_is_unchanged(self) -> None:
+        rule = _corpus_logic_rule("AI-68b73b78fd", source_text=_VISITOR_ROW_SOURCE)
+        finding = _reextraction_finding(severity=LogicFindingSeverity.REVIEW)
+
+        assert ai_quality._group_logic_faithfulness_entries([(rule, finding)]) == [
+            ai_quality._logic_finding_report(rule, finding)
+        ]
 
     def test_different_severities_never_merge(self, monkeypatch) -> None:
         calls: list[LogicFindingSeverity] = []

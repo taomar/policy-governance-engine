@@ -38,7 +38,9 @@ interface Overrides extends Partial<ProjectRowFacts> {}
 function facts(overrides: Overrides = {}): ProjectRowFacts {
   return {
     document_count: 1,
+    review_pending_policies: 4,
     review_pending: 40,
+    live_policy_count: 4,
     live_candidate_count: 40,
     candidate_direct_count: 0,
     candidate_reading_count: 40,
@@ -49,23 +51,83 @@ function facts(overrides: Overrides = {}): ProjectRowFacts {
 }
 
 describe("a register row describes the generation a project is actually in", () => {
-  it("leads with the records a project holds, not with the rules it has published", () => {
+  it("leads with the policies and rules a project holds, not with the rules it has published", () => {
     const clauses = projectRowClauses(facts());
     // The lead clause is what a reader sees first and skims by.
-    expect(clauses[0]).toContain("40");
+    expect(clauses[0]).toContain("4 policies");
+    expect(clauses[0]).toContain("40 rules");
     // The defect: an unpublished project describing itself by its published count.
     expect(clauses.join(" · ")).not.toMatch(/\b0 rules\b/);
+  });
+
+  it("states a unit once, even when publication agrees with the current generation", () => {
+    // Reintroduced by the fix for the defect above. Naming both real units in
+    // the lead clause put "40 rules" at the start of the row, while the
+    // publication clause restated the same count at the end. Both numbers were
+    // true and both said "rules", so one row read as two different quantities
+    // -- which is the mistake that naming records beside rules had made.
+    const row = projectRowClauses(
+      facts({
+        review_pending: 0,
+        review_pending_policies: 0,
+        active_version_number: 1,
+        active_rule_count: 40,
+      }),
+    ).join(" · ");
+
+    expect(row).toContain("40 rules");
+    expect(row).toContain("v1 published");
+    expect(row.match(/\brules\b/g) ?? []).toHaveLength(1);
+  });
+
+  it("states the published count when it disagrees with the current generation", () => {
+    // The gap is the whole value of the number: records have been added or
+    // withdrawn since v1, and that is a thing a reader would act on. Dropping
+    // it whenever it repeats must not drop it when it informs.
+    const row = projectRowClauses(
+      facts({
+        review_pending: 0,
+        review_pending_policies: 0,
+        active_version_number: 1,
+        active_rule_count: 12,
+      }),
+    ).join(" · ");
+
+    expect(row).toContain("40 rules");
+    expect(row).toContain("12 rules");
   });
 
   it("never contradicts itself about how many records a project holds", () => {
     // One project, one number. The old row could show "0 rules" and "411 review"
     // simultaneously; no pair of clauses may now disagree about the size of the
     // same generation.
-    const clauses = projectRowClauses(facts({ review_pending: 411, live_candidate_count: 411 }));
+    const clauses = projectRowClauses(
+      facts({ review_pending_policies: 70, review_pending: 411, live_policy_count: 70, live_candidate_count: 411 }),
+    );
     const numbers = clauses.join(" · ").match(/\d+/g) ?? [];
     // 411 may appear; 0 as a record count may not.
     expect(numbers).toContain("411");
     expect(clauses.join(" · ")).not.toMatch(/\b0 (rules|records|in review)\b/);
+  });
+
+  it("names policies and rules instead of inventing records", () => {
+    const line = projectRowClauses(
+      facts({
+        review_pending: 0,
+        review_pending_policies: 0,
+        live_policy_count: 38,
+        live_candidate_count: 280,
+        candidate_direct_count: 2,
+        candidate_reading_count: 278,
+        active_version_number: 1,
+        active_rule_count: 280,
+      }),
+    ).join(" · ");
+
+    expect(line).toContain("38 policies · 280 rules · none in review");
+    expect(line).toContain("2 Deterministic");
+    expect(line).toContain("278 AI Ready");
+    expect(line).not.toContain("record");
   });
 
   it("states routes as counts and never as a share of one another", () => {
@@ -113,7 +175,7 @@ describe("a register row describes the generation a project is actually in", () 
     const line = projectRowClauses(
       facts({ document_count: 1, review_pending: 0, live_candidate_count: 0, candidate_reading_count: 0 }),
     ).join(" · ");
-    expect(line).toContain("No records yet");
+    expect(line).toContain("No policies or rules yet");
     expect(line).not.toContain("No document loaded yet");
   });
 

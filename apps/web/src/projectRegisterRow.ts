@@ -45,7 +45,9 @@ import { POLICY_ROUTE_LABELS } from "./policyGrouping";
  *  caller can pass the full insight and a test can build a minimal one. */
 export interface ProjectRowFacts {
   document_count: number;
+  review_pending_policies?: number;
   review_pending: number;
+  live_policy_count?: number;
   live_candidate_count: number;
   candidate_direct_count: number;
   candidate_reading_count: number;
@@ -65,6 +67,8 @@ export function projectRowClauses(facts: ProjectRowFacts): string[] {
 
   const live = Math.max(0, facts.live_candidate_count);
   const pending = Math.max(0, facts.review_pending);
+  const liveScale = policyRuleScale(facts.live_policy_count, live);
+  const pendingScale = policyRuleScale(facts.review_pending_policies, pending);
 
   // 1. The workload. Leads, because it is the number that differs between projects
   //    and the number a reviewer would act on.
@@ -72,11 +76,11 @@ export function projectRowClauses(facts: ProjectRowFacts): string[] {
     // Distinguish "nothing has been loaded" from "something was loaded and holds
     // no records". They call for different actions, and a single empty-ish phrase
     // for both would hide a document that produced nothing.
-    clauses.push(facts.document_count === 0 ? "No document loaded yet" : "No records yet");
+    clauses.push(facts.document_count === 0 ? "No document loaded yet" : "No policies or rules yet");
   } else if (pending > 0) {
-    clauses.push(`${pending} in review`);
+    clauses.push(`${pendingScale} in review`);
   } else {
-    clauses.push(`${live} ${live === 1 ? "record" : "records"} · none in review`);
+    clauses.push(`${liveScale} · none in review`);
   }
 
   // 2. How those records are routed. Counts only; see the header note.
@@ -86,7 +90,17 @@ export function projectRowClauses(facts: ProjectRowFacts): string[] {
   //    project in an unpublished portfolio, so it must not lead.
   if (facts.active_version_number !== null) {
     const n = facts.active_rule_count;
-    clauses.push(`v${facts.active_version_number} published · ${n} ${n === 1 ? "rule" : "rules"}`);
+    // Only state the published count when it disagrees with the live one.
+    // Restating a matching count puts "280 rules" twice in a single row, and a
+    // unit repeated in one sentence reads as two different quantities -- the
+    // same defect that naming records beside rules produced. The number earns
+    // its place only when publication and the current generation have drifted
+    // apart, which is the case a reader would act on.
+    clauses.push(
+      n === live
+        ? `v${facts.active_version_number} published`
+        : `v${facts.active_version_number} published · ${n} ${n === 1 ? "rule" : "rules"}`,
+    );
   } else {
     clauses.push("Not published");
   }
@@ -132,6 +146,15 @@ export function routeClauses(live: number, direct: number, reading: number): str
   return parts;
 }
 
+function policyRuleScale(policyCount: number | null | undefined, ruleCount: number): string {
+  const safeRules = Math.max(0, ruleCount);
+  if (policyCount === null || policyCount === undefined) {
+    return `${safeRules} ${safeRules === 1 ? "rule" : "rules"}`;
+  }
+  const safePolicies = Math.max(0, policyCount);
+  return `${safePolicies} ${safePolicies === 1 ? "policy" : "policies"} · ${safeRules} ${safeRules === 1 ? "rule" : "rules"}`;
+}
+
 /**
  * The same route facts shaped for a two-line cell: a headline and its detail.
  *
@@ -144,11 +167,11 @@ export function routeCell(
   direct: number,
   reading: number,
 ): { headline: string; detail: string } {
-  if (live <= 0) return { headline: "No records yet", detail: "Nothing extracted to decide" };
+  if (live <= 0) return { headline: "No policies or rules yet", detail: "Nothing extracted to decide" };
 
   const clauses = routeClauses(live, direct, reading);
   const [first, ...rest] = clauses;
   const headline = first.charAt(0).toUpperCase() + first.slice(1);
-  const detail = rest.length > 0 ? rest.join(" · ") : `${live} ${live === 1 ? "record" : "records"}`;
+  const detail = rest.length > 0 ? rest.join(" · ") : `${live} ${live === 1 ? "rule" : "rules"}`;
   return { headline, detail };
 }

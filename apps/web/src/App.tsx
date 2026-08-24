@@ -221,7 +221,7 @@ function App() {
           <div className="brand-mark" aria-hidden="true">PV</div>
           <div>
             <div className="brand-title">PolicyVerbAItim</div>
-            <div className="brand-subtitle">Deterministic Evaluation</div>
+            <div className="brand-subtitle">Policy evaluation</div>
           </div>
         </div>
         <Menu

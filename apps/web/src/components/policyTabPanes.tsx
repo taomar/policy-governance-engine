@@ -889,7 +889,7 @@ function routeExplanation(route: string): string {
  * tab was reading our schema rather than our answer.
  */
 function authorityWords(owner: string, level: string): string {
-  if (level === "ai_drafted") return "Drafted by this app, not yet reviewed by a person";
+  if (level === "ai_drafted") return "Drafted by this app";
   if (level === "human_reviewed") return "Reviewed by a person";
   if (!level) return owner;
   return `${owner} · ${level.replace(/_/g, " ")}`;
