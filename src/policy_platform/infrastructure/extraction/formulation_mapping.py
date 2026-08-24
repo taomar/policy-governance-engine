@@ -1838,7 +1838,25 @@ def _title_for(policy: CanonicalPolicy) -> str:
             parts = [p for p in (rule.subject, rule.modality, rule.predicate, rule.object) if p]
     text = _join_without_repeat(parts, policy.source_text) if parts else policy.source_text
     text = " ".join(text.split())
-    return (text[:197] + "...") if len(text) > 200 else (text or "Untitled formulated rule")
+    if not text:
+        return "Untitled formulated rule"
+    if len(text) <= 200:
+        return text
+    # Cut at a word boundary. The budget alone put the ellipsis wherever the
+    # 197th character fell, which on this corpus landed inside a word in 29 of
+    # the 39 titles long enough to be cut -- "constitutes confide...", "banning
+    # for one time from Promot...". A marked truncation tells a reader the
+    # sentence continues; a truncation through a word makes them re-read to
+    # check whether the record itself is damaged.
+    head = text[:197]
+    boundary = head.rfind(" ")
+    # Only honour the boundary when it keeps most of the budget. A single
+    # unbroken run -- a URL, a long identifier, a script that does not space
+    # its words -- would otherwise collapse the title to almost nothing, which
+    # is a worse answer than a mid-word cut.
+    if boundary >= 150:
+        head = head[:boundary]
+    return head.rstrip(" ,;:-•|") + "..."
 
 
 def _effect_action(policy: CanonicalPolicy) -> str:

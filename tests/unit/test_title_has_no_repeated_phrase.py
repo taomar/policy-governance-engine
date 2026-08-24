@@ -343,3 +343,64 @@ def test_the_control_table_is_not_empty() -> None:
         f"only {len(_SOURCE_ATTESTED_REPETITIONS)} control(s) left — this file is back to "
         "testing offenders only, and can no longer detect over-reach"
     )
+
+
+# ---------------------------------------------------------------------------
+# WHERE A TITLE TOO LONG TO SHOW IS CUT
+# ---------------------------------------------------------------------------
+#
+# A title is capped for display. The cap was a character budget alone, so the
+# ellipsis landed wherever the 197th character fell -- which on the live corpus
+# was inside a word for 29 of the 39 titles long enough to be cut: "constitutes
+# confide...", "banning for one time from Promot...".
+#
+# A marked truncation tells a reader the sentence continues. A truncation
+# through a word reads as damage to the record, and sends them to the source to
+# find out which it is.
+
+
+def test_a_title_too_long_to_show_is_cut_between_words() -> None:
+    source = (
+        "Any information relating to Arab International Schools that is not publicly "
+        "available constitutes confidential information and employees are required to "
+        "protect it during and after the term of their employment with the company, "
+        "including but not limited to salary data and personnel records."
+    )
+    title = _title("", "", "", "", source)
+
+    assert title.endswith("..."), "a cut title must say it was cut"
+    body = title[:-3]
+    assert source.startswith(body), "a cut title must be a prefix of what it cut"
+    # The cut is mid-word exactly when the source continues with a word
+    # character where the title stopped. Checking the title's own last
+    # character cannot tell: a correct cut ends on the last letter of a whole
+    # word, which is alphanumeric too.
+    assert source[len(body)].isspace(), (
+        f"the cut fell inside a word: ...{title[-40:]!r}. The budget alone puts the "
+        "ellipsis at a character position; it has to fall at a word boundary."
+    )
+    # The whole point of a boundary is that it keeps a readable title, not that
+    # it merely avoids a letter. Collapsing to a fragment would pass the check
+    # above while being a worse answer than the mid-word cut it replaced.
+    assert len(title) > 150, f"the cut discarded too much: {len(title)} characters left"
+
+
+def test_an_unbroken_run_is_cut_by_the_budget_rather_than_erased() -> None:
+    """The boundary must not win when honouring it would leave nothing.
+
+    A URL, a long identifier, or a script that does not space its words has no
+    boundary to find. Preferring one unconditionally would collapse the title
+    to whatever preceded the run -- possibly a word or two -- which is a worse
+    answer than the mid-word cut. So the boundary is honoured only when it
+    keeps most of the budget.
+    """
+
+    source = "Reference: " + ("x" * 400)
+    title = _title("", "", "", "", source)
+
+    assert title.endswith("...")
+    assert len(title) > 150, (
+        f"an unbroken run collapsed the title to {len(title)} characters; the word "
+        "boundary was preferred where there was effectively none to prefer"
+    )
+
