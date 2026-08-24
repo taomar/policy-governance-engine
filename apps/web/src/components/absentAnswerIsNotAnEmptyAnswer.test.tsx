@@ -288,6 +288,7 @@ describe("no internal exception name reaches a reader", () => {
   // Do not weaken: a server that answers with a refusal is still answering,
   // and that must keep its real status rather than being dressed as an outage.
   it("leaves a real HTTP failure with its real status", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -306,6 +307,93 @@ describe("no internal exception name reaches a reader", () => {
     const error = caught as PolicyPlatformApiError;
     expect(error.status, "a 404 was reported as the server being unreachable").toBe(404);
     expect(error.detail).toBe("policy set not found");
+  });
+
+  it("returns null and stays quiet when a caller declares 404 as an expected absence", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => ({ detail: "no active version" }),
+      }) as unknown as Response),
+    );
+
+    const active = await api.getActiveVersion("never-published");
+
+    expect(active).toBeNull();
+    expect(consoleError, "an expected absent active version was logged as an error").not.toHaveBeenCalled();
+  });
+
+  it("still throws and logs when a 404 has not been declared as expected", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => ({ detail: "policy set not found" }),
+      }) as unknown as Response),
+    );
+
+    const caught = await api.listPolicySets().then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(caught).toBeInstanceOf(PolicyPlatformApiError);
+    expect((caught as PolicyPlatformApiError).status).toBe(404);
+    expect(consoleError, "an undeclared 404 was silently swallowed").toHaveBeenCalled();
+  });
+
+  it("keeps an absent active version distinct from an active version with no rules", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/policy-sets/no-active/active-version")) {
+        return {
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          json: async () => ({ detail: "no active version" }),
+        } as unknown as Response;
+      }
+      if (url.includes("/api/policy-sets/empty-active/active-version")) {
+        return jsonResponse({
+          id: "version-without-rules",
+          policy_set_id: "empty-active",
+          version_number: 1,
+          is_active: true,
+          effective_from: null,
+          effective_to: null,
+          created_at: "2026-08-25T00:00:00Z",
+          approved_by: "author",
+          approved_at: "2026-08-25T00:00:00Z",
+          rule_count: 0,
+          policy_count: 0,
+          notes: null,
+        });
+      }
+      if (url.includes("/api/policy-sets/empty-active/versions/version-without-rules/rules")) {
+        return jsonResponse([]);
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const absentActive = await api.getActiveVersion("no-active");
+    const emptyActive = await api.getActiveVersion("empty-active");
+    const emptyActiveRules = emptyActive
+      ? await api.getVersionRules("empty-active", "version-without-rules")
+      : null;
+
+    expect(absentActive, "a missing active version must stay absent, not become an empty rule list").toBeNull();
+    expect(emptyActive, "an active version with no rules must still be present").not.toBeNull();
+    expect(emptyActiveRules).toEqual([]);
+    expect(consoleError, "declared active-version absence should not pollute the console").not.toHaveBeenCalled();
   });
 
   it("never falls back to an exception name as the message", () => {

@@ -1,6 +1,7 @@
 import { Alert, Descriptions, Space, Table, Tag, Tooltip, Typography } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
-import type { EvaluationResponse } from "../api";
+import type { EvaluationResponse, QualityFinding } from "../api";
+import { evaluationRuleIds, findingsForRuleIds } from "../qualityFindingLinks";
 
 const { Title, Paragraph } = Typography;
 
@@ -19,7 +20,14 @@ export const EVALUATION_STATUS_COLOR: Record<string, string> = {
  * the decision log) so the two places a reviewer looks at an evaluation
  * outcome render it identically.
  */
-export function EvaluationResultView({ response }: { response: EvaluationResponse }) {
+export function EvaluationResultView({
+  response,
+  qualityFindings = [],
+}: {
+  response: EvaluationResponse;
+  qualityFindings?: readonly QualityFinding[];
+}) {
+  const linkedFindings = findingsForRuleIds(qualityFindings, evaluationRuleIds(response));
   return (
     <>
       <Descriptions size="small" column={2} bordered style={{ marginBottom: 20 }}>
@@ -27,6 +35,9 @@ export function EvaluationResultView({ response }: { response: EvaluationRespons
           <Tag color={EVALUATION_STATUS_COLOR[response.overall_status] ?? "default"}>{response.overall_status}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="Outcome">{response.outcome ?? "—"}</Descriptions.Item>
+        <Descriptions.Item label="Route that decided" span={2}>
+          <Tag color="blue">FEEL evaluator</Tag>
+        </Descriptions.Item>
         {response.required_actions.length > 0 && (
           <Descriptions.Item label="Allowed / required actions" span={2}>
             <Space wrap>
@@ -63,6 +74,28 @@ export function EvaluationResultView({ response }: { response: EvaluationRespons
           </Descriptions.Item>
         )}
       </Descriptions>
+
+      {linkedFindings.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 20 }}
+          title="Known quality finding covers rules in this result"
+          description={
+            <Space orientation="vertical" size={4}>
+              {linkedFindings.map((finding, index) => (
+                <span key={`${finding.category}-${finding.matched_rule_ids.join("-")}-${index}`}>
+                  <Tag color={finding.severity === "high" ? "red" : finding.severity === "medium" ? "gold" : "default"}>
+                    {finding.severity}
+                  </Tag>{" "}
+                  <strong>{finding.category.replace(/_/g, " ")}</strong> on {finding.matched_rule_ids.join(", ")}
+                  {finding.summary ? ` — ${finding.summary}` : ""}
+                </span>
+              ))}
+            </Space>
+          }
+        />
+      )}
 
       {(response.aggregate_breaches?.length ?? 0) > 0 && (
         <Alert

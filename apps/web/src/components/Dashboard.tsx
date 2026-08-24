@@ -549,7 +549,11 @@ export function Dashboard({
               </span>
               <span className="dashboard-readiness-signals">
                 {(insight.latest_quality_high ?? 0) > 0 && (
-                  <Tag color="red">{insight.latest_quality_high} high</Tag>
+                  <Tag color="red">
+                    {insight.active_version_number !== null
+                      ? `published v${insight.active_version_number}: ${insight.latest_quality_high} high`
+                      : `${insight.latest_quality_high} high`}
+                  </Tag>
                 )}
                 {/* The review count is no longer repeated as a tag: it now leads the
                     row's own copy. It also carried a warning colour, which told the

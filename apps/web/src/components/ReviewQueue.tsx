@@ -508,7 +508,7 @@ export function ReviewQueue({ policySetKey }: { policySetKey?: string } = {}) {
     let cancelled = false;
     api
       .getActiveVersion(selectedKey)
-      .then((version) => api.getVersionRules(selectedKey, version.id))
+      .then((version) => (version ? api.getVersionRules(selectedKey, version.id) : []))
       .then((rules) => {
         if (!cancelled) setActiveVersionRules(rules);
       })

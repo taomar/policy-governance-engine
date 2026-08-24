@@ -55,7 +55,7 @@ export function qualityScanSummary(input: {
     return { display: UNKNOWN_COUNT, caption: "Scan failed — not re-run", isAnswer: false };
   }
   if (input.count === null) {
-    return { display: UNKNOWN_COUNT, caption: "Scan not run", isAnswer: false };
+    return { display: UNKNOWN_COUNT, caption: "No scan of records in review", isAnswer: false };
   }
   if (input.count === 0) {
     return { display: "0", caption: "None found across loaded rules", isAnswer: true };

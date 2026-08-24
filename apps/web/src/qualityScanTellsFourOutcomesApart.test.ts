@@ -7,7 +7,7 @@ import { UNKNOWN_COUNT } from "./loadState";
  * NOTHING ARE FOUR DIFFERENT ANSWERS.
  *
  * The review strip previously carried two: a number or an em-dash, captioned
- * "Across loaded rules" or "Scan not run". A scan in flight and a scan that had
+ * "Across loaded rules" or "No scan of records in review". A scan in flight and a scan that had
  * failed both fell into "Scan not run", which was a false statement about work
  * the reviewer had asked for and, in the failed case, the only statement left
  * once its Alert was dismissed.
@@ -98,7 +98,7 @@ describe("the quality strip tells four scan outcomes apart", () => {
   /**
    * The failure notice is an Alert with a close button, and closing it clears
    * the message. If the strip read that message, dismissing it would take the
-   * failure with it and the strip would go back to "Scan not run" — telling a
+   * failure with it and the strip would go back to "No scan of records in review" — telling a
    * reviewer who had just watched a scan fail that none had ever run.
    *
    * The summary therefore takes the fact, not the message. This is the test

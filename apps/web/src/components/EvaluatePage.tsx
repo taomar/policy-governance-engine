@@ -25,8 +25,10 @@ import {
   type EvaluationResponse,
   type PolicySet,
   type PrincipalContext,
+  type QualityFinding,
 } from "../api";
 import { EvaluationResultView } from "./EvaluationResultView";
+import { loadLatestPublishedQualityFindings } from "../qualityFindingLinks";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -81,6 +83,7 @@ export function EvaluatePage() {
   const [factsJson, setFactsJson] = useState("{}");
   const [correlationId, setCorrelationId] = useState("");
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
+  const [publishedQualityFindings, setPublishedQualityFindings] = useState<QualityFinding[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -113,6 +116,21 @@ export function EvaluatePage() {
         setSelectedVersionId("active");
       })
       .catch((e) => setError(e instanceof PolicyPlatformApiError ? e.detail : String(e)));
+  }, [selectedKey]);
+
+  useEffect(() => {
+    if (!selectedKey) return;
+    let cancelled = false;
+    loadLatestPublishedQualityFindings(selectedKey)
+      .then((findings) => {
+        if (!cancelled) setPublishedQualityFindings(findings);
+      })
+      .catch(() => {
+        if (!cancelled) setPublishedQualityFindings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedKey]);
 
   // Build the dynamic facts form + "who is asking" scope suggestions from the
@@ -428,7 +446,7 @@ export function EvaluatePage() {
 
       {response && (
         <Card title="Evaluation Result">
-          <EvaluationResultView response={response} />
+          <EvaluationResultView response={response} qualityFindings={publishedQualityFindings} />
         </Card>
       )}
     </>

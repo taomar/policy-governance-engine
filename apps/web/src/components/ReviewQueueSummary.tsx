@@ -30,7 +30,7 @@
  *     gets decided and rules are what a policy is made of (constraint 2).
  *   - It does not invent a number for the quality scan. `quality` is rendered
  *     exactly as {@link qualityScanSummary} computed it, so *absent* stays "—"
- *     with "Scan not run" beneath, and is never flattened to a `0` that would
+ *     with "No scan of records in review" beneath, and is never flattened to a `0` that would
  *     read as "we looked and found nothing" (constraint 5). Absent, in-flight,
  *     failed and a true zero remain four different things.
  *

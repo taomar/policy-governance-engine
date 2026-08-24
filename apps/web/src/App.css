@@ -887,11 +887,46 @@
   font-style: italic;
 }
 
+.semantic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.semantic-list-item {
+  margin: 0;
+}
+
+.semantic-list--split > .semantic-list-item:not(:last-child) {
+  border-bottom: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+.semantic-list--small > .semantic-list-item {
+  padding: 8px 0;
+}
+
+.semantic-list--bordered {
+  border: 1px solid rgba(5, 5, 5, 0.06);
+  border-radius: 6px;
+}
+
+.semantic-list--bordered > .semantic-list-item {
+  padding: 8px 16px;
+}
+
+.semantic-list--bordered > .semantic-list-item:not(:last-child) {
+  border-bottom: 1px solid rgba(5, 5, 5, 0.06);
+}
+
 .exception-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
+}
+
+.exception-list.semantic-list--small > .semantic-list-item {
+  padding: 8px 16px;
 }
 
 .exception-item-headline {
@@ -4070,6 +4105,36 @@
 .notes-list {
   max-height: 320px;
   overflow-y: auto;
+}
+
+.notes-list .ant-spin-nested-loading,
+.notes-list .ant-spin-container {
+  min-height: inherit;
+}
+
+.notes-list-items > .notes-list-item {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.notes-list--compact .notes-list-items > .notes-list-item {
+  padding: 8px 0;
+}
+
+.notes-list-meta {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notes-list-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .notes-role-tag {

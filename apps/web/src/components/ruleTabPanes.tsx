@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Collapse, Descriptions, List, Segmented, Space, Tag, Tooltip, Typography } from "antd";
+import { Collapse, Descriptions, Segmented, Space, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   BranchesOutlined,
@@ -176,11 +176,9 @@ export function RuleLogicPane({
           <Text strong className="rule-card-section-title">
             <BranchesOutlined /> Exceptions — carve-outs, escalation &amp; special-case routes
           </Text>
-          <List
-            size="small"
-            dataSource={rule.exceptions}
-            renderItem={(exc) => (
-              <List.Item key={exc.exception_id}>
+          <ul className="semantic-list semantic-list--split semantic-list--small exception-list">
+            {rule.exceptions.map((exc) => (
+              <li key={exc.exception_id} className="semantic-list-item">
                 <div className="exception-item">
                   <div className="exception-item-headline">
                     <Text>
@@ -202,9 +200,9 @@ export function RuleLogicPane({
                   )}
                   {exc.effect_override && <PolicyEffectBadge effect={exc.effect_override} />}
                 </div>
-              </List.Item>
-            )}
-          />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

@@ -6,7 +6,7 @@
  * they are pinned here:
  *
  *   - the quality scan has FOUR states, and an *absent* scan must render as "—"
- *     with "Scan not run" — never as "0". A scan that ran and found nothing is a
+ *     with "No scan of records in review" — never as "0". A scan that ran and found nothing is a
  *     different fact, and it is the one allowed to show "0" (constraint 5);
  *   - decided progress keeps both units — policies and rules — because a policy
  *     is what gets decided and rules are what it is made of (constraint 2); and
@@ -109,7 +109,7 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
     );
     const quality = item("Quality findings");
     expect(within(quality).getByText("—")).toBeTruthy();
-    expect(within(quality).getByText("Scan not run")).toBeTruthy();
+    expect(within(quality).getByText("No scan of records in review")).toBeTruthy();
     // The crux: absent is not zero. Nothing in this card may read "0".
     expect(within(quality).queryByText("0")).toBeNull();
   });
@@ -157,6 +157,6 @@ describe("the quality scan keeps its four states apart (constraint 5)", () => {
     );
     const quality = item("Quality findings");
     expect(within(quality).getByText("Scanning now")).toBeTruthy();
-    expect(within(quality).queryByText("Scan not run")).toBeNull();
+    expect(within(quality).queryByText("No scan of records in review")).toBeNull();
   });
 });

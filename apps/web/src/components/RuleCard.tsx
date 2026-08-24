@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Collapse, Descriptions, Space, Tag, Tooltip, Typography, List } from "antd";
+import { Button, Collapse, Descriptions, Space, Tag, Tooltip, Typography } from "antd";
 import {
   FileTextOutlined,
   ApartmentOutlined,
@@ -298,11 +298,9 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                   <Text strong className="rule-card-section-title">
                     <BranchesOutlined /> Exceptions — carve-outs, escalation & special-case routes
                   </Text>
-                  <List
-                    size="small"
-                    dataSource={rule.exceptions}
-                    renderItem={(exc) => (
-                      <List.Item key={exc.exception_id}>
+                  <ul className="semantic-list semantic-list--split semantic-list--small exception-list">
+                    {rule.exceptions.map((exc) => (
+                      <li key={exc.exception_id} className="semantic-list-item">
                         <div className="exception-item">
                           <div className="exception-item-headline">
                             <Text>{exc.description}</Text>
@@ -326,9 +324,9 @@ export function RuleCard({ rule, defaultExpanded, headerActions, hideNotes, onRe
                             </Tag>
                           )}
                         </div>
-                      </List.Item>
-                    )}
-                  />
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

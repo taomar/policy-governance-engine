@@ -144,7 +144,17 @@ function unreachable(cause: unknown): PolicyPlatformApiError {
   );
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+interface RequestOptions {
+  readonly notFound?: "return-null";
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T>;
+async function request<T>(
+  path: string,
+  init: RequestInit | undefined,
+  options: { readonly notFound: "return-null" },
+): Promise<T | null>;
+async function request<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T | null> {
   // Attach the bearer token when a session exists.  The header is added
   // here rather than in each caller so that no request can accidentally
   // skip it, and so callers never handle the credential directly.
@@ -177,6 +187,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new PolicyPlatformApiError(401, "Session expired or invalid.");
   }
 
+  if (res.status === 404 && options?.notFound === "return-null") {
+    return null;
+  }
+
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -196,6 +210,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (cause instanceof PolicyPlatformApiError) throw cause;
       // ignore parse failure, fall back to statusText
     }
+    console.error("Policy platform request failed", { path, status: res.status, detail });
     throw new PolicyPlatformApiError(res.status, detail);
   }
   if (res.status === 204) {
@@ -3090,7 +3105,11 @@ export const api = {
     }),
 
   getActiveVersion: (key: string) =>
-    request<ApprovedPolicyVersion>(`/api/policy-sets/${encodeURIComponent(key)}/active-version`),
+    request<ApprovedPolicyVersion>(
+      `/api/policy-sets/${encodeURIComponent(key)}/active-version`,
+      undefined,
+      { notFound: "return-null" },
+    ),
 
   listPolicyVersions: (key: string) =>
     request<ApprovedPolicyVersion[]>(`/api/policy-sets/${encodeURIComponent(key)}/versions`),

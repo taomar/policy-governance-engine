@@ -1,4 +1,4 @@
-import { Alert, Button, List, Modal, Space, Tag, Typography } from "antd";
+import { Alert, Button, Modal, Space, Tag, Typography } from "antd";
 import { ClusterOutlined } from "@ant-design/icons";
 import type { FamilyGap } from "../ruleFamilyReview";
 
@@ -96,21 +96,18 @@ export function FamilyReviewConfirm({
               {gap.covered.length} of {gap.total} selected
             </Tag>
           </Space>
-          <List
-            size="small"
-            bordered
-            dataSource={gap.left}
-            renderItem={(item) => (
-              <List.Item>
+          <ul className="semantic-list semantic-list--bordered semantic-list--small family-review-gap-list">
+            {gap.left.map((item) => (
+              <li key={`${item.rule.rule_id}:${item.rule.rule_revision}`} className="semantic-list-item">
                 <Space orientation="vertical" size={0} style={{ width: "100%" }}>
                   <Text style={{ fontSize: 13 }}>{item.rule.title}</Text>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {item.rule.rule_id} · rev {item.rule.rule_revision} · {item.review_status}
                   </Text>
                 </Space>
-              </List.Item>
-            )}
-          />
+              </li>
+            ))}
+          </ul>
         </div>
       ))}
     </Modal>

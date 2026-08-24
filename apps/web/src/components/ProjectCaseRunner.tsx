@@ -11,10 +11,12 @@ import {
   type ProjectCaseJudgement,
   type ProjectCasePolicyCandidate,
   type ProjectCaseRetrievalStatus,
+  type QualityFinding,
 } from "../api";
 import { formatElapsed } from "../uploadFeedback";
 import { retrievalStatusIsIndexRepairable } from "../policyIndexHealth";
 import { DirectionalText } from "./DirectionalText";
+import { findingsForRuleIds, loadLatestPublishedQualityFindings, projectCaseRuleIds } from "../qualityFindingLinks";
 import "./policyCaseRunner.css";
 
 const { Paragraph, Text } = Typography;
@@ -277,9 +279,48 @@ function RetrievalSummary({ answer, onOpenPolicyIndex }: { answer: ProjectCaseAn
   );
 }
 
-function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
+function QualityFindingNotice({
+  findings,
+  ruleIds,
+}: {
+  findings: readonly QualityFinding[];
+  ruleIds: readonly string[];
+}) {
+  const linked = findingsForRuleIds(findings, ruleIds);
+  if (linked.length === 0) return null;
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      style={{ marginBottom: 12 }}
+      title="Known quality finding covers rules in this result"
+      description={
+        <Space orientation="vertical" size={4}>
+          {linked.map((finding, index) => (
+            <span key={`${finding.category}-${finding.matched_rule_ids.join("-")}-${index}`}>
+              <Tag color={finding.severity === "high" ? "red" : finding.severity === "medium" ? "gold" : "default"}>
+                {finding.severity}
+              </Tag>{" "}
+              <strong>{finding.category.replace(/_/g, " ")}</strong> on {finding.matched_rule_ids.join(", ")}
+              {finding.summary ? ` — ${finding.summary}` : ""}
+            </span>
+          ))}
+        </Space>
+      }
+    />
+  );
+}
+
+function EvaluationPanel({
+  answer,
+  qualityFindings,
+}: {
+  answer: ProjectCaseAnswer;
+  qualityFindings: readonly QualityFinding[];
+}) {
   const evaluation = answer.evaluation;
   if (!evaluation) return null;
+  const linkedRuleIds = projectCaseRuleIds(answer);
 
   if (evaluation.intent === "decision") {
     const judgement =
@@ -308,8 +349,10 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
     const citations = judgement?.citations ?? [];
     return (
       <div className="policy-case-reading" data-testid="project-case-decision">
+        <QualityFindingNotice findings={qualityFindings} ruleIds={linkedRuleIds} />
         <Paragraph style={{ marginBottom: 8 }}>
           <Tag color={copy.color}>{copy.label}</Tag>{" "}
+          <Tag color="blue">AI Ready judge</Tag>{" "}
           <Text strong>{copy.title}</Text>
         </Paragraph>
         {judgement ? (
@@ -433,12 +476,13 @@ function EvaluationPanel({ answer }: { answer: ProjectCaseAnswer }) {
 
   return (
     <div data-testid="project-case-answer">
+      <QualityFindingNotice findings={qualityFindings} ruleIds={linkedRuleIds} />
       <div className="app-synthesis" data-generated="true">
         <div>
           <span className="app-synthesis__mark" aria-hidden>
             ✦
           </span>{" "}
-          <span className="app-synthesis__caption">Answer composed by this app from the evaluated policies below</span>
+          <span className="app-synthesis__caption">AI Ready judge read the evaluated policies below</span>
         </div>
         <Paragraph className="app-synthesis__body" style={{ marginBottom: 0 }}>
           <DirectionalText align>{informational.answer ?? ""}</DirectionalText>
@@ -561,6 +605,7 @@ export function ProjectCaseRunner({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [answer, setAnswer] = useState<ProjectCaseAnswer | null>(null);
+  const [publishedQualityFindings, setPublishedQualityFindings] = useState<QualityFinding[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -576,7 +621,7 @@ export function ProjectCaseRunner({
     setPolicyLoadError(null);
     api
       .getActiveVersion(policySetKey)
-      .then((version) => api.listVersionPolicies(policySetKey, version.id))
+      .then((version) => (version ? api.listVersionPolicies(policySetKey, version.id) : []))
       .then((loaded) => {
         const persisted = loaded.filter((policy) => policy.provision_id);
         setPolicies(persisted);
@@ -588,6 +633,21 @@ export function ProjectCaseRunner({
         setPolicyLoadError(caught instanceof PolicyPlatformApiError ? caught.detail : String(caught));
       });
   }, [open, policySetKey, scope]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadLatestPublishedQualityFindings(policySetKey)
+      .then((findings) => {
+        if (!cancelled) setPublishedQualityFindings(findings);
+      })
+      .catch(() => {
+        if (!cancelled) setPublishedQualityFindings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, policySetKey]);
 
   useEffect(() => {
     if (startedAt === null) return;
@@ -742,7 +802,7 @@ export function ProjectCaseRunner({
         {answer ? (
           <Space orientation="vertical" size={16} style={{ width: "100%" }}>
             <RetrievalSummary answer={answer} onOpenPolicyIndex={onOpenPolicyIndex} />
-            <EvaluationPanel answer={answer} />
+            <EvaluationPanel answer={answer} qualityFindings={publishedQualityFindings} />
             <ConsideredPolicies answer={answer} />
             <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }} data-testid="project-case-size">
               Evaluated payload size: {answer.size.combined_chars.toLocaleString()} of{" "}

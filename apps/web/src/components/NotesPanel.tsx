@@ -8,7 +8,7 @@
  * a user never has to retype who they are.
  */
 import { useEffect, useState } from "react";
-import { Avatar, Button, Empty, Input, List, Popconfirm, Space, Tag, Typography } from "antd";
+import { Avatar, Button, Empty, Input, Popconfirm, Space, Spin, Tag, Typography } from "antd";
 import { DeleteOutlined, MessageOutlined, SendOutlined } from "@ant-design/icons";
 import { ACTOR_ROLE_LABELS, useActor } from "../ActorContext";
 import { api, PolicyPlatformApiError, type Note, type NoteEntityType } from "../api";
@@ -115,45 +115,43 @@ export function NotesPanel({ entityType, entityId, title, compact }: NotesPanelP
         </Paragraph>
       )}
 
-      <List
-        className="notes-list"
-        loading={loading}
-        dataSource={notes}
-        locale={{ emptyText: <Empty description="No notes yet" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-        renderItem={(note) => (
-          <List.Item
-            key={note.id}
-            actions={[
-              <Popconfirm
-                key="delete"
-                title="Delete this note?"
-                onConfirm={() => handleDelete(note.id)}
-                okText="Delete"
-                okButtonProps={{ danger: true }}
-              >
-                <Button type="text" size="small" icon={<DeleteOutlined />} danger />
-              </Popconfirm>,
-            ]}
-          >
-            <List.Item.Meta
-              avatar={<Avatar size="small">{initialsFor(note.author)}</Avatar>}
-              title={
-                <Space size={8} wrap>
-                  <Text strong>{note.author}</Text>
-                  <Tag variant="filled" className="notes-role-tag">
-                    {note.author_role}
-                  </Tag>
-                  <Text type="secondary" className="notes-timestamp">
-                    {formatTimestamp(note.created_at)}
-                  </Text>
-                </Space>
-              }
-              description={<Text className="notes-body">{note.body}</Text>}
-            />
-          </List.Item>
-        )}
-        size={compact ? "small" : "default"}
-      />
+      <div className={`notes-list ${compact ? "notes-list--compact" : ""}`} aria-busy={loading}>
+        <Spin spinning={loading}>
+          {notes.length === 0 ? (
+            <Empty description="No notes yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          ) : (
+            <ul className="semantic-list semantic-list--split notes-list-items">
+              {notes.map((note) => (
+                <li key={note.id} className="semantic-list-item notes-list-item">
+                  <div className="notes-list-meta">
+                    <Avatar size="small">{initialsFor(note.author)}</Avatar>
+                    <div className="notes-list-content">
+                      <Space size={8} wrap>
+                        <Text strong>{note.author}</Text>
+                        <Tag variant="filled" className="notes-role-tag">
+                          {note.author_role}
+                        </Tag>
+                        <Text type="secondary" className="notes-timestamp">
+                          {formatTimestamp(note.created_at)}
+                        </Text>
+                      </Space>
+                      <Text className="notes-body">{note.body}</Text>
+                    </div>
+                  </div>
+                  <Popconfirm
+                    title="Delete this note?"
+                    onConfirm={() => handleDelete(note.id)}
+                    okText="Delete"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+                  </Popconfirm>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Spin>
+      </div>
 
       <Space.Compact className="notes-composer">
         <TextArea
