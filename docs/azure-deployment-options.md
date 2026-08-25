@@ -1,6 +1,6 @@
 # Azure deployment options
 
-**Azure deployment is pending.** The repository provides executable Bicep for Azure Container Apps only. Other options are design guidance.
+This page is for architects comparing future hosting options. **Azure deployment is pending.** The repository provides executable Bicep for Azure Container Apps only. Other options are design guidance.
 
 ## Support
 

@@ -1,5 +1,7 @@
 # Microsoft services
 
+This page is for readers checking which Microsoft services are actually used.
+
 ## Implemented
 
 ### Azure OpenAI

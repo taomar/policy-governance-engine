@@ -1,6 +1,6 @@
 # Capability flows
 
-This page keeps only the diagrams that explain the platform's highest-impact boundaries. The task-oriented journey is in [Workflows](workflows.md); detailed ingestion design remains in [PDF ingestion architecture](specs/pdf-ingestion-architecture-v1.md).
+This page is for architects and reviewers who need the product boundaries at a glance. It keeps only the diagrams that explain the platform's highest-impact boundaries. The task-oriented journey is in [Workflows](workflows.md); detailed ingestion design remains in [PDF ingestion architecture](specs/pdf-ingestion-architecture-v1.md).
 
 ## How to read the diagrams
 
@@ -44,7 +44,7 @@ flowchart LR
 
 ## 2. Evidence and provenance
 
-Every governed decision must lead back to one source passage.
+Every governed decision must lead back to one source passage. A policy can contain many rule records; traceability is at the rule-to-source level.
 
 ```mermaid
 flowchart LR

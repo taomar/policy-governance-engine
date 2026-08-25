@@ -1,6 +1,6 @@
 # Frameworks and technologies
 
-Only technologies used by the implementation are listed here.
+This page is for implementers checking the actual stack. Only technologies used by the implementation are listed here.
 
 ## Runtime
 

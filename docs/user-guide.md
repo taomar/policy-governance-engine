@@ -1,6 +1,6 @@
 # User guide
 
-This guide follows the user journey from source document to governed policy decision. Screenshots come from a local instance with one project loaded from a single extraction run. Project names, counts and dates will differ in another environment.
+This guide is for reviewers, policy authors and administrators following the user journey from source document to governed policy decision. Screenshots come from a local instance with one project loaded from a single extraction run. Project names, counts and dates will differ in another environment.
 
 ## Deployment status
 
@@ -50,21 +50,21 @@ Confirm the header shows:
 - **API connected**;
 - **AI enabled** when Azure OpenAI is configured.
 
-![Policy operations dashboard showing project readiness](images/user-guide/01-dashboard.png)
+![Policy operations dashboard showing project status](images/user-guide/01-dashboard.png)
 
 The dashboard leads with work that needs attention:
 
 - candidates awaiting review;
 - high quality findings;
-- how policies are routed — deterministic or AI Ready;
+- how rules are routed — Deterministic or AI Ready;
 - regression guards;
-- project readiness.
+- project governance status.
 
-## 2. Choose a project and assess readiness
+## 2. Choose a project and assess governance status
 
 Open **Projects**, then select a policy set.
 
-![Project overview: publication state and governance readiness](images/user-guide/02-project-overview.png)
+![Project overview: publication state and governance status](images/user-guide/02-project-overview.png)
 
 The Overview answers whether the current package is:
 
@@ -78,7 +78,7 @@ That last one is the **Project-wide case index** panel. It reports what the app 
 
 Where a rebuild would help, the panel offers one. Where it would not, it does not: a project that has published nothing has nothing to index, and a server without search configured cannot be repaired by rebuilding. A build that failed but left the index still matching the active version is reported as usable rather than as a fault, so the panel does not cry wolf.
 
-It also shows how the package's policies are routed. Each carries an `evaluation_mode` stating how it must be decided:
+It also shows how the package's rules are routed. Each rule carries an `evaluation_mode` stating how it must be decided:
 
 | Route | The source states its test as | Decided by |
 |---|---|---|
@@ -116,7 +116,7 @@ Use **View full text** to confirm parsing quality. The system stores clauses wit
 
 ## 4. Extract candidate rules
 
-Select **Extract with AI** on the intended document version.
+Select **Extract with AI** on the intended document version. The upload response field `clauses_search_indexed` counts clauses written to the Azure AI Search index; it is not a storage count.
 
 The extraction process:
 
@@ -194,7 +194,7 @@ Set your name in the application header before approving or rejecting; the revie
 
 ## 6. Run quality before publication
 
-Open **Quality** and choose **Rules still in review**.
+Open **Quality** and choose **Rules still in review**. The project register names the checked scope, for example `published v1: 26 high`; a review queue with no completed scan says **No scan of records in review** rather than showing a zero.
 
 ![Quality workspace with evaluation history and findings](images/user-guide/07-quality.png)
 
@@ -340,9 +340,9 @@ Grounded responses separate source facts from model synthesis. Follow citations 
 
 Return to Overview after publication.
 
-![Project overview: publication state and governance readiness](images/user-guide/02-project-overview.png)
+![Project overview: publication state and governance status](images/user-guide/02-project-overview.png)
 
-Use the readiness docket to:
+Use the governance docket to:
 
 - assign accountable ownership and escalation contacts;
 - schedule the next review;

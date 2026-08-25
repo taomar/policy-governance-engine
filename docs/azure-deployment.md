@@ -1,6 +1,6 @@
 # Azure deployment (pending)
 
-**Status: pending.** This guide explains the prepared Azure deployment. It is a future operator procedure: **no Azure-hosted application environment has been provisioned from this repository**.
+This page is for future Azure operators. **Status: pending.** It explains the prepared Azure deployment. It is a future operator procedure: **no Azure-hosted application environment has been provisioned from this repository**.
 
 The currently available path is the **Local deployment**. Calling Azure OpenAI or Azure AI Search endpoints from the local API does not make the application an Azure deployment.
 

@@ -1,5 +1,7 @@
 # Docling shadow comparison
 
+This report is for ingestion maintainers comparing legacy parsing with Docling on the sample corpus.
+
 ## HR-Special-Leave-Policy-v1.0.docx
 
 - verdict: **no content loss**

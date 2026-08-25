@@ -4,7 +4,7 @@
 
 Policy documents are written for people. Decisions have to be made by machines. Something has to cross that gap — and everything you trust downstream depends on whether it crossed honestly.
 
-PolicyVerbAItim turns PDF and DOCX policy documents into structured, executable rules where every rule points back at the exact clause that produced it. Spans are copied verbatim and verified in Python, never paraphrased. When the source is silent, the platform says so instead of filling the gap.
+PolicyVerbAItim turns PDF and DOCX policy documents into policies made of structured, executable rule records where every rule points back at the exact clause that produced it. Spans are copied verbatim and verified in Python, never paraphrased. When the source is silent, the platform says so instead of filling the gap.
 
 That link survives publication. Uploaded documents are immutable versions identified by content hash. Every approved rule cites the document version, clause id and content hash it came from, plus the extraction run, model deployment and prompt version that drafted it; the clause in turn carries the page and the exact character range its text occupies in that page. Publishing snapshots the whole package rather than pointing at live drafts, so a version cannot change under a decision made against it. Each evaluation records a canonical SHA-256 over the policy version, the facts supplied and the outcome reached, and cites the document and clause behind every rule that fired.
 
@@ -42,9 +42,9 @@ Policy work is not a place to invent a format. Three standards do the load beari
 
 | Capability | Purpose |
 |---|---|
-| Document ingestion | Parse immutable PDF/DOCX versions into offset-anchored clauses |
+| Document ingestion | Parse immutable PDF/DOCX versions into offset-anchored clauses and report how many clauses reached the search index |
 | AI formalization | Draft candidate conditions, effects, scope, facts, and exceptions |
-| Human governance | Review, edit, approve, reject, and publish with attribution |
+| Human governance | Review, edit, approve, reject, publish, record periodic review, and delete projects with admin confirmation |
 | Immutable versions | Preserve complete policy snapshots and source evidence |
 | Deterministic evaluation | Evaluate facts with explicit outcomes and stable hashes |
 | Assurance | Quality checks, blind tests, regression guards, and version comparison |

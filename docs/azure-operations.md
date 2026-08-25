@@ -1,6 +1,6 @@
 # Azure operations
 
-This runbook applies after the pending Azure Container Apps deployment is provisioned. It does not imply that an Azure environment currently exists.
+This page is for future Azure operators. This runbook applies after the pending Azure Container Apps deployment is provisioned. It does not imply that an Azure environment currently exists.
 
 ## Initialization
 

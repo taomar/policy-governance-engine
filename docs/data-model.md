@@ -1,6 +1,6 @@
 # Data model
 
-Thirty tables in PostgreSQL 16, migrated with Alembic (`alembic/versions/`). Twenty-seven are defined as SQLAlchemy models in `src/policy_platform/domain/models.py`; three are migration-only — the two aggregate-limit tables (`policy_aggregate_limits`, `approved_aggregate_limits`), whose API surface and web page are retired while the tables are retained pending a decision, and `extraction_stages`, which records per-stage bookkeeping for document-extraction runs and is used by `policy_set_teardown.py` but has no ORM model.
+This page is for implementers and operators who need the database shape behind published behavior. Thirty tables in PostgreSQL 16, migrated with Alembic (`alembic/versions/`). Twenty-seven are defined as SQLAlchemy models in `src/policy_platform/domain/models.py`; three are migration-only — the two aggregate-limit tables (`policy_aggregate_limits`, `approved_aggregate_limits`), whose API surface and web page are retired while the tables are retained pending a decision, and `extraction_stages`, which records per-stage bookkeeping for document-extraction runs and is used by `policy_set_teardown.py` but has no ORM model.
 
 Every table has a UUID primary key and `created_at` / `updated_at` timestamps.
 
@@ -134,9 +134,9 @@ The persisted rule payload follows `policy_platform.contracts.policy`:
 
 Evaluation results use `SATISFIED`, `NOT_SATISFIED`, `NOT_APPLICABLE`, `INDETERMINATE`, or `ERROR`.
 
-### Routing: how a policy is meant to be decided
+### Routing: how a rule record is meant to be decided
 
-`evaluation_mode` states which of two routes a record takes. It is a property of how the source sentence is written, **not** a quality grade — a policy is not worse for being `ai_ready`.
+`evaluation_mode` states which of two routes a rule record takes. It is a property of how the source sentence is written, **not** a quality grade — a policy is not worse for being `ai_ready`.
 
 | Value | The source states its test as | Decided by |
 |---|---|---|
@@ -152,7 +152,7 @@ Six fields are **derived on read** rather than stored, so a change to the deriva
 | Field | States |
 |---|---|
 | `evaluation_mode` | Which route above the record takes |
-| `decision_readiness` | What a judge would still need to decide it |
+| `decision_readiness` | What a judge would still need to decide an AI Ready record |
 | `fact_model` | Every fact the record names, and the type the sentence gives it |
 | `attributes` | The reviewer-facing table: what the policy applies to, and what follows |
 | `condition_provenance` | Where the stored condition came from |

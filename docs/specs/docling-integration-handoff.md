@@ -1,5 +1,7 @@
 # Docling Integration — Handoff Summary
 
+This handoff is for maintainers taking over the completed Docling integration work.
+
 **Branch:** `taomar-microsoft-advancedtooling` **Base commit:** `bcb4f7a` on `main` **20 commits · 56 files · +13,097 lines · 912 Python tests + clean web build**
 
 All 16 directive deliverables are implemented. Everything is additive: no existing module was rewritten, and the one migration only creates a new table. Reverting is a branch drop plus one `alembic downgrade`.

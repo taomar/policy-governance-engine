@@ -1,6 +1,6 @@
 # API
 
-The backend is a FastAPI application: `policy_platform.api.app:app`. There is no `main.py`.
+This page is for integrators and operators who need the public HTTP surface. The backend is a FastAPI application: `policy_platform.api.app:app`. There is no `main.py`.
 
 ## Interactive API documentation
 
@@ -27,7 +27,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 | `ai` | `/api/ai` | 31 | Everything AI-assisted: extraction, grounded answers, rewrites, quality, correlation, and case testing. |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
 | `extraction` | `/api/extraction/{document_version_id}` | 4 | What a run actually saw: the canonical document, its structural graph, the reading plan, and element coverage. |
-| `documents` | `/api/documents` | 4 | List documents, multipart upload, list a version's clauses, assign a document to a project. |
+| `documents` | `/api/documents` | 4 | List documents, multipart upload, list a version's clauses, assign a document to a project. Upload returns `clauses_search_indexed`, the count written to the search index. |
 | `policy-tests` | `/api/policy-tests` | 10 | Saved tests: list, create, propose (AI), review a proposal, run now, run history, failing tests, and validation batches. |
 | `policy-exceptions` | `/api/policy-exceptions` | 4 | Request a waiver, list, read, and grant/deny it. |
 | `policy-attestations` | `/api/policy-attestations` | 4 | Launch an acknowledgement campaign, list, search, acknowledge. |

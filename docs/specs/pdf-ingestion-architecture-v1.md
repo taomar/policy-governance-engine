@@ -1,5 +1,7 @@
 # PDF INGESTION AND POLICY EXTRACTION ARCHITECTURE
 
+This specification is for maintainers reading the original public ingestion architecture instruction and its current implementation status.
+
 - **Target implementation agent:** Claude Opus
 - **Platform:** Azure AI Search + embeddings + Azure OpenAI
 - **Primary requirement:** exhaustive, verbatim policy extraction

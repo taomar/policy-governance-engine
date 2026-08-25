@@ -1,6 +1,6 @@
 # AI assistance
 
-AI drafts, classifies, and explains. It never participates in runtime policy evaluation.
+This page is for reviewers, operators and implementers who need to know where AI is used and how it is bounded. AI drafts, classifies, and explains. It never participates in runtime policy evaluation.
 
 AI-assisted features require Azure OpenAI. Retrieval-grounded features also require Azure AI Search. Configuration is documented in [Configuration](configuration.md).
 
@@ -108,7 +108,7 @@ PostgreSQL is the system of record. Search is a retrieval index, not policy auth
 
 ### Indexing
 
-Document upload embeds and writes clauses to the authoring index using:
+Document upload embeds and writes clauses to the authoring index on a best-effort path. The API reports the result as `clauses_search_indexed`, which counts search-index writes, not stored clauses. Keys use:
 
 ```text
 key = document_version_id + "_" + clause_id
@@ -167,6 +167,6 @@ Correlation uses deterministic grouping to choose what to compare. AI only class
 - Retrieval uses fixed result counts and no semantic reranker.
 - Most AI paths do not use Search; they are grounded in database records.
 - No automated test calls live Azure OpenAI or Azure AI Search.
-- Authentication and production authorization are pending.
+- Access control is off by default; production authorization still needs operator configuration and validation before exposure beyond a trusted environment.
 
 See [Known limitations](known-limitations.md) and [Capability flows](capability-flows.md).

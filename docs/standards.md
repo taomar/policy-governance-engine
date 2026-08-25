@@ -1,6 +1,6 @@
 # Standards
 
-PolicyVerbAItim implements three published standards. Each is named here with what it governs, where it is applied, and — where it matters most — what the platform deliberately does *not* claim from it.
+This page is for readers checking the standards vocabulary behind product claims. PolicyVerbAItim implements three published standards. Each is named here with what it governs, where it is applied, and — where it matters most — what the platform deliberately does *not* claim from it.
 
 Depth and the full survey of what was evaluated and rejected is in [Standards research](policy-standards-research.md). This page is the short, binding answer: **which standard governs which decision**.
 

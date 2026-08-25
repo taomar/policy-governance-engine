@@ -1,6 +1,6 @@
 # Azure deployment prerequisites
 
-Complete these prerequisites before any future `azd up`. The generated scripts check them but do not install tools, register providers, request quota or create resources automatically.
+This page is for future Azure operators preparing a deployment. Complete these prerequisites before any future `azd up`. The generated scripts check them but do not install tools, register providers, request quota or create resources automatically.
 
 ## Local tools
 

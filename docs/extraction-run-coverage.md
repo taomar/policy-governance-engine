@@ -1,6 +1,6 @@
 # Extraction run coverage
 
-**A run that finished and a run that read everything are not the same run, and the system now says which one it was.**
+This page is for reviewers and maintainers interpreting extraction-run status and route counts. **A run that finished and a run that read everything are not the same run, and the system now says which one it was.**
 
 An extraction run closes in one of three states.
 
@@ -85,7 +85,7 @@ Several of its behaviours are load-bearing.
 
 **`—` and `0` are different claims.** A stage the run has not reached shows an em dash; a stage that ran and produced none shows `0`. Collapsing the two would let "not started" and "found none" read alike, which is the conflation the coverage status refuses, one stage finer.
 
-**Each rule is tallied by its route as it is drafted**, shown as `N Deterministic · M AI Ready`. On real documents this is heavily one-sided — a recent GMU run drafted 3 against 410 — and the tally records how each rule is decided, not how good it is; a rule is AI Ready because that is what its source states. The two counters are not built to sum to the drafted total: a rule whose mode is absent belongs to neither, and a small `neither` figure keeps that remainder on screen instead of folding it into one side.
+**Each rule is tallied by its route as it is drafted**, shown as `N Deterministic · M AI Ready`. On real documents this is often heavily one-sided, and the tally records how each rule is decided, not how good it is; a rule is AI Ready because that is what its source states. The two counters are not built to sum to the drafted total: a rule whose mode is absent belongs to neither, and a small `neither` figure keeps that remainder on screen instead of folding it into one side.
 
 **Comparison is a real stage, not a finished one.** After linking, the run's last act is to compare against the previous extraction. During that pass the chain reads as settled with a separate "comparing" indicator, because lighting the first box again made a run that had read every clause look as though it had restarted.
 

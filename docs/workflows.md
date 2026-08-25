@@ -1,6 +1,6 @@
 # Workflows
 
-This page is the short operational view of the platform. For screenshots, use the [User guide](user-guide.md). For implementation boundaries, use [Capability flows](capability-flows.md).
+This page is for operators and reviewers who want the short operational view of the platform. For screenshots, use the [User guide](user-guide.md). For implementation boundaries, use [Capability flows](capability-flows.md).
 
 ## Document control workflow
 

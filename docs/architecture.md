@@ -1,6 +1,6 @@
 # Architecture
 
-A light map of the runtime: what the pieces are, what each is responsible for, and how they call each other. For per-capability detail — one diagram per capability, with triggers, outputs and limits — see [Capability flows](capability-flows.md), which is the detailed companion to this page rather than a duplicate of it. For what the automated suite actually defends, see [Testing and scripts](testing.md#test-architecture). For the frameworks involved see [Frameworks and technologies](frameworks.md); deeper ingestion and extraction detail is available in the [specs](specs/).
+This page is for implementers and architecture reviewers. It is a light map of the runtime: what the pieces are, what each is responsible for, and how they call each other. For per-capability detail — one diagram per capability, with triggers, outputs and limits — see [Capability flows](capability-flows.md), which is the detailed companion to this page rather than a duplicate of it. For what the automated suite actually defends, see [Testing and scripts](testing.md#test-architecture). For the frameworks involved see [Frameworks and technologies](frameworks.md); deeper ingestion and extraction detail is available in the [specs](specs/).
 
 ## Shape of the system
 

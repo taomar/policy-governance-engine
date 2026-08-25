@@ -1,6 +1,6 @@
 # Known limitations
 
-What this build does not yet do, and what to know before relying on it. It complements the [capability flows](capability-flows.md), [testing guide](testing.md) and [configuration guide](configuration.md).
+This page is for operators, reviewers and public readers deciding whether this build is safe to rely on. It states what this build does not yet do, and what to know before relying on it. It complements the [capability flows](capability-flows.md), [testing guide](testing.md) and [configuration guide](configuration.md).
 
 A note on what is *not* here. This page used to list absent infrastructure — no queue, no broker, no worker runtime, no CI pipeline — as though each were a defect. They are design decisions, and describing them as shortfalls made the platform look unfinished in ways it is not. Those now sit under [Deliberate scope](#deliberate-scope), stated as what the system does. What remains below constrains whether the build is safe to rely on.
 
@@ -13,7 +13,7 @@ A note on what is *not* here. This page used to list absent infrastructure — n
 | No tenant isolation | Policy data is not partitioned or authorized by organization. Roles are global, not per project. | Suitable only for a single trusted environment. |
 | AI settings are not enforced at startup | The API starts with blank Azure settings. AI routes then return `503`, indexing returns `0`, and deterministic features keep working. | A deployment can look healthy while extraction is unavailable. Validate required settings before accepting traffic. |
 | Documents are stored on the local filesystem | Uploads are written beside the API process. | Durability and backup are the operator's responsibility. |
-| Indexing is best-effort | Clause indexing catches search failures, logs a warning and returns `0` so upload still succeeds. | A document can exist in PostgreSQL and be absent from the grounding index. |
+| Indexing is best-effort | Clause indexing catches search failures, logs a warning and returns `clauses_search_indexed: 0` so upload still succeeds. | A document can exist in PostgreSQL and be absent from the grounding index. |
 | Model output is validated after generation | Calls request JSON and Pydantic validates the result, rather than constraining generation to a schema. | Invalid output causes a retry or an explicit failure before anything is persisted. |
 | The verbatim check is anchored to the batch, not the page | `verify_verbatim` compares a passage against the text the agent was shown, which is built from stored clauses. | It proves the model copied. It cannot detect text that ingestion stored wrongly, because both sides of the comparison come from the same stored clauses. See [What the verbatim check proves](ai-assistance.md#what-the-verbatim-check-proves). |
 | AI behavior is not verified against live services | Tests isolate the AI boundary; none call Azure OpenAI or Azure AI Search. | Retrieval relevance, index freshness and model behavior need validation in a real environment. |

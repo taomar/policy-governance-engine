@@ -1,6 +1,6 @@
 # Configuration and operations
 
-Environment variables, how to run and test, and the operational posture. For what each framework does and where it is initialised, see [Frameworks and technologies](frameworks.md).
+This page is for developers and operators setting up a local or future Azure environment. It covers environment variables, how to run and test, and the operational posture. For what each framework does and where it is initialised, see [Frameworks and technologies](frameworks.md).
 
 ## Environment
 
@@ -34,7 +34,7 @@ Copy-Item .env.example .env
 
 `ai_enabled` is true only when the OpenAI endpoint, key, chat deployment *and* embedding deployment are all set. `search_enabled` is gated separately on its own endpoint and key. Check the effective state at `GET /api/ai/status`, or via the AI pill in the app header.
 
-> **Degraded mode.** The current code contains **no fail-fast startup check**: the API boots with everything blank. In that state AI endpoints return `503`, the "AI disabled" pill shows, clause indexing returns `0`, and Ask AI cannot retrieve — while deterministic import, evaluation, policy tests, export, the decision log and the audit trail keep working. Treat this as a diagnostic mode for developing the deterministic core, not as a supported deployment of the product. The absence of a fail-fast check is recorded in [Known limitations](known-limitations.md).
+> **Degraded mode.** The current code contains **no fail-fast startup check**: the API boots with everything blank. In that state AI endpoints return `503`, the "AI disabled" pill shows, upload reports `clauses_search_indexed: 0`, and Ask AI cannot retrieve — while deterministic import, evaluation, policy tests, export, the decision log and the audit trail keep working. Treat this as a diagnostic mode for developing the deterministic core, not as a supported deployment of the product. The absence of a fail-fast check is recorded in [Known limitations](known-limitations.md).
 
 Per-project extraction configuration (`trusted_config`) is stored on the policy set, not in `.env`. Key it on the source term exactly as it appears in the policy text, with the target fact path nested inside — keying by the fact path instead fails silently because the extractor resolves mappings by source terminology.
 

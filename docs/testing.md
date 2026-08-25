@@ -1,6 +1,6 @@
 # Testing
 
-This guide describes the **test process that is currently active**, what it proves, how to invoke it, and what is intentionally outside it. It is organized by capability rather than by source file.
+This guide is for contributors and release reviewers. It describes the **test process that is currently active**, what it proves, how to invoke it, and what is intentionally outside it. It is organized by capability rather than by source file.
 
 ## What the project currently uses
 

@@ -1,5 +1,7 @@
 # Docling Integration — Migration and Operating Runbook
 
+This runbook is for operators and maintainers enabling, verifying or rolling back the Docling extraction path.
+
 How to enable, run, verify, and roll back the Docling extraction path. Every number here was measured on this repository's sample corpus; nothing is projected.
 
 ---

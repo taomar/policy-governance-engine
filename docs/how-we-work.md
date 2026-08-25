@@ -1,6 +1,6 @@
 # How we work
 
-The engineering agreements this codebase is held to. They are here because most of them were learned by getting something wrong first, and the reasoning matters more than the rule.
+This page is for contributors. It records the engineering agreements this codebase is held to. They are here because most of them were learned by getting something wrong first, and the reasoning matters more than the rule.
 
 ## The one principle
 
@@ -91,7 +91,7 @@ The repository is public. Several kinds of file are deliberately kept out of it,
 | **Task lists** — `docs/internal/planning/`, `TODO.md` | A list of intentions dates immediately and describes work rather than the product. Open work belongs in the tracker; a defect worth remembering belongs in a test that fails. |
 | **Audits and failure analyses** — `docs/internal/audits/` | Records of how the product went wrong, including drift reports and UI audits. Valuable to whoever is fixing it, misleading to whoever is trying to learn what it does now. |
 | **Unfinished designs** — `docs/internal/planning/repair-passes.md` | Decided and not built. A published page describing behaviour that does not exist is worse than no page. |
-| **The security roadmap** — `docs/internal/planning/security-roadmap.md` | The itemised list of authentication and authorization gaps still open. That the current build authenticates nothing *is* published, in the README and [Known limitations](known-limitations.md), because a user must know it. The item-by-item checklist is not, because a specific list of unclosed gaps on a public repository is an invitation rather than a disclosure. |
+| **The security roadmap** — `docs/internal/planning/security-roadmap.md` | The itemised list of authentication and authorization gaps still open. That access control ships off by default, and must be configured before exposing the build beyond a trusted environment, *is* published in the README and [Known limitations](known-limitations.md), because a user must know it. The item-by-item checklist is not, because a specific list of unclosed gaps on a public repository is an invitation rather than a disclosure. |
 | **The running path** — `docs/internal/handover/running-path.md` | A step-by-step account of what this build actually executes, including which designed stages are unreachable. Internal working knowledge, not product documentation. |
 | **Session records** — `docs/internal/handover/HANDOVER.md` | Session history, verbatim instructions and failure analyses, written for whoever picks the work up next. |
 

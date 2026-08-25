@@ -1,6 +1,6 @@
 # Docling — document conversion and graph discovery
 
-Docling is how a PDF or DOCX becomes structured, offset-anchored elements the platform can point at. It replaces nothing about how policy is *decided*; it changes what the extraction has to read.
+This page is for ingestion maintainers and reviewers of document-conversion behavior. Docling is how a PDF or DOCX becomes structured, offset-anchored elements the platform can point at. It replaces nothing about how policy is *decided*; it changes what the extraction has to read.
 
 ## The two packages
 

@@ -1,5 +1,7 @@
 # Docling Integration — Repository Conformance Map
 
+This map is for implementers reviewing how the Docling integration fits the existing repository before changing it.
+
 **Directive:** `OPUS_DOCLING_GRAPH_END_TO_END_PLAN.md`, Phase 0. **Purpose:** classify every area the directive touches as **preserve**, **adapt**, **replace**, or **missing**, so the integration extends what exists instead of building a parallel policy framework (directive §10, §12).
 
 This document records the state of the platform *before* the Docling integration begins. It is the reference used to justify every later decision about whether a contract was extended or replaced.

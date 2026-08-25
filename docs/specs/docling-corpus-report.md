@@ -1,5 +1,7 @@
 # Docling extraction corpus report
 
+This report is for ingestion maintainers checking measured Docling conversion results on the sample corpus.
+
 ## HR-Special-Leave-Policy-v1.0.docx
 
 - verdict: **PASS**

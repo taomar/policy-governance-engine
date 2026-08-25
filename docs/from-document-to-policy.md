@@ -1,8 +1,8 @@
 # From document to policy
 
-This page explains how PolicyVerbAItim turns a source document into draft policy for review, and where the system checks its own work.
+This page is for compliance officers, policy owners, reviewers and evaluators. It explains how PolicyVerbAItim turns a source document into draft policy for review, and where the system checks its own work.
 
-It is written for people who need to trust the output before they rely on it: compliance officers, policy owners, reviewers and evaluators. It does not describe the internal architecture. The important question here is simpler: what happens to the document, and why should a reviewer believe the draft?
+It does not describe the internal architecture. The important question here is simpler: what happens to the document, and why should a reviewer believe the draft?
 
 The short answer is this:
 

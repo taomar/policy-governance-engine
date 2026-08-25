@@ -1,5 +1,7 @@
 # Docling Integration — Operating Notes
 
+These notes are for ingestion maintainers operating Docling and Docling Graph in this repository.
+
 Findings from bringing Docling and Docling Graph into the platform. These are measured behaviours, not expectations: each one was observed while running the real dependencies against the repository's sample documents.
 
 ---

@@ -1,6 +1,6 @@
 # Relationships and linking
 
-How the platform decides that two rules belong together, and — more importantly — what it refuses to claim.
+This page is for reviewers and implementers checking why rule records are shown together. It explains how the platform decides that two rules belong together, and — more importantly — what it refuses to claim.
 
 ## The problem
 
