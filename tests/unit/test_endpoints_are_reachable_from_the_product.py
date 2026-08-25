@@ -126,14 +126,30 @@ def _backend_endpoints() -> dict[str, str]:
     return found
 
 
-def _product_call_shapes() -> set[str]:
-    """Every API path the shipped web client asks for.
+def _product_calls() -> set[str]:
+    """Every API call the shipped web client makes, as `METHOD shape`.
 
     Test files are excluded deliberately. A capability exercised only from a
     test is the precise thing this guard exists to catch, and counting a test
     as a caller would make it blind to its own subject.
+
+    WHY THE METHOD IS PART OF THE ANSWER. This returned bare path shapes until
+    a delete went missing. The verdict compared paths alone, so an endpoint
+    counted as reached whenever *any* method on its path was called --
+    `DELETE /api/policy-sets/{key}` passed on the strength of the `GET` beside
+    it, while nothing in the product could delete a project. The guard was
+    reporting "every endpoint is reached" and measuring "every endpoint's path
+    is mentioned", which is the same shape of defect it exists to find: a check
+    that judges something narrower than it claims, and reports success for what
+    it could not see.
+
+    The method is read from the request options that follow the path literal,
+    defaulting to GET when there are none, which is what `request` itself does.
+    A method belongs to the nearest path before it, so the search window stops
+    at the next path literal rather than running to the end of the file --
+    otherwise one `method: "POST"` would be claimed by every path above it.
     """
-    shapes: set[str] = set()
+    calls: set[str] = set()
     for path in sorted([*WEB_SRC.rglob("*.ts"), *WEB_SRC.rglob("*.tsx")]):
         if ".test." in path.name or ".spec." in path.name:
             continue
@@ -143,9 +159,31 @@ def _product_call_shapes() -> set[str]:
         # matters: a bare search for "/api/" would also match prose in comments,
         # and a mention is not a call. Counting mentions as callers would let an
         # unreachable endpoint hide behind a comment describing it.
-        for raw in re.findall(r"""(?:["'`]|\})(/api/[^"'`]*)""", text):
-            shapes.add(_normalise_frontend(raw))
-    return shapes
+        hits = list(re.finditer(r"""(?:["'`]|\})(/api/[^"'`]*)""", text))
+        for index, hit in enumerate(hits):
+            shape = _normalise_frontend(hit.group(1))
+            window_end = hits[index + 1].start() if index + 1 < len(hits) else len(text)
+            options = text[hit.end() : window_end]
+            declared = re.search(r"""method:\s*["'](\w+)["']""", options)
+            method = declared.group(1).upper() if declared else "GET"
+            calls.add(f"{method} {shape}")
+    return calls
+
+
+def _product_call_shapes() -> set[str]:
+    """The same calls as bare paths, with the method dropped.
+
+    Kept because two questions are asked of this data and they are not the same
+    question. The verdict asks whether a *specific endpoint* is called, which
+    needs the method. The floors ask whether the two extractors still describe
+    paths the same way at all -- if the backend says `/api/policy-sets/*` and
+    the client says `/api/policy-sets/$%7Bkey%7D`, both counts stay healthy
+    while the sets never meet, and the verdict silently accuses everything.
+    That is a question about path vocabulary, and the method would only add
+    noise to it.
+    """
+
+    return {call.split(" ", 1)[1] for call in _product_calls()}
 
 
 # --------------------------------------------------------------------------
@@ -221,12 +259,12 @@ def test_no_product_call_points_at_a_route_that_does_not_exist():
 
 def test_every_endpoint_the_api_exposes_is_reached_from_the_product():
     endpoints = _backend_endpoints()
-    called = _product_call_shapes()
+    called = _product_calls()
 
     unreachable = sorted(
         name
         for name, shape in endpoints.items()
-        if shape not in called
+        if name not in called
         and shape not in FRAMEWORK_PATHS
         and name not in KNOWN_UNREACHABLE
     )

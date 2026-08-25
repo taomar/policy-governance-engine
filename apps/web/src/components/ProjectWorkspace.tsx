@@ -242,6 +242,7 @@ function computeGroupDividerCss(visibleMeta: TabMeta[]): string {
 export function ProjectWorkspace({
   policySet,
   onUpdated,
+  onDeleted,
 }: {
   policySet: PolicySet;
   /** Retained so ProjectsPage keeps a programmatic way out (e.g. after a delete).
@@ -254,6 +255,8 @@ export function ProjectWorkspace({
   onOpenAskAi?: () => void;
   /** Reports a successful metadata edit so the parent (ProjectsPage) can refresh its list/selection. */
   onUpdated?: (ps: PolicySet) => void;
+  /** Reports a completed project delete after the operator has seen the endpoint outcome. */
+  onDeleted?: () => void;
 }) {
   const { role } = useActor();
   const rbacRole = role;
@@ -425,7 +428,16 @@ export function ProjectWorkspace({
      over — so the map is built at render time without a temporal-dead-zone
      reference to `openEdit`/`handleNavigate`. */
   const TAB_CONTENT: Record<WorkspaceTabKey, ReactNode> = {
-    overview: <ProjectOverviewTab policySet={policySet} onNavigate={handleNavigate} onEditProject={mayAuthor ? openEdit : undefined} indexRepair={indexRepair} />,
+    overview: (
+      <ProjectOverviewTab
+        policySet={policySet}
+        onNavigate={handleNavigate}
+        onEditProject={mayAuthor ? openEdit : undefined}
+        indexRepair={indexRepair}
+        counts={counts}
+        onProjectDeleted={onDeleted}
+      />
+    ),
     documents: (
       <DocumentsPage policySetKey={policySet.key} policySetName={policySet.name} onNavigate={handleNavigate} />
     ),

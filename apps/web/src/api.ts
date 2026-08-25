@@ -199,10 +199,15 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
       // sentence needs, and the words for it live in this app. Before this,
       // `body.detail ?? JSON.stringify(body)` would have put the raw object in
       // front of a reviewer as `[object Object]`.
-      if (isActorRoleRefusal(body.detail)) {
-        throw new PolicyPlatformApiError(res.status, actorRoleRefusalText(body.detail), {
-          code: body.detail.code,
-          data: body.detail,
+      const refusal = isActorRoleRefusal(body.detail)
+        ? body.detail
+        : isActorRoleRefusal(body)
+          ? body
+          : null;
+      if (refusal) {
+        throw new PolicyPlatformApiError(res.status, actorRoleRefusalText(refusal), {
+          code: refusal.code,
+          data: refusal,
         });
       }
       detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body);
@@ -370,6 +375,24 @@ export interface UpdatePolicySetRequest {
 
 export interface MarkPolicySetReviewedRequest {
   next_due_date?: string | null;
+}
+
+export type SearchIndexDeleteState = "clean" | "skipped" | "orphaned";
+
+export interface DeletePolicySetResponse {
+  key: string;
+  name: string;
+  rows_deleted: Record<string, number>;
+  total_rows_deleted: number;
+  search_index: SearchIndexDeleteState;
+  search_documents_identified: number;
+  search_documents_deleted: number | null;
+  search_index_error: string | null;
+  policy_index: SearchIndexDeleteState;
+  policy_index_name: string | null;
+  policy_index_deleted: boolean;
+  policy_index_error: string | null;
+  retained: Record<string, string>;
 }
 
 export interface ApprovedPolicyVersion {
@@ -3085,6 +3108,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  deletePolicySet: (key: string, actor: string, confirm: string) => {
+    const params = new URLSearchParams({ actor, confirm });
+    return request<DeletePolicySetResponse>(
+      `/api/policy-sets/${encodeURIComponent(key)}?${params.toString()}`,
+      { method: "DELETE" },
+    );
+  },
 
   getWorkspaceCounts: (key: string) =>
     request<WorkspaceCounts>(`/api/policy-sets/${encodeURIComponent(key)}/workspace-counts`),

@@ -2045,6 +2045,33 @@
   overflow: hidden;
 }
 
+.project-delete-panel {
+  margin-top: var(--section-gap);
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-lg);
+  background: var(--danger-bg);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-delete-panel > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-delete-panel .ant-typography:first-child {
+  color: var(--danger);
+}
+
+.project-delete-panel .ant-typography-secondary {
+  font-size: 10.5px;
+}
+
 .project-readiness-section {
   min-width: 0;
   background: var(--surface);
@@ -2334,6 +2361,39 @@
   color: var(--text-heading);
   font-size: 11px;
   font-weight: 600;
+}
+
+.project-delete-outcome {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.project-delete-outcome > div {
+  min-width: 0;
+  padding: 7px 8px;
+  background: var(--surface);
+}
+
+.project-delete-outcome dt {
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.project-delete-outcome dd {
+  margin: 1px 0 0;
+  color: var(--text-heading);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.project-delete-outcome .is-warning dd {
+  color: var(--danger);
 }
 
 .governance-role-register {

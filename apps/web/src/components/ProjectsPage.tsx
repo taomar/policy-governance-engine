@@ -176,6 +176,12 @@ export function ProjectsPage({
     setPolicySets((prev) => prev.map((ps) => (ps.key === updated.key ? updated : ps)));
   };
 
+  const handleProjectDeleted = () => {
+    setSelected(null);
+    onActiveProjectChange?.(null);
+    void refreshList();
+  };
+
   const handleCreate = async () => {
     setCreateError(null);
     let values: { key: string; name: string; owner: string; description?: string; category?: string; tags?: string[] };
@@ -202,6 +208,7 @@ export function ProjectsPage({
         onBack={backToList}
         onOpenAskAi={onOpenAskAi}
         onUpdated={handleProjectUpdated}
+        onDeleted={handleProjectDeleted}
       />
     );
   }

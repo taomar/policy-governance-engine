@@ -198,3 +198,8 @@ export function canAccessTab(role: string | undefined, tabKey: string): boolean 
 export function canAuthor(role: string | undefined): boolean {
   return role === "policy_author" || role === "admin";
 }
+
+/** Whether this role may perform ADMINISTER-band actions. */
+export function canAdminister(role: string | undefined): boolean {
+  return role === "admin";
+}

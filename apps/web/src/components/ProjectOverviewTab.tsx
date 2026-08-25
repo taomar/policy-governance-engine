@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Alert, Button, Space, Tag, Typography } from "antd";
+import { Alert, Button, Form, Input, Modal, Space, Tag, Typography } from "antd";
 import {
   ArrowRightOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
   SafetyCertificateOutlined,
   SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary, type SourceDocument } from "../api";
+import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type DeletePolicySetResponse, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary, type SourceDocument, type WorkspaceCounts } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
 import ExtractionProgressPanel from "./ExtractionProgressPanel";
 import { routeCell } from "../projectRegisterRow";
 import { policyUnitCount, recordScaleLabel } from "../policyRecordFacts";
+import { useActor } from "../ActorContext";
+import { canAdminister } from "../rbac";
 import {
   describePolicyIndexState,
   policyIndexRepairable,
@@ -26,6 +29,35 @@ import {
 } from "../policyIndexHealth";
 
 const { Text } = Typography;
+
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function deletionScaleLabel(counts: WorkspaceCounts | null, stats: Stats | null): string {
+  const rules = counts?.policy_rules ?? stats?.activeVersion?.rule_count ?? 0;
+  if (typeof counts?.published_policies === "number") {
+    return `${countLabel(counts.published_policies, "published policy", "published policies")} and ${countLabel(rules, "live rule")}`;
+  }
+  return `${countLabel(rules, "live rule")} in the active published version`;
+}
+
+function projectDeleteRefusalText(error: unknown): string {
+  if (error instanceof PolicyPlatformApiError) {
+    const required = error.data?.required_role;
+    if (
+      error.status === 403 &&
+      (required === "admin" ||
+        error.code === "rbac_insufficient" ||
+        error.detail.includes("Admin") ||
+        error.detail.includes("admin"))
+    ) {
+      return "You need the admin role to delete a project.";
+    }
+    return error.detail;
+  }
+  return String(error);
+}
 
 export interface Stats {
   documentCount: number;
@@ -141,6 +173,8 @@ export function ProjectOverviewTab({
   onNavigate,
   onEditProject,
   indexRepair,
+  counts,
+  onProjectDeleted,
 }: {
   policySet: PolicySet;
   onNavigate: (page: string) => void;
@@ -154,7 +188,13 @@ export function ProjectOverviewTab({
    * and can disagree with it.
    */
   indexRepair?: { nonce: number; status: string } | null;
+  /** Aggregate project counts already used by the workspace strip, reused here so destructive confirmation names real units. */
+  counts?: WorkspaceCounts | null;
+  /** Called after the operator has seen the delete outcome and leaves the deleted project. */
+  onProjectDeleted?: (outcome: DeletePolicySetResponse) => void;
 }) {
+  const { actor, role } = useActor();
+  const mayDelete = canAdminister(role);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [policyIndexState, setPolicyIndexState] = useState<PolicyIndexState | null>(null);
@@ -165,6 +205,11 @@ export function ProjectOverviewTab({
   const [latestQualityRun, setLatestQualityRun] = useState<QualityRunSummary | null | undefined>(undefined);
   const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
   const [activeExtractionByVersion, setActiveExtractionByVersion] = useState<Record<string, boolean>>({});
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteOutcome, setDeleteOutcome] = useState<DeletePolicySetResponse | null>(null);
+  const [deleteForm] = Form.useForm<{ confirm: string }>();
 
   useEffect(() => {
     let cancelled = false;
@@ -324,6 +369,39 @@ export function ProjectOverviewTab({
       setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setRebuildingPolicyIndex(false);
+    }
+  };
+
+  const scaleLabel = deletionScaleLabel(counts ?? null, stats);
+
+  const openDelete = () => {
+    setDeleteError(null);
+    setDeleteOutcome(null);
+    deleteForm.resetFields();
+    setDeleteOpen(true);
+  };
+
+  const finishDeleted = () => {
+    if (deleteOutcome) onProjectDeleted?.(deleteOutcome);
+    setDeleteOpen(false);
+  };
+
+  const handleDeleteProject = async () => {
+    setDeleteError(null);
+    let values: { confirm: string };
+    try {
+      values = await deleteForm.validateFields();
+    } catch {
+      return;
+    }
+    setDeleteSaving(true);
+    try {
+      const outcome = await api.deletePolicySet(policySet.key, actor.name || "admin", values.confirm);
+      setDeleteOutcome(outcome);
+    } catch (caught) {
+      setDeleteError(projectDeleteRefusalText(caught));
+    } finally {
+      setDeleteSaving(false);
     }
   };
 
@@ -668,6 +746,20 @@ export function ProjectOverviewTab({
         </section>
       </div>
 
+      {mayDelete && (
+        <section className="project-delete-panel" aria-label="Delete project">
+          <div>
+            <Text strong>Delete project</Text>
+            <Text type="secondary">
+              Permanently removes this project, including {scaleLabel}, source documents, tests, notes and indexes.
+            </Text>
+          </div>
+          <Button danger size="small" icon={<DeleteOutlined />} onClick={openDelete}>
+            Delete project
+          </Button>
+        </section>
+      )}
+
       {/* Quality confidence — a read-only line for viewers who cannot reach
           the Quality tab. States when the project was last checked and whether
           high-priority findings are open, without linking into a surface they
@@ -706,6 +798,95 @@ export function ProjectOverviewTab({
           </div>
         </section>
       </div>
+
+      <Modal
+        title={`Delete ${policySet.name}`}
+        open={deleteOpen}
+        onCancel={() => {
+          if (deleteOutcome) {
+            finishDeleted();
+            return;
+          }
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+        onOk={handleDeleteProject}
+        okText="Delete project"
+        okButtonProps={{ danger: true }}
+        confirmLoading={deleteSaving}
+        forceRender
+        destroyOnHidden
+        footer={
+          deleteOutcome
+            ? [
+                <Button key="return" type="primary" onClick={finishDeleted}>
+                  Return to project register
+                </Button>,
+              ]
+            : undefined
+        }
+      >
+        {deleteOutcome ? (
+          <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+            <Alert
+              type={deleteOutcome.search_index === "orphaned" || deleteOutcome.policy_index === "orphaned" ? "warning" : "success"}
+              showIcon
+              title={`Deleted ${deleteOutcome.name}`}
+              description={
+                deleteOutcome.search_index === "orphaned" || deleteOutcome.policy_index === "orphaned"
+                  ? "The project rows were removed, but at least one search index cleanup was orphaned and needs operator follow-up."
+                  : "The project rows were removed and search cleanup completed or was not needed."
+              }
+            />
+            <dl className="project-delete-outcome">
+              <div>
+                <dt>Rows deleted</dt>
+                <dd>{deleteOutcome.total_rows_deleted}</dd>
+              </div>
+              <div className={deleteOutcome.search_index === "orphaned" ? "is-warning" : undefined}>
+                <dt>Search index</dt>
+                <dd>{deleteOutcome.search_index}</dd>
+              </div>
+              <div className={deleteOutcome.policy_index === "orphaned" ? "is-warning" : undefined}>
+                <dt>Policy index</dt>
+                <dd>{deleteOutcome.policy_index}</dd>
+              </div>
+              <div>
+                <dt>Search documents</dt>
+                <dd>
+                  {deleteOutcome.search_documents_deleted ?? "—"} / {deleteOutcome.search_documents_identified}
+                </dd>
+              </div>
+            </dl>
+            {deleteOutcome.search_index_error && <Alert type="warning" showIcon title="Search index cleanup error" description={deleteOutcome.search_index_error} />}
+            {deleteOutcome.policy_index_error && <Alert type="warning" showIcon title="Policy index cleanup error" description={deleteOutcome.policy_index_error} />}
+          </Space>
+        ) : (
+          <>
+            {deleteError && <Alert type="error" showIcon title={deleteError} style={{ marginBottom: 12 }} />}
+            <Text>
+              This permanently deletes <strong>{policySet.name}</strong> and everything scoped to it, including {scaleLabel}.
+            </Text>
+            <Form layout="vertical" form={deleteForm} style={{ marginTop: 12 }}>
+              <Form.Item
+                label={`Type ${policySet.key} to confirm`}
+                name="confirm"
+                rules={[
+                  { required: true, message: "Type the project key to confirm deletion." },
+                  {
+                    validator: (_, value: string | undefined) =>
+                      value === policySet.key
+                        ? Promise.resolve()
+                        : Promise.reject(new Error(`Confirmation must exactly match ${policySet.key}.`)),
+                  },
+                ]}
+              >
+                <Input autoComplete="off" aria-label="Project key confirmation" />
+              </Form.Item>
+            </Form>
+          </>
+        )}
+      </Modal>
     </>
   );
 }
