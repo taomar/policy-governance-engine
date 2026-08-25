@@ -38,6 +38,9 @@ from policy_platform.contracts.policy import (
     EffectType,
     yields_no_verdict,
 )
+from policy_platform.infrastructure.extraction.passage_extractor import (
+    _APPLICATION_SCAFFOLDING,
+)
 
 #: Negations as they appear in policy prose. Matched on word boundaries so
 #: "cannot" counts and "notify" does not.
@@ -505,6 +508,54 @@ def check_action_is_not_a_fragment(rule: CanonicalRule) -> FaithfulnessFinding |
     return None
 
 
+def check_passage_is_not_scaffolded(rule: CanonicalRule) -> FaithfulnessFinding | None:
+    """A cited passage must be the document's words, not this application's.
+
+    The extractor renders clauses into a batch for the model, and that batch
+    carries labels the application adds: `(section: …)`, `(columns: …)`,
+    `[clause_ref=…]`. A model that copied one into the passage it returned
+    produced a `source_text` that is not in the customer's document.
+
+    It survived `verify_verbatim` because that check proves containment against
+    the *rendered batch* -- document plus labels -- so a passage that copied a
+    label was checked against the copy of the label rather than against the
+    document. The extractor now strips these before verification, but records
+    written before that fix are already approved and published, and nothing
+    reported them: a published run named the affected rules only through an
+    unrelated low-severity finding and never mentioned the label at all.
+
+    Blocking, because a passage is the whole product promise. Every other
+    finding here says a rule disagrees with its source; this one says the
+    source as quoted does not exist.
+
+    The patterns are imported rather than restated. They are the extraction
+    layer's own record of what it adds to a document, and a second copy here
+    would be a second opinion that drifts -- which is how a check ends up
+    judging something narrower than the thing it is checking.
+    """
+
+    text = _source_text(rule)
+    if not text:
+        return None
+    for pattern in _APPLICATION_SCAFFOLDING:
+        match = pattern.match(text)
+        if match:
+            label = _normalize(match.group(0))
+            return FaithfulnessFinding(
+                rule_id=rule.rule_id,
+                code="passage_carries_application_scaffolding",
+                message=(
+                    f"The cited passage begins with {label!r}, which this application adds "
+                    "when it renders a document for extraction. The document does not "
+                    "contain it, so the passage is not verbatim and a reader checking the "
+                    "citation against the source will not find it."
+                ),
+                source_quote=text[: len(label) + 80],
+                severity="blocking",
+            )
+    return None
+
+
 def validate_rule(
     rule: CanonicalRule, siblings: "list[CanonicalRule] | None" = None
 ) -> list[FaithfulnessFinding]:
@@ -520,6 +571,7 @@ def validate_rule(
         check_conditions_represented(rule),
         check_source_conditions_reached_canonical(rule, siblings),
         check_action_is_not_a_fragment(rule),
+        check_passage_is_not_scaffolded(rule),
     ):
         if single is not None:
             findings.append(single)

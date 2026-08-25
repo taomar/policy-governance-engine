@@ -240,3 +240,130 @@ async def test_the_extractor_strips_before_it_keeps() -> None:
         "wired into the acceptance path"
     )
     assert kept[0].text == CLEAN
+
+
+# ---------------------------------------------------------------------------
+# WHAT ABOUT THE RECORDS WRITTEN BEFORE THE STRIP EXISTED
+# ---------------------------------------------------------------------------
+#
+# Stripping stops new records carrying a label. It does nothing for the ones
+# already approved and published, and published versions are immutable, so
+# those cannot be corrected in place.
+#
+# Seven of the 280 rules in published v1 carry `(section: Table of Violations
+# and Penalties)` at the front of their cited passage. The quality run over
+# that version named all seven rules -- through an unrelated low-severity
+# finding -- and never mentioned the label. So a passage that is not in the
+# customer's document sat on the published surface and no check said so.
+#
+# A check that only guards the future leaves the existing damage invisible.
+# This one reads a stored record and reports it.
+
+
+def _scaffolded_rule(rule_id: str, source: str):
+    from policy_platform.contracts.conditions import AllCondition
+    from policy_platform.contracts.formulation import (
+        CanonicalPolicy,
+        CanonicalPolicyRule,
+        CanonicalRuleType,
+    )
+    from policy_platform.contracts.policy import EffectType, RuleFormulation
+    from tests.fixtures.factories import make_rule
+
+    rule = make_rule(
+        rule_id, AllCondition(all=[]), effect_type=EffectType.REQUIRE_ACTION,
+        effect_action="serve the penalty stated in the table",
+    )
+    rule.formulation = RuleFormulation(
+        source_index=0,
+        canonical=CanonicalPolicy(
+            source_text=source,
+            rule=CanonicalPolicyRule(
+                rule_type=CanonicalRuleType.OBLIGATION,
+                subject="An employee",
+                predicate="incurs",
+            ),
+        ),
+        dmn_decisions=[],
+    )
+    return rule
+
+
+#: Verbatim from published v1. Kept as the real string rather than a
+#: paraphrase, because a check written against an invented example proves only
+#: that it matches the example.
+_PUBLISHED_SCAFFOLDED = (
+    "(section: Table of Violations and Penalties)\n"
+    "9. | Intentional seclusion (khalwa) with the opposite gender in the workplace "
+    "| Two (2) days deduction حسم (2) يومان"
+)
+
+
+def test_a_stored_passage_carrying_an_application_label_is_reported():
+    from policy_platform.infrastructure.quality.policy_faithfulness import (
+        check_passage_is_not_scaffolded,
+    )
+
+    finding = check_passage_is_not_scaffolded(
+        _scaffolded_rule("AI-5c97234a9d", _PUBLISHED_SCAFFOLDED)
+    )
+
+    assert finding is not None, (
+        "a published passage beginning with the application's own section label "
+        "was not reported. Seven records in v1 look exactly like this."
+    )
+    assert finding.code == "passage_carries_application_scaffolding"
+    # Blocking rather than a warning: every other faithfulness finding says a
+    # rule disagrees with its source. This one says the source as quoted is not
+    # in the document at all.
+    assert finding.severity == "blocking"
+    # The label has to be in the message, or a reviewer cannot tell which part
+    # of the passage is the problem.
+    assert "(section:" in finding.message or "(section:" in finding.source_quote
+
+
+def test_a_passage_that_merely_mentions_a_bracket_is_not_reported():
+    """The other half. A rule broad enough to catch every label catches prose.
+
+    The patterns are anchored to the front of the passage on purpose: a
+    document that legitimately writes "(section: 4.2 applies)" inside a
+    sentence is quoting itself, not carrying our scaffolding, and reporting it
+    would send a reviewer to check a citation that is perfectly correct.
+    """
+    from policy_platform.infrastructure.quality.policy_faithfulness import (
+        check_passage_is_not_scaffolded,
+    )
+
+    inside_a_sentence = (
+        "Employees must follow the escalation path (section: 4.2 applies) before "
+        "contacting an external body."
+    )
+
+    assert check_passage_is_not_scaffolded(
+        _scaffolded_rule("R-clean", inside_a_sentence)
+    ) is None, "a document's own parenthetical was reported as our scaffolding"
+
+
+def test_the_scaffolding_check_runs_in_the_faithfulness_pass():
+    """Calling the check is not the same as the product calling it.
+
+    The two tests above call `check_passage_is_not_scaffolded` directly, so
+    they pass whether or not anything invokes it. Deleting its line from
+    `validate_rule` leaves both of them green while no scaffolded passage is
+    ever reported — a check that exists and does not run, which is the exact
+    shape of defect this file was opened to record.
+
+    So this one goes through the aggregate the quality pass actually uses.
+    """
+    from policy_platform.infrastructure.quality.policy_faithfulness import validate_rule
+
+    codes = {
+        finding.code
+        for finding in validate_rule(_scaffolded_rule("AI-5c97234a9d", _PUBLISHED_SCAFFOLDED))
+    }
+
+    assert "passage_carries_application_scaffolding" in codes, (
+        "the faithfulness pass reported no scaffolding for a passage that starts with "
+        f"the application's own label. It produced {sorted(codes)}. The check is not "
+        "wired into validate_rule, so nothing in the product runs it."
+    )

@@ -105,6 +105,14 @@ HAS_A_NEGATIVE_CASE: dict[str, str] = {
     "source_condition_not_captured": (
         "tests/unit/test_a_record_that_decides_nothing_is_informational.py"
     ),
+    # `test_a_passage_that_merely_mentions_a_bracket_is_not_reported`: a
+    # document that writes "(section: 4.2 applies)" inside a sentence is
+    # quoting itself, not carrying our label. The patterns are anchored to the
+    # front of the passage for exactly this reason, and the negative case is
+    # what holds them there.
+    "passage_carries_application_scaffolding": (
+        "tests/unit/test_a_passage_is_the_document_not_the_application.py"
+    ),
 }
 
 #: Judging checks with no negative case yet, and what a fixture would have to
