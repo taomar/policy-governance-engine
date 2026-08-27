@@ -330,6 +330,19 @@ class RuleMatch:
     #: Source-passage overlap with the matched baseline rule, 1.0 for an exact
     #: passage match. Shown to reviewers so a borderline match can be judged.
     similarity: float = 0.0
+    #: `changed` with the document's own words untouched: the passage is
+    #: character-for-character the one the baseline cited, and only the
+    #: extracted record differs.
+    #:
+    #: Both kinds of change are real and Tier 2 exists on purpose -- the
+    #: extractor changing its mind on unchanged text is worth seeing. But they
+    #: answer different questions, and reporting them as one number lets the
+    #: larger bury the smaller. Measured on two versions of one policy that
+    #: differ by three clauses: 98 rules reported `changed`, of which 88 cite
+    #: identical source text. A reviewer opening a version diff to find what to
+    #: re-examine was shown ten real revisions among eighty-eight
+    #: re-extractions of sentences nobody had touched.
+    source_unchanged: bool = False
 
 
 @dataclass(frozen=True)
@@ -347,6 +360,15 @@ class DeltaResult:
             out[match.delta_status] += 1
         out["removed"] = len(self.removed_keys)
         out["reworded"] = sum(1 for m in self.matches.values() if m.reworded)
+        # `changed` splits into two facts a reviewer weighs differently, and
+        # reporting only the total lets the larger hide the smaller. On two
+        # versions of one policy differing by three clauses: changed 98, of
+        # which re-extracted 88 and revised 10.
+        out["changed_reextracted"] = sum(
+            1 for m in self.matches.values()
+            if m.delta_status == "changed" and m.source_unchanged
+        )
+        out["changed_in_source"] = out["changed"] - out["changed_reextracted"]
         return out
 
     @property
@@ -437,7 +459,16 @@ def diff_runs(
             if base_key in claimed:
                 continue
             claimed.add(base_key)
-            matches[key] = RuleMatch(delta_status="changed", baseline_key=base_key, similarity=1.0)
+            matches[key] = RuleMatch(
+                delta_status="changed",
+                baseline_key=base_key,
+                similarity=1.0,
+                # By construction: this tier matches on an identical
+                # `anchor_fingerprint`, which hashes the passage's normalised
+                # words. Reaching here means the document's sentence did not
+                # move and the extractor read it differently.
+                source_unchanged=True,
+            )
             break
 
     # Tier 3 — the passage was revised. Best available match wins; ties break on

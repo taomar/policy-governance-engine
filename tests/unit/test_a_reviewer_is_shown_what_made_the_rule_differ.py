@@ -30,6 +30,7 @@ from policy_platform.infrastructure.assistants.rule_change_explainer import (
 )
 from policy_platform.infrastructure.projection.rule_delta import (
     SEMANTIC_FIELDS,
+    diff_runs,
     identify,
 )
 
@@ -240,3 +241,85 @@ def _diff_prose(before: dict, after: dict) -> list[dict]:
     from policy_platform.infrastructure.assistants.rule_change_explainer import _diff_fields
 
     return _diff_fields(before, after, PROSE_FIELDS)
+
+
+# ---------------------------------------------------------------------------
+# TWO KINDS OF CHANGE, REPORTED AS ONE NUMBER
+# ---------------------------------------------------------------------------
+#
+# A rule can be `changed` because the document was revised, or because the same
+# sentence was extracted differently on a later run. Both are real, and Tier 2
+# reports the second on purpose: an extractor changing its mind on unchanged
+# text is worth seeing.
+#
+# They are not worth the same to a reviewer opening a version diff, and a
+# single total lets the larger hide the smaller. Measured on two real versions
+# of one policy that differ by three clauses: 98 rules reported `changed`, 88
+# of them citing character-identical source. Ten revisions to find among
+# eighty-eight re-readings of sentences nobody had touched.
+
+
+def test_a_reextraction_of_untouched_text_is_marked_as_one():
+    """Same passage, different reading: `changed`, and flagged as source-identical."""
+
+    baseline = _rule(predicate="shall return")
+    # Same passage, different decomposition -- what a second extraction of the
+    # same sentence produces.
+    rerun = _rule(predicate="is required to return")
+
+    result = diff_runs([("n1", rerun)], [("b1", baseline)])
+    match = result.matches["n1"]
+
+    assert match.delta_status == "changed", "a different reading is still a change"
+    assert match.baseline_key == "b1"
+    assert match.source_unchanged, (
+        "the passage is character-identical on both sides, so this is the extractor "
+        "reading the same sentence differently -- and a reviewer cannot tell that from "
+        "`changed` alone"
+    )
+
+    counts = result.counts
+    assert counts["changed"] == 1
+    assert counts["changed_reextracted"] == 1
+    assert counts["changed_in_source"] == 0, (
+        "nothing in the document moved, so the count of source revisions must be zero"
+    )
+
+
+def test_a_revised_passage_is_not_counted_as_a_reextraction():
+    """The other half, or the flag would just be `changed` under a second name."""
+
+    baseline = _rule(predicate="shall return")
+    revised = dict(_rule(predicate="shall return"))
+    revised["formulation"] = {
+        "canonical": {
+            "source_text": SHARED_PASSAGE.replace(
+                "in the event of termination from employment",
+                "within five working days of termination",
+            )
+        }
+    }
+
+    result = diff_runs([("n1", revised)], [("b1", baseline)])
+    match = result.matches["n1"]
+
+    assert not match.source_unchanged, (
+        "the document's own words were revised, so this is not a re-extraction and "
+        "must not be filed as one"
+    )
+    counts = result.counts
+    assert counts["changed_reextracted"] == 0
+    assert counts["changed"] == counts["changed_in_source"]
+
+
+def test_the_two_kinds_always_account_for_every_change():
+    """A split that does not add up is worse than no split at all."""
+
+    baseline = [("b1", _rule(predicate="shall return")), ("b2", _rule(object="the laptop"))]
+    new = [("n1", _rule(predicate="is required to return")), ("n2", _rule(object="the laptop"))]
+
+    counts = diff_runs(new, baseline).counts
+
+    assert counts["changed_reextracted"] + counts["changed_in_source"] == counts["changed"], (
+        f"the split lost or invented a change: {counts}"
+    )
