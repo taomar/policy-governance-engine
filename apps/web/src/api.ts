@@ -2865,6 +2865,8 @@ export interface StructuralNode {
   reading_order: number;
   section: string | null;
   page: number | null;
+  clause_ref?: string | null;
+  text?: string | null;
 }
 
 export interface StructuralEdge {
@@ -2878,6 +2880,8 @@ export interface StructuralGraphResponse {
   node_count: number;
   edge_count: number;
   leaf_element_ids: string[];
+  governing_stems: string[];
+  unsatisfied_promises: string[];
   nodes: StructuralNode[];
   edges: StructuralEdge[];
 }

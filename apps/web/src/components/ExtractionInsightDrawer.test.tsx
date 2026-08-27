@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ExtractionInsightDrawer from "./ExtractionInsightDrawer";
+import type { StructuralGraphResponse } from "../api";
 
 /**
  * A count or a list this drawer presents as whole must be whole.
@@ -107,7 +108,7 @@ const readingPlanResponse = {
   units: [],
 };
 
-const structureResponse = {
+const structureResponse: StructuralGraphResponse = {
   document_version_id: VERSION_ID,
   node_count: TOTAL_ELEMENTS,
   edge_count: TOTAL_ELEMENTS - 1,
@@ -120,6 +121,7 @@ const structureResponse = {
 
 /** Every canonical URL the component asked for, in order. */
 let canonicalRequests: string[] = [];
+let activeStructureResponse = structureResponse;
 
 function jsonResponse(body: unknown) {
   return { ok: true, status: 200, json: async () => body } as unknown as Response;
@@ -127,6 +129,7 @@ function jsonResponse(body: unknown) {
 
 beforeEach(() => {
   canonicalRequests = [];
+  activeStructureResponse = structureResponse;
 
   // antd measures the viewport; jsdom provides neither of these.
   vi.stubGlobal(
@@ -161,7 +164,7 @@ beforeEach(() => {
       }
       if (url.includes("/coverage")) return jsonResponse(coverageResponse);
       if (url.includes("/reading-plan")) return jsonResponse(readingPlanResponse);
-      if (url.includes("/structure")) return jsonResponse(structureResponse);
+      if (url.includes("/structure")) return jsonResponse(activeStructureResponse);
       // There is deliberately no route for the persisted-stage endpoint. The
       // drawer no longer fetches it, and the throw below is what proves that:
       // re-add the fetch without re-adding a route here and every test in this
@@ -252,6 +255,57 @@ describe("ExtractionInsightDrawer", () => {
     await waitFor(() => expect(screen.getByText(`Coverage (${LEAF_TOTAL})`)).toBeTruthy());
     expect(
       screen.queryByText(`Coverage (${LEAF_TOTAL - UNACCOUNTED_IDS.length})`)
+    ).toBeNull();
+  });
+
+  it("shows list-promising stems with no linked answers without saying their content is missing", async () => {
+    activeStructureResponse = {
+      ...structureResponse,
+      governing_stems: ["element-3", "element-4"],
+      unsatisfied_promises: ["element-3", "element-4"],
+      nodes: [
+        {
+          element_id: "element-3",
+          element_type: "paragraph",
+          reading_order: 3,
+          section: null,
+          page: 1,
+          text: "The period of sick leave is as follows:",
+        },
+        {
+          element_id: "element-4",
+          element_type: "paragraph",
+          reading_order: 4,
+          section: null,
+          page: 1,
+          text: "The following are strictly forbidden to be worn:",
+        },
+      ],
+    };
+    openDrawer();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("2 clauses promise a list and have nothing linked to them")
+      ).toBeTruthy()
+    );
+    expect(screen.getByText("The period of sick leave is as follows:")).toBeTruthy();
+    expect(screen.getByText("The following are strictly forbidden to be worn:")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The promised items may still be extracted as separate rules; this only means no structural edge links them back to the stem."
+      )
+    ).toBeTruthy();
+    expect(document.body.textContent?.toLowerCase()).not.toContain("missing");
+  });
+
+  it("treats zero unlinked list promises as a quiet good state", async () => {
+    openDrawer();
+
+    await waitFor(() => expect(screen.getByText("Unlinked list promises")).toBeTruthy());
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/clauses promise a list and have nothing linked to them/)
     ).toBeNull();
   });
 });

@@ -109,6 +109,29 @@ export default function ExtractionInsightDrawer({
     [coverage]
   );
 
+  const canonicalTextById = useMemo(() => {
+    const entries =
+      canonical?.elements
+        .filter((element) => element.element_id)
+        .map((element) => [element.element_id as string, element.text] as const) ?? [];
+    return new Map(entries);
+  }, [canonical]);
+
+  const structureTextById = useMemo(() => {
+    const entries =
+      structure?.nodes
+        .filter((node) => node.text)
+        .map((node) => [node.element_id, node.text as string] as const) ?? [];
+    return new Map(entries);
+  }, [structure]);
+
+  const unsatisfiedPromiseRows = useMemo<UnsatisfiedPromiseRow[]>(() => {
+    return (structure?.unsatisfied_promises ?? []).map((elementId) => ({
+      element_id: elementId,
+      text: structureTextById.get(elementId) ?? canonicalTextById.get(elementId) ?? null,
+    }));
+  }, [canonicalTextById, structure, structureTextById]);
+
   /**
    * Every leaf the coverage report accounts for, plus every leaf it could not.
    *
@@ -220,6 +243,21 @@ export default function ExtractionInsightDrawer({
     },
   ];
 
+  const unsatisfiedPromiseColumns: ColumnsType<UnsatisfiedPromiseRow> = [
+    {
+      title: "Element",
+      dataIndex: "element_id",
+      width: 160,
+      render: (value: string) => <Text code>{value}</Text>,
+    },
+    {
+      title: "Clause",
+      dataIndex: "text",
+      render: (value: string | null) =>
+        value ? value : <Text type="secondary">Text not available in structure response</Text>,
+    },
+  ];
+
   return (
     <Drawer
       open={open}
@@ -242,13 +280,42 @@ export default function ExtractionInsightDrawer({
               title="Accounted for"
               value={coverage.accounted}
               suffix={`/ ${coverage.total_leaf_elements}`}
-              valueStyle={{
-                color: coverage.is_complete ? "var(--success)" : "var(--danger)",
+              styles={{
+                content: {
+                  color: coverage.is_complete ? "var(--success)" : "var(--danger)",
+                },
               }}
             />
             <Statistic title="Reading units" value={plan?.unit_count ?? 0} />
             <Statistic title="Structure edges" value={structure?.edge_count ?? 0} />
+            <Statistic
+              title="Unlinked list promises"
+              value={structure?.unsatisfied_promises?.length ?? 0}
+            />
           </Space>
+
+          {unsatisfiedPromiseRows.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              title={`${unsatisfiedPromiseRows.length} clauses promise a list and have nothing linked to them`}
+              description={
+                <Space orientation="vertical" size="small" style={{ width: "100%" }}>
+                  <Paragraph style={{ marginBottom: 0 }}>
+                    The promised items may still be extracted as separate rules; this only means no
+                    structural edge links them back to the stem.
+                  </Paragraph>
+                  <Table
+                    size="small"
+                    rowKey="element_id"
+                    columns={unsatisfiedPromiseColumns}
+                    dataSource={unsatisfiedPromiseRows}
+                    pagination={false}
+                  />
+                </Space>
+              }
+            />
+          )}
 
           {unaccounted.size > 0 && (
             <Alert
@@ -349,4 +416,9 @@ type ReadingPlanUnitContext = ReadingPlanResponse["units"][number]["context"][nu
  */
 type CoverageRow = Omit<CoverageResponse["elements"][number], "disposition"> & {
   disposition: CoverageDisposition | null;
+};
+
+type UnsatisfiedPromiseRow = {
+  element_id: string;
+  text: string | null;
 };
