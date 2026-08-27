@@ -177,20 +177,20 @@ def _fingerprint(sentence: str) -> str:
 #: exactly when somebody should look at it again.
 _QUOTED_TO_FORBID_IT = {
     "b4eb40dfcab54036": "a system prompt line forbidding the frame",
-    # The user guide's correction: it names the route and the word 'shortfall'
-    # in one sentence in order to say the route is not one. Deleting it would
-    # remove the sentence that stops a reader drawing the conclusion this guard
-    # exists to prevent.
+    # A second entry lived here: the old user guide's correction, which named
+    # the route and the word 'shortfall' in one sentence in order to say the
+    # route is not one. The guide was rewritten and the sentence went with it,
+    # so `test_every_exemption_is_earned` reported the exemption as no longer
+    # earned and it was removed rather than kept as cover.
     #
-    # It surfaced only when the documentation was unwrapped from its 80-column
-    # hard wrap. Before that a line break fell between the route term and the
-    # word 'shortfall', so the sentence scanner never saw the two together and
-    # skipped it silently -- measured at the time as 0 flagged before the
-    # unwrap and 1 after, with no copy edited in between. Worth remembering: a
-    # scanner that works a sentence at a time inherits whatever sentence
+    # Worth preserving from that entry: it only ever surfaced when the
+    # documentation was unwrapped from its 80-column hard wrap. Before that a
+    # line break fell between the route term and the word 'shortfall', so the
+    # sentence scanner never saw the two together and skipped it silently --
+    # 0 flagged before the unwrap and 1 after, with no copy edited in between.
+    # A scanner that works a sentence at a time inherits whatever sentence
     # boundaries the source's line breaks happen to produce, so its coverage
     # can depend on something nobody thinks of as meaningful.
-    "f5951835f0d8a384": "the user guide's 'AI Ready is a route, not a fault' correction",
 }
 
 

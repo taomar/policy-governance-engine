@@ -1,388 +1,327 @@
 # User guide
 
-This guide is for reviewers, policy authors and administrators following the user journey from source document to governed policy decision. Screenshots come from a local instance with one project loaded from a single extraction run. Project names, counts and dates will differ in another environment.
+This guide is for the person who owns a policy and has to stand behind it — a compliance owner, a policy author, a risk or audit reader — and for the engineer wiring a system to the decisions that come out.
 
-## Deployment status
+It follows one document all the way through: upload, extraction, review, publication, and then the four things you do with a published register that make the work worth doing — **put a real case to it**, **prove its behaviour**, **compare it against the next edition**, and **serve it to other systems**.
 
-| Deployment | Status | Meaning |
+Everything shown here is the running product. Where a capability has a limit, the limit is stated next to it.
+
+**Related pages:** [Workflows](workflows.md) for the short operational sequence · [From document to policy](from-document-to-policy.md) for what happens inside extraction · [API](api.md) for the integration surface · [Known limitations](known-limitations.md) for what this build does not do.
+
+---
+
+## The shape of the work
+
+| Stage | You do | The platform does | Result |
+|---|---|---|---|
+| **Load** | Upload a PDF or DOCX | Preserves the source, segments it into clauses, reports what it could not read | A controlled document version |
+| **Extract** | Start a run | Finds policy passages, verifies each one word-for-word, drafts candidate rules | Candidates, each carrying its source sentence |
+| **Review** | Approve, reject, or ask for a rewrite | Shows the source beside the drafted logic, flags what it doubts | Decided candidates |
+| **Assure** | Run a quality evaluation | Inspects source and logic faithfulness, grades findings | Evidence for a publication decision |
+| **Publish** | Approve a version | Freezes it, numbers it, records who approved it | An immutable published version |
+| **Use** | Ask, test, evaluate, compare | Answers with the rule, the version and the sentence | Decisions you can defend |
+
+Two rules hold across all of it:
+
+- **Nothing decides anything until a person approves it.** Extraction produces candidates, never live policy.
+- **A published version never changes.** Corrections become a new version; the old one stays readable.
+
+---
+
+## 1. Sign in
+
+Sign in with a local account or an identity provider, depending on how the instance is configured. Your role decides which surfaces you see.
+
+| Role | Can |
+|---|---|
+| **Viewer** | Evaluate cases and read the register. Cannot upload, author or approve. |
+| **Policy author** | Everything a viewer can, plus upload, review, approve and publish. |
+| **Admin** | Everything, plus project lifecycle including deletion. |
+
+The header shows who you are and which role is in effect. If an action is missing, the role is usually why.
+
+> **Before you rely on this build:** authorization ships present but **off by default** (`RBAC_ENABLED`). Until an operator enables it and configures sign-in, roles are workflow attribution rather than a security boundary. See [Known limitations](known-limitations.md).
+
+---
+
+## 2. The dashboard
+
+![The dashboard: review queue, decision routes, and the portfolio register](images/user-guide/01-dashboard.png)
+
+The dashboard answers one question — *what needs a person?*
+
+- **Review queue** — how many policies and rules are waiting for a decision, across every project.
+- **High findings** — the count from the latest quality checks, scoped so you can tell a published finding from a candidate one.
+- **Decision routes** — how the live rules split between Deterministic and AI Ready. Not a score; see [§8](#8-two-routes-one-register).
+- **Regression guards** — how many saved scenarios protect the published versions.
+
+Below, the **portfolio register** lists each project with what it actually holds: policies, rules, what is in review, the route split, and the published version. Counts always name their unit — *policies* and *rules* are different things, and a policy contains rules.
+
+---
+
+## 3. Open a project
+
+![The project workspace: governance status and the working tabs](images/user-guide/02-project-overview.png)
+
+A project is one policy set — a handbook, a procurement policy, a leave scheme. Opening one gives you its governance status and the tabs you will work through: **Documents**, **Review**, **Policies**, **Compare**, **Quality**, **Validation** and **Decision Log**.
+
+The header carries the project key, its owner, and the actions that apply to the whole set: **Edit**, **Record periodic review**, and **Test a Case**.
+
+Each tab badge is a real count — documents held, rules awaiting a decision, published policies, versions available to compare. If a tab has no badge, it has nothing waiting for you.
+
+---
+
+## 4. Load a document
+
+Go to **Documents**.
+
+![The Documents tab: source control and ingestion diagnostics](images/user-guide/03-documents.png)
+
+Upload a PDF or DOCX. The platform stores the source first, converts it to canonical text, and segments it into numbered clauses that keep their page, section and character offsets.
+
+**Read the ingestion diagnostics before extracting.** They are how the load stage tells you it fell short:
+
+| Diagnostic | Means |
+|---|---|
+| `low_coverage` | Much of the source text did not reach a logical element — content may be trapped in an unparsed region. |
+| `fragment_offsets_unresolvable` | Some clause text cannot be located back in the page it came from. |
+| `element_text_not_rebuilt_from_fragments` | An element's stored text is not its recorded fragments joined as declared. |
+| `rtl_script_detected` | Right-to-left content was found; reading order was recovered where possible. |
+
+A scanned PDF with no text layer will produce very few clauses. That is visible here, before you spend an extraction run on it.
+
+Uploading a document with the **same title into the same project** creates a **new version** of that document rather than a second document — which is what makes version comparison possible later.
+
+---
+
+## 5. Extract candidate rules
+
+Start extraction from the project. The run reads the clauses, finds the passages that state policy, verifies each passage back against the source, and drafts candidate rules from them.
+
+Extraction is server-side and takes minutes on a real handbook. When it finishes you get candidates, each carrying:
+
+- the **source passage**, word-for-word;
+- **where it came from** — document version, page, section, clause;
+- a drafted **subject, condition and outcome**;
+- a **route** (see [§8](#8-two-routes-one-register));
+- any **findings** the platform already doubts.
+
+**Coverage is reported, not implied.** A run that finished and a run that read everything are different things, and the record says which. See [Extraction run coverage](extraction-run-coverage.md).
+
+Re-running extraction on the same document supersedes *unreviewed* drafts only. **Approvals and rejections you have already made are never overwritten.**
+
+---
+
+## 6. Review against the source
+
+![The review queue: candidates with source evidence and the inspector](images/user-guide/04-review-queue.png)
+
+This is where the work happens, and the queue is built so you can decide without leaving it.
+
+**Narrow first.** Filter by document, by extraction run, by route, by finding severity, or search titles, actions, rule ids and tags. The banded family view groups rules that came from the same provision, so you can decide a topic as a unit rather than meeting the same clause six times as six unrelated cards.
+
+**Then inspect.** Selecting a candidate opens it beside the queue with tabs:
+
+| Tab | Shows |
+|---|---|
+| **Overview** | What the document says, and what was drafted from it, side by side |
+| **Reading** | The passage in its surrounding context |
+| **Logic** | The rule as *applies* and *outcome* attributes — subject, condition, effect |
+| **Parties & routes** | Who it binds, who decides, and which route it takes |
+| **Scope** | What it applies to, and what it excludes |
+| **Tests** | Scenarios attached to this rule |
+| **History** | Every prior sighting of this provision across runs |
+| **Notes** | Reviewer commentary |
+| **JSON** | The canonical record exactly as the evaluator reads it |
+
+![The Logic tab: a rule as applies and outcome attributes, with its source below](images/user-guide/10-rule-logic.png)
+
+**Decide.** Approve, reject, or request a rewrite. The assistant can propose a rewording; it never changes a record on its own, and the proposal is shown against the source for you to accept or discard.
+
+**Decided together.** Where several rules come from one provision, the inspector says so — approving one alone can leave a topic half-decided.
+
+---
+
+## 7. Run a quality evaluation before publishing
+
+![The Quality tab: scope, history, findings and recommended decisions](images/user-guide/06-quality.png)
+
+Quality answers one question: **what prevents this exact policy version from being relied on?**
+
+**Choose the scope.** The published version, or the rules still in review. The two are different questions and the screen keeps them apart — a finding about published v1 says nothing about a candidate you have not decided yet.
+
+**The evaluation is read-only.** Running it never changes a rule, an approval or a published version. It records the result, so the history below can compare this run against the one before it.
+
+**Findings are graded and explained.** Each row gives the risk level, what the evaluation found, the affected rules, a recommended decision, and a link to the evidence. Two families run:
+
+- **Source faithfulness** — does the rule still say what the document said? Negation preserved, quantities preserved, conditions represented, source conditions reached the record, the action is not a sentence fragment, the passage is the document's own words.
+- **Logic faithfulness** — does the compiled logic hold up? Attributes and parties quoted from source, authority is a real delegation, discretion names who exercises it, malformed decomposition reported, polarity survives projection.
+
+**Checks that did not apply are held apart from findings.** A route-specific check has nothing to say about records on the other route, and the screen reports that as what it is rather than as a check that ran and came back clean.
+
+> Findings are evidence for a reviewer, not a gate. The platform does not approve, reject or publish anything on their basis.
+
+---
+
+## 8. Two routes, one register
+
+Every rule is classed by **how its source is written**, not by how good the extraction was.
+
+| Route | The source states | Decided by |
 |---|---|---|
-| **Local deployment** | **Available** | The web app, API, and PostgreSQL run locally. The local API may call configured Azure OpenAI and Azure AI Search endpoints. |
-| **Azure deployment** | **Pending** | Docker, Bicep, azd, networking, and operations assets are prepared and statically validated, but no Azure-hosted environment has been provisioned from this repository. |
+| **Deterministic** | A test you can compute — *"…a nominal value of less than 50.00 SAR."* | A FEEL evaluator running a compiled condition. Same input, same answer, every time. |
+| **AI Ready** | A judgement in words — *"…dress in professional business attire."* | A judge reading the rule against the case, answering with the sentence it relied on. |
 
-Using Azure OpenAI or Azure AI Search endpoints from a locally running API is still a **Local deployment**. It becomes an **Azure deployment** only when the application itself is provisioned and running in Azure.
+Neither is a grade, and neither is a fallback. Most real policy prose takes the AI Ready route because that is how humans write policy. Forcing a judgement into a computed threshold would invent a number the document never set.
 
-## Journey at a glance
+---
 
-```text
-Set identity
--> choose or create a project
--> upload source
--> extract candidate rules
--> review source and logic
--> run pre-publish quality
--> approve and publish
--> inspect the immutable package
--> create tests and regression guards
--> evaluate live behavior
--> monitor evidence and governance
-```
+## 9. Publish an immutable version
 
-## 1. Sign in and understand the dashboard
+Publishing takes the approved rules and freezes them into a numbered version with an effective date and a named approver.
 
-When access control is switched on, the application opens on a sign-in screen and shows nothing else until you are signed in — no navigation, no project list. Enter your username and password. If they do not match you are told exactly that and nothing more, because the server does not distinguish a wrong password from a username that does not exist and the screen does not undo that.
+From that moment the version cannot be edited. A correction is a **new version**; the previous one stays readable, and anything that cited it still resolves.
 
-Once in, the top-right identity control shows who you are and the role you hold, and offers **Sign out**. Your display name is yours to set — it is what appears against the decisions you record. **Your role is not**: it is assigned, and it decides what the product lets you do.
+Publishing also rebuilds the search index for the version and re-runs any active regression guards ([§12](#12-prove-behaviour-with-blind-tests)).
 
-| Role | What it is for |
-|---|---|
-| **Viewer** | Reading published policies, testing cases against them, and submitting feedback for review |
-| **Policy Author** | Everything a viewer does, plus source documents, extraction, review and publishing |
-| **Admin** | Everything, plus configuration and removing projects |
+---
 
-Surfaces you cannot use are not shown, so the product you see is the one you can work with. Where something is visible but not yours to change, it says so and names who can.
+## 10. The published register
 
-If your session expires you are returned to the sign-in screen rather than left with an interface that looks signed in and refuses every action.
+![Published policies: the register, with the inspector open](images/user-guide/05-published-policies.png)
 
-Access control ships **disabled** by default, so a deployment behaves as it always did until an operator configures sign-in and turns it on — see [configuration](configuration.md). While it is off there is no sign-in screen, and the display name is attribution rather than proof of who you are.
+The **Policies** tab is the published register — read-only decision records, arranged under the provisions that stated them.
 
-Confirm the header shows:
+- The version strip names the version, its state, and how many policies and rules it holds.
+- Search and filters narrow the register; related families group provisions that belong together.
+- Selecting a policy opens the same inspector tabs as review, now against published content.
+- **Export** the filtered set or the whole register as JSONL.
 
-- **API connected**;
-- **AI enabled** when Azure OpenAI is configured.
+---
 
-![Policy operations dashboard showing project status](images/user-guide/01-dashboard.png)
+## 11. Put a real case to it
 
-The dashboard leads with work that needs attention:
+This is the shortest route to understanding what the platform is for. Use **Test a Case** from the project header.
 
-- candidates awaiting review;
-- high quality findings;
-- how rules are routed — Deterministic or AI Ready;
-- regression guards;
-- project governance status.
+![Test a Case: describing a real situation in plain English](images/user-guide/11-test-a-case.png)
 
-## 2. Choose a project and assess governance status
+Describe a situation in plain English and put it either to one published policy or to the whole project. Choose a reasoning effort if the case is subtle.
 
-Open **Projects**, then select a policy set.
+![The result: narrowing, quality-finding link, verdict, and the rules it rests on](images/user-guide/12-case-result.png)
 
-![Project overview: publication state and governance status](images/user-guide/02-project-overview.png)
+The result is the point. Read it top to bottom:
 
-The Overview answers whether the current package is:
+1. **Narrowing** — how many published policies were considered, how many were retained, how many were discarded, and *why* each one was discarded. The project is not evaluated as one undifferentiated blob, and the screen shows you the shortlist.
+2. **Known quality findings** — if any rule in the answer is covered by an open finding, it is named here with its severity. A reviewer sees *"a known finding covers these rules"* rather than an unexplained answer.
+3. **Which route answered** — the AI Ready judge or the FEEL evaluator. You always know what decided.
+4. **The verdict** — the decision returned by the evaluated published policies.
+5. **The explanation** — composed by the app, clearly labelled as such, citing rule ids.
+6. **The rules it rests on** — each cited rule with its id, section, page, and the **exact sentence** from the document.
 
-- published and effective;
-- linked to source evidence;
-- assigned to accountable owners;
-- scheduled for review;
-- searchable as a whole, for putting a case to the project.
+That last item is the whole proposition. The answer is not a summary of the handbook; it is a decision with the sentences that produced it, which a person can check against the source.
 
-That last one is the **Project-wide case index** panel. It reports what the app last recorded about the project's search index — which published version it holds and how many policies — and whether that still matches the version now active. It is a record of the last build, not a live check, and says so, because loading a page should not depend on a search service being reachable.
+---
 
-Where a rebuild would help, the panel offers one. Where it would not, it does not: a project that has published nothing has nothing to index, and a server without search configured cannot be repaired by rebuilding. A build that failed but left the index still matching the active version is reported as usable rather than as a fault, so the panel does not cry wolf.
+## 12. Prove behaviour with blind tests
 
-It also shows how the package's rules are routed. Each rule carries an `evaluation_mode` stating how it must be decided:
+![Validation: sealed scenarios, blind runs, and regression guards](images/user-guide/08-validation.png)
 
-| Route | The source states its test as | Decided by |
-|---|---|---|
-| `deterministic` | A computable comparison — a threshold, a date, a count | The rule engine |
-| `ai_ready` | Words a reader has to weigh — "reasonable", "as deemed necessary" | A judge reading the record |
+**Validation** proves a policy behaves as written, and keeps the proofs you trust as guards that re-run on every future published version.
 
-**AI Ready is a route, not a fault.** Most policy text is written in words, and a package that is largely `ai_ready` reflects how its source document is written, not a shortfall in extraction. There is nothing to "fix" about it, and the platform will not ask you to.
+The four-step method exists to stop a test being written to match whatever the engine already does:
 
-Use the tabs in journey order:
+1. **Select policies** — choose exactly which published policies are under test.
+2. **Generate & seal** — scenarios are generated and the expected answer is **committed and hidden before execution**.
+3. **Run blind** — the sealed scenarios go through the deterministic engine, which cannot see the expectation.
+4. **Reveal & preserve** — the comparison is revealed, and the scenarios that pass can be kept as **regression guards**.
 
-```text
-Documents -> Review -> Quality -> Policies -> Validation
-```
+Guards then re-run automatically on every publish. The panel at the top shows how many are active, passing, failing, erroring, never run, or retired — and states plainly when **no guard protects the policy set yet**.
 
-Supporting tabs include Compare and Decision Log.
+You can generate combinations across the selected policies, or supply your own scenario statement. Grounding is either the full policy JSON or JSON plus hybrid search, and the screen says which the model saw. Every generated batch, grounding set, commitment and engine run is retained in the validation history.
 
-## 3. Upload and control a source document
+> Definitions carry no test to run, and are excluded from the batch rather than counted as passing.
 
-Open **Documents** inside the project.
+---
 
-![The Documents tab: upload and source history](images/user-guide/03-documents.png)
+## 13. Compare against the next edition
 
-### Upload
+![Compare Versions: the AI summary and the rule-by-rule difference](images/user-guide/07-compare-versions.png)
 
-1. Enter the source title and owner.
-2. Select or drop a PDF/DOCX.
-3. Select **Upload**.
-4. Confirm the document appears in the project.
+When the policy is revised, upload the new edition **under the same title** and extract it. It becomes the next document version, and its candidates are compared against the current baseline.
 
-Uploading a replacement creates a new immutable document version; it does not overwrite the earlier source.
+The **Compare** tab diffs two published versions rule by rule, with an AI-written summary of what the update does in practice, then the added, removed, changed and unchanged rules.
 
-### Inspect before extraction
+**One distinction worth understanding.** Re-reading a document does not reproduce byte-identical records — the same sentence can be read slightly differently on a later run. So a naive diff reports every re-reading as a change, and the handful of real revisions hide among them. The candidate delta separates:
 
-Use **View full text** to confirm parsing quality. The system stores clauses with page, section, sequence, and source offsets. These references later connect a policy decision back to its exact wording.
+- **changed in source** — the document's own words moved. This is what a reviewer must read.
+- **re-extracted** — the same sentence, read differently. Reported separately so it cannot bury the above.
 
-## 4. Extract candidate rules
+> The published-version compare shown above has a related limitation, stated on the screen itself: AI-drafted rules receive a fresh id on each extraction, so re-extracting a document and publishing it will show its rules as *added* rather than *changed* against a prior AI extraction. That is a property of matching drafted rules across independent runs, not a fault in the diff.
 
-Select **Extract with AI** on the intended document version. The upload response field `clauses_search_indexed` counts clauses written to the Azure AI Search index; it is not a storage count.
+---
 
-The extraction process:
+## 14. Serve decisions to other systems
 
-1. selects verbatim policy passages;
-2. verifies each passage against the parsed source;
-3. formulates candidate rules;
-4. maps conditions, effects, facts, and executability;
-5. stores candidates for human review;
-6. indexes clauses into Azure AI Search when Search is available.
+![Evaluate: the decision path a calling system invokes](images/user-guide/13-evaluate.png)
 
-Nothing is published automatically. A long extraction uses many model calls. If the API restarts, the run is marked failed and already committed candidates stay available.
+**Evaluate** is the evaluation API's own surface — the decision path a calling system invokes, run by hand so you can preview exactly what that system would receive.
 
-While the run works, a progress strip tracks it through **Document → Policy statements → Rules drafted → Linked → In review queue**, with any statements that did not become rules shown to the side as `N not turned into rules`. A stage the run has not reached yet shows `—`; a stage that ran and found none shows `0`. Each drafted rule is also counted by its route — `N Deterministic · M AI Ready` — which records how each rule is decided, not how good it is. See [Extraction run coverage](extraction-run-coverage.md) for what the strip's figures mean once the run ends.
+Supply the facts of a case. The required facts are generated from the selected version's rules, so you can see what the register actually needs to decide. Optionally supply principal context — persona, organisational unit, jurisdiction — which is used only to check scope-restricted rules; the facts still drive whether a condition is satisfied.
 
-## 5. Review candidate rules against source evidence
+Choose the active version or pin a specific one. Pinning gives a reproducible answer; following the active version means the caller inherits revisions when you publish them.
 
-Open **Review**.
+The response carries the determination for each rule, and those requests are what the evaluation audit trail records.
 
-![The review queue: filters, candidate records and the inspector](images/user-guide/04-review-queue.png)
+For the endpoint groups, request shapes and common sequences, see the [API guide](api.md).
 
-### Narrow the queue
+---
 
-Filter by:
+## 15. Ask the policy in plain words
 
-- document and extraction run;
-- review status;
-- policy rules versus definitions/glossary;
-- title, action, rule ID, or tag;
-- related policy family;
-- quality findings.
+![Ask AI, scoped to the selected project](images/user-guide/14-ask-ai.png)
 
-### Inspect a candidate
+**Ask AI** answers questions about a policy set from its approved rules, grouping verbatim source facts by topic and keeping the AI's own synthesis separate and labelled.
 
-Select a row and verify:
+Use it for *"what does this say about…"*. Use **Test a Case** ([§11](#11-put-a-real-case-to-it)) when you want a decision on a specific situation — that is a reviewer's tool and it writes to the audit trail.
 
-- `WHEN -> THEN` logic;
-- effect and rule type;
-- required facts;
-- target scope;
-- exceptions and advice;
-- precedence and relationships;
-- verbatim source text;
-- canonical JSON.
+---
 
-The **Logic** tab shows the policy as a table of attributes in two groups — what the policy applies to, and what follows:
+## 16. Audit and periodic review
 
-| Group | Rows |
-|---|---|
-| Applies | `subject`, `beneficiary`, `recipient`, `candidate`, `actor`, `location`, `condition`, `prerequisite`, `trigger`, `temporal_constraint`, `constraint` |
-| Outcome | `modality`, `predicate`, `object`, `threshold`, `calculation`, `unit`, `currency`, `frequency`, `deadline`, `sequence`, `consequence`, `remedy`, `assigner`, `exception` |
+![The Decision Log](images/user-guide/09-decision-log.png)
 
-Only the attributes a rule actually states appear; a rule naming no deadline shows no deadline row. Each row gives the attribute, its value, and the fact the value was matched to.
+The **Decision Log** retains what was asked, what answered, and which version decided. Every mutation is audited, and evaluations are retained as evidence.
 
-![The Logic tab, showing a rule as applies and outcome attributes](images/user-guide/05-logic-attributes.png)
+**Record periodic review** — on the project header — attests that a policy set has been reviewed, in the shape [ISO 37301](standards.md) §9.3 expects. It records the attestation and sets the next review date; the register shows when a project is overdue.
 
-The values are the record's own words, not a paraphrase: if the table and the source read differently, that is an extraction defect worth reporting, not a display choice.
+---
 
-Use **View source** before deciding. AI output is a proposal; source evidence and human judgement are authoritative.
+## 17. The document inbox
 
-### When a rule has been extracted more than once
+![The Document Inbox](images/user-guide/15-document-inbox.png)
 
-Running extraction twice over one document produces a second reading of the same sentence. The queue shows only the **latest** reading; each card offers the one it replaced, read-only, so you can see what changed rather than deciding between two records with no statement of which is current.
+The inbox holds documents that have arrived but are not yet assigned to a project. Use it to triage sources before deciding which policy set they belong to.
 
-Approving a reading does not delete its predecessor — the audit trail keeps every approved version.
-
-### Decide
-
-Set your name in the application header before approving or rejecting; the review queue asks for it until a name is set, so every decision has an attributable author.
-
-- **Approve** when the candidate is correct and publishable.
-- **Reject** when it should not enter policy.
-- **Edit/Revise** when logic or wording must change.
-- **Ask AI** for an advisory explanation or rewrite.
-- Use bulk actions only after filtering to the intended set.
-
-## 6. Run quality before publication
-
-Open **Quality** and choose **Rules still in review**. The project register names the checked scope, for example `published v1: 26 high`; a review queue with no completed scan says **No scan of records in review** rather than showing a zero.
-
-![Quality workspace with evaluation history and findings](images/user-guide/07-quality.png)
-
-Run the evaluation before approving a large batch. Review:
-
-- confirmed deterministic findings;
-- potential AI findings that need human confirmation;
-- affected policy records;
-- exact source evidence;
-- acceptable and unacceptable conditions;
-- reviewer questions and suggested correction;
-- the route-applicability disclosure — which checks did not apply because a rule's route asks a different question (an empty list when every check applied; absent only for runs that predate the record).
-
-Quality does not modify rules. Fix the candidate in Review, then run Quality again.
-
-## 7. Approve and publish
-
-When the intended candidates are approved:
-
-1. switch to **Policy Manager**;
-2. confirm your name in the header;
-3. review the publication summary;
-4. choose the effective date;
-5. publish the next version.
-
-Publication creates a complete immutable snapshot. It carries forward unchanged rules, adds or supersedes approved candidates, records the approver, and reruns active regression guards.
-
-## 8. Inspect the governed policy package
-
-Open **Policies**.
-
-![Published policy workspace with rule register and inspector](images/user-guide/06-published-policies.png)
-
-Use the workspace to:
-
-- switch retained versions;
-- search and filter;
-- isolate related policy families;
-- inspect `WHEN -> THEN` decisions;
-- review source, scope, history, and notes;
-- inspect evaluator, canonical, and DMN/FEEL JSON;
-- export selected or all rules as JSONL.
-
-Published versions are read-only. Change live behavior by revising a candidate and publishing another version.
-
-### Put a case to this policy
-
-From the Policies workspace — on a policy, or on a single rule's row — select **Put a case to this policy**. Describe a situation or ask a question in plain words, and the policy answers it as a whole, naming the rules the answer rests on so you can read each yourself. This is grounded on the policy's own extracted rules, not on anything you supply beyond the situation.
-
-The dialog first sorts what you asked:
-
-- an **informational** question — "how many days of leave does a new joiner accrue?" — is answered from the quantity the policy already states, quoted from its rules;
-- a **determination** — "someone has worked here four months; how many days do they have?" — supplies the facts and asks for the outcome, decided one rule at a time by the same deterministic evaluator a live decision would use.
-
-A determination you confirm can be **kept as a guard**, which re-runs on every later published version and flags the case if the outcome ever changes. That keeps it with this policy's tests; it is not recorded as live evaluation traffic. An informational answer reports the value a determination would otherwise be given, so there is nothing separate to keep — the dialog offers a guard only where one can mean something.
-
-### Put a case to the whole project
-
-When you do not already know which policy applies, open **Test a Case** — it sits in the project tab strip, immediately after Validation. Describe the situation once and the project answers it, choosing between two scopes:
-
-- **Project published policies** — the app searches this project's published policies, keeps the ones that bear on your question, and evaluates only those. It never evaluates every policy as a fallback.
-- **One published policy** — you have already narrowed it yourself, so the search step is skipped and that policy answers directly. The list offers the policies in the **active published version** and says how many there are. Rules still under review are not listed: only what has been published is testable here, so a project with 30 policies in review and 2 published offers 2. A project that has published nothing says so rather than showing an empty box.
-
-The panel shows how the set was chosen rather than hiding it: how many policies were considered, which were kept, and why each of the rest was set aside. When the project has few enough published policies that searching cannot set any aside, it says that plainly instead of claiming to have narrowed — the policies listed were not selected as matching, they are all of them.
-
-**Being read is not the same as bearing on your question.** The policies listed are the ones the answer was allowed to draw on; whether any of them actually speaks to what you asked is decided when the answer is composed, and reported. A project can have every published policy evaluated and still be told, correctly, that none of them answers the question.
-
-The size of what was sent is reported against its limit, and an answer that would exceed it is refused rather than trimmed behind your back.
-
-Both scopes answer from the **published** version, never from drafts under review. A project that has published nothing says exactly that, which is a different message from "nothing matched your question" — and if the search index for the project is missing or out of date, the panel says so and offers to rebuild it rather than presenting an empty answer as if it were a finding.
-
-Answers are cited the same way as the single-policy dialog: every load-bearing statement names the rule it came from and quotes the source words, with its page and section. A question the retained rules do not settle is reported as unsettled, not answered with a confident-sounding paragraph the policy does not support.
-
-## 9. Prove behavior with blind tests
-
-Open **Validation**.
-
-![Policy validation lab with selected policies and scenario generator](images/user-guide/08-policy-tests.png)
-
-The four-stage flow is:
-
-1. **Select policies** from a published version.
-2. **Generate & seal** AI-generated combinations or your own scenario.
-3. **Run blind** through the deterministic evaluator.
-4. **Reveal & preserve** expected-versus-actual evidence.
-
-The page distinguishes:
-
-- the version used to generate scenarios;
-- the latest proof version;
-- the next run target;
-- JSON-only versus JSON + hybrid Search grounding;
-- exact tests per selected policy.
-
-AI may draft scenarios. Only the deterministic evaluator decides pass/fail.
-
-## 10. Preserve representative regression guards
-
-After a scenario passes, select **Add passing to regression suite**. A regression guard is simply that sealed passing scenario kept active.
-
-The same **Validation** surface also lets you:
-
-- run active guards against a retained version;
-- inspect exact versioned policy evidence;
-- review immutable run history;
-- retire or reactivate guards.
-
-Publishing automatically reruns active guards. A failure is evidence for review; it does not block publication.
-
-## 11. Evaluate live policy behavior
-
-Open the global **Evaluate** page.
-
-![Evaluate page with principal context and required facts](images/user-guide/09-evaluate.png)
-
-1. Select the project and version.
-2. Enter principal context when scope requires it.
-3. Complete generated fact fields or use advanced JSON.
-4. Optionally add a correlation ID.
-5. Select **Run Evaluation**.
-
-The result includes overall status, outcome, per-rule results, missing facts, exceptions, aggregate breaches, required actions, advice, source evidence, and a stable result hash.
-
-Missing facts produce `INDETERMINATE`; the engine does not guess. Every call is stored in the project's **Decision Log**.
-
-## 12. Ask grounded questions
-
-Select **Ask AI** and choose the project scope.
-
-![The Ask AI drawer, scoped to the selected project](images/user-guide/10-ask-ai.png)
-
-Useful questions ask for:
-
-- a threshold or approval requirement;
-- the source wording behind a policy;
-- differences between rules or versions;
-- a plain-language explanation of an evaluation;
-- a potential gap to review.
-
-Grounded responses separate source facts from model synthesis. Follow citations before relying on an answer.
-
-## 13. Monitor governance and improve the next version
-
-Return to Overview after publication.
-
-![Project overview: publication state and governance status](images/user-guide/02-project-overview.png)
-
-Use the governance docket to:
-
-- assign accountable ownership and escalation contacts;
-- schedule the next review;
-- resolve missing source evidence;
-- clear the review backlog;
-- rerun Quality and regression guards after changes.
-
-Use **Compare** for exact rule-level changes between versions and **Decision Log** for runtime evidence.
-
-## Supporting tasks
-
-| Task | Workspace |
-|---|---|
-| Export candidates for offline review | Review |
-| Export governed rules | Policies |
-| Compare two immutable packages | Compare |
-| Inspect runtime decisions | Decision Log |
+---
 
 ## Troubleshooting
 
-| Symptom | Check |
-|---|---|
-| API disconnected | Local PostgreSQL/API processes and `VITE_API_BASE_URL` |
-| AI disabled | Azure OpenAI endpoint, key, chat deployments, and embedding deployment |
-| Ask AI has no citations | Azure AI Search configuration and indexed source clauses |
-| Extraction is slow | Large documents require many model calls; avoid API reload mode |
-| Publish unavailable | Policy Manager persona, header identity, approved candidates |
-| Evaluation is `INDETERMINATE` | Supply the listed missing facts |
-| No testable policies | Active rules may be definitions, or routed `ai_ready` for a judge rather than the engine |
-| Quality finding seems wrong | Compare it with the exact versioned policy and source evidence |
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| Extraction produced very few rules | The source has little readable text, or is a scan | Check the ingestion diagnostics on **Documents** before re-running |
+| AI routes return `503` | Azure AI settings are blank or unreachable | Validate the settings; deterministic features keep working meanwhile |
+| `clauses_search_indexed` is `0` | Search indexing was unavailable | The clauses are stored — this reports the search index only, and upload still succeeded |
+| Quality shows no findings on a candidate set | The run was scoped to the published version | Switch the scope to rules still in review |
+| Compare says it needs two versions | Only one version is published | Publish a second version before comparing |
+| A version comparison looks noisy | Re-extraction produced different records for unchanged sentences | Read the *changed in source* group first — see [§13](#13-compare-against-the-next-edition) |
+
+---
 
 ## Safe operating rules
 
-1. Treat source evidence as authoritative.
-2. Treat AI output as a proposal.
-3. Do not publish without human review.
-4. Never edit an immutable published version.
-5. Preserve representative tests before changing live policy.
-6. Investigate `INDETERMINATE`; do not force a result.
-7. Keep the current Local deployment on a trusted network.
-8. Treat Azure deployment as pending until live validation is complete.
-
-For implementation-level diagrams, see [Capability flows](capability-flows.md).
+1. **Read the ingestion diagnostics before extracting.** They tell you whether the document was readable at all.
+2. **Decide a provision as a unit.** Approving one rule of a family can leave the topic half-decided.
+3. **Check the quality scope before quoting a number.** Published and in-review are different questions.
+4. **Publish deliberately.** The version is immutable, and downstream systems may pin it.
+5. **Keep guards after they pass.** A scenario you verified is worth more re-running on every future publish than it was the day you wrote it.
+6. **Treat a citation as the evidence.** If the sentence does not support the rule, the rule is wrong regardless of how confident the record reads.
