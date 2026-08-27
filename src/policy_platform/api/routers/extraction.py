@@ -1,10 +1,19 @@
-"""Extraction-side read access: canonical documents, structure, stages, coverage.
+"""Extraction-side read access: canonical documents, structure, coverage.
 
 Deliberately narrow. Everything a reviewer *does* — approve, reject, request
 changes, publish, activate — already has endpoints, and the integration
 directive forbids a second set. This router adds only what those surfaces cannot
 currently answer: what the converter produced, how the document is structured,
-how the run progressed, and what happened to every element.
+and what happened to every element.
+
+Per-stage bookkeeping is deliberately absent. It had a read endpoint, retired in
+`c5c06de` once `extraction_stages` measured empty on every run: nothing writes
+that table, so the endpoint answered a question the system had no data for. The
+table survives as migration-only — `docs/data-model.md` names it as such, and
+`policy_set_teardown.py` still clears it — so wiring a writer later needs no
+schema change. This docstring named stages for two months after the surface
+went, which is the same defect one level up: a description outliving the thing
+it described.
 
 Read-only by construction. There is no POST here and there should not be one:
 extraction is started through the existing document and candidate-rule flows,
