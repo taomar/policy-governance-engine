@@ -376,7 +376,7 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/docling/handoff.py::preview_handoff": "same path, preview half",
     "infrastructure/ingestion/document_extraction.py::extract_clauses": "reached from scripts only; owned by another workstream",
     "domain/models.py::OutboxMessage": "outbox table and ORM model; nothing constructs a row",
-    "infrastructure/docling/dependency_provenance.py::require_dependency_integrity": "its own docstring calls it 'the raising variant used by gates'; no gate calls it",
+    "infrastructure/docling/dependency_provenance.py::require_dependency_integrity": "the raising variant of the supply-chain check; its only caller is the acceptance gate in test_dependency_provenance.py, which is what the integration directive means by a 'build- and test-time check' -- unreachable from the running product by design, not unprotected",
     "infrastructure/docling/graph_runtime.py::build_runtime": "graph runtime construction; test call sites only",
     "infrastructure/docling/graph_runtime.py::DoclingGraphRuntime.pipeline_config": "same runtime",
     # --- Deliberate tooling. Reachable from tooling is the intended design. ---
@@ -427,7 +427,7 @@ _QUARANTINE: dict[str, str] = {
     # the ordinary way to name things and precisely why the old rule was blind.
     "contracts/relationships.py::PolicyRelationshipGraph.confirmed": "contract helper, no caller",
     "contracts/relationships.py::PolicyRelationshipGraph.candidates": "contract helper, no caller",
-    "infrastructure/correlation/relationship_discovery.py::unsatisfied_promises": "computed, never displayed; delete-or-surface decision belongs to the workstream holding the router",
+    "infrastructure/correlation/relationship_discovery.py::unsatisfied_promises": "computed and returned by GET /{document_version_id}/structure, never rendered -- ExtractionInsightDrawer does not read the field. Measured on the live corpus: 5 governing stems, all 5 unsatisfied. The promised items are NOT lost -- they are extracted as rules (sick-leave periods, forbidden items) -- so what is missing is the edge from a stem to the clauses that answer it, not the content. The router computes its own inline version rather than calling this function; delete-or-surface belongs to the workstream holding the router",
     "contracts/evidence_resolution.py::EvidenceResolution.by_role": "contract helper, no caller",
     "contracts/extraction_package.py::PolicyExtractionPackage.evidence_for": "contract helper, no caller",
     "contracts/extraction_package.py::PolicyExtractionPackage.unsupported_projections": "contract helper, no caller",
