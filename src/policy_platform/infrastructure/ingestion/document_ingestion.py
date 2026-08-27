@@ -72,6 +72,9 @@ from policy_platform.contracts.canonical_document import (
     SourceFragment,
     Transformation,
 )
+from policy_platform.infrastructure.ingestion.canonical_fidelity import (
+    verify_element_text,
+)
 from policy_platform.infrastructure.ingestion.reading_order import (
     Glyph,
     has_rtl,
@@ -369,6 +372,49 @@ def _append_document_diagnostics(document: CanonicalDocument) -> None:
                 code="fragment_offsets_unresolvable",
                 severity="error",
                 detail=f"{len(failures)} source fragments do not resolve; first: {failures[0]}",
+            )
+        )
+
+    # The next link in the same chain. `verify_fragments` above proves a
+    # fragment resolves to its offsets; this proves the element's stored text is
+    # those fragments joined as the element itself declares. Between them sits
+    # the only step where canonical text is *written*, and it was unchecked.
+    #
+    # It matters because the checks on either side stay green while it is wrong.
+    # The fragments still resolve, and the extraction agent still copies
+    # faithfully from what it was shown -- so `verify_verbatim` compares two
+    # copies of the same corruption and passes. Published v1 carries seven
+    # passages that reached a customer-facing citation exactly that way.
+    #
+    # A warning rather than an error: unlike an unresolvable offset, a rebuilt
+    # mismatch can be a transformation this element declared and the rebuild
+    # does not model, and refusing an ingest on that would be the check
+    # asserting more than it establishes.
+    fidelity = verify_element_text(document)
+    if fidelity.failures:
+        document.diagnostics.append(
+            IngestionDiagnostic(
+                code="element_text_not_rebuilt_from_fragments",
+                severity="warning",
+                detail=(
+                    f"{len(fidelity.failures)} of {fidelity.checked} elements carry text that is "
+                    f"not their recorded fragments joined as declared; "
+                    f"first: {fidelity.failures[0]}"
+                ),
+            )
+        )
+    elif document.elements and fidelity.checked == 0:
+        # The distinction the report exists to preserve: no failures because
+        # nothing could be checked is not the same as no failures because
+        # everything passed, and only one of them is good news.
+        document.diagnostics.append(
+            IngestionDiagnostic(
+                code="element_text_unprovable",
+                severity="info",
+                detail=(
+                    f"none of the {len(document.elements)} elements could be checked against "
+                    "their fragments, so canonical text is unverified rather than verified"
+                ),
             )
         )
 

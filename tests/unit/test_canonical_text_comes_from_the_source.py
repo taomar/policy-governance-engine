@@ -320,3 +320,83 @@ class TestAgainstRealDocuments:
         # very little. State the floor so a corpus that quietly shrinks is
         # visible rather than reassuring.
         assert checked > 300, f"only {checked} elements verified — too few to mean much"
+
+
+# ---------------------------------------------------------------------------
+# THE CHECK IS RUN BY INGESTION, NOT ONLY BY THIS FILE
+# ---------------------------------------------------------------------------
+#
+# Everything above calls `verify_element_text` directly, so all of it passes
+# whether or not the product ever invokes it. It did not: the check sat in the
+# reachability quarantine for two months behind a note that named its intended
+# call site, `document_ingestion.ingest_pdf` — a function that no longer
+# exists. A check nothing runs proves nothing about the documents being
+# ingested, and this is the link where canonical text is written.
+
+
+class TestIngestionRunsTheCheck:
+    """The wiring, proved from the ingest path's own diagnostic output."""
+
+    def _mismatched(self) -> CanonicalDocument:
+        # Stored text the fragments cannot account for: the fragments say
+        # "alpha beta", the element claims a word the source never carried.
+        page = "alpha beta"
+        return _document(
+            page,
+            [
+                _element(
+                    "alpha beta gamma",
+                    [(0, 5, "alpha"), (6, 10, "beta")],
+                    ["line_break_hyphen_join"],
+                )
+            ],
+        )
+
+    def _faithful(self) -> CanonicalDocument:
+        # One fragment covering the whole element. `rebuild_element_text` joins
+        # fragments with a newline and only collapses breaks when the element
+        # declares a transformation, so a two-fragment element with no declared
+        # transformation can never reconstruct — my first attempt at this
+        # control asserted the wiring was noisy when the fixture was simply
+        # impossible. The positive control below is what caught it.
+        page = "alpha beta"
+        return _document(
+            page,
+            [_element("alpha beta", [(0, 10, "alpha beta")], [])],
+        )
+
+    def test_ingestion_reports_text_its_fragments_cannot_account_for(self):
+        from policy_platform.infrastructure.ingestion.document_ingestion import (
+            _append_document_diagnostics,
+        )
+
+        document = self._mismatched()
+        # Positive control: the check itself must see the defect, or the
+        # diagnostic assertion below would be proving the wiring with an
+        # example that has nothing to report.
+        assert verify_element_text(document).failures, "the fixture is not actually mismatched"
+
+        _append_document_diagnostics(document)
+        codes = [d.code for d in document.diagnostics]
+
+        assert "element_text_not_rebuilt_from_fragments" in codes, (
+            "ingestion produced no fidelity diagnostic for an element whose text is not its "
+            f"fragments joined as declared. It reported {codes}. The check is built and "
+            "measured but nothing runs it, which is the state it spent two months in."
+        )
+
+    def test_ingestion_stays_silent_on_a_document_that_reconstructs(self):
+        """The other half. A diagnostic on every upload is noise, not a guard."""
+        from policy_platform.infrastructure.ingestion.document_ingestion import (
+            _append_document_diagnostics,
+        )
+
+        document = self._faithful()
+        assert not verify_element_text(document).failures, "the control fixture is not clean"
+
+        _append_document_diagnostics(document)
+        codes = [d.code for d in document.diagnostics]
+
+        assert "element_text_not_rebuilt_from_fragments" not in codes, (
+            f"a document whose elements reconstruct exactly was still reported: {codes}"
+        )
