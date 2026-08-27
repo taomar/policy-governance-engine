@@ -70,6 +70,89 @@ from policy_platform.infrastructure.search.indexing import clause_search_documen
 logger = logging.getLogger(__name__)
 
 POLICY_SET_DELETED = "policy_set.deleted"
+_VERSION_SCOPE_TABLE = "policy_set_teardown_document_versions"
+_RUN_SCOPE_TABLE = "policy_set_teardown_extraction_runs"
+
+
+async def _prepare_document_version_scope(session: AsyncSession, policy_set_id: uuid.UUID) -> None:
+    """Materialize the document versions this project can safely tear down.
+
+    A document may be reused across projects while carrying no
+    `source_documents.policy_set_id`. The project therefore reaches its source
+    material through its extraction runs too. Versions that another project also
+    reaches are marked non-exclusive and deliberately retained.
+    """
+
+    await session.execute(
+        text(
+            f"""CREATE TEMP TABLE IF NOT EXISTS {_VERSION_SCOPE_TABLE} (
+                    document_version_id uuid PRIMARY KEY,
+                    document_id uuid NOT NULL,
+                    exclusive boolean NOT NULL
+                ) ON COMMIT DROP"""
+        )
+    )
+    await session.execute(
+        text(
+            f"""CREATE TEMP TABLE IF NOT EXISTS {_RUN_SCOPE_TABLE} (
+                    extraction_run_id uuid PRIMARY KEY
+                ) ON COMMIT DROP"""
+        )
+    )
+    await session.execute(text(f"TRUNCATE {_VERSION_SCOPE_TABLE}"))
+    await session.execute(text(f"TRUNCATE {_RUN_SCOPE_TABLE}"))
+    await session.execute(
+        text(
+            f"""INSERT INTO {_RUN_SCOPE_TABLE} (extraction_run_id)
+               SELECT DISTINCT extraction_run_id
+               FROM candidate_rules
+               WHERE policy_set_id = :sid"""
+        ),
+        {"sid": policy_set_id},
+    )
+    await session.execute(
+        text(
+            f"""INSERT INTO {_VERSION_SCOPE_TABLE} (document_version_id, document_id, exclusive)
+               SELECT dv.id,
+                      dv.document_id,
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM extraction_runs other_er
+                          JOIN candidate_rules other_cr
+                            ON other_cr.extraction_run_id = other_er.id
+                          WHERE other_er.document_version_id = dv.id
+                            AND other_cr.policy_set_id <> :sid
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM document_provisions other_dp
+                          WHERE other_dp.document_version_id = dv.id
+                            AND other_dp.policy_set_id <> :sid
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM evidence_references other_ev
+                          JOIN approved_rules other_ar
+                            ON other_ar.id = other_ev.rule_id
+                          JOIN approved_policy_versions other_apv
+                            ON other_apv.id = other_ar.policy_version_id
+                          WHERE other_ev.document_version_id = dv.id
+                            AND other_apv.policy_set_id <> :sid
+                      ) AS exclusive
+               FROM (
+                   SELECT dv.id
+                   FROM document_versions dv
+                   JOIN source_documents d ON d.id = dv.document_id
+                   WHERE d.policy_set_id = :sid
+                   UNION
+                   SELECT er.document_version_id
+                       FROM extraction_runs er
+                       JOIN {_RUN_SCOPE_TABLE} scoped_er ON scoped_er.extraction_run_id = er.id
+                   ) scoped
+                   JOIN document_versions dv ON dv.id = scoped.id"""
+        ),
+        {"sid": policy_set_id},
+    )
 
 #: (table, DELETE statement) in an order where every child precedes its parent.
 #:
@@ -91,7 +174,10 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
         """DELETE FROM notes WHERE entity_id IN (
                SELECT id::text FROM candidate_rules WHERE policy_set_id = :sid
                UNION ALL SELECT id::text FROM source_documents WHERE policy_set_id = :sid
-               UNION ALL SELECT CAST(:sid AS text)
+              UNION ALL
+              SELECT document_id::text FROM policy_set_teardown_document_versions
+              WHERE exclusive
+              UNION ALL SELECT CAST(:sid AS text)
            )""",
     ),
     (
@@ -115,14 +201,13 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
                JOIN approved_policy_versions v ON ar.policy_version_id = v.id
                WHERE v.policy_set_id = :sid)
               OR document_version_id IN (
-               SELECT dv.id FROM document_versions dv
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)
+               SELECT document_version_id FROM policy_set_teardown_document_versions
+               WHERE exclusive)
               OR clause_id IN (
                SELECT c.id FROM clauses c
-               JOIN document_versions dv ON dv.id = c.document_version_id
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)""",
+               WHERE c.document_version_id IN (
+                   SELECT document_version_id FROM policy_set_teardown_document_versions
+                   WHERE exclusive))""",
     ),
     (
         "policy_test_runs",
@@ -174,50 +259,66 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
                SELECT dp.id FROM document_provisions dp
                WHERE dp.policy_set_id = :sid
                   OR dp.document_version_id IN (
-                      SELECT dv.id FROM document_versions dv
-                      JOIN source_documents d ON d.id = dv.document_id
-                      WHERE d.policy_set_id = :sid))""",
+                      SELECT document_version_id FROM policy_set_teardown_document_versions
+                      WHERE exclusive))""",
     ),
     (
         "document_provisions",
         """DELETE FROM document_provisions WHERE policy_set_id = :sid
            OR document_version_id IN (
-               SELECT dv.id FROM document_versions dv
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)""",
+               SELECT document_version_id FROM policy_set_teardown_document_versions
+               WHERE exclusive)""",
     ),
     (
         "extraction_stages",
         """DELETE FROM extraction_stages WHERE document_version_id IN (
-               SELECT dv.id FROM document_versions dv
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)
+               SELECT document_version_id FROM policy_set_teardown_document_versions
+               WHERE exclusive AND CAST(:sid AS uuid) IS NOT NULL)
            OR extraction_run_id IN (
+               SELECT extraction_run_id FROM policy_set_teardown_extraction_runs
+               WHERE CAST(:sid AS uuid) IS NOT NULL
+               UNION
                SELECT er.id FROM extraction_runs er
-               JOIN document_versions dv ON dv.id = er.document_version_id
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)""",
+               WHERE er.document_version_id IN (
+                   SELECT document_version_id FROM policy_set_teardown_document_versions
+                   WHERE exclusive))""",
     ),
     (
         "extraction_runs",
-        """DELETE FROM extraction_runs WHERE document_version_id IN (
-               SELECT dv.id FROM document_versions dv
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)""",
+        """DELETE FROM extraction_runs
+           WHERE (
+               id IN (
+                   SELECT extraction_run_id FROM policy_set_teardown_extraction_runs
+                   WHERE CAST(:sid AS uuid) IS NOT NULL)
+               OR document_version_id IN (
+                   SELECT document_version_id FROM policy_set_teardown_document_versions
+                   WHERE exclusive))
+           AND NOT EXISTS (
+               SELECT 1 FROM candidate_rules cr
+               WHERE cr.extraction_run_id = extraction_runs.id)""",
     ),
     (
         "clauses",
         """DELETE FROM clauses WHERE document_version_id IN (
-               SELECT dv.id FROM document_versions dv
-               JOIN source_documents d ON d.id = dv.document_id
-               WHERE d.policy_set_id = :sid)""",
+               SELECT document_version_id FROM policy_set_teardown_document_versions
+               WHERE exclusive AND CAST(:sid AS uuid) IS NOT NULL)""",
     ),
     (
         "document_versions",
-        """DELETE FROM document_versions WHERE document_id IN (
-               SELECT id FROM source_documents WHERE policy_set_id = :sid)""",
+        """DELETE FROM document_versions WHERE id IN (
+               SELECT document_version_id FROM policy_set_teardown_document_versions
+               WHERE exclusive AND CAST(:sid AS uuid) IS NOT NULL)""",
     ),
-    ("source_documents", "DELETE FROM source_documents WHERE policy_set_id = :sid"),
+    (
+        "source_documents",
+        """DELETE FROM source_documents d
+           WHERE (d.policy_set_id = :sid
+                 OR d.id IN (
+                     SELECT document_id FROM policy_set_teardown_document_versions
+                     WHERE exclusive))
+             AND NOT EXISTS (
+                SELECT 1 FROM document_versions dv WHERE dv.document_id = d.id)""",
+    ),
     ("correlation_findings", "DELETE FROM correlation_findings WHERE policy_set_id = :sid"),
     ("correlation_runs", "DELETE FROM correlation_runs WHERE policy_set_id = :sid"),
     ("evaluations", "DELETE FROM evaluations WHERE policy_set_id = :sid"),
@@ -255,6 +356,8 @@ class DeletionOutcome:
     policy_index_name: str | None = None
     policy_index_deleted: bool | None = None
     policy_index_error: str | None = None
+    document_versions_identified: int = 0
+    document_versions_retained: int = 0
 
     @property
     def total_rows(self) -> int:
@@ -295,16 +398,17 @@ async def collect_search_document_ids(session: AsyncSession, policy_set_id: uuid
     format.
     """
 
+    await _prepare_document_version_scope(session, policy_set_id)
     rows = (
         await session.execute(
             text(
                 """SELECT c.id AS clause_id, c.document_version_id AS version_id
                    FROM clauses c
-                   JOIN document_versions dv ON dv.id = c.document_version_id
-                   JOIN source_documents d ON d.id = dv.document_id
-                   WHERE d.policy_set_id = :sid"""
+                   WHERE c.document_version_id IN (
+                       SELECT document_version_id
+                       FROM policy_set_teardown_document_versions
+                       WHERE exclusive)"""
             ),
-            {"sid": policy_set_id},
         )
     ).mappings().all()
     return [clause_search_document_id(str(r["version_id"]), str(r["clause_id"])) for r in rows]
@@ -325,6 +429,17 @@ async def delete_policy_set(
     outcome = DeletionOutcome(policy_set_key=policy_set.key, policy_set_name=policy_set.name)
     search_ids = await collect_search_document_ids(session, policy_set.id)
     outcome.search_documents_identified = len(search_ids)
+    scope_counts = (
+        await session.execute(
+            text(
+                """SELECT COUNT(*) AS total,
+                          COUNT(*) FILTER (WHERE NOT exclusive) AS retained
+                   FROM policy_set_teardown_document_versions"""
+            )
+        )
+    ).mappings().one()
+    outcome.document_versions_identified = int(scope_counts["total"])
+    outcome.document_versions_retained = int(scope_counts["retained"])
 
     for table, statement in _DELETION_ORDER:
         result = await session.execute(text(statement), {"sid": policy_set.id})
@@ -347,6 +462,8 @@ async def delete_policy_set(
             "rows_deleted": dict(outcome.rows_deleted),
             "total_rows_deleted": outcome.total_rows,
             "search_documents_identified": outcome.search_documents_identified,
+            "document_versions_identified": outcome.document_versions_identified,
+            "document_versions_retained": outcome.document_versions_retained,
         },
     )
 
