@@ -29,7 +29,6 @@ from policy_platform.infrastructure.extraction import ai_extraction
 from policy_platform.infrastructure.quality import ai_quality
 from policy_platform.infrastructure.assistants import ai_rewrite
 from policy_platform.infrastructure.assistants import ai_case_intent
-from policy_platform.infrastructure.assistants import ai_case_project
 from policy_platform.infrastructure.assistants import ai_scenario_eval
 from policy_platform.infrastructure.assistants import ai_scenario_engine
 from policy_platform.infrastructure.assistants import ai_summary
@@ -44,6 +43,7 @@ from policy_platform.infrastructure.assistants import rule_change_explainer
 from policy_platform.infrastructure.assistants import provision_topic_label
 from policy_platform.infrastructure.assistants import rule_namer
 from policy_platform.infrastructure.assembly import rule_name_lookup
+from policy_platform.application import policy_case_decision
 from policy_platform.infrastructure.projection.policy_case_payload import case_payload_for_provision
 from policy_platform.domain.models import (
     CandidateRule,
@@ -914,6 +914,18 @@ async def answer_project_case(
 
     An unknown project key is 404, as is a `provision_id` that names a policy in a
     different project; a malformed id is 422; an unconfigured model is 503.
+
+    WHY THIS GOES THROUGH THE APPLICATION LAYER
+
+    The call below is `application.policy_case_decision.answer_project_case`, not
+    the decider itself. That module is the only caller of
+    `ai_case_project.answer_project_case`, so the reviewer surface here and the
+    audited external contract at `POST /api/policy-decisions/{project_key}/case`
+    cannot drift into two deciders. The delegation is behaviour-preserving on
+    purpose: this route still returns the decider's dict unchanged and still
+    writes nothing. A reviewer testing a case is not an external system asking
+    for an auditable decision, and turning every click here into a stored receipt
+    would misfile the reviewer's exploration as a governed decision record.
     """
     policy_set = await PolicySetRepository(session).get_by_key(key)
     if policy_set is None:
@@ -921,7 +933,7 @@ async def answer_project_case(
 
     _require_ai_configured()
     try:
-        return await ai_case_project.answer_project_case(
+        return await policy_case_decision.answer_project_case(
             session,
             policy_set=policy_set,
             scenario=body.scenario,

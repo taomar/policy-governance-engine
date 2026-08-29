@@ -220,6 +220,8 @@ The result is the point. Read it top to bottom:
 
 That last item is the whole proposition. The answer is not a summary of the handbook; it is a decision with the sentences that produced it, which a person can check against the source.
 
+**Test a Case is a reviewer's surface.** It answers you on screen and records nothing: there is no decision id, and nothing correlates what you just read to a stored record. That is unchanged and deliberate. When another system needs an answer it can cite, replay or audit later, use the audited external channel instead — see [§14](#14-serve-decisions-to-other-systems), which writes a receipt for every call.
+
 ---
 
 ## 12. Prove behaviour with blind tests
@@ -274,6 +276,63 @@ The response carries the determination for each rule, and those requests are wha
 
 For the endpoint groups, request shapes and common sequences, see the [API guide](api.md).
 
+### Call from your app
+
+**Call from your app** sits on the project header, immediately after **Test a Case**. It answers one question — *how does my service ask this project a question?* — and it answers it without anyone copying a UUID out of a URL bar by hand.
+
+It opens a panel with five sections:
+
+| Section | What it gives you |
+|---|---|
+| **Project identity** | The **project key**, marked *use this in API paths*; the **active version** number and id, marked *resolved for you when you omit it*; the **project id (UUID)**, marked *trace identity — not a URL segment*; the **display name**, marked *display only*; and the API base. |
+| **cURL** | A runnable request against `POST /api/policy-decisions/{key}/case`. |
+| **Python** | The same call with `requests`, including the status-before-verdict branch. |
+| **Raw HTTP** | The request line, headers and body as they go on the wire, plus the `GET` that reads the receipt back. |
+| **API docs** | Links to Swagger UI, ReDoc and the OpenAPI document served by the API at the base you set. |
+
+Two things about identity are worth stating plainly, because getting them wrong is the most common integration mistake:
+
+- **The key is the identifier.** Paths use it. It is stable, it is a slug, and it is what you send to an integrator.
+- **The display name is never an identifier.** It changes whenever someone renames the project, and it has no copy control in this panel on purpose. The UUID is trace identity — it comes back on every receipt so a decision can be traced to this project in a support or audit conversation, and it is never a path segment.
+
+**No snippet ever contains a credential.** Every example reads the subscription key from the environment variable `POLICY_SUBSCRIPTION_KEY` and sends it in `X-Policy-Subscription-Key`. Your signed-in session token is not read, not rendered and not copied, and the panel has no access to whatever key an operator configured on the server — there is nothing here to reveal. Editing the API base only re-renders the snippets; it changes nothing about your session.
+
+Changing the base URL is how you point the snippets at a real deployment. In Azure, the base an external caller uses is the **web** application's public address, whose gateway proxies `/api` through to the API — see [configuration](configuration.md#reaching-the-api-from-outside).
+
+### The external playground
+
+A separate demonstration client — not part of the product's signed-in surface — shows what an outside system sees. Anyone with an API base, a credential and a project key can watch a real case go to real published policies and read the receipt end to end. It is a **local demonstration**: see [External consumption](external-consumption.md#where-the-credential-may-live) for why a browser page is not where a shared credential belongs outside one.
+
+You provide, in one docket:
+
+- **API base**, **project key** and **API subscription key**. The credential is a plain text field, visible on purpose: the playground exists to show the exact request an integrator must reproduce, and a credential nobody can read is one nobody can check against the `401` they just got. It is held in memory for that tab only — never written to storage, the URL or a log — and can be prefilled on a developer machine from a git-ignored `.env.local`. The project's name and active version resolve from the API as you type the project key.
+- **Scenario** — the case, in plain English.
+- **Reasoning effort**, a **calling system** label, and an optional **idempotency key**.
+- **Additional instructions** (optional, up to 2000 characters) — guidance about how you want the explanation presented. The field carries its constraint next to it: it shapes explanation focus or format, and cannot override published policy, retrieval, decision status or citation requirements.
+
+Before anything is sent, the **Request Inspector** shows the exact request:
+
+- **Request JSON** — the body as it will be serialised, live as you type, with a client-side preview of the request hash. `additional_instructions` is omitted entirely when empty rather than sent as `""`.
+- **Caller guidance** — two registers that are deliberately never merged. *Caller guidance — editable* is your text. *Server instruction profile — read only* names the server's framing by identifier and has no edit affordance of any kind, because there is nothing to unlock. Between them, the precedence is stated: server instructions and published policy take precedence; caller guidance applies only where it does not conflict.
+- **Raw HTTP** — the request line, every header and the body. The `Authorization` line is a fixed-width mask, and copying or downloading this tab emits the masked form.
+
+After submitting, the page reads top to bottom:
+
+1. **Verdict band** — the decision status first, then the verdict *only* when the status is `answered`, then the explanation and the citation count. There is no state in which you can read a verdict without first reading the status that qualifies it.
+2. **Decision receipt** — decision id, project (name, key, UUID, each labelled for what it is), policy version, correlation id, the authenticated principal beside the caller-declared label, timestamp, and the envelope name `case_decision_v1`.
+3. **Request as sent** — the scenario and the caller guidance exactly as the *server* echoed them back, not as the page believes it sent them, with the scenario hash and the server instruction profile version.
+4. **Result grid** — status, verdict (or `Not reached — status is "…"`), the route that decided, explanation, actions or missing facts, and the decision hash.
+5. **Rule evidence** — each cited rule with its heading path, section or page, the verbatim quoted source, and a link to the policy payload. Where no verbatim text was returned, the page says so rather than substituting a paraphrase.
+6. **Retrieval disclosure** — how many policies were considered, retained and discarded, and why each was set aside.
+7. **Raw JSON** — the whole envelope, unmodified.
+8. **Verify stored receipt** — a `GET` of the stored receipt, compared field by field against what you were returned: decision hash, policy version id, timestamp, caller guidance and server instruction profile. All of them must match for the comparison to read as verified.
+
+**Project scope retrieves; it does not evaluate everything.** Putting a case to a project does not run it against every published policy. The policies bearing on the question are retrieved from the project's own policy index and the rest are discarded before anything is evaluated — and the retrieval disclosure shows you the shortlist and the reason each discarded policy was set aside. The phrase *all published policies were evaluated* appears only when narrowing genuinely set nothing aside.
+
+**What the receipt is worth.** The decision hash is an integrity seal: it proves the stored receipt's decision-defining content has not been altered. It is not a promise that asking the same question again produces the same words — a model is in the path. Send an idempotency key when you need the same receipt back.
+
+For the request shapes, the envelope, the errors and the integration guidance behind all of this, see [External consumption](external-consumption.md) and the [API guide](api.md#audited-external-decisions-policy-decisions).
+
 ---
 
 ## 15. Ask the policy in plain words
@@ -282,7 +341,7 @@ For the endpoint groups, request shapes and common sequences, see the [API guide
 
 **Ask AI** answers questions about a policy set from its approved rules, grouping verbatim source facts by topic and keeping the AI's own synthesis separate and labelled.
 
-Use it for *"what does this say about…"*. Use **Test a Case** ([§11](#11-put-a-real-case-to-it)) when you want a decision on a specific situation — that is a reviewer's tool and it writes to the audit trail.
+Use it for *"what does this say about…"*. Use **Test a Case** ([§11](#11-put-a-real-case-to-it)) when you want a decision on a specific situation — that is a reviewer's tool, answered on screen and not persisted. When the decision has to be citable afterwards, use the audited external channel in [§14](#14-serve-decisions-to-other-systems).
 
 ---
 

@@ -8,6 +8,16 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8010";
 
+/**
+ * The API base this build was configured with.
+ *
+ * Exported so a surface that has to *show* the base — rather than call it — can
+ * quote the same value the client uses, instead of re-deriving
+ * `import.meta.env` and drifting from it. Reading it never sends a request and
+ * never touches the session.
+ */
+export const CONFIGURED_API_BASE_URL: string = API_BASE_URL;
+
 import { actorRoleRefusalText, isActorRoleRefusal } from "./actorRole";
 import { clearSession, getSession } from "./auth";
 import type { Role } from "./rbac";
@@ -1394,6 +1404,86 @@ export interface ProjectCaseAnswerRequest {
   scenario: string;
   provision_id?: string;
   reasoning_effort?: string;
+}
+
+// ---------------------------------------------------------------------------
+// External case decision — the contract another system calls, not this app
+//
+// `POST /api/policy-decisions/{project_key}/case` and
+// `GET  /api/policy-decisions/{decision_id}` are the endpoints an integrator
+// uses from their own service. This app does not call them: it already has a
+// session and uses `answerProjectCase` above, which is a different endpoint
+// with a different shape and is deliberately left alone.
+//
+// The types exist so the worked examples this product *shows* an integrator are
+// checked against the request the server documents. A snippet is a promise, and
+// an untyped promise drifts silently: the example would still render, still
+// copy, and still fail on their machine. Mirrors
+// `ProjectCaseDecisionRequest` in `api/routers/policy_decisions.py`.
+// ---------------------------------------------------------------------------
+
+/** The header a caller carries its own correlation id in.
+ *
+ *  A header, not a body field, because it names the call rather than the
+ *  question. */
+export const EXTERNAL_CORRELATION_ID_HEADER = "X-Correlation-Id";
+
+/** The header an optional idempotency key arrives in.
+ *
+ *  Also a header: it describes the delivery of a request, not what was asked,
+ *  and the server hashes the body it is compared against. */
+export const EXTERNAL_IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+
+/** The most caller guidance the server accepts, after it normalises whitespace.
+ *  Longer is a 422, so an example must never teach a longer one. */
+export const EXTERNAL_ADDITIONAL_INSTRUCTIONS_MAX_CHARS = 2000;
+
+/** The body of `POST /api/policy-decisions/{project_key}/case`. */
+export interface ExternalCaseDecisionRequest {
+  /** The case, in natural language. Stored on the receipt verbatim. */
+  scenario: string;
+  /** Optional. Naming one policy bypasses retrieval and decides against that
+   *  policy alone. Omitted, the project's bearing policies are retrieved. */
+  provision_id?: string;
+  /** Requested reasoning effort. A deployment may reject it, so only the
+   *  request is recorded. */
+  reasoning_effort?: string;
+  /** Optional guidance about how the explanation is presented. It cannot change
+   *  which policies were read, the decision status, the verdict, or the
+   *  citation requirement. Capped at
+   *  `EXTERNAL_ADDITIONAL_INSTRUCTIONS_MAX_CHARS`. */
+  additional_instructions?: string;
+  /** Optional. May also travel as `X-Correlation-Id`; sending both means they
+   *  must match. */
+  correlation_id?: string;
+  /** Optional free-text label for the calling system. Unverified, and recorded
+   *  beside — never instead of — the authenticated principal. */
+  calling_system_identity?: string;
+}
+
+/** The `case_decision_v1` fields a caller reads first.
+ *
+ *  Deliberately partial. This app never deserialises a receipt, so declaring
+ *  the whole envelope here would be a second copy of a server contract that
+ *  nothing in this app checks. What is declared is what the worked examples
+ *  read, so an example cannot quietly start reading a key that is not there. */
+export interface ExternalCaseDecisionReceiptFields {
+  /** `case_decision_v1`. */
+  schema_version: string;
+  decision_id: string;
+  correlation_id: string;
+  /** The status, repeated at the top of the envelope. Read before the verdict:
+   *  only `answered` carries one. */
+  decision_status: string;
+  decision: {
+    status: string;
+    verdict: string;
+    explanation: string;
+  };
+  citations: unknown[];
+  decision_hash: string;
+  /** Where the stored receipt can be read back from. */
+  receipt_url: string;
 }
 
 /** One section of the source, carrying every passage stated under it.

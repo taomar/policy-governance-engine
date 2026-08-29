@@ -20,6 +20,7 @@ This index is for public readers, reviewers, operators and contributors finding 
 | [Workflows](workflows.md) | Concise operational lifecycle |
 | [Capability flows](capability-flows.md) | High-impact diagrams |
 | [API](api.md) | Endpoints and common sequences |
+| [External consumption](external-consumption.md) | Calling the audited decision API from another system |
 | [Configuration](configuration.md) | Local setup and troubleshooting |
 | [Testing](testing.md) | Commands, fixtures, and coverage |
 | [Data model](data-model.md) | Tables and invariants |

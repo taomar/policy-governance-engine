@@ -37,8 +37,9 @@ The backend is layered by dependency direction: contracts and the evaluator sit 
 | Contracts | `policy_platform.contracts` | Pydantic models for the canonical rule, the condition AST, evaluation request/response, policy tests, correlation findings, and the canonical hash. No I/O. |
 | Evaluator | `policy_platform.evaluator` | The deterministic decision core: condition interpretation, precedence resolution, the evaluation engine, and the policy-test runner. No database, no network, no AI. |
 | Domain | `policy_platform.domain` | SQLAlchemy ORM entities and table definitions. |
+| Application | `policy_platform.application` | Use cases that coordinate infrastructure for more than one entry point. Currently one module, `policy_case_decision.py`, which owns the project-case decision for both the in-product route and the audited external API. |
 | Infrastructure | `policy_platform.infrastructure` | Everything that touches the outside world, grouped into thirteen sub-packages by responsibility (see below). Two modules stay at the root: `settings.py`, imported across every sub-package, and `prompt_assets.py`, which must sit level with the `prompts/` directory it locates. |
-| API | `policy_platform.api` | FastAPI app, request/response schemas, and twelve routers. |
+| API | `policy_platform.api` | FastAPI app, request/response schemas, and fifteen routers. |
 
 ### Inside infrastructure
 
@@ -74,6 +75,7 @@ Grouped by the question each answers, not by the technology each uses. A module 
 | Cross-rule correlation | `infrastructure/correlation/correlation_service.py` + `correlation_agent.py` |
 | Version diff & narrative | `infrastructure/projection/rule_delta.py` (computes) + `infrastructure/assistants/ai_compare.py`, `infrastructure/assistants/rule_change_explainer.py` (narrate) |
 | Grounded chat | `infrastructure/assistants/ai_chat.py` |
+| Project-case decision | `application/policy_case_decision.py` (reserve/decide/finalise, idempotency, envelope) + `contracts/case_decision.py` (`case_decision_v1`, the hash preimage) + `infrastructure/assistants/ai_case_project.py` (retrieval and evaluation) |
 | Azure clients | `infrastructure/ai/openai_client.py`, `infrastructure/search/search_client.py`, `search/indexing.py` |
 | Configuration | `infrastructure/settings.py` |
 | Persistence access | `infrastructure/persistence/repositories/` (seven modules, one per part of the lifecycle), `infrastructure/persistence/mappers.py`, `infrastructure/persistence/db.py` |
@@ -154,6 +156,8 @@ flowchart LR
 
 No model participates in a runtime decision. Every AI output is a *draft* or an *observation* that a human accepts before it can influence a published version, and the evaluator only ever reads approved, versioned rules.
 
+That statement is about the deterministic decision path — `POST /api/evaluations` and the policy-test runner. A **project case** is a different thing and is labelled as one: a model reads published, human-approved records and answers a question in prose. It cannot alter a rule, a version or a determination made by the evaluator, and its receipt names the route that produced it so a reader never mistakes it for an engine result. See [one decider, two surfaces](#one-decider-two-surfaces).
+
 Supporting invariants, all enforced in code:
 
 - Stage 1 passages are re-checked in Python for verbatim containment; a fabricated quote is caught by string comparison, not by re-reading.
@@ -163,6 +167,55 @@ Supporting invariants, all enforced in code:
 - Quality and correlation findings are stored as *runs*, so a finding is always a statement about the rules as they stood at that moment.
 
 Each invariant above has a test module behind it — the mapping is in [Testing and scripts → active test capability groups](testing.md#active-test-capability-groups), and the boundaries the suite deliberately does not cross are in [gaps](testing.md#current-coverage-gaps).
+
+## One decider, two surfaces
+
+A project case — a question in plain English, put to a project's published policies — is reachable two ways, and the difference between them is not the decision but what is owed to the caller afterwards.
+
+```mermaid
+flowchart TD
+    Reviewer(["Reviewer in the product"])
+    External(["External system"])
+
+    Legacy["POST /api/ai/policy-sets/{key}/case-answer<br/>in-product reviewer surface"]
+    Audited["POST /api/policy-decisions/{project_key}/case<br/>audited external contract"]
+
+    App["application/policy_case_decision.py<br/>the only caller of the decider"]
+    Decider["assistants/ai_case_project<br/>retrieval, then evaluation"]
+    Receipts[("policy_case_decisions<br/>append-only receipts")]
+
+    Reviewer --> Legacy --> App
+    External --> Audited --> App
+    App --> Decider
+    Audited -. "reserve → decide → finalise" .-> Receipts
+```
+
+Both routes go through one application module, and that module is the **only** place in the codebase that calls the project-case decider — a static test counts the call sites and fails when a second appears. Wiring the external route straight into the decider would have turned every reviewer click into an audited external call; wiring it into a copy would have produced two deciders that agree until one is edited.
+
+**The legacy reviewer route is unchanged.** It persists nothing, returns no decision identity, and its response shape is byte-compatible with what it always returned. A reviewer exercising a policy is not making an external commitment, and the audit trail should not fill with screen work.
+
+**The external route is reserve → decide → finalise.** A case costs on the order of ten seconds of model time, and that single fact shapes the order:
+
+1. **Reserve, and commit.** A `pending` receipt row is written and committed *before* the model is called. If the process dies mid-call, the evidence that the call was made survives. If the reservation cannot be written, no model call is made and the caller gets a non-2xx.
+2. **Decide, holding no transaction.** The model call runs with nothing open.
+3. **Finalise, in a short transaction.** `completed` with the full envelope and its hash, or `failed` with a reason and no outcome.
+
+If finalisation fails, the caller is told so and is **not** given the verdict. There is no "here is your answer, but we could not save it" response: a verdict that cannot be cited later is precisely what this endpoint exists to stop shipping.
+
+### Two records, two meanings
+
+| Record | Written by | Holds |
+|---|---|---|
+| `evaluations` | `POST /api/evaluations` | A deterministic decision: structured facts in, per-rule determinations out, a `result_hash` that reproduces. The evaluator is a pure function — no database, no network, no model. |
+| `policy_case_decisions` | `POST /api/policy-decisions/{project_key}/case` | A model-mediated case decision: prose in, a receipt out, with retrieval disclosure, citations and a `decision_hash` that seals content rather than promising reproduction. |
+
+They are separate tables because generalising one over the other would be a lie rather than an abstraction: `Evaluation` requires a non-null policy version (a case can legitimately answer with none published), requires structured facts (a case has prose), and carries the XACML status enum (a case has its own seven-value vocabulary). Keeping them apart is what lets each state exactly what it is.
+
+### Public identity
+
+External routing is on the project's stable `key`. The UUID `id` is returned on every receipt as trace identity and is never routed on; the `name` is a display string and changes. A URL built from a display name would break the first time someone renamed a project, so a name in the path is a `404`.
+
+Both decision operations additionally require a proved authenticated principal, resolved independently of the global `RBAC_ENABLED` flag — see [API](api.md#audited-external-decisions-policy-decisions) and [External consumption](external-consumption.md).
 
 ## Evaluation call, end to end
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
   Alert,
   AutoComplete,
@@ -16,6 +16,7 @@ import {
   Typography,
 } from "antd";
 import {
+  ApiOutlined,
   AuditOutlined,
   CheckCircleOutlined,
   DashboardOutlined,
@@ -52,6 +53,7 @@ import { PolicyAttestationsPage } from "./PolicyAttestationsPage";
 import { DecisionLogPage } from "./DecisionLogPage";
 import { recordScaleBadge, reviewBacklogBadge } from "../policyRecordFacts";
 import { ProjectCaseRunner } from "./ProjectCaseRunner";
+import { ConsumeProjectDrawer } from "./ConsumeProjectDrawer";
 import { canAccessTab, canAuthor, surfaceAccess } from "../rbac";
 import { useActor } from "../ActorContext";
 
@@ -325,6 +327,11 @@ export function ProjectWorkspace({
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewForm] = Form.useForm();
   const [caseRunnerOpen, setCaseRunnerOpen] = useState(false);
+  const [consumeOpen, setConsumeOpen] = useState(false);
+  //: Held so closing the consume drawer puts focus back on the control that
+  //: opened it. A dismissed layer that drops focus to the document body strands
+  //: a keyboard user at the top of the page they were already past.
+  const consumeButtonRef = useRef<HTMLButtonElement>(null);
   //: Set when a case refuses on an index fault and the reader asks to repair it.
   //: `status` is what live retrieval found, which the Overview's recorded state
   //: can legitimately disagree with; carrying it keeps the instruction and the
@@ -533,6 +540,28 @@ export function ProjectWorkspace({
                 Test a Case
               </Button>
             )}
+            {/* Second, not first: exercising a project's policies comes before
+                integrating with them, and the order of the two buttons is the
+                order of that work. Gated by the same capability as `Test a
+                Case` — the drawer describes the endpoint that surface uses, so
+                an actor who may not put a case has nothing to integrate with.
+                Withheld by absence rather than by a disabled button: this
+                header is forbidden from wrapping, and a dead control in it is
+                noise an actor can do nothing about. */}
+            {canAccessTab(rbacRole, "case-runner") && (
+              <Tooltip title="Call from your app">
+                <Button
+                  size="small"
+                  ref={consumeButtonRef}
+                  icon={<ApiOutlined />}
+                  onClick={() => setConsumeOpen(true)}
+                  aria-label={`Show how to call ${policySet.name} published policies from your own application`}
+                  data-testid="consume-open"
+                >
+                  <span className="ws-bar__action-label">Call from your app</span>
+                </Button>
+              </Tooltip>
+            )}
           </div>
         </div>
 
@@ -644,6 +673,17 @@ ${groupDividerCss.split(",\n")
           // that just ran with the reading it took when it mounted.
           setIndexRepair((prev) => ({ nonce: (prev?.nonce ?? 0) + 1, status }));
           setActiveTab("overview");
+        }}
+      />
+
+      {/* A sibling of the case runner, not a change to it: this drawer runs no
+          request and reads no result. */}
+      <ConsumeProjectDrawer
+        policySet={policySet}
+        open={consumeOpen}
+        onClose={() => {
+          setConsumeOpen(false);
+          consumeButtonRef.current?.focus();
         }}
       />
 

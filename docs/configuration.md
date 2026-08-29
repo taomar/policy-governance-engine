@@ -21,7 +21,12 @@ Copy-Item .env.example .env
 | `ALEMBIC_DATABASE_URL` | psycopg URL | Used by migrations (sync). **Required.** |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8010` | Port 8000 was already taken locally, hence 8010. |
 | `DEV_AUTH_ENABLED` | `true` | Local development flag; there is no real auth. |
+| `POLICY_SUBSCRIPTION_KEY` | blank | One pre-shared key for a non-interactive caller, sent in `X-Policy-Subscription-Key`. **Blank disables the mechanism** — the header is not read at all. See [calling the decision API](#calling-the-decision-api-from-another-system). |
+| `POLICY_SUBSCRIPTION_KEY_IDENTITY` | `external-api-client` | The identity every receipt that key produces is attributed to. |
+| `POLICY_SUBSCRIPTION_KEY_ROLE` | `viewer` | `viewer`, `policy_author` or `admin`. An unrecognised value refuses the key rather than granting an unusable role. |
 | `WEB_DEV_SERVER_PORT` | `5490` | Included in the API's CORS allow-list along with 5173–5180. |
+| `CORS_ALLOWED_ORIGINS` | blank | Comma-separated browser origins allowed to call the API. **Blank derives them**; an explicit list **replaces** the derived set rather than adding to it. See [browser origins](#browser-origins-and-cors) below. |
+| `CORS_DEV_PORT_RANGE` | `5173-5180` | The ports probed on both `localhost` and `127.0.0.1` when `CORS_ALLOWED_ORIGINS` is blank. |
 | `VITE_API_BASE_URL` | `http://localhost:8010` | Read by the frontend at build/dev time. |
 | `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | Optional for a first local run. Blank leaves AI features disabled (routes return `503`), but the app boots and all deterministic features work. |
 | `AZURE_OPENAI_DEPLOYMENT` | blank | Reasoning deployment: extraction, quality, correlation, rewrite, compare. Required for AI features, not for booting the app. |
@@ -217,18 +222,81 @@ The repository also contains a deployment-ready Azure kit: root `azure.yaml` and
 
 This is interactive deployment automation through `azd`; it is not a CI/CD pipeline. There is still no `.github/workflows/` or other automated build, test, scan or release pipeline.
 
+## Reaching the API from outside
+
+Locally the API is its own process on `http://localhost:8010` and an external client calls it directly.
+
+In the Azure topology it is not directly addressable. The public FQDN belongs to the **web** container app, whose nginx reverse-proxies `/api` through to the API container app; the API container stays internal to the Container Apps environment. So the base URL you hand to an integrator is the web application's address — `https://<web-fqdn>` — and every path documented in the [API guide](api.md) sits unchanged beneath it. That is also why a decision receipt's `receipt_url` is a relative path: an absolute URL built inside the API would name a host the caller never used.
+
+There is no separate public ingress for the API, and none is needed. If you add one, it is a new trust boundary and the CORS list, the token audience and the platform-header decision below all have to be revisited for it.
+
+### Browser origins and CORS
+
+The API's allow-list comes from `settings.allowed_cors_origins`:
+
+- **`CORS_ALLOWED_ORIGINS` blank (the default)** — the configured `WEB_DEV_SERVER_PORT` plus the `CORS_DEV_PORT_RANGE` (`5173-5180`) are allowed on both `localhost` and `127.0.0.1`. Both hostnames are listed because a browser treats them as different origins and which one a developer types is not predictable. A browser client on any port in that range works locally with no configuration change — which is why the external playground under `apps/consume-demo` fixes its dev port at **5179** with `strictPort`, rather than letting Vite move to the next free port and present a CORS block as a broken backend.
+- **`CORS_ALLOWED_ORIGINS` set** — the named origins are the whole list. It **replaces** the derived set; it is not unioned with it. An operator who names origins means those and no others, and quietly adding a development range would widen production beyond what was asked for. So a production origin must appear in that variable explicitly, and once you set it the local development ports stop being allowed unless you list them too.
+
+A missing origin fails as a silent CORS block in the browser rather than a server-side error anyone will see in a log, so check the browser console first when a client cannot reach the API.
+
+Server-to-server callers — a service, a workflow step, an agent runtime — are not browsers and are unaffected by any of this.
+
+### Calling the decision API from another system
+
+The two audited decision operations require a proved identity and refuse an unauthenticated caller with `401`, **independently of `RBAC_ENABLED`**. That is the only place the global flag is bypassed, and it only ever narrows access: a receipt has to name the principal that asked for it, and `rbac-disabled` is not a principal. Capability remains the global guard's decision.
+
+There are two ways to be that caller.
+
+**A bearer token**, from the same issuer the API validates. Everything under [Signing in](#signing-in) applies unchanged. This is the option to reach for when the caller is a person, or when you need per-caller attribution, expiry, or revocation without a restart.
+
+**A subscription key**, for a non-interactive caller that has no user and no issuer — an agent, a workflow, a scheduled job.
+
+| Setting | Meaning |
+|---|---|
+| `POLICY_SUBSCRIPTION_KEY` | The key itself. **Blank by default, and blank means the mechanism does not exist**: the header is not read at all, so a deployment that never enabled it cannot be probed through it. Generate something long and random; no strength requirement is enforced, and a guessable key is a public API. |
+| `POLICY_SUBSCRIPTION_KEY_IDENTITY` | The identity recorded on every receipt the key produces. Defaults to `external-api-client`. Name the system, not a person. |
+| `POLICY_SUBSCRIPTION_KEY_ROLE` | `viewer` (default), `policy_author` or `admin`. Validated against the role vocabulary: an unrecognised value refuses the key rather than producing a principal no capability band understands. |
+
+The caller sends it in `X-Policy-Subscription-Key`, not in `Authorization`:
+
+```bash
+export POLICY_SUBSCRIPTION_KEY="<the key your operator issued>"
+curl -sS -X POST "http://localhost:8010/api/policy-decisions/<project-key>/case" \
+  -H "X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"scenario": "Describe the situation you want decided."}'
+```
+
+What it is, precisely:
+
+- **One key, in this increment.** Every caller presenting it resolves to the same configured identity, so it groups callers rather than distinguishing them. Two systems sharing one key are indistinguishable in every receipt they produce.
+- **Rotation is: change the value, restart the API.** There is no overlap window, no second key, no revocation list and no expiry. Plan a short window in which in-flight callers get `401`, or use an issuer.
+- **It is compared in constant time** and a wrong key is refused with `401 subscription_key_rejected` rather than falling through to an anonymous request — the same rule the bearer path has always had. Presenting a bad credential must not be indistinguishable from presenting none.
+- **A valid bearer token wins.** If a caller sends both, the token decides: it names an individual, expires, and can be revoked at its issuer, and the key does none of those. A token that is presented and *rejected* still ends the request; a subscription key cannot rescue a bad token.
+- **It works through the normal guard too.** With `RBAC_ENABLED=true` the same key authenticates ordinary routes at its configured role, so one credential can resolve a project's identity and its active version as well as put a case and read the receipt back.
+- **It is not an Azure or APIM subscription key.** Nothing here integrates with API Management, Azure subscriptions, or any gateway product; it is a pre-shared value this application compares against its own configuration.
+
+Practical posture for an integrating system, whichever credential it holds:
+
+- Keep it in the calling system's own secret store. Documentation, snippets and the in-product **Call from your app** panel all read it from `POLICY_SUBSCRIPTION_KEY` and never contain a literal credential; keep it that way in anything you copy out of them.
+- **Never put a subscription key in a browser client.** The local playground at `apps/consume-demo` does exactly that, on purpose and for one purpose: it is a local demonstration against a key an operator generated for local use, so the value is shown in clear and appears in its Raw HTTP tab where it can be compared against a failing call. A shipped browser application must not — anything Vite inlines is served to every visitor, and a shared credential in a page is a shared credential in everyone's hands. Put a server between the browser and this API.
+- The caller-supplied `calling_system_identity` on a decision request is an **unverified label** for grouping and reporting. It is recorded beside the authenticated principal, never instead of it, and it grants nothing.
+- Receipts are readable by the caller who made the decision and by policy authors and administrators. A service verifying its own receipts needs no extra role.
+- Scenario text and caller guidance are stored in clear and are not pruned — see [Known limitations](known-limitations.md#before-relying-on-this-build) before exposing the endpoint to end users who type their own prose. **No retention setting exists**, and one is not listed here, because the backend implements none.
+
 ## Security status
 
 Read this before exposing the platform anywhere beyond a developer machine.
 
 | Aspect | Status |
 |---|---|
-| Authentication | The application validates a bearer token when an OIDC issuer is configured (`ENTRA_ISSUER`, `ENTRA_AUDIENCE`, `ENTRA_JWKS_URL`) — signature, expiry, issuer and audience are all checked. With those unset the token path is not offered at all, rather than half-checked, and callers resolve to the least privilege. The Azure deployment additionally authenticates at web ingress. |
+| Authentication | The application validates a bearer token when an OIDC issuer is configured (`ENTRA_ISSUER`, `ENTRA_AUDIENCE`, `ENTRA_JWKS_URL`) — signature, expiry, issuer and audience are all checked. With those unset the token path is not offered at all, rather than half-checked, and callers resolve to the least privilege. A non-interactive caller may instead present a pre-shared key in `X-Policy-Subscription-Key`, which is off until `POLICY_SUBSCRIPTION_KEY` is set, compared in constant time, and outranked by any valid bearer token. The Azure deployment additionally authenticates at web ingress. |
 | Identity | Comes from validated token claims where a token is presented. The role is no longer chosen in the browser: the "acting as" switcher has been removed, because a user who can pick their own role does not have one. A display name is still held locally for attribution. |
-| Authorization | A capability layer covering **all 96 API operations**. Each is classified into a band — read, use, author, administer — and one dependency enforces the registry, rather than checks scattered through routers. A guard test fails when any route is unclassified, and an unclassified route is denied at runtime too. **Disabled by default** (`RBAC_ENABLED=false`) so existing deployments are unchanged; see the note below before enabling it. |
+| Authorization | A capability layer covering **all 105 API operations**. Each is classified into a band — read, use, author, administer — and one dependency enforces the registry, rather than checks scattered through routers. A guard test fails when any route is unclassified, and an unclassified route is denied at runtime too. **Disabled by default** (`RBAC_ENABLED=false`) so existing deployments are unchanged; see the note below before enabling it. The two audited decision operations are the single exception: they additionally require a proved identity and answer `401` without one even when the flag is off. |
 | Multi-tenancy | Not modelled. Single-tenant local assumption. |
 | Transport | Local deployment uses HTTP. The pending Azure deployment enforces HTTPS ingress and TLS/private connectivity to data and AI services. |
-| CORS | Restricted to the configured local Vite ports. |
+| CORS | Derived from the configured local Vite ports when `CORS_ALLOWED_ORIGINS` is blank; an explicit list replaces that derived set entirely. See [browser origins and CORS](#browser-origins-and-cors). |
+| Stored request text | An audited decision receipt stores the caller's scenario and caller guidance in clear, append-only, with no retention job. Retention and erasure are operator obligations — see [Known limitations](known-limitations.md#before-relying-on-this-build). |
 | Secrets | Local keys use ignored `.env`. The pending Azure deployment stores database, Entra, OpenAI and Search secrets in private Key Vault and injects Key Vault references. |
 | Uploaded files | Local files use `data/documents`; the pending Azure deployment mounts a private Azure Files share. Malware/content scanning is not implemented. |
 | Threat model | No security review has been performed. |
@@ -268,6 +336,7 @@ Enforcement is only as good as the identity it reads, so configure sign-in first
 | Logs | Standard Python logging at `LOG_LEVEL`. Local runs also produce `backend_stdout.log` / `backend_stderr.log` (git-ignored). |
 | Extraction progress | In-memory, exposed via `GET /api/ai/documents/{id}/extraction-progress`, plus persisted run history at `.../extraction-runs`. Progress is telemetry, not a source of truth. |
 | Decision log | `evaluations` — every runtime evaluation with its facts, result and hash, browsable via the API and the Decision Log tab. |
+| Case decision receipts | `policy_case_decisions` — one append-only row per audited external case decision, holding the request, the caller, the finalised envelope and its hash. Read back one at a time at `GET /api/policy-decisions/{decision_id}`; there is no list or search endpoint over them. |
 | Audit trail | `audit_events` — immutable records of approvals, publications and dispositions, readable at `GET /api/audit-events`. |
 | Quality / correlation history | Persisted runs, so results can be compared over time. |
 | Test results | `policy_test_runs`, append-only, recording the version each run targeted. |

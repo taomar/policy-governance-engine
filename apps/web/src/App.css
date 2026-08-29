@@ -2562,6 +2562,10 @@
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  /* A query container so the actions can answer the width they actually have,
+     rather than the viewport's. The bar is a fixed row that is forbidden from
+     wrapping, and it is narrower than the window by a sidebar's worth. */
+  container-type: inline-size;
 }
 
 .ws-bar__id {
@@ -2616,6 +2620,17 @@
   align-items: center;
   gap: var(--sp-1);
   flex: 0 0 auto;
+}
+
+/* When the bar runs out of room, an action drops its label rather than the row
+   dropping to a second line: the header is a fixed single row, and a button
+   that shrinks out of existence takes a capability with it. The icon keeps the
+   button's `aria-label` and gains a tooltip, so nothing becomes unnameable —
+   only unlabelled on screen. */
+@container (max-width: 54rem) {
+  .ws-bar__action-label {
+    display: none;
+  }
 }
 
 /* The tab strip is the bar's own footer, so it needs no second container of

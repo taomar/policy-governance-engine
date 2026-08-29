@@ -59,6 +59,38 @@ class Settings(BaseSettings):
     #: question and has to be answered before this is set.
     trust_platform_auth_header: bool = False
 
+    # ── subscription key (one fixed key for a system caller) ────────
+    #: A single pre-shared key that authenticates a non-interactive caller —
+    #: an agent, a workflow, a scheduled job — in the header
+    #: `X-Policy-Subscription-Key`.
+    #:
+    #: Unset (the default) the mechanism does not exist: the header is not
+    #: read, and no request can be authenticated by it. That is the same
+    #: posture as `entra_issuer` and `local_accounts_enabled` — a credential
+    #: path that has not been configured is not offered rather than offered
+    #: weakly.
+    #:
+    #: It is deliberately *one* key, not a keyring. This increment gives an
+    #: operator a way to let one system call the audited decision API without
+    #: standing up an issuer; it does not give them per-caller attribution,
+    #: because every request presenting this key resolves to the same identity
+    #: below. Rotation is: change the value, restart the API. There is no
+    #: overlap window and no revocation list, and inventing either without a
+    #: store to hold them would be a claim rather than a feature.
+    policy_subscription_key: str | None = None
+    #: The identity a subscription-key caller is recorded as. It appears in
+    #: every audited receipt that key produces, so it should name the system,
+    #: not a person.
+    policy_subscription_key_identity: str = "external-api-client"
+    #: The role that identity holds. Defaults to the lowest privilege on
+    #: purpose: a key is a bearer credential with no expiry, and the blast
+    #: radius of one that leaks should be a read, not a publication. Validated
+    #: against the role vocabulary at use; an unknown value is refused rather
+    #: than silently treated as an unrecognised — and therefore unsatisfiable —
+    #: role. Written as a literal rather than imported from `api.roles` because
+    #: infrastructure must not import the API layer.
+    policy_subscription_key_role: str = "viewer"
+
     # ── local accounts (development sign-in) ────────────────────────
     #: When True, the API reads a plaintext accounts file and issues JWTs
     #: signed with a locally held RSA key. The tokens are validated by the

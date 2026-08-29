@@ -915,6 +915,129 @@ class Evaluation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     evaluation_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PolicyCaseDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """An append-only receipt for one externally requested project-case decision.
+
+    WHY NOT `Evaluation`
+
+    `Evaluation` records the deterministic evaluator, and three of its columns
+    make it structurally unable to hold this without lying:
+
+      * `policy_version_id` is NOT NULL — but a case put to a project that has
+        published nothing is a legitimate, answerable outcome with no version.
+      * `request_facts_json` is NOT NULL structured facts — a case is prose.
+      * `overall_status` is the XACML enum — a case's outcome vocabulary is
+        `answered | missing_required_facts | not_settled_by_rules | no_rule_bears
+        | declined | failed | not_evaluated`, which shares no member with it.
+
+    Generalising over those differences would not be an abstraction, it would be
+    a misfiling. So this is its own table, and `evaluations` is left exactly as
+    it was — a case receipt must never appear in the deterministic decision log.
+
+    RESERVED BEFORE THE MODEL RUNS
+
+    `status` is the row's own lifecycle, not the decision's. A row is written
+    `pending` and committed *before* the ten-second model call, so a crash mid
+    call leaves evidence that the call was made rather than no trace at all. It
+    then becomes `completed` (with the full envelope and its hash) or `failed`
+    (with a reason and no verdict). A caller is only ever shown a verdict from a
+    row that reached `completed`; see `application/policy_case_decision.py`.
+
+    IDENTITY IS TWO FIELDS, NOT ONE
+
+    `authenticated_principal_identity` is what the server proved from a validated
+    token. `calling_system_identity` is a label the caller declared about itself
+    and is not evidence of anything. They are separate columns so no query can
+    accidentally treat the second as the first.
+
+    THE SCENARIO IS STORED IN CLEAR
+
+    A receipt that cannot show the question it answered is not a receipt. The
+    prose is free-form and may carry personal data, so it is stored here,
+    restricted to authenticated readers at the API, and never written to an
+    application log. Retention is indefinite in this increment — this repository
+    has no scheduler, and a pruner that does not run is worse than a documented
+    obligation.
+    """
+
+    __tablename__ = "policy_case_decisions"
+    __table_args__ = (
+        # A caller-supplied idempotency key binds to *that caller's* request
+        # against *that project*. Scoping it any wider would let one caller's key
+        # collide with another's; any narrower and a replay would not be found.
+        # NULL keys stay distinct under this constraint in both Postgres and
+        # SQLite, so a call made without a key is always a new decision.
+        UniqueConstraint(
+            "policy_set_id",
+            "authenticated_principal_identity",
+            "idempotency_key",
+            name="uq_policy_case_decisions_idempotency",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'completed', 'failed')",
+            name="ck_policy_case_decisions_status",
+        ),
+        Index("ix_policy_case_decisions_set_received", "policy_set_id", "received_at"),
+        Index("ix_policy_case_decisions_correlation_id", "correlation_id"),
+    )
+
+    policy_set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_sets.id"), nullable=False)
+    #: Nullable on purpose: a project with no published version still produces a
+    #: receipt, and naming a version it never had would be the lie this column's
+    #: nullability exists to prevent.
+    policy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("approved_policy_versions.id"), nullable=True
+    )
+    version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: The decision's own outcome, distinct from the row's lifecycle above. Null
+    #: while pending and on failure — there is no outcome to report yet.
+    decision_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    scenario_text: Mapped[str] = mapped_column(Text, nullable=False)
+    scenario_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: The canonical hash of the whole request an idempotency key is bound to.
+    #: Compared on replay so the same key with a different body is refused rather
+    #: than silently answered with the first request's receipt.
+    request_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    correlation_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    authenticated_principal_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    authenticated_principal_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    authentication_source: Mapped[str] = mapped_column(String(50), nullable=False)
+    calling_system_identity: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="api")
+
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: Stored as text rather than a FK: it is what the caller sent, recorded
+    #: before it has been proved to name a policy of this project at all.
+    requested_provision_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reasoning_effort_requested: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    request_metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    retrieval_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    decision_summary_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    citation_ids_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    trace_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    #: The full `case_decision_v1` envelope, written only for a completed row.
+    #: This is what a receipt read replays, so a reader gets the bytes the caller
+    #: got rather than a re-derivation that could drift from them.
+    response_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    decision_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    hash_basis: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    failure_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class QualityRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """An immutable record of one quality evaluation of a policy set.
 

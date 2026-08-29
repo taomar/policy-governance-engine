@@ -37,6 +37,9 @@ from policy_platform.infrastructure.persistence.repositories.versions import (
 from policy_platform.infrastructure.persistence.repositories.evaluations import (
     EvaluationRepository,
 )
+from policy_platform.infrastructure.persistence.repositories.case_decisions import (
+    PolicyCaseDecisionRepository,
+)
 from policy_platform.infrastructure.persistence.repositories.policy_tests import (
     PolicyTestBatchRepository,
     PolicyTestRepository,
@@ -61,6 +64,7 @@ __all__ = [
     "NoteRepository",
     "PolicyAttestationRepository",
     "PolicyAuthorityRepository",
+    "PolicyCaseDecisionRepository",
     "PolicyExceptionRepository",
     "PolicySetRepository",
     "PolicyTestBatchRepository",

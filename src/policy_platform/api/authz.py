@@ -12,19 +12,22 @@ bearer token when an issuer is configured — signature, expiry, issuer and
 audience, with the algorithm pinned. This module only orders the sources
 and turns the answer into a permission.
 
-The ordering carries one decision worth naming: a token that is presented
-and rejected raises 401 rather than falling through to the weaker paths.
-Falling through would let an expired or forged token be laundered into an
-anonymous-but-accepted request, and would make presenting a bad token
-indistinguishable from presenting none.
+The ordering carries one decision worth naming: a credential that is presented
+and rejected raises 401 rather than falling through to the weaker paths. That
+holds for a bearer token and for the ``X-Policy-Subscription-Key`` pre-shared
+key alike. Falling through would let an expired, forged or stale credential be
+laundered into an anonymous-but-accepted request, and would make presenting a
+bad one indistinguishable from presenting none.
 
-Enforcement is only as good as the identity it reads, which is why both
-default to off: ``rbac_enabled`` gates this module, and with no issuer
-configured the token path is not offered at all rather than half-checked.
+Enforcement is only as good as the identity it reads, which is why all of them
+default to off: ``rbac_enabled`` gates this module, with no issuer configured
+the token path is not offered at all rather than half-checked, and with
+``policy_subscription_key`` unset the subscription-key header is not read.
 """
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Final
 
 from fastapi import Depends, HTTPException, Request
@@ -42,6 +45,7 @@ from policy_platform.api.identity import (
 from policy_platform.api.roles import (
     ADMIN,
     ADMINISTER,
+    ALL_ROLES,
     AUTHOR,
     BAND_MINIMUM_ROLE,
     POLICY_AUTHOR,
@@ -61,13 +65,35 @@ logger = logging.getLogger(__name__)
 # declared in both, which is two descriptions of one thing: they agreed until
 # one gained a field.
 
-__all__ = ["Principal", "enforce_rbac", "get_principal", "OPERATION_BANDS"]
+__all__ = [
+    "AUTHENTICATED_SOURCES",
+    "SUBSCRIPTION_KEY_HEADER",
+    "SUBSCRIPTION_KEY_SOURCE",
+    "Principal",
+    "enforce_rbac",
+    "get_principal",
+    "require_authenticated_principal",
+    "OPERATION_BANDS",
+]
 
 
 #: Returned when RBAC is off — satisfies every band.
 _PERMISSIVE_PRINCIPAL: Final[Principal] = Principal(
     role=ADMIN, identity="rbac-disabled", source="rbac-disabled"
 )
+
+#: The header a pre-shared subscription key arrives in.
+#:
+#: Not `Authorization`. A subscription key is not a bearer token — it has no
+#: issuer, no expiry, no claims and no signature — and putting it in the same
+#: header would mean every reader of this code, and every proxy rule written
+#: against it, has to guess which of two unrelated credential formats a given
+#: request carries. A distinct header makes the two paths separable in code, in
+#: logs and in an ingress rule.
+SUBSCRIPTION_KEY_HEADER: Final[str] = "X-Policy-Subscription-Key"
+
+#: `Principal.source` for a caller proved by that key.
+SUBSCRIPTION_KEY_SOURCE: Final[str] = "subscription-key"
 
 
 def _try_local_token(token: str, settings: Settings) -> Principal:
@@ -111,21 +137,133 @@ def _resolve_principal(request: Request, settings: Settings) -> Principal:
     2. A validated bearer token, when an issuer is configured. This is the
        only path that establishes identity rather than accepting it, so it
        is tried before anything a proxy could have written.
-    3. The development override header, behind ``dev_auth_enabled`` and the
+    3. A configured subscription key in ``X-Policy-Subscription-Key``. A real
+       credential, but a shared one naming a single system identity, so it
+       sits below a token that names a person.
+    4. The development override header, behind ``dev_auth_enabled`` and the
        startup check that refuses to boot with it on in production.
-    4. The platform header, and **only** when someone has asserted that the
+    5. The platform header, and **only** when someone has asserted that the
        ingress strips inbound copies. See `identity.py` for why that is not
        the default.
-    5. Least privilege.
+    6. Least privilege.
 
-    A token that is *presented and rejected* does not fall through to the
-    weaker paths. Falling through would mean an expired or forged token
-    could be laundered into an anonymous-but-accepted request, and worse,
-    that presenting a bad token was indistinguishable from presenting none.
+    A credential that is *presented and rejected* does not fall through to the
+    weaker paths — this holds for a bearer token and for a subscription key
+    alike. Falling through would mean an expired or forged credential could be
+    laundered into an anonymous-but-accepted request, and worse, that presenting
+    a bad one was indistinguishable from presenting none.
     """
 
     if not settings.rbac_enabled:
         return _PERMISSIVE_PRINCIPAL
+
+    return _establish_principal(request, settings)
+
+
+def _subscription_key_refused(message: str) -> HTTPException:
+    """The one refusal shape a bad subscription key produces."""
+
+    return HTTPException(
+        status_code=401,
+        detail={"code": "subscription_key_rejected", "message": message},
+    )
+
+
+def _try_subscription_key(presented: str, settings: Settings) -> Principal:
+    """Check a presented key against the configured one, or raise 401.
+
+    Called only when the caller actually sent the header, and only after the
+    bearer paths above have declined to claim the request — see
+    `_establish_principal` for why that order and not the reverse.
+
+    THE COMPARISON
+
+    `secrets.compare_digest` rather than `==`. The strings being compared are a
+    secret and an attacker-controlled value of the attacker's chosen length,
+    which is the exact shape a timing oracle needs: `==` returns as soon as two
+    bytes differ, so the time it takes leaks how long a guessed prefix was
+    correct. `compare_digest` does not short-circuit. Both sides are encoded to
+    bytes first because it refuses mixed-width `str` inputs, and a caller can
+    put any code point they like in a header.
+
+    A REJECTED KEY DOES NOT FALL THROUGH
+
+    Same rule the bearer path has held since this module was written, and for
+    the same reason: if a wrong key quietly became an anonymous request, then
+    presenting a bad credential would be indistinguishable from presenting
+    none, and an integration with a stale key would look like it was working
+    right up until it hit an operation that needed a role.
+
+    THE CONFIGURED ROLE IS VALIDATED, NOT TRUSTED
+
+    A typo in `POLICY_SUBSCRIPTION_KEY_ROLE` would otherwise produce a
+    principal holding a role no band recognises. That is not a safe failure —
+    it is an unreadable one, refused later by the capability layer with a
+    message about permissions rather than about configuration — so it is
+    refused here, where the fault actually is.
+    """
+
+    configured = (settings.policy_subscription_key or "").strip()
+    if not secrets.compare_digest(presented.encode("utf-8"), configured.encode("utf-8")):
+        logger.warning("Subscription key rejected")
+        raise _subscription_key_refused("The subscription key is not valid.")
+
+    role = (settings.policy_subscription_key_role or "").strip() or VIEWER
+    if role not in ALL_ROLES:
+        logger.error(
+            "POLICY_SUBSCRIPTION_KEY_ROLE is %r, which is not one of %s; refusing the key",
+            role,
+            ", ".join(ALL_ROLES),
+        )
+        raise _subscription_key_refused(
+            "The subscription key is configured with a role this product does not define, "
+            "so it cannot be used until the deployment is corrected."
+        )
+
+    identity = (settings.policy_subscription_key_identity or "").strip() or "external-api-client"
+    return Principal(role=role, identity=identity, source=SUBSCRIPTION_KEY_SOURCE)
+
+
+def _establish_principal(request: Request, settings: Settings) -> Principal:
+    """Steps 2–5 above, with the ``rbac_enabled`` short circuit removed.
+
+    Split out because two questions were being answered by one function. "Is
+    this request permitted under the global policy?" is what `_resolve_principal`
+    asks, and when enforcement is off the honest answer is "yes, permissively".
+    "Who *is* this?" is a different question, and it has a real answer whether
+    or not global enforcement happens to be switched on.
+
+    The audited decision endpoints ask the second question — a receipt that
+    names `rbac-disabled` as the caller is not a receipt — so they call this
+    directly through `require_authenticated_principal`. Nothing else should:
+    bypassing the flag for an ordinary route would enable enforcement by the
+    back door.
+
+    WHERE THE SUBSCRIPTION KEY SITS IN THE ORDER
+
+    After every bearer path and before the development override. Two decisions
+    are packed into that placement:
+
+    * **A valid bearer token wins over a subscription key.** They are not equal
+      evidence: a token names a specific principal, expires, and can be revoked
+      at its issuer; the key names one configured system identity and does
+      none of those things. When a caller presents both, resolving to the
+      weaker of the two would silently downgrade a request that carried proper
+      credentials, and would make the receipt name a shared system identity for
+      a decision a named person actually made. So the token is tried first, and
+      a *valid* token means the key is never read at all.
+
+      A token that is presented and rejected still refuses, exactly as it did
+      before — a subscription key cannot rescue a bad token, because "try the
+      next credential" is how a rejected credential gets laundered into an
+      accepted request.
+
+    * **It outranks the development override.** `X-Dev-Role` establishes no
+      identity — it names the caller `dev-override` and lets anyone inside the
+      perimeter choose their own role. A configured key is a real credential
+      an operator deliberately installed, so it must not be shadowed by a
+      header that is on by default in development.
+    """
 
     token = bearer_token(request.headers.get("Authorization"))
     issuer_configured = bool(
@@ -166,6 +304,23 @@ def _resolve_principal(request: Request, settings: Settings) -> Principal:
     # path, different key source.
     if token and settings.local_accounts_enabled:
         return _try_local_token(token, settings)
+
+    # A subscription key, when one is configured and one was sent. Both halves
+    # matter: with no key configured the header is not read at all, so a
+    # deployment that never enabled the mechanism cannot be probed through it;
+    # and with the header absent nothing here runs, so an ordinary browser
+    # request is unaffected.
+    presented_key = (request.headers.get(SUBSCRIPTION_KEY_HEADER) or "").strip()
+    if presented_key and (settings.policy_subscription_key or "").strip():
+        return _try_subscription_key(presented_key, settings)
+    if presented_key:
+        # Sent, but the server has no key. Refused rather than ignored: an
+        # integration whose credential silently does nothing is one that
+        # appears to work until it meets an operation with a role.
+        logger.warning("Subscription key presented while none is configured")
+        raise _subscription_key_refused(
+            "Subscription-key authentication is not configured on this server."
+        )
 
     if settings.dev_auth_enabled:
         dev_role = request.headers.get("X-Dev-Role")
@@ -286,6 +441,16 @@ OPERATION_BANDS: Final[dict[tuple[str, str], str]] = {
     ("GET", "/api/policy-attestations/search"): READ,
     # Acknowledging is recording that something was done, not authoring.
     ("POST", "/api/policy-attestations/{attestation_id}/acknowledge"): USE,
+    # ── policy decisions (audited external case decisions) ───────────
+    # Both bands are the floor, not the whole check. These two operations
+    # additionally require a *valid authenticated principal* through
+    # `require_authenticated_principal`, which holds even when global RBAC is
+    # off — a receipt that cannot name who asked for it is not a receipt. The
+    # POST is USE (it appends a decision record and alters no governed content);
+    # the GET is READ at the band, with record-level ownership enforced in the
+    # handler so one caller cannot read another's receipt.
+    ("POST", "/api/policy-decisions/{project_key}/case"): USE,
+    ("GET", "/api/policy-decisions/{decision_id}"): READ,
     # ── policy exceptions ────────────────────────────────────────────
     ("GET", "/api/policy-exceptions/policy-sets/{key}"): READ,
     ("POST", "/api/policy-exceptions/policy-sets/{key}"): AUTHOR,
@@ -364,6 +529,62 @@ _FRAMEWORK_PATHS: Final[frozenset[str]] = frozenset(
 def get_principal(request: Request) -> Principal:
     """FastAPI dependency: resolve the calling principal."""
     return _resolve_principal(request, get_settings())
+
+
+#: The `Principal.source` values that mean an identity was *proved*, not merely
+#: accepted. A bearer token carries its own proof; the platform header is
+#: believed only where an operator has asserted the edge strips inbound copies,
+#: which is itself a deliberate act; and a subscription key is a secret only the
+#: operator and the caller hold, compared in constant time.
+#:
+#: `dev-header` is absent on purpose. The development override establishes no
+#: identity at all — it names the caller `dev-override` — so accepting it here
+#: would write a receipt attributing an audited decision to a header anyone
+#: inside the perimeter can set. `unauthenticated` is absent for the obvious
+#: reason.
+AUTHENTICATED_SOURCES: Final[frozenset[str]] = frozenset(
+    {
+        "token",
+        "token-no-role",
+        "local-token",
+        "local-token-no-role",
+        "platform-header",
+        SUBSCRIPTION_KEY_SOURCE,
+    }
+)
+
+
+def require_authenticated_principal(request: Request) -> Principal:
+    """FastAPI dependency: the caller's proved identity, or 401.
+
+    Used by the audited decision endpoints, which need something the global
+    guard cannot give them. `enforce_rbac` answers "is this permitted?", and
+    when `rbac_enabled` is off that answer is an unconditional yes carrying the
+    placeholder principal `rbac-disabled`. Storing that in a receipt as the
+    authenticated caller would be false, and returning a verdict against it
+    would make an audited channel indistinguishable from an anonymous one.
+
+    So this resolves identity independently of the flag and refuses when no
+    identity was established. It never *grants* anything: capability remains the
+    global guard's decision, and this only narrows who may reach the route.
+    """
+
+    principal = _establish_principal(request, get_settings())
+    if principal.source not in AUTHENTICATED_SOURCES:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "authentication_required",
+                "message": (
+                    "This operation records an audited decision receipt and requires an "
+                    f"authenticated caller. Present a valid bearer token, or the "
+                    f"{SUBSCRIPTION_KEY_HEADER} header when the operator has configured a "
+                    "subscription key."
+                ),
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return principal
 
 
 def enforce_rbac(request: Request, principal: Principal = Depends(get_principal)) -> None:

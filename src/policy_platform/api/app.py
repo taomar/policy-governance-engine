@@ -18,6 +18,7 @@ from policy_platform.api.routers import (
     extraction,
     notes,
     policy_attestations,
+    policy_decisions,
     policy_exceptions,
     policy_payload,
     policy_review_requests,
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(policy_exceptions.router)
     app.include_router(policy_attestations.router)
     app.include_router(policy_payload.router)
+    app.include_router(policy_decisions.router)
     app.include_router(extraction.router)
     app.include_router(policy_review_requests.router)
 

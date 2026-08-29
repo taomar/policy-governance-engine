@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,6 +136,22 @@ RETRIEVAL_METHOD = "hybrid_vector_topk"
 SCOPE_SINGLE = "single"
 SCOPE_PROJECT = "project"
 
+
+def _gather_kwargs(additional_instructions: str) -> dict:
+    """The guidance argument, present only when there is guidance to pass.
+
+    Not `additional_instructions=""`. Passing the keyword with an empty value
+    would be equivalent *in behaviour* and different at the boundary: every
+    existing caller and every existing test double of
+    :func:`answer_case_over_policies` would suddenly receive an argument it was
+    never written to accept, and several of them raise `TypeError` on exactly
+    that. "Preserve the default behaviour" has to mean the call itself is
+    unchanged, not merely that the answer comes out the same — a signature is
+    part of the behaviour when doubles exist.
+    """
+
+    return {"additional_instructions": additional_instructions} if additional_instructions else {}
+
 #: The honest states a retrieval can be in, plus ``bypassed`` for the
 #: single-policy scope where retrieval does not run at all. Kept apart on purpose
 #: (constraint 5); collapsing any pair reports one situation as another, and none
@@ -173,6 +190,54 @@ class ProvisionNotInProject(LookupError):
     one of this project's, so the endpoint answers 404 without pretending the id
     was malformed.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCaseAnswer:
+    """The answer plus the facts only the decider knows about how it decided.
+
+    Returned **only** when a caller passes ``with_context=True`` to
+    :func:`answer_project_case`; every existing caller keeps receiving the bare
+    ``response`` dict unchanged. The split exists because an audited receipt must
+    name the exact published version the answer was drawn from, and the only
+    honest source of that is the load this function actually performed. Reading
+    "the active version" again after the call is a different question asked at a
+    different time: a project that publishes mid-call would make the receipt
+    attest to a version the answer never saw.
+
+    ``context`` carries what is knowable and nothing else — the version the
+    decider loaded, where that load came from, and the search index it consulted
+    when retrieval ran. Keys are absent rather than null-filled when the path
+    taken never produced them.
+    """
+
+    response: dict
+    context: dict
+
+
+def _record_version_context(
+    context: dict | None,
+    *,
+    source: str,
+    version_id: object = None,
+    version_number: object = None,
+    effective_from: object = None,
+    effective_to: object = None,
+) -> None:
+    """Note the version the decider loaded, when a caller asked to be told.
+
+    A no-op without a context dict, so the default path costs nothing and cannot
+    change behaviour. Values are read defensively because the version object is
+    stubbed in tests and may not carry effective dates.
+    """
+
+    if context is None:
+        return
+    context["version_source"] = source
+    context["policy_version_id"] = str(version_id) if version_id else None
+    context["version_number"] = version_number
+    context["effective_from"] = effective_from
+    context["effective_to"] = effective_to
 
 
 def published_policy_search_id(payload: dict) -> str | None:
@@ -290,6 +355,8 @@ async def load_project_scope(session: AsyncSession, policy_set_id) -> dict:
             "has_published_version": False,
             "active_version_id": None,
             "active_version_number": None,
+            "active_version_effective_from": None,
+            "active_version_effective_to": None,
             "candidates": [],
             "excluded": [],
         }
@@ -332,6 +399,12 @@ async def load_project_scope(session: AsyncSession, policy_set_id) -> dict:
         "has_published_version": True,
         "active_version_id": str(active_version.id),
         "active_version_number": active_version.version_number,
+        # The version's effective window, carried so an audited receipt can name
+        # the period the deciding version was in force without a second read
+        # around a call that may straddle a publication. Additive: every existing
+        # reader of this dict indexes the keys it already knew.
+        "active_version_effective_from": getattr(active_version, "effective_from", None),
+        "active_version_effective_to": getattr(active_version, "effective_to", None),
         "candidates": candidates,
         "excluded": excluded,
     }
@@ -445,7 +518,14 @@ async def _provision_in_project(session: AsyncSession, *, policy_set, provision_
 
 
 async def _answer_single_scope(
-    session: AsyncSession, *, policy_set, provision_id, scenario: str, reasoning_effort: str
+    session: AsyncSession,
+    *,
+    policy_set,
+    provision_id,
+    scenario: str,
+    reasoning_effort: str,
+    additional_instructions: str = "",
+    context: dict | None = None,
 ) -> dict:
     """The reviewer chose one policy: bypass retrieval and answer that policy.
 
@@ -482,10 +562,20 @@ async def _answer_single_scope(
 
     version = await active_version_for_policy_set(session, policy_set.id)
     if version is None:
+        _record_version_context(context, source="single_scope_no_published_version")
         return unanswerable(
             RETRIEVAL_NO_PUBLISHED_VERSION,
             "this project has no published version yet, so there is nothing approved to test against",
         )
+
+    _record_version_context(
+        context,
+        source="single_scope",
+        version_id=getattr(version, "id", None),
+        version_number=getattr(version, "version_number", None),
+        effective_from=getattr(version, "effective_from", None),
+        effective_to=getattr(version, "effective_to", None),
+    )
 
     payload = await published_case_payload_for_policy(session, policy_set.id, provision.provision_key)
     if payload is None:
@@ -503,7 +593,10 @@ async def _answer_single_scope(
     }
     record = {"policy": identity, "payload": payload}
     evaluation = await answer_case_over_policies(
-        [record], scenario=scenario, reasoning_effort=reasoning_effort
+        [record],
+        scenario=scenario,
+        reasoning_effort=reasoning_effort,
+        **_gather_kwargs(additional_instructions),
     )
 
     return {
@@ -520,15 +613,39 @@ async def _answer_single_scope(
 
 
 async def _answer_project_scope(
-    session: AsyncSession, *, policy_set, scenario: str, reasoning_effort: str
+    session: AsyncSession,
+    *,
+    policy_set,
+    scenario: str,
+    reasoning_effort: str,
+    additional_instructions: str = "",
+    context: dict | None = None,
 ) -> dict:
     """No policy was named: retrieve the ones that bear on the question, discard
-    the rest, and evaluate only the survivors — never the whole set."""
+    the rest, and evaluate only the survivors — never the whole set.
+
+    ``additional_instructions`` is deliberately absent from everything above the
+    gather. The embedding below is taken over ``scenario`` alone and the search
+    is run on ``scenario`` alone, because retrieval decides *which policies are
+    read at all* — and a caller who could steer that could steer the answer past
+    the policy that governs it, by shifting the query away from it. Which
+    policies bear on a question is a property of the question and the corpus,
+    never of the caller's presentation preferences.
+    """
 
     scope = await load_project_scope(session, policy_set.id)
     candidates = scope["candidates"]
     excluded = scope["excluded"]
     active_version_id = scope.get("active_version_id")
+
+    _record_version_context(
+        context,
+        source="project_scope" if active_version_id else "project_scope_no_published_version",
+        version_id=active_version_id,
+        version_number=scope.get("active_version_number"),
+        effective_from=scope.get("active_version_effective_from"),
+        effective_to=scope.get("active_version_effective_to"),
+    )
 
     def respond(status: str, *, considered, retained, discarded, policies_retrieved, evaluation, size, reason=None):
         return _project_response(
@@ -589,6 +706,13 @@ async def _answer_project_scope(
         )
 
     index_name = policy_index_name(policy_set.key)
+    if context is not None:
+        # Named only now, on the path where the index is genuinely consulted. A
+        # receipt must not claim an index was used on the paths above, where
+        # search was unavailable or the project had nothing to search.
+        context["index_name"] = index_name
+        context["index_version_id"] = active_version_id
+        context["retrieval_method"] = RETRIEVAL_METHOD
     try:
         search_client = AzureSearchClient(settings)
         if not await search_client.index_exists(index_name):
@@ -764,7 +888,10 @@ async def _answer_project_scope(
     ]
 
     evaluation = await answer_case_over_policies(
-        records, scenario=scenario, reasoning_effort=reasoning_effort
+        records,
+        scenario=scenario,
+        reasoning_effort=reasoning_effort,
+        **_gather_kwargs(additional_instructions),
     )
 
     return respond(
@@ -794,7 +921,9 @@ async def answer_project_case(
     scenario: str,
     provision_id: str | None = None,
     reasoning_effort: str = "medium",
-) -> dict:
+    additional_instructions: str = "",
+    with_context: bool = False,
+) -> dict | ProjectCaseAnswer:
     """Answer a case put to a project, at the scope the reviewer chose.
 
     When ``provision_id`` is given the reviewer has chosen one policy: retrieval is
@@ -807,16 +936,43 @@ async def answer_project_case(
     when a named provision is unknown or belongs to another project, ``ValueError``
     when an id is malformed (from the projection), and ``RuntimeError`` when the
     model is not configured — the endpoint maps these to 404, 422, and 503.
+
+    ``with_context`` is the one addition an audited caller needs and an in-product
+    one does not. Left at its default the return is the same bare dict it has
+    always been, so every existing caller and test is untouched. Set, the return
+    is a :class:`ProjectCaseAnswer` carrying that same dict plus the exact
+    published version this call loaded — see that class for why re-reading "the
+    active version" afterwards would not be the same fact.
+
+    ``additional_instructions`` is optional caller guidance about how the answer
+    should be presented. It reaches the evaluation gather only — never the
+    retrieval query, never the intent classifier — and is wrapped there in the
+    invariants it may not cross. Empty by default, in which case nothing about
+    this function's behaviour changes at all.
     """
 
+    context: dict | None = {} if with_context else None
+
     if provision_id is not None and str(provision_id).strip():
-        return await _answer_single_scope(
+        response = await _answer_single_scope(
             session,
             policy_set=policy_set,
             provision_id=provision_id,
             scenario=scenario,
             reasoning_effort=reasoning_effort,
+            additional_instructions=additional_instructions,
+            context=context,
         )
-    return await _answer_project_scope(
-        session, policy_set=policy_set, scenario=scenario, reasoning_effort=reasoning_effort
-    )
+    else:
+        response = await _answer_project_scope(
+            session,
+            policy_set=policy_set,
+            scenario=scenario,
+            reasoning_effort=reasoning_effort,
+            additional_instructions=additional_instructions,
+            context=context,
+        )
+
+    if context is None:
+        return response
+    return ProjectCaseAnswer(response=response, context=context)

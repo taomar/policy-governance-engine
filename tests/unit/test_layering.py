@@ -24,15 +24,24 @@ SRC = ROOT / "src" / "policy_platform"
 #: What each top-level package is permitted to import from the others.
 #:
 #: Read as: contracts depends on nothing; the evaluator depends only on the
-#: contracts; domain is standalone ORM; infrastructure may use all three; the
-#: API sits on top. Anything absent here is a violation, including the reverse
-#: of every arrow that is present.
+#: contracts; domain is standalone ORM; infrastructure may use all three;
+#: `application` composes use cases out of those and holds the ordering a use
+#: case needs (reserve, decide, finalise) without knowing about HTTP; the API
+#: sits on top of everything.
+#:
+#: The one arrow worth naming is `api -> application`. It exists so two routes
+#: can share one decider without sharing its consequences: the reviewer route
+#: answers and persists nothing, the audited external route answers and writes a
+#: receipt, and neither reaches the decider directly. `application` must never
+#: import `api` — a service that knows about its transport is a router with
+#: extra steps.
 _ALLOWED: dict[str, set[str]] = {
     "contracts": set(),
     "domain": set(),
     "evaluator": {"contracts"},
     "infrastructure": {"contracts", "domain", "evaluator"},
-    "api": {"contracts", "domain", "evaluator", "infrastructure"},
+    "application": {"contracts", "domain", "evaluator", "infrastructure"},
+    "api": {"application", "contracts", "domain", "evaluator", "infrastructure"},
 }
 
 #: Third-party packages the inner layers must not reach for.

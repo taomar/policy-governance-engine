@@ -322,6 +322,13 @@ _DELETION_ORDER: tuple[tuple[str, str], ...] = (
     ("correlation_findings", "DELETE FROM correlation_findings WHERE policy_set_id = :sid"),
     ("correlation_runs", "DELETE FROM correlation_runs WHERE policy_set_id = :sid"),
     ("evaluations", "DELETE FROM evaluations WHERE policy_set_id = :sid"),
+    # Case-decision receipts reference both the project and, when one existed,
+    # the published version that decided — so they must go before
+    # `approved_policy_versions` below or the version delete blocks on them.
+    # Deleted rather than retained, for the same reason `evaluations` is: the
+    # decision log is scoped to the project it belongs to, and the record that
+    # the project was deleted at all is the appended `audit_events` row.
+    ("policy_case_decisions", "DELETE FROM policy_case_decisions WHERE policy_set_id = :sid"),
     ("quality_runs", "DELETE FROM quality_runs WHERE policy_set_id = :sid"),
     ("policy_exceptions", "DELETE FROM policy_exceptions WHERE policy_set_id = :sid"),
     ("policy_attestations", "DELETE FROM policy_attestations WHERE policy_set_id = :sid"),

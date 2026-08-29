@@ -65,7 +65,49 @@ KNOWN_UNREACHABLE = {
         "Single-exception fetch. The product lists exceptions and edits them "
         "from the list, so it never needs one by id. Reported, not fixed."
     ),
+    "POST /api/policy-decisions/*/case": (
+        "The audited external decision contract. Its callers are by design not "
+        "in apps/web: an external system, and the separate consume demo app, "
+        "which this scan does not read. The in-product Consume drawer will call "
+        "it, and when it does `test_known_unreachable_register_has_not_rotted` "
+        "requires this line to be deleted."
+    ),
+    "GET /api/policy-decisions/*": (
+        "Receipt read-back for the audited external decision contract. Same "
+        "reason as the POST above: the caller is an external consumer today, "
+        "and the register entry expires the moment apps/web calls it."
+    ),
 }
+
+
+#: Modules whose `/api/...` literals are *shown*, not *sent*.
+#:
+#: `consumeSnippets.ts` builds the cURL, Python, JavaScript and raw-HTTP
+#: examples the Consume drawer puts on a reader's clipboard. Its path literals
+#: are documentation text destined for somebody else's service; this app never
+#: requests them. Counting them as callers is not a harmless over-count — it is
+#: the exact failure this guard exists to find, running in reverse: an endpoint
+#: no client calls would read as reached because a code sample mentions it, and
+#: the register below would go stale on the strength of a string in a text box.
+#:
+#: The exclusion is not taken on trust. `test_a_display_only_module_really_is_
+#: display_only` asserts each module here performs no request at all, so the
+#: moment one acquires a `fetch` the declaration stops being true and the guard
+#: fails rather than quietly ignoring a real caller.
+DISPLAY_ONLY_MODULES = {
+    "consumeSnippets.ts",
+}
+
+#: How a module reaches the network. Any of these appearing in a declared
+#: display-only module retires the declaration.
+_REQUEST_CONSTRUCTS = (
+    r"\bfetch\s*\(",
+    r"\brequest\s*[<(]",
+    r"\baxios\b",
+    r"\bXMLHttpRequest\b",
+    r"\bsendBeacon\s*\(",
+    r"\bEventSource\s*\(",
+)
 
 
 def _normalise_backend(path: str) -> str:
@@ -148,10 +190,18 @@ def _product_calls() -> set[str]:
     A method belongs to the nearest path before it, so the search window stops
     at the next path literal rather than running to the end of the file --
     otherwise one `method: "POST"` would be claimed by every path above it.
+
+    WHY SOME MODULES ARE SKIPPED. A path literal is evidence of a call only when
+    the module containing it makes calls. `consumeSnippets.ts` renders worked
+    examples for an *external* integrator; its `/api/policy-decisions/...`
+    strings are text this app displays and never requests. See
+    `DISPLAY_ONLY_MODULES`, and the floor test that keeps that claim honest.
     """
     calls: set[str] = set()
     for path in sorted([*WEB_SRC.rglob("*.ts"), *WEB_SRC.rglob("*.tsx")]):
         if ".test." in path.name or ".spec." in path.name:
+            continue
+        if path.relative_to(WEB_SRC).as_posix() in DISPLAY_ONLY_MODULES:
             continue
         text = path.read_text(encoding="utf-8")
         # A path starts at the opening quote (`/api/...`) or straight after an
@@ -235,6 +285,77 @@ def test_the_two_extractors_still_speak_the_same_shapes():
     )
 
 
+@pytest.mark.parametrize("module", sorted(DISPLAY_ONLY_MODULES))
+def test_a_display_only_module_really_is_display_only(module: str):
+    """The exclusion above is a claim, and this is what makes it checkable.
+
+    Skipping a module is the one move in this file that can *hide* an
+    unreachable endpoint, so it may not rest on a comment. A module is
+    display-only when it performs no request at all; the day someone adds a
+    `fetch` to the snippet builders, this fails and the declaration has to go,
+    which puts its literals back in front of the verdict.
+    """
+
+    source = WEB_SRC / module
+    assert source.is_file(), (
+        f"{module} is declared display-only and does not exist. A skip list "
+        "naming a missing file silently stops skipping anything, and nobody "
+        "learns that from a passing test."
+    )
+
+    text = source.read_text(encoding="utf-8")
+    performed = sorted(
+        construct for construct in _REQUEST_CONSTRUCTS if re.search(construct, text)
+    )
+    assert not performed, (
+        f"{module} is declared display-only but reaches the network: "
+        f"{performed}. Its path literals are being skipped by the reachability "
+        "verdict, so a real caller here would make an unreachable endpoint look "
+        "reached. Remove it from DISPLAY_ONLY_MODULES."
+    )
+
+
+def test_a_display_only_modules_paths_are_not_counted_as_calls():
+    """Positive control on the skip itself, in the direction it can fail.
+
+    Without this, deleting the skip would be invisible: the verdict would still
+    pass (the endpoint reads as reached) and only the register's expiry check
+    would notice, one test further on and with a confusing message.
+    """
+
+    called = _product_call_shapes()
+    assert not any(shape.startswith("/api/policy-decisions") for shape in called), (
+        "A /api/policy-decisions path is being counted as a product call. Only "
+        "consumeSnippets.ts mentions those paths in apps/web/src, and it renders "
+        "them as examples for an external integrator rather than requesting "
+        "them. If the Consume drawer now really calls the endpoint, delete the "
+        "matching KNOWN_UNREACHABLE entries instead of widening this."
+    )
+
+
+def test_the_register_expiry_check_is_not_method_blind():
+    """Control on the fix, expressed as the confusion it used to make.
+
+    The register is keyed `METHOD /shape`. Comparing it against bare paths let
+    any method on a path retire an entry recorded for a different one. Asserted
+    by construction rather than against live data, so it keeps meaning when the
+    product's real calls change.
+    """
+
+    endpoints = {"GET /api/example/*": "/api/example/*", "DELETE /api/example/*": "/api/example/*"}
+    register = {"GET /api/example/*"}
+    calls = {"DELETE /api/example/*"}
+
+    # The method-blind reading: the GET entry "has a caller" because the DELETE
+    # beside it does.
+    blind = {name for name in register if endpoints[name] in {c.split(" ", 1)[1] for c in calls}}
+    assert blind == {"GET /api/example/*"}
+
+    # The reading this file now uses.
+    qualified = {name for name in register if name in calls}
+    assert qualified == set()
+
+
 def test_no_product_call_points_at_a_route_that_does_not_exist():
     """The converse reading, and a check on the extractor at the same time.
 
@@ -285,14 +406,21 @@ def test_known_unreachable_register_has_not_rotted():
     Without this, the register only ever grows: entries survive the condition
     that justified them and the guard's real coverage shrinks silently behind a
     list nobody rereads.
+
+    WHY THE COMPARISON IS METHOD-QUALIFIED. It was not, and that made the
+    register's expiry check strictly weaker than the verdict it guards. The
+    register is keyed `METHOD /shape`, and the callers were compared as bare
+    paths -- so `GET /api/policy-exceptions/*` would be declared "now reachable"
+    on the strength of a `DELETE` to the same path, and the entry deleted while
+    nothing in the product could fetch one. That is the same defect the method
+    was added to `_product_calls` to fix, left behind in the one place that
+    reads the register.
     """
     endpoints = _backend_endpoints()
-    called = _product_call_shapes()
+    called = _product_calls()
 
     now_reachable = sorted(
-        name
-        for name in KNOWN_UNREACHABLE
-        if name in endpoints and endpoints[name] in called
+        name for name in KNOWN_UNREACHABLE if name in endpoints and name in called
     )
     assert not now_reachable, (
         "These are recorded as unreachable from the product but the product now "
