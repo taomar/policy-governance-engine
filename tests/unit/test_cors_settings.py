@@ -13,9 +13,23 @@ from policy_platform.infrastructure.settings import Settings
 
 
 def _settings(**overrides) -> Settings:
+    # Both CORS fields are pinned, not just the database URLs, and for the same
+    # reason: `Settings` reads a developer's `.env` for anything not passed here.
+    # A machine with `CORS_ALLOWED_ORIGINS` set -- which any developer running the
+    # playground against a live API has -- silently satisfies the explicit branch
+    # of `allowed_cors_origins`, so every derivation test below was asserting
+    # against that machine's operational config instead of the committed default.
+    # It read as several unrelated CORS regressions and was neither.
+    #
+    # Pinned rather than monkeypatched so the isolation is a property of the
+    # helper every test already goes through, and cannot be forgotten by the next
+    # test added here. Overrides still win, so the explicit-configuration tests
+    # below set exactly what they mean to test.
     base = {
         "database_url": "postgresql+asyncpg://u:p@localhost:5433/db",
         "alembic_database_url": "postgresql+psycopg://u:p@localhost:5433/db",
+        "cors_allowed_origins": "",
+        "cors_dev_port_range": "5173-5180",
     }
     base.update(overrides)
     return Settings(**base)
