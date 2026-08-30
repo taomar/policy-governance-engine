@@ -389,14 +389,19 @@ async def test_the_needs_classifier_accepts_no_guidance_parameter() -> None:
     """The absence is structural, not a convention someone remembered.
 
     A signature that *accepted* guidance and chose not to pass it on would be one
-    edit away from passing it on. The classifier takes the question and the
-    tested quantities, and there is nowhere for caller text to enter.
+    edit away from passing it on. The classifier takes the question, the tested
+    quantities, and how many times to read them, and there is nowhere for caller
+    text to enter.
     """
 
     import inspect
 
     parameters = set(inspect.signature(ai_case_intent.classify_case_needs).parameters)
-    assert parameters == {"scenario", "tested_quantities"}
+    assert parameters == {"scenario", "tested_quantities", "samples"}
+    # `samples` is a count, not text: it cannot carry a phrase into the prompt and
+    # cannot prefer one reading over another.
+    annotation = inspect.signature(ai_case_intent.classify_case_needs).parameters["samples"]
+    assert annotation.annotation == "int | None"
 
 
 # ── what the constructed prompt says ─────────────────────────────────

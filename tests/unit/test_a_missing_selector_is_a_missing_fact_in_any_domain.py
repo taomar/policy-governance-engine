@@ -62,6 +62,7 @@ os.environ.setdefault("DATABASE_URL", "******localhost:5433/test")
 os.environ.setdefault("ALEMBIC_DATABASE_URL", "******localhost:5433/test")
 
 from policy_platform.infrastructure.assistants import ai_case_intent  # noqa: E402
+from policy_platform.infrastructure.assistants import ai_case_plan  # noqa: E402
 
 pytestmark = pytest.mark.anyio
 
@@ -1630,6 +1631,10 @@ def test_the_production_contract_names_no_part_of_the_case_that_found_it() -> No
             ai_case_intent._fact_key,
             ai_case_intent._rule_fact_names,
             ai_case_intent._fact_identity,
+            # The reading that produces the plan every branch above turns on. It
+            # moved out of this module, so the guard follows it: a borrowed word
+            # is no less borrowed for sitting one import away.
+            ai_case_plan.plan_from_reply,
         )
     )
     surfaces = {
@@ -1660,13 +1665,14 @@ def test_the_decision_path_has_no_keyword_branch_and_reads_no_prose() -> None:
     empty, and it never looks at a rule's own text to decide a status.
     """
 
-    module_source = inspect.getsource(ai_case_intent)
+    module_source = inspect.getsource(ai_case_intent) + inspect.getsource(ai_case_plan)
     post_processing = "\n".join(
         inspect.getsource(fn)
         for fn in (
             ai_case_intent._decision_from_parsed,
             ai_case_intent._reconciled_missing_facts,
             ai_case_intent._unsettled_reason,
+            ai_case_plan.plan_from_reply,
         )
     )
 

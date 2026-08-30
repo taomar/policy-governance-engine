@@ -995,6 +995,56 @@ class CaseDecisionEnvelope(BaseModel):
 # ── `case_decision_v2`: two independent tracks ───────────────────────
 
 
+class ClassifierConsensusRef(BaseModel):
+    """How many readings the classifier took, and how they split.
+
+    The two booleans in `asked` decide **which tracks run**, so a flip does not
+    degrade an answer — it replaces it with an answer to a different question.
+    That is why they are read more than once and voted on, and why the vote is
+    reported rather than kept: a disagreement *rate* can only be measured if the
+    disagreements arrive on the receipt.
+
+    Recorded, never sealed. It says how a reading was arrived at, not what was
+    decided, so it belongs beside `classification_reasoning` and outside
+    `decision_hash` for the same reason: two runs that read the question the same
+    way must seal identically whether the samples agreed at once or not.
+
+    Nothing here is voted except the two booleans. A verdict is adjudication and
+    is never sampled or majority-voted anywhere in this system.
+    """
+
+    samples: int = Field(description="How many independent readings of the question were taken.")
+    information_true: int = Field(
+        description="How many readings said the question asks what the policies state."
+    )
+    information_false: int = Field(
+        description="How many readings said it does not. Counted apart from unreadable ones."
+    )
+    verdict_true: int = Field(description="How many readings said the question asks for a verdict.")
+    verdict_false: int = Field(
+        description="How many readings said it does not. Counted apart from unreadable ones."
+    )
+    unreadable: int = Field(
+        description=(
+            "How many readings failed to state one of the booleans at all. Distinct from a "
+            "stated `false`: only a reading nobody could read is evidence of nothing."
+        )
+    )
+    agreed: bool = Field(
+        description=(
+            "True when every reading was readable and every reading said the same thing. "
+            "The complement of this, aggregated over runs, is the disagreement rate."
+        )
+    )
+    fell_back: bool = Field(
+        description=(
+            "True when consensus could not produce a usable requested-track pair — because of "
+            "a tie, nothing readable, or unanimous `false` for both tracks — and both tracks "
+            "were run rather than half or all of the question being dropped."
+        )
+    )
+
+
 class AskedRef(BaseModel):
     """What the classifier read the question as asking for — nothing derived.
 
@@ -1042,6 +1092,14 @@ class AskedRef(BaseModel):
         description=(
             "Identifier of the classifier that produced the booleans. Null when no classifier "
             "ran, which happens when retrieval produced nothing to evaluate."
+        ),
+    )
+    classifier_consensus: ClassifierConsensusRef | None = Field(
+        default=None,
+        description=(
+            "How the repeated readings of the question split, when a classifier ran. Null when "
+            "none ran. Excluded from `decision_hash`: it records how a reading was arrived at, "
+            "not what was decided."
         ),
     )
 

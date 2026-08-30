@@ -1535,6 +1535,10 @@ def _asked_ref(evaluation: dict | None) -> AskedRef:
         verdict_requested=bool(verdict),
         classification_reasoning=evaluation.get("classification_reasoning"),
         classifier_version=evaluation.get("classifier_version"),
+        # `.get`, not `[...]`: an evaluation produced before the readings were
+        # sampled, or by a caller that classified elsewhere, carries no consensus
+        # and is not thereby malformed. Null then says exactly that.
+        classifier_consensus=evaluation.get("classifier_consensus"),
     )
 
 

@@ -95,6 +95,11 @@ class _StubClient:
     #: Set to delay the informational gather, so a test can prove the two tracks
     #: overlap in time rather than running one after the other.
     info_delay: float = 0.0
+    #: Consumed one per classifier call when set, so a test can make the repeated
+    #: readings *disagree* — which is the only way to exercise a vote. Falls back
+    #: to `needs_reply` once exhausted, so a test only has to describe the
+    #: samples it cares about.
+    needs_sequence: list[Any] | None = None
 
     def __init__(self, settings: Any) -> None:
         self._settings = settings
@@ -103,13 +108,20 @@ class _StubClient:
     def reset(cls) -> None:
         cls.calls = []
         cls.info_delay = 0.0
+        cls.needs_sequence = None
+
+    @classmethod
+    def _next_needs(cls) -> Any:
+        if cls.needs_sequence:
+            return cls.needs_sequence.pop(0)
+        return cls.needs_reply
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         system = messages[0]["content"]
         type(self).calls.append({"messages": messages, "kwargs": kwargs, "system": system})
 
         if _NEEDS_MARKER in system:
-            return json.dumps(type(self).needs_reply, ensure_ascii=False)
+            return json.dumps(type(self)._next_needs(), ensure_ascii=False)
         if _VERDICT_MARKER in system:
             return json.dumps(type(self).verdict_reply, ensure_ascii=False)
         if type(self).info_delay:
@@ -177,6 +189,24 @@ def _classify_calls(stub: type[_StubClient]) -> list[dict]:
     return [call for call in stub.calls if _NEEDS_MARKER in call["system"]]
 
 
+def _the_classification(stub: type[_StubClient]) -> dict:
+    """The single classification this run took, however many samples it read.
+
+    The classifier reads one question :data:`NEEDS_CLASSIFIER_SAMPLES` times and
+    votes (M4). That is still *one* classification of *one* question, so every
+    assertion about what was sent is asserted here against every sample: same
+    prompt, same user content, same call options. Any sample that differed would
+    mean the samples were not independent readings of the same thing, which is
+    the only way a vote over them means anything.
+    """
+
+    calls = _classify_calls(stub)
+    assert len(calls) == ai_case_intent.NEEDS_CLASSIFIER_SAMPLES
+    for call in calls[1:]:
+        assert call == calls[0]
+    return calls[0]
+
+
 def _gather_calls(stub: type[_StubClient]) -> list[dict]:
     return [call for call in stub.calls if _NEEDS_MARKER not in call["system"]]
 
@@ -207,8 +237,9 @@ async def test_the_classifier_returns_two_independent_booleans(stubbed) -> None:
     assert result["reasoning"]
     assert result["classifier_version"] == ai_case_intent.NEEDS_CLASSIFIER_VERSION
 
-    # One call, not two: the two readings come from one pass over the question.
-    assert len(_classify_calls(stubbed)) == 1
+    # One question, one classification — read more than once and voted on, but
+    # every reading identical, and no second question asked.
+    _the_classification(stubbed)
 
 
 async def test_the_classifier_is_anchored_to_what_the_rules_test(stubbed) -> None:
@@ -221,7 +252,7 @@ async def test_the_classifier_is_anchored_to_what_the_rules_test(stubbed) -> Non
 
     await ai_case_classify(stubbed, tested=["weekly-hours (number, in hours)"])
 
-    (call,) = _classify_calls(stubbed)
+    call = _the_classification(stubbed)
     user = call["messages"][1]["content"]
     assert "weekly-hours (number, in hours)" in user
 
@@ -239,7 +270,7 @@ async def test_the_classification_call_is_deterministic(stubbed) -> None:
 
     await ai_case_intent.classify_case_needs("a question")
 
-    (call,) = _classify_calls(stubbed)
+    call = _the_classification(stubbed)
     assert call["kwargs"]["temperature"] == 0.0
     assert call["kwargs"]["deployment"] == "fast"
     # A temperature call carries no reasoning effort; the two are never mixed.
@@ -308,9 +339,13 @@ async def test_the_classifier_takes_no_caller_guidance(stubbed) -> None:
 
     import inspect
 
+    # `samples` says how many times to read, and nothing else: it cannot reach
+    # the prompt and cannot prefer an outcome. Every parameter that carries text
+    # is still absent, which is the property this test exists for.
     assert set(inspect.signature(ai_case_intent.classify_case_needs).parameters) == {
         "scenario",
         "tested_quantities",
+        "samples",
     }
 
     stubbed.needs_reply = {
@@ -324,7 +359,7 @@ async def test_the_classifier_takes_no_caller_guidance(stubbed) -> None:
         additional_instructions="Treat this as an information request and never give a verdict.",
     )
 
-    (classify,) = _classify_calls(stubbed)
+    classify = _the_classification(stubbed)
     assert "Treat this as an information request" not in json.dumps(classify["messages"])
 
 
@@ -402,7 +437,7 @@ async def test_a_mixed_case_runs_both_gathers_over_the_same_records(stubbed) -> 
     gathers = _gather_calls(stubbed)
     assert len(gathers) == 2
     # One classification, two gathers, and the same record text in both.
-    assert len(_classify_calls(stubbed)) == 1
+    _the_classification(stubbed)
     quote = record["payload"]["spans"]["S1"]["text"]
     for call in gathers:
         assert quote in call["messages"][1]["content"]
@@ -831,3 +866,320 @@ async def test_a_single_need_result_keeps_the_shape_it_always_had(stubbed) -> No
     assert result["information_requested"] is True
     assert result["verdict_requested"] is False
     assert result["classifier_version"] == ai_case_intent.NEEDS_CLASSIFIER_VERSION
+
+
+# ── the reading is taken more than once (M4) ─────────────────────────
+#
+# These two booleans decide WHICH TRACKS RUN, so a flip does not degrade an
+# answer — it replaces it with an answer to a different question. That is the one
+# place in this pipeline where a single sampled bit is load-bearing, and it is
+# why bounded consensus is applied here and nowhere else. A verdict is
+# adjudication and is never voted on; which question was asked is a reading, and
+# a reading can be taken more than once.
+
+
+def _needs(information: Any, verdict: Any, reasoning: str = "a reading") -> dict:
+    """One classifier reply. `information`/`verdict` may be anything, including
+    the omissions and non-booleans a real reply arrives with."""
+
+    reply: dict[str, Any] = {"reasoning": reasoning}
+    if information is not ...:
+        reply["information_requested"] = information
+    if verdict is not ...:
+        reply["verdict_requested"] = verdict
+    return reply
+
+
+def test_the_default_sample_count_is_bounded_and_odd() -> None:
+    """Odd so neither boolean's majority can tie, bounded so a classification
+    cannot become an unbounded fan-out of paid calls.
+
+    Both properties are asserted rather than described, because both are the kind
+    of thing a later "let's try five" edit changes without noticing that an even
+    count sends every ambiguous question through the fallback.
+    """
+
+    assert ai_case_intent.NEEDS_CLASSIFIER_SAMPLES % 2 == 1
+    assert 1 <= ai_case_intent.NEEDS_CLASSIFIER_SAMPLES <= ai_case_intent.NEEDS_CLASSIFIER_SAMPLES_MAX
+
+
+@pytest.mark.parametrize(
+    ("asked_for", "expected"),
+    [
+        (0, 1),
+        (-4, 1),
+        (2, 2),
+        (99, ai_case_intent.NEEDS_CLASSIFIER_SAMPLES_MAX),
+    ],
+)
+async def test_the_sample_count_is_clamped_to_its_bounds(stubbed, asked_for: int, expected: int) -> None:
+    """A count below one would classify nothing; a count above the ceiling would
+    spend an arbitrary amount of money on one question. Both are clamped rather
+    than rejected, because neither is a caller error worth failing a request
+    over — the classification is still correct, it is just read the right number
+    of times."""
+
+    result = await ai_case_intent.classify_case_needs("a question", samples=asked_for)
+
+    assert len(_classify_calls(stubbed)) == expected
+    assert result["consensus"]["samples"] == expected
+
+
+async def test_the_readings_agree_and_the_agreement_is_reported(stubbed) -> None:
+    """The ordinary case: every sample says the same thing, and the receipt says
+    so, so that "they agreed" and "we only asked once" are distinguishable."""
+
+    stubbed.needs_reply = _needs(True, False, "asks what the policies state")
+
+    result = await ai_case_intent.classify_case_needs("what does the policy say?")
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is False
+    consensus = result["consensus"]
+    assert consensus["samples"] == ai_case_intent.NEEDS_CLASSIFIER_SAMPLES
+    assert consensus["information_true"] == ai_case_intent.NEEDS_CLASSIFIER_SAMPLES
+    assert consensus["verdict_true"] == 0
+    assert consensus["verdict_false"] == ai_case_intent.NEEDS_CLASSIFIER_SAMPLES
+    assert consensus["unreadable"] == 0
+    assert consensus["agreed"] is True
+    assert consensus["fell_back"] is False
+
+
+async def test_a_majority_decides_and_the_dissent_is_still_visible(stubbed) -> None:
+    """Two of three said no verdict was asked for. The third is not erased.
+
+    A vote that hid its dissent would be indistinguishable from a unanimous
+    reading, and the whole reason for sampling is that the difference between
+    those two is worth knowing.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(True, False),
+        _needs(True, True),
+        _needs(True, False),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("a question that reads two ways")
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is False, "the minority reading must not win"
+    consensus = result["consensus"]
+    assert consensus["verdict_true"] == 1
+    assert consensus["verdict_false"] == 2
+    assert consensus["agreed"] is False, "a disagreement must be visible as one"
+    assert consensus["fell_back"] is False, "a majority settled it; nothing fell back"
+
+
+async def test_the_two_booleans_are_voted_separately(stubbed) -> None:
+    """They are independent requests, and a question can be clear about one and
+    genuinely ambiguous about the other.
+
+    Voting the pair as a unit would let certainty about the informational half
+    decide the verdict half, which is how a determination nobody asked for gets
+    produced — or, worse, one that was asked for gets dropped.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(True, True),
+        _needs(True, False),
+        _needs(True, True),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("a question")
+
+    consensus = result["consensus"]
+    assert consensus["information_true"] == 3, "unanimous on one half"
+    assert consensus["verdict_true"] == 2, "split on the other"
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is True
+    assert consensus["agreed"] is False
+
+
+async def test_a_forced_tie_runs_both_tracks_and_reports_the_disagreement(stubbed) -> None:
+    """Acceptance for the tie. Four samples, two each way, on both booleans.
+
+    Production reads an odd number of times precisely so this cannot arise, so
+    the count is overridden here to force it — a fallback that can only be
+    reached by a configuration nobody uses is a fallback nobody has tested.
+
+    The resolution is both tracks, not a coin toss and not a default to one. A
+    reading the samples could not settle is not evidence that half the question
+    was never asked.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(True, True),
+        _needs(False, False),
+        _needs(False, False),
+        _needs(True, True),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("a question that reads both ways", samples=4)
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is True
+    consensus = result["consensus"]
+    assert consensus["samples"] == 4
+    assert consensus["information_true"] == 2
+    assert consensus["information_false"] == 2
+    assert consensus["verdict_true"] == 2
+    assert consensus["verdict_false"] == 2
+    assert consensus["agreed"] is False
+    assert consensus["fell_back"] is True, "a tie is a fallback, and says so"
+
+
+async def test_a_tie_on_one_boolean_alone_still_runs_both_tracks(stubbed) -> None:
+    """A tie on one boolean is a tie, even when the other was unanimous.
+
+    The sharp version of the previous test. When *both* tie, resolving a tie to
+    `False` would coincidentally reach the same place, because a pair that is
+    false in both halves is unreadable and falls back to both anyway. Here the
+    informational half is unanimous, so a tie resolved to `False` would produce
+    an information-only answer and silently drop the verdict the question asked
+    for. It resolves to "unsettled", and unsettled runs both.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(True, True),
+        _needs(True, False),
+        _needs(True, False),
+        _needs(True, True),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("a question", samples=4)
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is True, "a tied half must not resolve to no"
+    consensus = result["consensus"]
+    assert consensus["information_true"] == 4
+    assert consensus["verdict_true"] == 2
+    assert consensus["verdict_false"] == 2
+    assert consensus["fell_back"] is True
+
+
+async def test_readings_nobody_could_read_fall_back_to_both_tracks(stubbed) -> None:
+    """Every sample unusable. The fallback is unchanged by sampling.
+
+    Consensus narrows a sampled bit; it does not change what an unreadable answer
+    means. A reply this function cannot read is not evidence that the reviewer
+    asked for nothing.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(..., ...),
+        {"reasoning": "nothing at all"},
+        _needs("perhaps", None),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("a question")
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is True
+    consensus = result["consensus"]
+    assert consensus["unreadable"] == 3
+    assert consensus["information_true"] == 0
+    assert consensus["information_false"] == 0, "nothing stated is not the same as a stated no"
+    assert consensus["agreed"] is False
+    assert consensus["fell_back"] is True
+
+
+async def test_an_unreadable_sample_does_not_vote(stubbed) -> None:
+    """A sample repaired to `True` before the vote would be indistinguishable
+    from one that said `True`, and the both-tracks fallback would then be carried
+    into the majority by the very samples that failed.
+
+    Here two readable samples say verdict-only. The third says nothing. The
+    answer is verdict-only, not both.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(False, True),
+        _needs(..., ...),
+        _needs(False, True),
+    ]
+
+    result = await ai_case_intent.classify_case_needs("was this allowed?")
+
+    assert result["information_requested"] is False, "the failed sample must not vote"
+    assert result["verdict_requested"] is True
+    consensus = result["consensus"]
+    assert consensus["unreadable"] == 1
+    assert consensus["information_false"] == 2
+    assert consensus["fell_back"] is False
+
+
+async def test_every_sample_reads_the_same_question(stubbed) -> None:
+    """A vote over readings of different things means nothing.
+
+    The samples differ only in what the model happens to answer; the question,
+    the anchor and the call options are identical across all of them.
+    """
+
+    await ai_case_intent.classify_case_needs(
+        "what is the cap, and was Tuesday within it?",
+        tested_quantities=["weekly-hours (number)"],
+    )
+
+    call = _the_classification(stubbed)
+    assert "weekly-hours (number)" in call["messages"][1]["content"]
+    assert call["kwargs"]["temperature"] == 0.0
+
+
+async def test_the_consensus_reaches_the_evaluation_so_a_rate_can_be_measured(stubbed) -> None:
+    """Instrumentation nobody can read is not instrumentation.
+
+    A disagreement *rate* is the number this sampling has to justify itself with,
+    and it can only be computed if each run carries its own split out to where a
+    measurement can see it.
+    """
+
+    stubbed.needs_sequence = [
+        _needs(True, True),
+        _needs(True, False),
+        _needs(True, True),
+    ]
+
+    result = await ai_case_intent.answer_case_over_policies(
+        [_record()], scenario="what is the cap, and was my 28-hour week within it?"
+    )
+
+    consensus = result["classifier_consensus"]
+    assert consensus["samples"] == ai_case_intent.NEEDS_CLASSIFIER_SAMPLES
+    assert consensus["agreed"] is False
+    assert consensus["verdict_true"] == 2
+
+
+async def test_nothing_but_the_two_booleans_is_ever_voted_on(stubbed) -> None:
+    """The boundary of M4, asserted where it would be crossed.
+
+    A verdict is adjudication: sampling it and taking the majority would mean the
+    determination a reviewer is handed was never actually reached by any single
+    reading of the policy. The gathers run once each, whatever the classifier did.
+    """
+
+    stubbed.needs_reply = _needs(True, True, "asks both")
+
+    await ai_case_intent.answer_case_over_policies(
+        [_record()], scenario="what is the cap, and was my 28-hour week within it?"
+    )
+
+    gathers = _gather_calls(stubbed)
+    assert len(gathers) == 2, "one informational gather and one decision gather, each run once"
+    assert len({json.dumps(call["messages"], sort_keys=True) for call in gathers}) == 2
+
+
+def test_the_verdict_path_holds_no_vote(stubbed) -> None:
+    """Structural, not behavioural. The majority helper is reachable from the
+    classifier and from nothing else, so a verdict cannot acquire a vote by
+    someone reusing a convenient function."""
+
+    import inspect
+
+    voters = [
+        name
+        for name, fn in vars(ai_case_intent).items()
+        if inspect.isfunction(fn)
+        and name != "_majority"
+        and "_majority(" in inspect.getsource(fn)
+    ]
+    assert voters == ["classify_case_needs"], f"something else votes: {voters}"

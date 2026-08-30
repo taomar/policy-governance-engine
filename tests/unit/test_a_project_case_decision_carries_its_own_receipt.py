@@ -567,6 +567,41 @@ async def harness(monkeypatch, tmp_path):
 # ── the receipt itself ───────────────────────────────────────────────
 
 
+def test_classifier_disagreement_reaches_the_public_receipt_shape() -> None:
+    """Instrumentation is useful only if the receipt preserves it."""
+
+    asked = policy_case_decision._asked_ref(
+        {
+            "information_requested": True,
+            "verdict_requested": False,
+            "classification_reasoning": "two readings asked for information",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+            "classifier_consensus": {
+                "samples": 3,
+                "information_true": 2,
+                "information_false": 1,
+                "verdict_true": 1,
+                "verdict_false": 2,
+                "unreadable": 0,
+                "agreed": False,
+                "fell_back": False,
+            },
+        }
+    )
+
+    assert asked.classifier_consensus is not None
+    assert asked.classifier_consensus.model_dump() == {
+        "samples": 3,
+        "information_true": 2,
+        "information_false": 1,
+        "verdict_true": 1,
+        "verdict_false": 2,
+        "unreadable": 0,
+        "agreed": False,
+        "fell_back": False,
+    }
+
+
 async def test_a_decision_returns_a_receipt_that_reads_back_identically(harness) -> None:
     """The whole point of the contract: an answer you can come back to.
 
@@ -596,6 +631,10 @@ async def test_a_decision_returns_a_receipt_that_reads_back_identically(harness)
         "verdict_requested": True,
         "classification_reasoning": "the question supplies facts and asks for a ruling",
         "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        # The harness classifies through its own stub rather than sampling, so it
+        # took no readings to report. Null says that, and says it without
+        # pretending a consensus was reached.
+        "classifier_consensus": None,
     }
     assert body["outcome"] == {"information": "not_requested", "verdict": "answered"}
     assert body["information"] is None

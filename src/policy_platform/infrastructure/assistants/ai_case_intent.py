@@ -133,8 +133,16 @@ import asyncio
 import json
 import logging
 import secrets
+from typing import Final
 
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.assistants.ai_case_plan import (
+    PLAN_PROFILE,
+    CasePlan,
+    plan_from_reply,
+    prose_from_reply,
+    unclassified_keys,
+)
 from policy_platform.infrastructure.projection.policy_case_payload import to_compact
 from policy_platform.infrastructure.projection.text_canonical import canonical_key
 from policy_platform.infrastructure.settings import get_settings
@@ -318,6 +326,26 @@ whether the question supplied it or asked after it, and therefore which kind it 
 #: routing. Bumped whenever the prompt's cut changes in a way that could change
 #: which tracks run for the same question.
 NEEDS_CLASSIFIER_VERSION = "ai-case-needs-v1"
+
+#: How many independent readings of one question the needs classifier takes
+#: before it reports which tracks to run.
+#:
+#: Odd on purpose: with an odd number of readable samples neither boolean's
+#: majority can tie, so the conservative both-tracks fallback stays reserved for
+#: what it was built for — a classification nobody could read — rather than
+#: becoming the routine outcome of an even split.
+#:
+#: Three, not more. Each sample is a real model call, and the return on the
+#: fourth and fifth is a narrower and narrower band of cases in exchange for a
+#: linear cost on every question. Bounded by
+#: :data:`NEEDS_CLASSIFIER_SAMPLES_MAX` so a caller — in practice a test forcing
+#: a tie — can vary it without the sampling turning into an unbounded fan-out.
+NEEDS_CLASSIFIER_SAMPLES: Final[int] = 3
+
+#: The ceiling on samples, whoever asks. A classifier that can be told to take
+#: an arbitrary number of readings is a way to spend an arbitrary amount of
+#: money on one question.
+NEEDS_CLASSIFIER_SAMPLES_MAX: Final[int] = 5
 
 _CLASSIFY_NEEDS_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy \
 by what it asks the policy FOR. You are given the question and, below it, the facts and quantities \
@@ -825,14 +853,39 @@ def _classifier_user_content(scenario: str, tested_quantities: list[str] | None)
 
 
 async def classify_case_needs(
-    scenario: str, *, tested_quantities: list[str] | None = None
+    scenario: str, *, tested_quantities: list[str] | None = None, samples: int | None = None
 ) -> dict:
     """Read one question as two independent requests.
 
     Returns ``{"information_requested", "verdict_requested", "reasoning",
-    "classifier_version"}``. One model call, two booleans: a case can ask what
-    the policies state, ask for a verdict, or ask for both, and the pair is
-    exactly what :func:`answer_case_over_policies` runs its gathers from.
+    "classifier_version", "consensus"}``. A case can ask what the policies state,
+    ask for a verdict, or ask for both, and the pair is exactly what
+    :func:`answer_case_over_policies` runs its gathers from.
+
+    CONSENSUS, AND WHY IT IS ON THIS CALL ALONE (M4/AD-3)
+
+    These two booleans decide **which tracks run**, so a flip does not degrade an
+    answer, it replaces it with an answer to a different question. That is the one
+    place in this pipeline where a single sampled bit is load-bearing, and it is
+    why bounded consensus is applied here and nowhere else: a verdict is
+    adjudication and must never be majority-voted (AD-6), but *which question was
+    asked* is a reading, and readings can be taken more than once.
+
+    Each sample is an independent call. The booleans are decided **separately**,
+    each by its own majority, because they are independent requests: a question
+    may be clearly informational and genuinely ambiguous about whether a
+    determination was wanted, and forcing one verdict on the pair would let
+    certainty about one bit decide the other.
+
+    An odd sample count means neither majority can tie. Disagreement is not
+    hidden: ``consensus`` reports the sample count and the vote each boolean
+    received, so a rate can be measured rather than assumed, and a question that
+    genuinely reads both ways is visible as such instead of arriving as a clean
+    single reading.
+
+    **A tie or an unusable set still falls back to both tracks**, for the reason
+    below. Consensus narrows the sampled bit; it does not change what an
+    unreadable answer means.
 
     WHY THE FALLBACK IS "BOTH", NOT "ONE"
 
@@ -855,9 +908,101 @@ async def classify_case_needs(
     the booleans is not offered: it is not a presentation preference, it is the
     contract.
 
+    ``samples`` is not guidance either — it cannot reach the prompt and cannot
+    prefer an outcome, it only says how many times to read. It is bounded by
+    :data:`NEEDS_CLASSIFIER_SAMPLES_MAX` so it cannot be turned into an
+    unbounded fan-out, and callers in the request path do not pass it: the
+    number of readings a classification takes is this module's decision, not an
+    HTTP client's.
+
     A model call that does not complete at all still raises, exactly as the
     intent classifier does: an unreachable model is not an unreadable answer, and
     the endpoint degrades to a 503 rather than inventing a classification.
+    """
+
+    rounds = NEEDS_CLASSIFIER_SAMPLES if samples is None else int(samples)
+    rounds = max(1, min(rounds, NEEDS_CLASSIFIER_SAMPLES_MAX))
+
+    # Concurrent because the samples are independent readings of the same text
+    # and nothing downstream depends on the order they complete in — three
+    # sequential fast-deployment calls would triple the latency of every question
+    # to buy nothing. A sample that raises still propagates, which is the
+    # intended behaviour: an unreachable model is not an unreadable answer.
+    readings = await asyncio.gather(
+        *(_classify_case_needs_once(scenario, tested_quantities) for _ in range(rounds))
+    )
+
+    information = _majority([reading[0] for reading in readings])
+    verdict = _majority([reading[1] for reading in readings])
+    # The first reading that stated anything supplies the prose. Reasoning is an
+    # explanation of a reading, not a vote: merging several would compose a
+    # sentence no call made.
+    reasoning = next((reading[2] for reading in readings if reading[2]), "")
+
+    # Flat counts rather than a nested per-sample log: this is carried on a
+    # receipt and aggregated across runs, and a disagreement *rate* is what makes
+    # the sampling worth its cost. Both directions of each boolean are counted
+    # separately from the unreadable tally, so "two said no" and "two said
+    # nothing" are never added together.
+    consensus = {
+        "samples": rounds,
+        "information_true": sum(1 for reading in readings if reading[0] is True),
+        "information_false": sum(1 for reading in readings if reading[0] is False),
+        "verdict_true": sum(1 for reading in readings if reading[1] is True),
+        "verdict_false": sum(1 for reading in readings if reading[1] is False),
+        "unreadable": sum(
+            1 for reading in readings if reading[0] is None or reading[1] is None
+        ),
+        "fell_back": False,
+    }
+    consensus["agreed"] = (
+        consensus["unreadable"] == 0
+        and consensus["information_true"] in (0, rounds)
+        and consensus["verdict_true"] in (0, rounds)
+    )
+
+    if information is None or verdict is None or not (information or verdict):
+        logger.warning(
+            "case-needs classification was unusable across %s sample(s) "
+            "(information=%r verdict=%r); running both tracks",
+            rounds,
+            information,
+            verdict,
+        )
+        information = True
+        verdict = True
+        consensus["fell_back"] = True
+
+    if not consensus["agreed"]:
+        logger.info(
+            "case-needs classifier disagreed across %s samples "
+            "(information %s true / %s false, verdict %s true / %s false, %s unreadable)",
+            rounds,
+            consensus["information_true"],
+            consensus["information_false"],
+            consensus["verdict_true"],
+            consensus["verdict_false"],
+            consensus["unreadable"],
+        )
+
+    return {
+        "information_requested": information,
+        "verdict_requested": verdict,
+        "reasoning": reasoning,
+        "classifier_version": NEEDS_CLASSIFIER_VERSION,
+        "consensus": consensus,
+    }
+
+
+async def _classify_case_needs_once(
+    scenario: str, tested_quantities: list[str] | None
+) -> tuple[bool | None, bool | None, str]:
+    """One classifier call, returned unrepaired.
+
+    Deliberately returns ``None`` for a boolean the reply did not state rather
+    than repairing it here. A sample repaired to ``True`` before the vote would
+    be indistinguishable from one that said ``True``, and the fallback would then
+    be carried into the majority by the very samples that failed.
     """
 
     settings = get_settings()
@@ -880,26 +1025,28 @@ async def classify_case_needs(
             _CLASSIFY_NEEDS_SYSTEM_PROMPT, user_content, reasoning_effort="low"
         )
 
-    information = _strict_bool(parsed.get("information_requested"))
-    verdict = _strict_bool(parsed.get("verdict_requested"))
-    reasoning = str(parsed.get("reasoning") or "")
+    return (
+        _strict_bool(parsed.get("information_requested")),
+        _strict_bool(parsed.get("verdict_requested")),
+        str(parsed.get("reasoning") or ""),
+    )
 
-    if information is None or verdict is None or not (information or verdict):
-        logger.warning(
-            "case-needs classification was unusable (information=%r verdict=%r); "
-            "running both tracks",
-            parsed.get("information_requested"),
-            parsed.get("verdict_requested"),
-        )
-        information = True
-        verdict = True
 
-    return {
-        "information_requested": information,
-        "verdict_requested": verdict,
-        "reasoning": reasoning,
-        "classifier_version": NEEDS_CLASSIFIER_VERSION,
-    }
+def _majority(votes: list[bool | None]) -> bool | None:
+    """The value more than half the readable samples gave, or ``None``.
+
+    ``None`` on a tie and ``None`` when nothing was readable, so both reach the
+    both-tracks fallback rather than one of them silently becoming ``False``.
+    """
+
+    stated = [vote for vote in votes if vote is not None]
+    if not stated:
+        return None
+    yes = sum(1 for vote in stated if vote)
+    no = len(stated) - yes
+    if yes == no:
+        return None
+    return yes > no
 
 
 def _strict_bool(value: object) -> bool | None:
@@ -1414,6 +1561,7 @@ def _fact_identity(raw: str, fact_names: dict[str, str]) -> str:
 
 
 def _reconciled_missing_facts(
+    plan: CasePlan,
     parsed: dict,
     *,
     available_ids: set[str],
@@ -1481,6 +1629,16 @@ def _reconciled_missing_facts(
         the caller can see the reply named outstanding values, even though none
         of them was usable. Discarding facts and keeping ``answered`` is the
         exact defect recorded above this function, one level up.
+
+    WHICH HALF OF THE REPLY EACH ARGUMENT IS (M3)
+
+    ``plan`` supplies **which values were named and in what order** — the whole
+    of what decides. ``parsed`` is read afterwards only for the *descriptive*
+    halves of ``missing_required_facts_detail``: the label, the reason, and the
+    rule ids that entry attributed the value to. So a detail entry describing a
+    value the plan did not name adds nothing, and rewording a label or a reason
+    cannot change the set of outstanding values, its order, or the status that
+    set produces.
     """
 
     ordered_keys: list[str] = []
@@ -1491,8 +1649,12 @@ def _reconciled_missing_facts(
     alias_index = (membership or {}).get("alias_index") or {}
     enforcing = bool((membership or {}).get("declared"))
 
-    def _note(raw: str) -> str | None:
-        """Register one named fact under its canonical key; return that key."""
+    def _resolve(raw: str) -> str | None:
+        """The canonical key one named fact resolves to, or ``None``.
+
+        Records a refusal on the way past, so enforcement is observable rather
+        than silent. Idempotent: resolving the same name twice refuses it once.
+        """
 
         text = str(raw).strip()
         if not text:
@@ -1506,18 +1668,15 @@ def _reconciled_missing_facts(
                 if text not in dropped:
                     dropped.append(text)
                 return None
-        key = _fact_identity(text, fact_names)
-        if not key:
-            return None
-        if key not in written_as:
-            written_as[key] = text
-            ordered_keys.append(key)
-        return key
+        return _fact_identity(text, fact_names) or None
 
-    raw_flat = parsed.get("missing_required_facts")
-    if isinstance(raw_flat, list):
-        for item in raw_flat:
-            _note(item)
+    for name in plan.named_facts:
+        key = _resolve(name)
+        if key is None:
+            continue
+        if key not in written_as:
+            written_as[key] = name
+            ordered_keys.append(key)
 
     detail = parsed.get("missing_required_facts_detail")
     if isinstance(detail, list):
@@ -1526,8 +1685,10 @@ def _reconciled_missing_facts(
                 continue
             fact = str(entry.get("fact") or "").strip()
             label = str(entry.get("label") or "").strip()
-            key = _note(fact or label)
-            if key is None:
+            key = _resolve(fact or label)
+            if key is None or key not in written_as:
+                # A description of a value the plan did not name describes
+                # nothing this decision carries, so it is not carried either.
                 continue
             supplied = described.setdefault(key, {"label": "", "why_needed": "", "ids": []})
             if label and not supplied["label"]:
@@ -1556,7 +1717,7 @@ def _reconciled_missing_facts(
     return items, dropped
 
 
-def _unsettled_reason(parsed: dict) -> str:
+def _unsettled_reason(plan: CasePlan) -> str:
     """Which kind of non-settlement the gather reported, normalised.
 
     Only the two named values mean anything; anything else — absent, misspelled,
@@ -1564,7 +1725,7 @@ def _unsettled_reason(parsed: dict) -> str:
     be indistinguishable to the caller from one the gather chose.
     """
 
-    reason = str(parsed.get("unsettled_reason") or "").strip().lower()
+    reason = plan.unsettled_reason
     return reason if reason in (UNSETTLED_MISSING_CASE_FACT, UNSETTLED_RECORD_DOES_NOT_DETERMINE) else ""
 
 
@@ -1608,10 +1769,38 @@ def _decision_from_parsed(
     answer" and "one value is outstanding", the second is the safe reading of a
     contradictory reply. It costs a reviewer one question; the other way costs
     them a determination that was never actually made.
+
+    "NO REPAIR READS THE PROSE", MADE STRUCTURAL (M3)
+
+    That claim used to be a property of how carefully this function was written,
+    re-established by reading it and lost the moment a field was added beside the
+    ones it read. It is now a property of the data: the reply is split first, and
+    every branch below turns on :class:`CasePlan`, which has no field that could
+    hold a sentence. The prose is a second object, read only where it is emitted.
+
+    The one thing a branch takes from the prose is whether there *is* any — a
+    state that promises a reader an explanation cannot stand with nothing to
+    show, and ``answered`` with no verdict string is the confusion this
+    vocabulary exists to prevent. Both are carried as booleans on the plan, so
+    what the model wrote is never consulted, only that it wrote.
     """
 
     available_ids = {str(rule.get("rule_id")) for rule in rules if rule.get("rule_id")}
-    requested, cited_ids, fabricated = _checked_citation_ids(parsed.get("cited_rule_ids"), available_ids)
+    # The two halves of the reply, read apart (M3/AD-2). Every status decision
+    # below reads `plan`; `prose` is read only where it is emitted.
+    plan = plan_from_reply(parsed)
+    prose = prose_from_reply(parsed)
+    unclassified = unclassified_keys(parsed)
+    if unclassified:
+        # A field on neither side of the split is a field this decision did not
+        # read. Silence would let a key the prompt started returning sit in
+        # replies for a release, unread, and look like it had been considered.
+        logger.warning(
+            "decision reply carried %s field(s) the plan/prose split does not classify: %s",
+            len(unclassified),
+            ", ".join(unclassified),
+        )
+    requested, cited_ids, fabricated = _checked_citation_ids(list(plan.cited_rule_ids), available_ids)
     grounding = _grounding(
         rules_available=len(rules),
         citations_requested=len(requested),
@@ -1619,11 +1808,15 @@ def _decision_from_parsed(
         fabricated=fabricated,
         oversize=False,
     )
+    # Which reading produced this decision, carried beside the prompt version for
+    # the same reason: a stored receipt should not have to be re-derived to say
+    # what its status was computed from.
+    grounding["plan_profile"] = PLAN_PROFILE
     if policies_grounded is not None:
         grounding["policies_grounded"] = policies_grounded
 
-    note = str(parsed.get("note") or "")
-    if parsed.get("declined"):
+    note = prose["note"]
+    if plan.declined:
         return {
             "status": DECLINED,
             "verdict": "",
@@ -1635,13 +1828,14 @@ def _decision_from_parsed(
             "grounding": grounding,
         }
 
-    answer = str(parsed.get("answer") or "").strip()
+    answer = prose["answer"].strip()
     # Reconciled once, from both structured fields together, and used for every
     # decision below as well as for both emitted fields. Reading them separately
     # is what let the flat list a caller hashes and the block their UI renders
     # describe two different sets of missing facts.
     fact_names = _rule_fact_names(rules)
     missing_items, out_of_catalogue = _reconciled_missing_facts(
+        plan,
         parsed,
         available_ids=available_ids,
         fact_names=fact_names,
@@ -1650,11 +1844,11 @@ def _decision_from_parsed(
     missing_required_facts = [item["fact"] for item in missing_items]
     grounding["selectors_out_of_catalogue"] = out_of_catalogue
 
-    status = str(parsed.get("status") or "").strip().lower()
+    status = plan.status
     if status not in _DECISION_STATUSES:
         if missing_required_facts:
             status = MISSING_REQUIRED_FACTS
-        elif cited_ids and answer:
+        elif cited_ids and plan.states_answer:
             status = ANSWERED
         else:
             status = NO_RULE_BEARS
@@ -1684,7 +1878,7 @@ def _decision_from_parsed(
         # The prose the model wrote survives untouched as the explanation; only
         # the label it wears changes.
         status = MISSING_REQUIRED_FACTS
-    elif status == NOT_SETTLED_BY_RULES and _unsettled_reason(parsed) == UNSETTLED_MISSING_CASE_FACT:
+    elif status == NOT_SETTLED_BY_RULES and _unsettled_reason(plan) == UNSETTLED_MISSING_CASE_FACT:
         # It said a fact of the case would settle this, and then named none. The
         # blocked state cannot be built without content — inventing the fact here
         # would put a question in the policy's mouth that no rule asked — so the
@@ -1719,15 +1913,15 @@ def _decision_from_parsed(
 
     if status == MISSING_REQUIRED_FACTS and not missing_required_facts:
         status = DECLINED
-    if status in (ANSWERED, MISSING_REQUIRED_FACTS, NOT_SETTLED_BY_RULES) and not answer:
+    if status in (ANSWERED, MISSING_REQUIRED_FACTS, NOT_SETTLED_BY_RULES) and not plan.states_answer:
         status = DECLINED
 
     # Read after the status is settled, not before: a reply relabelled away from
     # `answered` above must not carry a verdict string out with it, and reading it
     # here rather than at parse time is what makes that true by construction.
-    verdict = str(parsed.get("verdict") or "").strip() if status == ANSWERED else ""
+    verdict = prose["verdict"].strip() if status == ANSWERED else ""
 
-    if status == ANSWERED and not verdict:
+    if status == ANSWERED and not plan.states_verdict:
         # The model claimed a determination and named none. A receipt's invariant
         # is that a verdict string is non-empty exactly when one was reached, and
         # the two ways to keep it here are both wrong: inventing a verdict from
@@ -2638,8 +2832,9 @@ async def answer_case_over_policies(
         ``None`` when it did not, exactly as before. A single-need case is
         therefore byte-identical to what it produced under the old classifier.
       - ``information_requested`` / ``verdict_requested`` / ``classifier_version``
-        — added, never removed, so a reader that wants the honest two-track view
-        has one and a reader that does not is unaffected.
+        / ``classifier_consensus`` — added, never removed, so a reader that wants
+        the honest two-track view has one and a reader that does not is
+        unaffected.
 
     WHY BOTH GATHERS SHARE ONE RETRIEVAL
 
@@ -2785,6 +2980,9 @@ async def answer_case_over_policies(
         "verdict_requested": verdict_requested,
         "classification_reasoning": needs["reasoning"],
         "classifier_version": needs["classifier_version"],
+        # `.get`, so a caller that supplied its own classifier — several tests do
+        # — is not required to produce a consensus record it never took.
+        "classifier_consensus": needs.get("consensus"),
         "informational": by_track.get(INFORMATIONAL),
         "decision": by_track.get(DECISION),
         "reasoning_effort": effort,
