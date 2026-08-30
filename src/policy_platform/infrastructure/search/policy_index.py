@@ -1548,6 +1548,20 @@ async def validate_project_policy_index(
         search_client = search_client or AzureSearchClient(settings)
         openai_client = openai_client or AzureOpenAIClient(settings)
 
+        # Validation annotates a manifest built before the quality fields
+        # existed. Azure Search rejects those fields until the live index schema
+        # is updated, so evolve the schema before reading and writing the
+        # manifest. PUT is additive for this definition and preserves documents;
+        # it is the same operation a rebuild already performs, without any
+        # rendering or content-document upload.
+        await _create_index_accepting_empty_success(
+            search_client,
+            policy_index_definition(
+                index_name,
+                vector_dimensions=settings.azure_openai_embedding_dimensions,
+            ),
+        )
+
         records = expected_projection_records(list(projections), policy_set_key=policy_set_key)
         manifest_id = policy_index_manifest_id(policy_set_key)
         documents = await search_client.find_documents_by_filter(

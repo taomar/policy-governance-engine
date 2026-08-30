@@ -75,6 +75,7 @@ from policy_platform.infrastructure.search.policy_index import (  # noqa: E402
     policy_rule_document_id,
     read_projection_readiness,
     rebuild_project_policy_index,
+    validate_project_policy_index,
 )
 from policy_platform.infrastructure.projection.policy_rule_slice import (  # noqa: E402
     LARGE_POLICY_RULE_THRESHOLD,
@@ -873,6 +874,21 @@ class SeededIndex(RecordingSearch):
             self.previous.pop(doc_id, None)
         return {"value": []}
 
+    async def find_documents_by_filter(
+        self, index, *, filter_expr, select=None, page_size=1000
+    ):
+        documents = list(self.previous.values())
+        if "id eq " in filter_expr:
+            manifest_id = policy_index_manifest_id(_KEY)
+            documents = [document for document in documents if document["id"] == manifest_id]
+        if select:
+            fields = select.split(",") if isinstance(select, str) else select
+            return [
+                {key: document.get(key) for key in fields if key in document}
+                for document in documents
+            ]
+        return [dict(document) for document in documents]
+
 
 #: A version that is no longer the active one, so a rebuild at the current
 #: version really does supersede everything the seed holds — which is what makes
@@ -896,6 +912,37 @@ def _seeded_corpus() -> list[dict]:
     for doc in search.documents:
         documents[doc["id"]] = dict(doc)
     return list(documents.values())
+
+
+def test_validation_updates_an_older_index_schema_before_annotating_its_manifest():
+    """An index built before MQ accepts the new quality fields without a rebuild."""
+
+    projection = _projection(rule_count=18)
+    built, initial, client = _rebuild([projection])
+    assert built.state == "built"
+
+    previous = {document["id"]: dict(document) for document in initial.documents}
+    search = SeededIndex(list(previous.values()))
+    outcome = _run(
+        validate_project_policy_index(
+            policy_set_key=_KEY,
+            projections=[projection],
+            settings=_settings(),
+            search_client=search,
+            openai_client=client,
+            validated_at=datetime(2026, 8, 31, tzinfo=UTC),
+        )
+    )
+
+    assert search.created, "validation tried to write quality fields before evolving the schema"
+    quality_fields = {
+        field["name"]
+        for field in search.created[-1]["fields"]
+        if field["name"].startswith("quality_")
+    }
+    assert "quality_state" in quality_fields
+    assert outcome.recorded is True
+    assert search.content_writes == [], "validation re-uploaded content instead of only the manifest"
 
 
 def test_a_rejected_incomplete_manifest_aborts_before_a_single_document_is_written():
