@@ -253,6 +253,48 @@ class ProjectionQualityProfile:
     It is emphatically **not** tuned against any corpus this platform has been
     run on. Nothing here was fitted, and the tests that hold it are synthetic
     and unrelated to one another by construction.
+
+    MEASURED, AND THE THIRD BAND ABOVE IS INCOMPLETE
+    *(2026-08-30, 27 synthetic pairs drawn from several unrelated domains;
+    reproduce with `scripts/measure_projection_floor.py`)*
+
+    The three bands above were reasoned from the shape of the space rather than
+    measured. Measured, two of them hold and a **fourth band exists that this
+    argument did not consider**:
+
+    | Band | Observed |
+    |---|---|
+    | faithful rendering | 0.7120 – 0.8437 |
+    | unrelated record, same document | 0.2535 – 0.4759 |
+    | unrelated domain | 0.1835 – 0.2423 |
+    | **sibling record: same subject, same sentence shape, different rule** | **0.5808 – 0.8371** |
+
+    The fourth band **overlaps the first by 0.1251**: a rendering of a sibling
+    record reached 0.8371, higher than the weakest genuine rendering at 0.7120.
+    Sibling records are alike by construction — they share subject, register and
+    sentence shape, and differ only in the identifiers, quantities and
+    comparators that carry their meaning. Similarity is computed over what they
+    share, which is nearly all of it.
+
+    **Consequence, stated plainly: no single cosine threshold separates a
+    faithful rendering from a sibling-record substitution.** The floor is
+    therefore not raised, and raising it is not the repair: any value above the
+    sibling band sits above genuine renderings and converts a silent admission
+    into a guaranteed outage.
+
+    **What this gate does and does not catch, corrected.** It remains decisive
+    against gross substitution — a dropped record, a swapped output, a rendering
+    of an unrelated record, an empty or wrong-profile document — all of which
+    sit below 0.48, comfortably clear of the floor. It is **blind to the
+    fine-grained case**: a rendering of a sibling record. That is exactly the
+    defect AD-7.11 warns is invisible to citation-integrity checks, and it is
+    worst in precisely the records this gate matters most for — any schedule of
+    many similar rows, where every row is a sibling of its neighbours.
+
+    Closing it needs a different mechanism, not a different number: per-record
+    alignment on the identifiers, quantities and comparators the records differ
+    *by*, rather than similarity over what they hold in common. That is a design
+    decision and is deliberately not taken here.
     """
 
     name: str

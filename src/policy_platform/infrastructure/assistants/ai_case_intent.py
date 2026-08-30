@@ -237,6 +237,14 @@ SELECTOR_FROM_FACT_REF = "fact_ref"
 SELECTOR_FROM_ATTRIBUTE = "attribute"
 SELECTOR_FROM_ATTRIBUTE_TEXT = "attribute_text"
 
+#: The version of the closed selector vocabulary a decision was validated
+#: against. Versioned separately from the prompt, and it has to be: the prompt
+#: moves when the wording changes, this moves when the *rules for what counts as
+#: a member* change. A receipt naming a version is a receipt whose selector set
+#: can be re-derived and re-checked later; one that does not is a list of strings
+#: nobody can audit.
+SELECTOR_CATALOGUE_VERSION = "case-selectors-v1"
+
 #: Which spelling names a selector when a record offers several. A declared name
 #: outranks a phrase, and both outrank an internal id — an id is a handle the
 #: projection minted, not something the document called it, so it is kept as an
@@ -592,6 +600,12 @@ def _grounding(
         "rules_cited": len(cited_ids),
         "fabricated_citations": fabricated,
         "oversize": oversize,
+        # The selector counterpart of `fabricated_citations`, and it is here for
+        # the same reason: a check that is only ever performed and never seen to
+        # refuse anything is a validator that could not fail. The version travels
+        # with the count so a reader knows which vocabulary refused it.
+        "selector_catalogue_version": SELECTOR_CATALOGUE_VERSION,
+        "selectors_out_of_catalogue": [],
     }
 
 
@@ -1364,6 +1378,30 @@ def _rule_fact_names(rules: list[dict]) -> dict[str, str]:
     }
 
 
+def _selector_membership(rules: list[dict]) -> dict:
+    """The closed set a named fact must belong to, resolved by any of its spellings.
+
+    M1 built :func:`selector_catalogue` and deliberately did not enforce it, so
+    that ``missing_information[].fact`` would not change before there was a stage
+    entitled to change it. This is that stage, and this is the whole of what it
+    needs: a map from every grounded alias key to the selector it belongs to, and
+    whether the records declared any vocabulary at all.
+
+    ``declared`` is not a convenience. Validating against an *empty* catalogue
+    would refuse every named fact on no evidence — the records would be the
+    deficient party and the model would take the blame — so an undeclared corpus
+    is reported rather than silently converted into a clean sheet. It is the same
+    distinction the projection gate draws between a check that failed and a check
+    that could not be made.
+    """
+
+    catalogue = selector_catalogue([{"rules": rules or []}])
+    return {
+        "alias_index": catalogue["alias_index"],
+        "declared": bool(catalogue["selectors"]),
+    }
+
+
 def _fact_identity(raw: str, fact_names: dict[str, str]) -> str:
     """The stable key for one named fact: the record's name for it, or the derived one."""
 
@@ -1376,8 +1414,12 @@ def _fact_identity(raw: str, fact_names: dict[str, str]) -> str:
 
 
 def _reconciled_missing_facts(
-    parsed: dict, *, available_ids: set[str], fact_names: dict[str, str]
-) -> list[dict]:
+    parsed: dict,
+    *,
+    available_ids: set[str],
+    fact_names: dict[str, str],
+    membership: dict | None = None,
+) -> tuple[list[dict], list[str]]:
     """One coherent set of missing facts, built once from both fields at once.
 
     THE DEFECT THIS REPLACES
@@ -1420,11 +1462,34 @@ def _reconciled_missing_facts(
         policy gave. ``label`` falls back to the wording the gather itself used
         for that fact, which is model-supplied content, not an invention, and is
         the only human-readable thing there is.
+
+    CLOSED-VOCABULARY ENFORCEMENT (M3)
+
+    A named fact must be something the retained records themselves declare. Where
+    ``membership`` is supplied and the records declared any vocabulary, a name
+    that resolves to no selector is **dropped and returned separately** rather
+    than emitted: an invented selector reads to a caller exactly like a declared
+    one, and a receipt whose outstanding value names nothing in the policy cannot
+    be acted on or audited.
+
+    Two deliberate restraints:
+
+      * **An undeclared corpus enforces nothing.** With no vocabulary to check
+        against, every name would be refused on no evidence, blaming the model
+        for a deficiency in the records.
+      * **Dropping never upgrades a status.** The dropped names are returned so
+        the caller can see the reply named outstanding values, even though none
+        of them was usable. Discarding facts and keeping ``answered`` is the
+        exact defect recorded above this function, one level up.
     """
 
     ordered_keys: list[str] = []
     written_as: dict[str, str] = {}
     described: dict[str, dict] = {}
+    dropped: list[str] = []
+
+    alias_index = (membership or {}).get("alias_index") or {}
+    enforcing = bool((membership or {}).get("declared"))
 
     def _note(raw: str) -> str | None:
         """Register one named fact under its canonical key; return that key."""
@@ -1432,6 +1497,15 @@ def _reconciled_missing_facts(
         text = str(raw).strip()
         if not text:
             return None
+        if enforcing:
+            # Resolved by the catalogue's own alias index, so a fact named by any
+            # spelling the records use resolves to the one selector it is, and a
+            # name the records never used resolves to nothing.
+            resolved = alias_index.get(_fact_key(text))
+            if resolved is None:
+                if text not in dropped:
+                    dropped.append(text)
+                return None
         key = _fact_identity(text, fact_names)
         if not key:
             return None
@@ -1479,7 +1553,7 @@ def _reconciled_missing_facts(
                 "required_by_rule_ids": list(supplied.get("ids") or []),
             }
         )
-    return items
+    return items, dropped
 
 
 def _unsettled_reason(parsed: dict) -> str:
@@ -1567,10 +1641,14 @@ def _decision_from_parsed(
     # is what let the flat list a caller hashes and the block their UI renders
     # describe two different sets of missing facts.
     fact_names = _rule_fact_names(rules)
-    missing_items = _reconciled_missing_facts(
-        parsed, available_ids=available_ids, fact_names=fact_names
+    missing_items, out_of_catalogue = _reconciled_missing_facts(
+        parsed,
+        available_ids=available_ids,
+        fact_names=fact_names,
+        membership=_selector_membership(rules),
     )
     missing_required_facts = [item["fact"] for item in missing_items]
+    grounding["selectors_out_of_catalogue"] = out_of_catalogue
 
     status = str(parsed.get("status") or "").strip().lower()
     if status not in _DECISION_STATUSES:
@@ -1618,6 +1696,26 @@ def _decision_from_parsed(
             NOT_SETTLED_BY_RULES,
             UNSETTLED_MISSING_CASE_FACT,
         )
+
+    if (
+        out_of_catalogue
+        and not missing_required_facts
+        and status in (ANSWERED, NOT_SETTLED_BY_RULES)
+    ):
+        # Enforcement must not become a way to answer. The reply said a value
+        # about this case is outstanding; the closed vocabulary says the value it
+        # named is not one the records turn on. That refutes the *name*, not the
+        # dependency — so the determination still hangs on something, and this
+        # layer can no longer say what.
+        #
+        # Without this clause the relabel above would stop firing precisely when
+        # every named fact was refused, and `answered` would survive with its
+        # facts discarded. That is the defect documented at the top of this
+        # function, reintroduced by the check meant to strengthen it. `declined`
+        # for the same reason the empty blocked state below is: the blocked state
+        # cannot be materialised without content, and a determination must not be
+        # the consolation prize for failing validation.
+        status = DECLINED
 
     if status == MISSING_REQUIRED_FACTS and not missing_required_facts:
         status = DECLINED

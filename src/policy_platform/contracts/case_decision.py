@@ -973,8 +973,12 @@ class CaseDecisionEnvelope(BaseModel):
         default=None,
         description=(
             "The gather's own grounding report, including `fabricated_citations` — the citations "
-            "the fabrication guard refused. This is the quality signal the case service provides; "
-            "no other is invented here."
+            "the fabrication guard refused — and `selectors_out_of_catalogue`, the outstanding-fact "
+            "names the closed selector vocabulary refused, reported under "
+            "`selector_catalogue_version`. Both are refusals made visible for the same reason: a "
+            "guard that is only ever performed and never seen to refuse anything cannot be "
+            "audited. This is the quality signal the case service provides; no other is invented "
+            "here."
         ),
     )
     size: SizeRef | None = None
@@ -1137,7 +1141,9 @@ class InformationSection(BaseModel):
         default=None,
         description=(
             "This track's grounding report, including `fabricated_citations` — the citations the "
-            "fabrication guard refused. Per track, because the two tracks ground separately."
+            "fabrication guard refused — and `selectors_out_of_catalogue`, the outstanding-fact "
+            "names the closed selector vocabulary refused, under `selector_catalogue_version`. "
+            "Per track, because the two tracks ground separately."
         ),
     )
 
