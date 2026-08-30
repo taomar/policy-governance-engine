@@ -437,14 +437,15 @@ export function ConsumeProjectDrawer({ policySet, open, onClose }: ConsumeProjec
           id="python"
           language="Python"
           projectKey={policySet.key}
-          caption="The same call, and the way a receipt has to be read: status first, verdict only if it is answered."
+          caption="The same call, and the way a receipt has to be read: each track's outcome first, a verdict only if one was reached."
           code={buildPythonSnippet(target)}
           downloadName={`${policySet.key}_case.py`}
           annotation={annotation}
           bullets={[
             "Uses requests; there is no SDK for this product and none is implied.",
-            "Branches on the decision status before reading a verdict.",
-            "Prints the decision id, explanation, citations and receipt URL.",
+            "Reads outcome.information and outcome.verdict before either section: both are null when their track was not asked for, or when nothing was evaluated.",
+            "Prints the facts a case still needs when a verdict was asked for but could not be reached.",
+            "Prints the decision id, citations with the track that cited each, and the receipt URL.",
           ]}
           onAnnounce={announce}
         />
@@ -480,6 +481,7 @@ export function ConsumeProjectDrawer({ policySet, open, onClose }: ConsumeProjec
             downloadName={`${policySet.key}-receipt.http`}
             bullets={[
               "Uses the decision_id returned by the POST above.",
+              "Replays the stored receipt in the shape it was written in; schema_version names which.",
               "Readable by the caller that made it, and by a policy author or admin.",
             ]}
             onAnnounce={announce}

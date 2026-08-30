@@ -220,6 +220,18 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
           data: refusal,
         });
       }
+      // A named refusal: `{ "detail": { "code": ..., "message": ... } }`, which
+      // is how the case routes report a boundary or projection failure. The
+      // code is what a caller matches on, and the message is a sentence the
+      // server wrote — kept as the detail so a refusal this app has no words
+      // for still reads as prose rather than as `[object Object]`.
+      const named = isNamedRefusal(body.detail) ? body.detail : isNamedRefusal(body) ? body : null;
+      if (named) {
+        throw new PolicyPlatformApiError(res.status, named.message, {
+          code: named.code,
+          data: named as unknown as Record<string, unknown>,
+        });
+      }
       detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body);
     } catch (cause) {
       if (cause instanceof PolicyPlatformApiError) throw cause;
@@ -1289,6 +1301,52 @@ export interface PolicyIndexState {
   error: string | null;
   source: "recorded_build_state";
   live_probe: false;
+  /** The rendering contract the indexed retrieval text was produced under.
+   *
+   *  Optional: the state endpoint derives freshness against the profile this
+   *  build expects but does not have to echo it back. When it is absent the
+   *  panel says which axis it can prove and does not guess the other. */
+  projection_profile?: string | null;
+  /** The profile this server expects an index to have been built under. */
+  expected_projection_profile?: string | null;
+  /** `ready` only once every expected document was acknowledged. Anything else
+   *  means an interrupted rebuild left a corpus that retrieval refuses rather
+   *  than answers from in part. */
+  manifest_state?: string | null;
+}
+
+/** The verdict a projection-faithfulness validation reached.
+ *
+ *  Carries counts, scores, profile names and document keys — and no text, on
+ *  any path. A document id is a digest of platform-generated identifiers, so a
+ *  finding can name a document without quoting a word of one. */
+export interface PolicyIndexQualityReport {
+  /** `unavailable` is not a pass. A check nobody could perform is exactly as
+   *  much evidence as one that failed, and the readiness gate treats the two
+   *  identically; they are kept apart only because their repairs differ. */
+  state: "passed" | "failed" | "unavailable";
+  profile: string;
+  checked_documents: number;
+  structural_findings: number;
+  below_floor: number;
+  minimum_similarity: number | null;
+  mean_similarity: number | null;
+  validated_at: string;
+  findings: { code: string; document_id: string | null }[];
+}
+
+export interface PolicyIndexValidationResult {
+  state: "validated" | "skipped" | "failed";
+  policy_set_key: string;
+  index_name: string;
+  projection_profile: string;
+  /** The load-bearing field. A verdict is in force only once it reaches the
+   *  manifest the readiness gate reads, so a `passed` that was not recorded has
+   *  changed nothing about what this project may answer. */
+  recorded: boolean;
+  validated_at: string;
+  error: string | null;
+  quality?: PolicyIndexQualityReport | null;
 }
 
 export interface PolicyIndexBuildResult {
@@ -1299,6 +1357,48 @@ export interface PolicyIndexBuildResult {
   document_count: number;
   indexed_at: string;
   error: string | null;
+  /** How the documents split between the two content types the index holds. A
+   *  policy holding more rules than one case can read gets one document per
+   *  rule as well as its own, so a rule past what its policy's combined text
+   *  could carry is still reachable. Optional: a server that predates the split
+   *  reports only `document_count`. */
+  policy_document_count?: number;
+  rule_document_count?: number;
+  /** The rendering contract the retrieval text was produced under. Null on a
+   *  build that did not finish — the same fact as an `incomplete` manifest, and
+   *  the fact retrieval refuses on. */
+  projection_profile?: string | null;
+  /** `ready` only once every expected document was acknowledged. Written as
+   *  `incomplete` before the first upload, so an interrupted rebuild leaves a
+   *  project that refuses rather than one that answers from part of a corpus. */
+  manifest_state?: string | null;
+}
+
+/** The server's name for a refusal this app has words for.
+ *
+ *  Matched on the code and never on the sentence, so rewording a server message
+ *  can never change what a reviewer is shown or offered. */
+export const INDEX_PROJECTION_UNAVAILABLE = "index_projection_unavailable";
+export const SCENARIO_TRANSLATION_UNAVAILABLE = "scenario_translation_unavailable";
+export const SCENARIO_TRANSLATION_EMPTY = "scenario_translation_empty";
+export const RESPONSE_TRANSLATION_UNAVAILABLE = "response_translation_unavailable";
+
+/** A refusal the server named: a code to match on, and a sentence to show.
+ *
+ *  Deliberately not a closed list of codes. Any `{code, message}` the server
+ *  sends is carried through — a client that only recognised the codes it was
+ *  written against would show `[object Object]` for a refusal added after it,
+ *  which is the failure this exists to remove. Words for a *particular* code
+ *  live where that refusal is handled; this is only the shape. */
+export interface NamedRefusal {
+  code: string;
+  message: string;
+}
+
+function isNamedRefusal(detail: unknown): detail is NamedRefusal {
+  if (typeof detail !== "object" || detail === null) return false;
+  const candidate = detail as { code?: unknown; message?: unknown };
+  return typeof candidate.code === "string" && typeof candidate.message === "string";
 }
 
 export type ProjectCaseRetrievalStatus =
@@ -1321,12 +1421,140 @@ export interface ProjectCaseRetrieval {
   clause_budget?: number;
   clause_scan?: number;
   clauses_retrieved?: number;
+  policies_retrieved?: number;
   policies_considered?: number;
   policies_retained?: number;
   policies_discarded?: number;
   policies_untestable?: number;
   policy_budget?: number;
   policy_scan?: number;
+  /** The characters one policy's record may occupy in a single grounded pass.
+   *  A retained policy that would overflow it is set aside whole rather than
+   *  trimmed, and appears in `considered` as `outside_payload_budget`. */
+  payload_budget_chars?: number | null;
+  /** How many retained policies were set aside for size rather than relevance.
+   *  Reported apart from `policies_discarded` — of which it is a subset —
+   *  because a policy dropped for size ranked *inside* the retention budget. */
+  policies_over_payload_budget?: number | null;
+  /** Above this many rules a policy is read rule by rule instead of whole. */
+  large_policy_rule_threshold?: number | null;
+  /** How many rules of such a policy may be selected for one case. */
+  selected_rule_budget?: number | null;
+  /** How many retained policies were read rule by rule. The per-policy detail
+   *  is each candidate's own `rule_selection`; this is the headline that tells
+   *  a reader to look for it. */
+  policies_rule_sliced?: number | null;
+  /** How the retained set was chosen from the ranked hits — for example
+   *  `relevance_then_normative_content_v1`. Named so a reader can explain a
+   *  highly-ranked policy that still sits outside the budget. */
+  policy_selection_order?: string | null;
+  /** Policies collapsed before the retention budget because they govern
+   *  identically to a policy already retrieved. A subset of
+   *  `policies_discarded`, and the only discard whose terms still reached the
+   *  gather: each names its representative in `duplicate_of_provision_key`.
+   *  Never to be reported together with `policies_diversity_deferred` — one is
+   *  a proven copy that was read through another record, the other is a
+   *  distinct policy that was not read at all. */
+  policies_duplicate_collapsed?: number | null;
+  /** Policies that ranked inside the retention budget and were offered after it
+   *  because a policy requiring the same thing was offered first. **Not
+   *  duplicates**: nothing proved them identical, they keep their own rank and
+   *  score, and their terms were not read. */
+  policies_diversity_deferred?: number | null;
+  /** How many rule-level documents the discovery search examined. A policy
+   *  holding more rules than one case can read is indexed one document per
+   *  rule as well, so a rule past what its policy's combined text had room for
+   *  is still findable on its own terms. */
+  rule_scan?: number | null;
+  /** The versioned corpus projection the index was matched against. A question
+   *  and the text it is scored against must be rendered under one contract or
+   *  the two are not comparable. Null when no index was consulted — the
+   *  single-policy scope, or a state that stopped before the search. */
+  projection_profile?: string | null;
+  /** Whether the index reported a complete corpus projection under the expected
+   *  contract. Only ever true on a served answer: a project whose projection is
+   *  absent, superseded, or left incomplete by an unfinished rebuild is refused
+   *  with `index_projection_unavailable` rather than answered from a corpus
+   *  that cannot be compared against the question. */
+  projection_ready?: boolean | null;
+  policy_documents_matched?: number | null;
+  rule_documents_matched?: number | null;
+  /** Policies whose ranking was raised by one of their own rules surfacing,
+   *  including policies the policy-level search did not return at all. This is
+   *  the count that says whether rule-level retrieval did anything here. */
+  policies_elevated_by_rule?: number | null;
+  /** Whether the rule index took part. `matched` — queried, and its ranking
+   *  fused with the others. `degraded` — rule documents exist but the query
+   *  against them failed recoverably, so selection ran without that ranking.
+   *  `unavailable` — it was not consulted. Zero hits under `matched` is a real
+   *  answer and is not the same as `unavailable`. */
+  rule_index_state?: string | null;
+}
+
+/** How one large policy's rules were narrowed before it was read.
+ *
+ *  Present only on a policy that was actually put in front of a gather. It is
+ *  the third narrowing — after relevance and after the payload budget — and it
+ *  is disclosed per policy so "74 rules · 8 read" can never be mistaken for
+ *  "74 rules read". No rule is ever trimmed to fit: a rule is either selected
+ *  or named as one that was not. */
+export interface ProjectCaseRuleSelection {
+  total_rules: number;
+  selected_rules: number;
+  selected_rule_ids?: string[];
+  rules_discarded?: number;
+  /** How the rules were chosen — for example `whole_policy`,
+   *  `scenario_relevance_v2`, or `document_order`.
+   *
+   *  The version suffix moves when the selection algorithm changes, so a
+   *  stored receipt names the algorithm that produced it. Read it by family
+   *  rather than by literal: a client pinned to one version does not fail
+   *  loudly on the next one, it quietly starts showing a raw identifier. */
+  method?: string;
+  /** True when the policy was read rule by rule rather than whole. */
+  sliced?: boolean;
+  context_rules_added?: number;
+  context_rules_omitted?: string[];
+  /** Rules of this policy that were never candidates for selection because an
+   *  earlier rule of the same policy governs identically. A copy is not a
+   *  second rule and may not take a second slot. */
+  duplicate_rules_collapsed?: number;
+  /** The rules those collapsed copies are: each says exactly what a selected
+   *  rule says. Part of `rules_discarded`, named so that number is not read as
+   *  "unknown content" — and none of them was put in front of the model, so
+   *  naming them may never be presented as having read them. */
+  represented_rule_ids?: string[];
+  chars?: number | null;
+  budget_chars?: number | null;
+  oversize?: boolean;
+  /** Whether the rule index took part in *this policy's* selection: `matched`,
+   *  `degraded`, or `unavailable`. Per policy as well as per retrieval, because
+   *  a project-wide degradation and a policy that has no rule documents are
+   *  different facts about different policies in one answer. */
+  rule_index_state?: string | null;
+  /** How many of this policy's rules the rule index ranked for this question.
+   *  Zero under `matched` is a real answer — it was asked and placed none — and
+   *  is not `unavailable`, where it was never asked. */
+  rule_index_hits?: number | null;
+  /** Rules the relevance ranking placed, over whichever corpus it scored. */
+  lexical_candidates?: number | null;
+  /** Rules stating a quantity that admits a quantity the question states. A
+   *  retrieval rank only: it decides whether a rule is worth reading, never
+   *  what the rule decides. */
+  quantity_candidates?: number | null;
+  /** Rules at least one ranking placed, and so the pool the budget selected
+   *  from. When this is zero the method is `document_order`. */
+  fused_candidates?: number | null;
+  /** How many of the budget's slots were reserved so distinct source passages
+   *  are covered before a passage's second rule competes. Half the budget,
+   *  rounded up; the rest are filled on fused rank alone. */
+  evidence_diversity_quota?: number | null;
+  /** Rules the relevance ranking could not score because the index returned no
+   *  English projection for them. They score zero rather than being scored
+   *  against the document's own language — one language on both sides of a
+   *  match, always — and can still be placed by the rule index or the quantity
+   *  rank. */
+  rules_without_projection?: number | null;
 }
 
 export interface ProjectCasePolicyCandidate {
@@ -1340,6 +1568,12 @@ export interface ProjectCasePolicyCandidate {
   matched_clauses?: number | null;
   discard_reason?: string | null;
   reason?: string | null;
+  /** Set only on a policy discarded as `duplicate_policy_content`: the key of
+   *  the identically-governing policy retrieved in its place. It names where
+   *  this policy's terms were in fact read, without claiming this record was
+   *  read. Absent on every other discard, including a diversity-deferred one. */
+  duplicate_of_provision_key?: string | null;
+  rule_selection?: ProjectCaseRuleSelection | null;
 }
 
 export interface ProjectCaseSize {
@@ -1348,10 +1582,21 @@ export interface ProjectCaseSize {
   oversize: boolean;
 }
 
+/** Which of the two tracks cited a rule.
+ *
+ *  `case_decision_v2` deduplicates the receipt's citation list by `rule_id` and
+ *  accumulates these tags, because the rule that *states* a cap is often the
+ *  same rule that *decides* whether a case was within it — listing it twice
+ *  would make a reader count two authorities where the policies hold one. */
+export type ProjectCaseCitationServes = "information" | "verdict";
+
 export interface ProjectCaseCitation {
   rule_id: string;
   policy?: { provision_key?: string; heading_path?: string[] };
   source?: { state?: string; text?: string; page?: number | null; section?: string | null };
+  /** Carried by a merged citation list. Absent on a per-track list, where the
+   *  track it was read from already says which one cited it. */
+  serves?: ProjectCaseCitationServes[];
 }
 
 export interface ProjectCaseGrounding {
@@ -1364,19 +1609,62 @@ export interface ProjectCaseGrounding {
   policies_grounded?: number;
 }
 
+/** One fact a case must supply before a verdict can be reached.
+ *
+ *  The structured form of what used to be a bare string: what the fact is, what
+ *  to call it in front of a user, which judgement turns on it, and which rules
+ *  are waiting on it. `required_by_rule_ids` names only rules the gather was
+ *  actually shown — an id naming no retained rule is a fabrication under a
+ *  different field name, and the server refuses it as one. */
+export interface ProjectCaseMissingInformation {
+  fact: string;
+  label?: string;
+  why_needed?: string;
+  required_by_rule_ids?: string[];
+}
+
+/** One track's answer, or the honest account of why it has none.
+ *
+ *  The same shape serves both tracks; which fields are populated is what tells
+ *  them apart. Only a verdict carries `verdict`, `missing_information` and
+ *  `missing_required_facts`; only an informational answer fills `answer` with
+ *  what the policies state. `answer` is the field this endpoint has always
+ *  used for prose; `explanation` is the receipt's name for the same thing and
+ *  is read when present so one client serves either wording. */
 export interface ProjectCaseJudgement {
   status: string;
   verdict?: string;
   answer?: string;
+  explanation?: string | null;
   missing_required_facts?: string[];
+  missing_information?: ProjectCaseMissingInformation[];
   citations?: ProjectCaseCitation[];
   note?: string | null;
+  /** `informational` or `decision` — which gather composed this section. */
+  route?: string | null;
   grounding?: ProjectCaseGrounding;
 }
 
+/** What the case was read as asking for, and each track's answer.
+ *
+ *  A case can ask for what the published policies *state*, for how the case
+ *  *comes out*, or for both, and the two are independent. `information_requested`
+ *  and `verdict_requested` are the classifier's reading of the question — never
+ *  the caller's declaration — and a mixed case runs both tracks over the one
+ *  retrieval. `intent` is retained as the primary branch for a reader written
+ *  against the older exclusive cut, and is never the whole truth about a mixed
+ *  case; the booleans are.
+ *
+ *  The flattened `status` / `verdict` / `answer` fields are the oldest shape
+ *  this endpoint returned. They are still read so a stored or replayed answer
+ *  from before the two-track redesign still renders. */
 export interface ProjectCaseEvaluation {
   intent?: "informational" | "decision";
+  information_requested?: boolean;
+  verdict_requested?: boolean;
   classification_reasoning?: string;
+  classifier_version?: string | null;
+  reasoning_effort?: string;
   informational?: ProjectCaseJudgement | null;
   decision?: ProjectCaseJudgement | null;
   judgement?: ProjectCaseJudgement | null;
@@ -1389,6 +1677,55 @@ export interface ProjectCaseEvaluation {
   grounding?: ProjectCaseGrounding;
 }
 
+/** Which language each stage of a case worked in, and what was adjudicated.
+ *
+ *  Additive, and present on every answer produced under the language boundary.
+ *  Absent — undefined — on an answer produced before the boundary existed,
+ *  which is a different fact from a boundary that reported nothing.
+ *
+ *  The question is carried into one processing language before any policy is
+ *  read, so `processing_scenario` is the text retrieval, the classifier and both
+ *  gathers actually read. It is on the answer because a reviewer comparing it
+ *  against what they typed is the only person who can catch a rendering that
+ *  changed the question.
+ *
+ *  Nothing machine-readable moves with the language, and no document's own
+ *  words are ever translated: statuses, rule ids, provision keys, every
+ *  retrieval counter and every citation's verbatim `source.text` are identical
+ *  whichever language the question was written in. */
+export interface ProjectCaseLanguage {
+  /** BCP 47 tag the inbound rendering observed. `und` when it was not
+   *  well-formed — which does not affect the decision, because the pipeline
+   *  reasons in `processing_language` whatever the question was written in. */
+  source_language: string;
+  /** The one language every stage worked in. */
+  processing_language: string;
+  /** The language this answer's prose is written in. */
+  response_language: string;
+  /** `rendered` when the question was carried into the processing language;
+   *  `identity` when the rendering call reported it was already in it. An
+   *  unmade call and an identity rendering are different facts. */
+  boundary_state?: string;
+  /** `rendered`, `target_unknown`, or `not_required` — the last meaning no
+   *  rendering was needed, either because the answer was owed in the processing
+   *  language or because no prose was composed at all. */
+  output_rendering_state?: string;
+  /** `not_required`, `rendered`, or `unrendered_dropped`. Guidance that could
+   *  not be carried across is dropped rather than applied un-rendered; the
+   *  decision itself is unaffected either way. */
+  guidance_rendering_state?: string;
+  input_translation_profile?: string;
+  output_translation_profile?: string | null;
+  /** The question as every stage of the decision read it. */
+  processing_scenario?: string;
+  processing_scenario_hash?: string;
+  processing_additional_instructions?: string;
+  /** The corpus projection the retrieval index was matched against, when one
+   *  was consulted. A query and the text it is scored against must be rendered
+   *  under one contract, and this is what says whether they were. */
+  projection_profile?: string | null;
+}
+
 export interface ProjectCaseAnswer {
   scope: "project" | "single";
   policy_set_key: string;
@@ -1398,6 +1735,7 @@ export interface ProjectCaseAnswer {
   excluded?: ProjectCasePolicyCandidate[];
   evaluation: ProjectCaseEvaluation | null;
   size: ProjectCaseSize;
+  language?: ProjectCaseLanguage | null;
 }
 
 export interface ProjectCaseAnswerRequest {
@@ -1461,30 +1799,99 @@ export interface ExternalCaseDecisionRequest {
   calling_system_identity?: string;
 }
 
-/** The `case_decision_v1` fields a caller reads first.
+/** The `case_decision_v2` fields a caller reads first.
  *
  *  Deliberately partial. This app never deserialises a receipt, so declaring
  *  the whole envelope here would be a second copy of a server contract that
  *  nothing in this app checks. What is declared is what the worked examples
- *  read, so an example cannot quietly start reading a key that is not there. */
+ *  read, so an example cannot quietly start reading a key that is not there.
+ *
+ *  The shape is two independent tracks. A question can ask what the published
+ *  policies state, ask for the case to be decided, or ask for both, and each
+ *  requested track is answered on its own. `outcome` is therefore the field to
+ *  read first: it carries a status for each track, and both sections are null
+ *  when their track did not run. */
 export interface ExternalCaseDecisionReceiptFields {
-  /** `case_decision_v1`. */
+  /** `case_decision_v2`. */
   schema_version: string;
   decision_id: string;
   correlation_id: string;
-  /** The status, repeated at the top of the envelope. Read before the verdict:
-   *  only `answered` carries one. */
+  /** What the classifier read the question as asking for. There is no request
+   *  field that sets these: a caller who could declare "this is a verdict
+   *  question" could choose the shape of their own answer. */
+  asked: {
+    information_requested: boolean;
+    verdict_requested: boolean;
+  };
+  /** One status per track. Read before either section below.
+   *
+   *  Each carries its own gather's vocabulary plus `not_requested` (you did not
+   *  ask for this track) and `not_evaluated` (nothing was evaluated at all).
+   *  Only `verdict: "answered"` carries a determination. */
+  outcome: {
+    information: string;
+    verdict: string;
+  };
+  /** What the retained published policies state. Null when the question did not
+   *  ask for it, and null when nothing was evaluated. */
+  information: {
+    status: string;
+    answered: boolean;
+    answer: string;
+    explanation: string | null;
+  } | null;
+  /** The determination, or the honest account of why there is not one. Null on
+   *  the same two conditions as `information`.
+   *
+   *  `decision` is non-empty exactly when `reached` is true: a "not compliant"
+   *  is a reached verdict, and a case that could not be decided leaves it empty
+   *  and reports `missing_information` instead. */
+  verdict: {
+    status: string;
+    reached: boolean;
+    decision: string;
+    explanation: string;
+    missing_information: {
+      fact: string;
+      label: string;
+      why_needed: string;
+      required_by_rule_ids: string[];
+    }[];
+  } | null;
+  /** Every rule the receipt rested on, once, each tagged with the track or
+   *  tracks that cited it. */
+  citations: { rule_id: string; serves: string[] }[];
+  decision_hash: string;
+  /** Where the stored receipt can be read back from. */
+  receipt_url: string;
+}
+
+/** The `case_decision_v1` fields, for the one case that still serves them.
+ *
+ *  Nothing writes v1 any more. A receipt written before the two-track redesign
+ *  is still *replayed* as v1 — by a read-back, and by an idempotency key issued
+ *  before it — because re-projecting a stored decision into a newer shape would
+ *  mean inventing content that decision never had. So an integrator holding old
+ *  keys branches on `schema_version`, and the worked example shows them how. */
+export interface ExternalCaseDecisionReceiptV1Fields {
+  /** `case_decision_v1`. */
+  schema_version: string;
+  decision_id: string;
+  /** The single status v1 had. Read before the verdict: only `answered` carries
+   *  one, and v1 has no separate information track at all. */
   decision_status: string;
   decision: {
     status: string;
     verdict: string;
     explanation: string;
   };
-  citations: unknown[];
-  decision_hash: string;
-  /** Where the stored receipt can be read back from. */
-  receipt_url: string;
 }
+
+/** What the read-back and the case endpoint may return, discriminated by
+ *  `schema_version`. New callers only ever meet the v2 arm. */
+export type ExternalCaseDecisionReceipt =
+  | ExternalCaseDecisionReceiptFields
+  | ExternalCaseDecisionReceiptV1Fields;
 
 /** One section of the source, carrying every passage stated under it.
  *
@@ -3246,6 +3653,19 @@ export const api = {
     request<PolicyIndexBuildResult>(`/api/policy-sets/${encodeURIComponent(key)}/policy-index/rebuild`, {
       method: "POST",
     }),
+
+  /** Check a corpus that is already built, without rebuilding any of it.
+   *
+   *  A rebuild re-renders every policy through a model; this re-renders nothing
+   *  and writes no content document. It is the cheap answer to "is what is in
+   *  the index actually a faithful rendering of the record", which a build's own
+   *  success cannot answer — a call that returned and an upload that was
+   *  acknowledged are facts about carriage, not about meaning. */
+  validatePolicyIndex: (key: string) =>
+    request<PolicyIndexValidationResult>(
+      `/api/policy-sets/${encodeURIComponent(key)}/policy-index/validate`,
+      { method: "POST" },
+    ),
 
   getVersionRules: (key: string, versionId: string) =>
     request<CanonicalRule[]>(

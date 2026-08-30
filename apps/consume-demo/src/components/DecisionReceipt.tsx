@@ -1,4 +1,4 @@
-import type { CaseDecisionEnvelope } from '../contracts/caseDecision'
+import type { EnvelopeCommon } from '../contracts/caseDecision'
 import { RECEIPT } from '../copy/strings'
 import { additionalInstructionsHash, scenarioHash } from '../lib/canonicalHash'
 import { formatTimestamp } from '../lib/format'
@@ -26,7 +26,13 @@ import { VerifyReceipt, type VerifyState } from './VerifyReceipt'
  */
 
 interface ReceiptProps {
-  envelope: CaseDecisionEnvelope
+  /**
+   * Typed on the fields both envelopes share, because everything this panel
+   * renders — identity, the request as sent, the seal — is common to v1 and v2.
+   * The answer's shape is the only thing that differs between them, and the
+   * answer is not rendered here.
+   */
+  envelope: EnvelopeCommon & { schema_version: string }
   /** What the docket held at submit time. Used only to detect a failed echo. */
   sentGuidance: string | undefined
   /** The inspector's pre-submit preview, for the authoritative comparison. */

@@ -51,6 +51,7 @@ from policy_platform.infrastructure.projection.policy_case_payload import build_
 from policy_platform.infrastructure.search.indexing import clause_search_document_id
 from policy_platform.infrastructure.search.policy_index import policy_document_id
 from tests.fixtures.factories import make_rule
+from tests.fixtures.search_stubs import manifest_ids
 
 pytestmark = pytest.mark.anyio
 
@@ -383,17 +384,23 @@ async def test_multi_policy_citations_name_the_policy_they_came_from(
 
 
 async def test_multi_policy_reuses_the_shared_classifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The intent is read by the one shared classifier, not a second copy. A
-    determination then gathers once over the retained records."""
+    """What a case asks for is read by the one shared classifier, not a second
+    copy. A verdict-only case then gathers once over the retained records, and
+    the information track never runs at all."""
 
     seen: dict[str, Any] = {}
 
     async def _spy_classify(scenario: str, *, tested_quantities: list[str] | None = None) -> dict:
         seen["scenario"] = scenario
         seen["tested_quantities"] = tested_quantities
-        return {"intent": ai_case_intent.DECISION, "reasoning": "supplies a tested fact"}
+        return {
+            "information_requested": False,
+            "verdict_requested": True,
+            "reasoning": "supplies a tested fact and asks for a ruling",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        }
 
-    monkeypatch.setattr(ai_case_intent, "classify_case_intent", _spy_classify)
+    monkeypatch.setattr(ai_case_intent, "classify_case_needs", _spy_classify)
     decision_calls: list[list[dict]] = []
 
     async def _spy_decision(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
@@ -403,6 +410,7 @@ async def test_multi_policy_reuses_the_shared_classifier(monkeypatch: pytest.Mon
             "verdict": "compliant",
             "answer": "grounded decision",
             "missing_required_facts": [],
+            "missing_information": [],
             "citations": [],
             "note": "",
             "grounding": {},
@@ -416,10 +424,128 @@ async def test_multi_policy_reuses_the_shared_classifier(monkeypatch: pytest.Mon
     )
 
     assert seen, "the shared classifier was not called"
+    assert result["information_requested"] is False
+    assert result["verdict_requested"] is True
+    # The primary branch a client written against the exclusive cut reads.
     assert result["intent"] == ai_case_intent.DECISION
     assert result["informational"] is None
     assert result["decision"]["status"] == ai_case_intent.ANSWERED
+    assert result["classifier_version"] == ai_case_intent.NEEDS_CLASSIFIER_VERSION
     assert len(decision_calls) == 1
+
+
+async def test_a_mixed_case_gathers_both_tracks_over_one_retained_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A question that asks for both gets both, from the same records.
+
+    This is the defect the two-track reading exists for: under the exclusive cut
+    the branch that did not run left no trace, so half a question was answered
+    and nothing said the other half had been dropped. Both gathers must see the
+    *same* retained records — a second retrieval would mean the statement and the
+    verdict could rest on two different corpora inside one receipt.
+    """
+
+    async def _classify(scenario: str, *, tested_quantities: list[str] | None = None) -> dict:
+        return {
+            "information_requested": True,
+            "verdict_requested": True,
+            "reasoning": "asks what the limit is and whether the shift was within it",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        }
+
+    seen_records: list[list[dict]] = []
+
+    async def _info(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
+        seen_records.append(records)
+        return {
+            "status": ai_case_intent.ANSWERED,
+            "answer": "the policies state a weekly cap",
+            "citations": [],
+            "note": "",
+            "grounding": {},
+        }
+
+    async def _decide(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
+        seen_records.append(records)
+        return {
+            "status": ai_case_intent.ANSWERED,
+            "verdict": "compliant",
+            "answer": "the supplied shift is inside it",
+            "missing_required_facts": [],
+            "missing_information": [],
+            "citations": [],
+            "note": "",
+            "grounding": {},
+        }
+
+    monkeypatch.setattr(ai_case_intent, "classify_case_needs", _classify)
+    monkeypatch.setattr(ai_case_intent, "answer_informational_over_policies", _info)
+    monkeypatch.setattr(ai_case_intent, "answer_decision_over_policies", _decide)
+
+    record = _record("prov-a", "A", ["C-a"])
+    result = await ai_case_intent.answer_case_over_policies(
+        [record], scenario="what is the cap, and was Tuesday within it?"
+    )
+
+    assert result["information_requested"] is True
+    assert result["verdict_requested"] is True
+    assert result["informational"]["status"] == ai_case_intent.ANSWERED
+    assert result["decision"]["status"] == ai_case_intent.ANSWERED
+    # One retrieved set, read twice — never two retrievals.
+    assert len(seen_records) == 2
+    assert seen_records[0] is seen_records[1] is [record] or seen_records[0] == seen_records[1]
+
+
+async def test_an_unusable_classification_runs_both_tracks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A classifier that says nothing is not a reviewer who asked for nothing.
+
+    Under the exclusive cut there was always a branch to fall back to. Here there
+    is not, so the conservative reading is both: one extra gather costs a model
+    call, and dropping a track costs the reviewer the answer they asked for.
+    """
+
+    async def _classify(scenario: str, *, tested_quantities: list[str] | None = None) -> dict:
+        # What `classify_case_needs` returns when the model's reply was unusable.
+        return {
+            "information_requested": True,
+            "verdict_requested": True,
+            "reasoning": "",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        }
+
+    ran: list[str] = []
+
+    async def _info(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
+        ran.append("informational")
+        return {"status": ai_case_intent.NO_RULE_BEARS, "answer": "", "citations": [], "note": "", "grounding": {}}
+
+    async def _decide(records: list[dict], *, scenario: str, reasoning_effort: str = "medium") -> dict:
+        ran.append("decision")
+        return {
+            "status": ai_case_intent.NO_RULE_BEARS,
+            "verdict": "",
+            "answer": "",
+            "missing_required_facts": [],
+            "missing_information": [],
+            "citations": [],
+            "note": "",
+            "grounding": {},
+        }
+
+    monkeypatch.setattr(ai_case_intent, "classify_case_needs", _classify)
+    monkeypatch.setattr(ai_case_intent, "answer_informational_over_policies", _info)
+    monkeypatch.setattr(ai_case_intent, "answer_decision_over_policies", _decide)
+
+    result = await ai_case_intent.answer_case_over_policies(
+        [_record("prov-a", "A", ["C-a"])], scenario="something the classifier could not read"
+    )
+
+    assert sorted(ran) == ["decision", "informational"]
+    assert result["informational"] is not None
+    assert result["decision"] is not None
 
 
 async def test_multi_policy_decision_citations_name_the_policy_they_came_from(
@@ -515,8 +641,8 @@ def _bypass_stubs(
     async def _fake_version(session: Any, policy_set_id: Any) -> Any:
         return object() if has_version else None
 
-    async def _fake_published(session: Any, policy_set_id: Any, key: str) -> dict | None:
-        return payload
+    async def _fake_published(session: Any, policy_set_id: Any, key: str) -> tuple[dict, dict] | None:
+        return None if payload is None else (payload, {})
 
     calls: list[list[dict]] = []
 
@@ -526,7 +652,9 @@ def _bypass_stubs(
 
     monkeypatch.setattr(ai_case_project, "_provision_in_project", _fake_provision)
     monkeypatch.setattr(ai_case_project, "active_version_for_policy_set", _fake_version)
-    monkeypatch.setattr(ai_case_project, "published_case_payload_for_policy", _fake_published)
+    monkeypatch.setattr(
+        ai_case_project, "published_case_payload_with_extras_for_policy", _fake_published
+    )
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _ExplodingSearchClient)
     monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _spy_eval)
     return calls
@@ -673,6 +801,9 @@ async def test_failed_is_when_the_search_call_raises(
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             raise RuntimeError("search backend is down")
 
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
+
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _RaisingSearchClient)
 
     result = await _run_project()
@@ -695,7 +826,8 @@ async def test_index_empty_is_when_the_project_policy_index_has_no_documents(
             return []
 
         async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
-            return []  # nothing indexed for this project
+            # Projected, and nothing else indexed for this project.
+            return manifest_ids(k.get("filter_expr", ""))
 
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _EmptyIndexSearchClient)
 
@@ -739,6 +871,9 @@ async def test_index_stale_is_when_only_superseded_policy_documents_exist(
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             return [_policy_hit("A", 0.7, version="44444444-4444-4444-8444-444444444444")]
 
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
+
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _StaleSearchClient)
 
     result = await _run_project()
@@ -761,7 +896,8 @@ async def test_no_match_is_when_search_ran_but_nothing_retained(
             return []
 
         async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
-            return ["something"]  # the active version IS indexed
+            # Projected, and the active version IS indexed.
+            return manifest_ids(k.get("filter_expr", ""), otherwise=["something"])
 
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _NoMatchSearchClient)
 
@@ -783,6 +919,9 @@ async def test_current_version_hits_outside_the_active_payload_are_stale(
 
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             return [_policy_hit("unrelated", 0.4)]
+
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
 
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _OrphanHitSearchClient)
 
@@ -818,6 +957,9 @@ async def test_narrowed_is_when_a_policy_is_retained_and_only_then_is_it_evaluat
 
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             return [_policy_hit("A", 0.7)]
+
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
 
     evaluated: list[list[dict]] = []
 
@@ -865,6 +1007,9 @@ async def test_a_project_within_the_budget_is_not_reported_as_narrowed(
 
         async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
             return [_policy_hit("A", 0.7)]
+
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
 
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _MatchingSearchClient)
     monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _canned_evaluation)

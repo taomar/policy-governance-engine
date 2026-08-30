@@ -1,4 +1,4 @@
-import type { CaseDecisionEnvelope } from '../contracts/caseDecision'
+import type { EnvelopeCommon, PolicyRef } from '../contracts/caseDecision'
 
 /**
  * Comparing what you were handed against what was stored.
@@ -66,8 +66,8 @@ function compare(
  * would pass on a difference in the seventh.
  */
 export function compareReceipts(
-  returned: CaseDecisionEnvelope,
-  stored: CaseDecisionEnvelope,
+  returned: EnvelopeCommon,
+  stored: EnvelopeCommon,
 ): ReceiptComparison {
   const rows: ComparisonRow[] = [
     compare('decision-hash', 'Decision hash', returned.decision_hash, stored.decision_hash),
@@ -100,23 +100,64 @@ export function compareReceipts(
 }
 
 /**
- * The over-claim guard, reproduced from the product's own predicate.
+ * The over-claim guard, reproduced from the product's own predicate and
+ * extended for rule-level retrieval.
  *
  * "All published policies were evaluated" may be said only when retrieval says
- * it did not narrow, or narrowed and discarded nothing. In every other case the
- * honest heading is that policies were *considered* by narrowing. This is the
- * single most consequential sentence on the page: a reader who believes the
- * whole corpus was read will treat a silence as a considered answer.
+ * it did not narrow, or narrowed and discarded nothing. This is the single most
+ * consequential sentence on the page: a reader who believes the whole corpus
+ * was read will treat a silence as a considered answer.
+ *
+ * v2 adds a second way to over-claim that has nothing to do with how many
+ * policies survived search. A policy holding seventy-four rules that was read
+ * as a slice of eight was *retained* — it appears in `considered` with
+ * `retained: true`, it contributes citations, and by the policy-count test
+ * nothing was discarded at all. Saying every published policy was evaluated
+ * over that receipt is false in the way that matters most: sixty-six rules were
+ * never read, and the reader would take their silence for a considered answer.
+ * So a sliced policy disqualifies the sentence exactly as a discarded one does.
  */
-export function allPublishedPoliciesWereEvaluated(envelope: CaseDecisionEnvelope): boolean {
+export function allPublishedPoliciesWereEvaluated(
+  envelope: Pick<EnvelopeCommon, 'retrieval' | 'considered'>,
+): boolean {
+  const considered = envelope.considered ?? []
   const discarded =
     envelope.retrieval.policies_discarded ??
-    (envelope.considered ?? []).filter((policy) => policy.retained === false).length
+    considered.filter((policy) => policy.retained === false).length
 
-  return (
+  const policiesWholeAndKept =
     envelope.retrieval.status === 'not_narrowed' ||
     (envelope.retrieval.status === 'narrowed' && discarded === 0)
-  )
+
+  return policiesWholeAndKept && !anyPolicyWasRuleSliced(envelope)
+}
+
+/** True when at least one retained policy was read as a slice of its rules. */
+export function anyPolicyWasRuleSliced(
+  envelope: Pick<EnvelopeCommon, 'retrieval' | 'considered'>,
+): boolean {
+  if ((envelope.retrieval.policies_rule_sliced ?? 0) > 0) return true
+  return (envelope.considered ?? []).some(policyWasRuleSliced)
+}
+
+/**
+ * Whether one policy was read as a slice.
+ *
+ * `sliced` is the server's own flag and is trusted first; the count comparison
+ * is the fallback for a receipt that carried the selection without the flag.
+ */
+export function policyWasRuleSliced(policy: PolicyRef): boolean {
+  const selection = policy.rule_selection
+  if (!selection) return false
+  if (selection.sliced === true) return true
+  return selection.selected_rules < selection.total_rules
+}
+
+/** Every retained policy that was read as a slice, in receipt order. */
+export function ruleSlicedPolicies(
+  envelope: Pick<EnvelopeCommon, 'retrieval' | 'considered'>,
+): PolicyRef[] {
+  return (envelope.considered ?? []).filter(policyWasRuleSliced)
 }
 
 /**
@@ -128,7 +169,7 @@ export function allPublishedPoliciesWereEvaluated(envelope: CaseDecisionEnvelope
  * prove nothing at all.
  */
 export function guidanceEchoState(
-  envelope: CaseDecisionEnvelope,
+  envelope: Pick<EnvelopeCommon, 'request'>,
   sentGuidance: string | undefined,
 ): 'absent' | 'empty' | 'echoed' | 'not-echoed' {
   const returned = envelope.request.additional_instructions

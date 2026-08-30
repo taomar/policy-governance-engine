@@ -75,7 +75,7 @@ Grouped by the question each answers, not by the technology each uses. A module 
 | Cross-rule correlation | `infrastructure/correlation/correlation_service.py` + `correlation_agent.py` |
 | Version diff & narrative | `infrastructure/projection/rule_delta.py` (computes) + `infrastructure/assistants/ai_compare.py`, `infrastructure/assistants/rule_change_explainer.py` (narrate) |
 | Grounded chat | `infrastructure/assistants/ai_chat.py` |
-| Project-case decision | `application/policy_case_decision.py` (reserve/decide/finalise, idempotency, envelope) + `contracts/case_decision.py` (`case_decision_v1`, the hash preimage) + `infrastructure/assistants/ai_case_project.py` (retrieval and evaluation) |
+| Project-case decision | `application/policy_case_decision.py` (reserve/decide/finalise, idempotency, envelope) + `contracts/case_decision.py` (`case_decision_v2`, its hash preimage, and `case_decision_v1` kept readable) + `infrastructure/assistants/ai_case_project.py` (retrieval and whole-policy fitting) + `infrastructure/projection/policy_rule_slice.py` (rule-level retrieval for a large policy) + `infrastructure/assistants/ai_case_intent.py` (what a case asks for, and the two gathers) |
 | Azure clients | `infrastructure/ai/openai_client.py`, `infrastructure/search/search_client.py`, `search/indexing.py` |
 | Configuration | `infrastructure/settings.py` |
 | Persistence access | `infrastructure/persistence/repositories/` (seven modules, one per part of the lifecycle), `infrastructure/persistence/mappers.py`, `infrastructure/persistence/db.py` |
@@ -192,7 +192,7 @@ flowchart TD
 
 Both routes go through one application module, and that module is the **only** place in the codebase that calls the project-case decider — a static test counts the call sites and fails when a second appears. Wiring the external route straight into the decider would have turned every reviewer click into an audited external call; wiring it into a copy would have produced two deciders that agree until one is edited.
 
-**The legacy reviewer route is unchanged.** It persists nothing, returns no decision identity, and its response shape is byte-compatible with what it always returned. A reviewer exercising a policy is not making an external commitment, and the audit trail should not fill with screen work.
+**The legacy reviewer route is unchanged in what it owes.** It persists nothing, returns no decision identity, and its response *keys* are the ones it always returned — `intent`, `informational` and `decision` all still mean what they meant, with the two-track booleans added beside them. A reviewer exercising a policy is not making an external commitment, and the audit trail should not fill with screen work.
 
 **The external route is reserve → decide → finalise.** A case costs on the order of ten seconds of model time, and that single fact shapes the order:
 
@@ -202,14 +202,112 @@ Both routes go through one application module, and that module is the **only** p
 
 If finalisation fails, the caller is told so and is **not** given the verdict. There is no "here is your answer, but we could not save it" response: a verdict that cannot be cited later is precisely what this endpoint exists to stop shipping.
 
+### One retrieval, two tracks
+
+A case asks for up to two things — what the retained policies *state*, and a *verdict* on the case — and the two are independent. `ai_case_intent.classify_case_needs` reads both from the question in one model call, returning two booleans and no derived choice; both requested gathers then run, concurrently, over the records retrieval already settled.
+
+```mermaid
+flowchart LR
+    Q["the question"] --> R["retrieval<br/>(question only)"]
+    R --> Records["retained records<br/>one closed set"]
+    Q --> C["classify_case_needs<br/>two booleans"]
+    C -->|information_requested| I["informational gather"]
+    C -->|verdict_requested| V["verdict gather"]
+    Records --> I
+    Records --> V
+    I --> E["case_decision_v2<br/>outcome, information, verdict"]
+    V --> E
+```
+
+Three properties are load-bearing, and each rules out a specific failure:
+
+- **Retrieval is upstream of the classification and reads the question alone.** Retrieving per track would let the statement a caller is told and the verdict they are given rest on two different sets of policies inside one receipt — two answers to one question, from two corpora. The cost is recorded in [known limitations](known-limitations.md): one retrieval, tuned to the whole question.
+- **Caller guidance reaches the gathers and nothing above them.** Not retrieval, so it cannot steer which policies are read; not the classifier, so it cannot choose which tracks run and therefore cannot choose the shape of its own answer. There is no request field for the booleans for the same reason.
+- **Neither track can borrow the other's outcome.** Each section carries its own status, citations and grounding, and the envelope refuses a section that disagrees with its `outcome`. `verdict.decision` is non-empty *iff* `verdict.reached` *iff* `verdict.status == "answered"`, so a refusal — "not compliant" — is a reached verdict and an undecided case carries no decision at all.
+
+### One internal language, crossed twice and only twice
+
+Every stage between the request and the receipt — retrieval, rule classification, both gathers — reasons in English. Not because the corpus is English (it is bilingual), but because a pipeline that reasoned in two languages would score a question in one against text in the other and score nothing. The boundary is drawn in two places and nowhere else:
+
+| Crossing | Where | Contract |
+|---|---|---|
+| The **question and the prose** | `assistants/ai_case_language`, at the edge of the decision | `case-language-v4` |
+| The **corpus** | `search/english_projection`, at index-build time | `policy-english-projection-v1` |
+
+They version independently, and the second did not move when the first went to v4 — the transport change that produced v4 had nothing to do with how a policy is rendered.
+
+The corpus is crossed **once per build, not once per query**: rendering per query would put a model call in front of every retrieval and would render the same policy differently on two calls, which is precisely the terminology drift that makes a fused ranking meaningless. Within a build, texts are rendered in batches, but **a batch never crosses a policy boundary** — terminology has to be consistent within the unit the relevance weighting is computed over, and two calls can legitimately choose two words for one term.
+
+What does *not* cross, in either direction: the caller's own scenario and guidance bytes and their digests, every machine-readable value, and **every verbatim source sentence**. The original is never written into an English-labelled field, because that would manufacture exactly the cross-language match the boundary exists to prevent. A citation stays in the language the document was written in; only prose the decision composed itself is rendered back.
+
+The receipt carries the whole crossing in its `language` block, and `case_decision_v2_lang` seals it along with `processing_scenario_hash` — the digest of the English text that was actually adjudicated. Sealing the caller's words without sealing the words the decision read would leave the substituted text unverifiable.
+
+### The policy index holds three kinds of document
+
+| Kind | How many | Why |
+|---|---|---|
+| `policy` | one per published provision | A provision under the rule threshold is one governing statement; its own document carries it. |
+| `rule` | one per rule, **only** above `LARGE_POLICY_RULE_THRESHOLD` (15) | Above the threshold a provision is a schedule, and a single document cannot represent seventy-four independent rows. Below it, per-rule documents would multiply the corpus for nothing. |
+| `manifest` | exactly one per project | The readiness gate. Carries `manifest_state`, the `projection_profile` and language the build ran under, and expected against uploaded counts. |
+
+Retrieval is `hybrid_policy_rule_rrf_v1`: the policy-level and rule-level rankings are fused by Reciprocal Rank Fusion (`1 / (60 + rank)`), with each rule's rank attributed to its parent policy and a policy taking its best rule's rank. A policy the policy-level search never returned can therefore be retrieved on one row — which is the whole reason rule documents exist. `policies_elevated_by_rule` counts when that actually happened, because a number that only ever said "the rule index was queried" would not distinguish a fusion that changed the answer from one that changed nothing.
+
+Rule selection then fuses three rankings of its own — the rule index, lexical relevance over the English projection, and **quantity compatibility**, which matches a quantity the question states against the quantities and ranges the rules state, so a threshold row is reachable without shared vocabulary. `rule_selection.method` names which of those actually ran (`hybrid_rule_v1`, `scenario_relevance_v3`, `scenario_relevance_v2`), because claiming a ranking that did not run is the same class of untruth as claiming a rule was read.
+
+### A build is a state machine, because Search has no transaction
+
+`policy_index_states.projection_profile` (migration `c1d4e8a92b73`) records the contract an index was built under. It is **nullable and deliberately not backfilled**: a row written before projections existed records a build that really did index documents and really did not render them, and NULL is that fact. Backfilling the current profile would claim a rendering that never ran and the readiness gate would then trust an index it must refuse.
+
+The gate is read from the index itself rather than from that row — an OData filter for a `manifest` document with `manifest_state eq 'ready'` **and** the expected `projection_profile`. Absent, incomplete or superseded all produce `index_projection_unavailable` and a `503`. Refusing is the only safe answer: a query rendered under one contract, scored against a corpus rendered under another, returns results whose ranking means nothing.
+
+The rebuild sequences its writes so no partial corpus is ever queryable — manifest to `incomplete` first (and if *that* write is not acknowledged, nothing is written at all), then documents with acknowledgements counted by key rather than by HTTP status, then the stale sweep, then `ready` last. There is no rollback because the build is a pure function of the database: re-running it is the recovery, producing the same ids and overwriting in place. A rendering failure for any one policy fails the whole build, since a corpus that is English in part is the one thing the profile must never mean.
+
+Two assurances sit at different strengths here, and only one of them is finished. Each rendering is checked **structurally** as it is produced — empty, implausibly grown or shrunk, or a lost number or identifier rejects the whole batch — which is why a build either indexes a policy from a rendering that passed or does not index it at all. The **projection-quality gate**, which assesses whether a rendering is a faithful reading rather than merely a structurally intact one, is still being implemented. Indexes already built under `policy-english-projection-v1` are live and serving; until the gate validates them their retrieval quality is unvalidated, and the profile stamp records *which contract* rendered a corpus, never that the rendering was judged good.
+
+### The retained set is fitted before it is read
+
+Between the ranking and the gathers sit further narrowings, and they exist because rank says nothing about size, nor about whether the set already says the same thing twice. A question about annual leave retained the governing policy at rank 0 (ten rules) and an unrelated `Table of Violations and Penalties` at rank 3 (seventy-four rows, pages 21–27); their combined record was 229,389 characters against a 200,000-character budget, so the gather refused the whole set and the reviewer received nothing — for a question the corpus could answer.
+
+**`projection/policy_semantic_identity` decides what "the same" means, at two strengths.** Both are computed over the lean published record with identity and provenance removed — record and rule ids, document-version ids, span keys, clause and page locators — and with relationship targets resolved to *what they point at* rather than what they are called, so a re-extraction that renumbers a link does not look like a different policy. The two strengths are deliberately not the same test:
+
+| Strength | Withholds | May justify |
+|---|---|---|
+| `policy_semantic_fingerprint` — **equality** | nothing beyond identity and provenance | calling one policy a duplicate of another |
+| `policy_normative_group_key` — **ordering** | `related_rule_ids` only | offering one before the other |
+
+`related_rule_ids` is withheld from the ordering key because being told which rules to read together is a reading aid, not a term binding anyone. **`supersedes_rule_ids` is kept in both**, because displacing one rule and displacing another are different acts. Nothing about a heading, a project, a language, a question's words or any identifier reaches either key.
+
+Both compare the rules of a policy as a **sorted multiset**, so the order an extractor emitted them in cannot decide identity. The governing fields the lean record omits — `authority` and `priority` — are therefore attached to the rule each entry describes and compared only there. Carrying them again as positional lists beside the rules would reintroduce exactly the ordering dependence the multiset removes: the same rules in a different order, with authority varying row to row, would have equal rules and unequal lists. Extras that cannot be attributed to a rule are compared as a whole instead of dropped, so the alignment guard fails safe rather than silent.
+
+**`ai_case_project` applies them in that order.** Exact duplicates are collapsed first — `duplicate_policy_content`, naming the representative in `duplicate_of_provision_key`, counted in `policies_duplicate_collapsed`. Then `order_by_normative_diversity` reorders what survives so the highest-ranked member of each normative group is offered before any second member. That is ordering only: a deferred candidate keeps its own rank and score and carries the ordinary `outside_budget`, and `policy_selection_order` / `policies_diversity_deferred` record which ordering produced the set and what it cost. The count is deliberately the *displacement*, not the deferral — the candidates that would have been read on rank alone and are not read now — because a member that ranked outside the budget anyway lost nothing, and a count that included it would sit beside prose claiming it ranked inside. The distinction between the two mechanisms is load-bearing: the measured pair differs only in that one copy records forty-two `related_rule_ids` and the other records none, which is a real difference in the record and so cannot be called sameness, yet the two of them took two of five slots while the provision that decided the case ranked sixth.
+
+**`projection/policy_rule_slice` reads a large policy by rule.** Past fifteen rules a provision is a schedule of independent rows, not one governing statement, so its rules are ranked against the question and at most fifteen are read — *including* any context rules, which fill only slots the selection left unused and never extend the budget. Ranking is an inverse document frequency over *that policy's own rules*, which is what makes a table of near-identical rows separable at all: the words every row shares clamp to zero weight, so only what distinguishes row 41 from row 42 can decide. It is deterministic and carries no wordlist for any language — a second model call here would add cost, latency and an unaudited judgement between the question and the record.
+
+The same two strengths apply between the rules of one policy, and the weaker one matters more here. Exactly identical rules are collapsed (`duplicate_rules_collapsed`, with `represented_rule_ids` naming the unread copies of read rules). But **repeated source text is not duplicate rule semantics**: one sentence commonly states several obligations and is extracted into one rule each, so a single passage can carry a permission, a prohibition, an obligation and a routing rule. Collapsing those would merge a rule that permits with one that forbids. Instead, among the rules that matched, the best of each distinct source passage is taken before a second rule from a passage already covered — priority, never equality, and it can only reorder rules that already matched.
+
+**`ai_case_project.fit_within_payload_budget` admits whole policies while they fit.** Slicing makes each record smaller; it does not promise several together fit, so this remains the backstop.
+
+All of them refuse the same easier designs:
+
+| Instead of | Because |
+|---|---|
+| trimming a rule, or a policy, to fit | An answer composed from part of a rule or part of a policy while presenting as the whole is the one narrowing a reader cannot detect. |
+| stopping at the first overflow | Later, smaller policies that fit would be discarded for no defensible reason. The scan continues in rank order, so one large record costs only itself. |
+| dropping a policy no rule of which matched | The search layer already judged it relevant; a lexical miss is a weaker signal and must not overrule it. A bounded sample is read and `rule_selection.method` says `document_order`, so the weakness is visible rather than hidden. |
+| dropping a sole oversized policy or an oversized slice | An empty retained set reads as "no published policy matched", which is false. It is kept, `size.oversize` stands, and the gather's existing refusal is what the reviewer sees. |
+| grouping on a heading, a title, or a shared source sentence | Two provisions can share a heading and bind differently; one sentence can back four different rules. Grouping on either merges terms that do not govern the same case, which is worse than the crowding it would relieve. |
+| calling a near-copy a duplicate to free a slot | A duplicate claim says the terms were read elsewhere. Where that is not provable, the honest tool is ordering, and the receipt says which was used. |
+
+Every policy read as a slice carries `rule_selection` — `total_rules`, `selected_rules`, `selected_rule_ids`, the method, the context rules that followed a selected rule in or did not fit, and the duplicate-rule counts — and the receipt's seal covers the ids, because the same policy read whole and read as eight of its rows are two different accounts of the same question. The ordering fields are *not* sealed: they describe how the retained set was chosen, and its outcome is already sealed in each policy's retained/discarded state. Every narrowing is in the disclosure, each under its own reason and count, because a policy that ranked first-class and was then narrowed is precisely the one a reader would otherwise assume was read entire.
+
 ### Two records, two meanings
 
 | Record | Written by | Holds |
 |---|---|---|
 | `evaluations` | `POST /api/evaluations` | A deterministic decision: structured facts in, per-rule determinations out, a `result_hash` that reproduces. The evaluator is a pure function — no database, no network, no model. |
-| `policy_case_decisions` | `POST /api/policy-decisions/{project_key}/case` | A model-mediated case decision: prose in, a receipt out, with retrieval disclosure, citations and a `decision_hash` that seals content rather than promising reproduction. |
+| `policy_case_decisions` | `POST /api/policy-decisions/{project_key}/case` | A model-mediated case decision: prose in, a receipt out, with retrieval disclosure, per-track citations and a `decision_hash` that seals content rather than promising reproduction. `schema_version` names which envelope the stored `response_json` holds, and the per-track columns beside it are an index over that envelope, not a second source of truth. |
 
-They are separate tables because generalising one over the other would be a lie rather than an abstraction: `Evaluation` requires a non-null policy version (a case can legitimately answer with none published), requires structured facts (a case has prose), and carries the XACML status enum (a case has its own seven-value vocabulary). Keeping them apart is what lets each state exactly what it is.
+They are separate tables because generalising one over the other would be a lie rather than an abstraction: `Evaluation` requires a non-null policy version (a case can legitimately answer with none published), requires structured facts (a case has prose), and carries the XACML status enum (a case has its own two-track vocabulary, with `not_requested` and `not_evaluated` on top of the gathers' own statuses). Keeping them apart is what lets each state exactly what it is.
 
 ### Public identity
 

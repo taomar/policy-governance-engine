@@ -578,7 +578,12 @@ async def test_the_records_own_words_are_what_the_model_is_shown(stubbed):
 async def test_an_arabic_source_reaches_the_model_as_characters_and_untranslated(stubbed):
     """A clause in Arabic reaches the model in Arabic, as characters, exactly —
     the projection does not escape it to \\uXXXX and does not translate it — and
-    the citation carries that same Arabic sentence back, exactly (constraint 4)."""
+    the citation carries that same Arabic sentence back, exactly (constraint 4).
+
+    The **question** is in the processing language, because by the time a gather
+    runs it always is: the boundary reduced it before any policy was read. What
+    is under test here is the *source*, which keeps its own words all the way to
+    the model and all the way back into the citation."""
 
     stubbed.info_reply = {
         "bears": True,
@@ -589,7 +594,8 @@ async def test_an_arabic_source_reaches_the_model_as_characters_and_untranslated
     }
 
     info = await ai_case_intent.answer_informational(
-        _payload(_cap_rule(source_text=VERBATIM_AR)), scenario="كم ساعة يعمل الموظف بدوام جزئي؟"
+        _payload(_cap_rule(source_text=VERBATIM_AR)),
+        scenario="how many hours a week may a part-time employee work?",
     )
 
     sent = _gather_call(stubbed)["messages"][1]["content"]

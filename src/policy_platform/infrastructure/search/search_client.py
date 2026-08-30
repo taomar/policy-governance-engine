@@ -125,6 +125,57 @@ class AzureSearchClient:
                 skip += page_size
         return ids
 
+    async def find_documents_by_filter(
+        self,
+        index: str,
+        *,
+        filter_expr: str,
+        select: str,
+        page_size: int = 200,
+    ) -> list[dict]:
+        """Return every document matching an OData filter, with named fields, paged.
+
+        The sibling of :meth:`find_ids_by_filter`, and it exists for one caller:
+        validating a projection that is *already built* means reading what the
+        index actually holds rather than what a build believed it wrote. Ids
+        alone cannot answer that — the question is whether each document's
+        retrieval text is a rendering of the record it names, so the text and the
+        identifying fields have to come back with it.
+
+        ``select`` is required rather than defaulted. A validation reads a few
+        named fields over a whole corpus, and a lookup that silently returned
+        every retrievable field would move megabytes to answer a question about
+        kilobytes.
+        """
+
+        settings = self._require_enabled()
+        url = (
+            f"{settings.azure_search_endpoint.rstrip('/')}/indexes/{index}/docs/search"
+            f"?api-version={settings.azure_search_api_version}"
+        )
+        documents: list[dict] = []
+        skip = 0
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            while True:
+                body = {
+                    "search": "*",
+                    "filter": filter_expr,
+                    "select": select,
+                    "top": page_size,
+                    "skip": skip,
+                }
+                resp = await client.post(url, headers=self._headers(), json=body)
+                if resp.status_code >= 400:
+                    raise AzureSearchError(
+                        f"Azure Search query failed ({resp.status_code}): {resp.text[:500]}"
+                    )
+                batch = resp.json().get("value", [])
+                documents.extend(batch)
+                if len(batch) < page_size:
+                    break
+                skip += page_size
+        return documents
+
     async def delete_documents(self, index: str, ids: list[str]) -> dict:
         """Delete documents by key. Safe to call with an empty list."""
 
@@ -150,8 +201,23 @@ class AzureSearchClient:
         vector: list[float],
         policy_ids: list[str] | None = None,
         top: int = 6,
+        filter_expr: str | None = None,
+        select: str | None = None,
     ) -> list[dict]:
-        """Hybrid keyword + vector search, optionally scoped to specific `policy_id` values."""
+        """Hybrid keyword + vector search, optionally scoped to specific `policy_id` values.
+
+        ``filter_expr`` is an OData expression composed by the caller — the
+        per-project index needs to scope a query to one *kind* of document and to
+        one projection profile, and the expression that does that belongs with
+        the schema that names those fields (`search/policy_index.py`), not here.
+        It is combined with ``policy_ids`` by conjunction when both are given, so
+        neither can widen the other.
+
+        ``select`` overrides the returned field list for callers that need fields
+        outside the shared default — a rule document's `rule_id`, its ordinal and
+        its parent. Left absent, every existing caller gets the field list it
+        always got.
+        """
 
         settings = self._require_enabled()
         url = (
@@ -162,19 +228,25 @@ class AzureSearchClient:
             "search": query_text,
             "vectorQueries": [{"kind": "vector", "vector": vector, "fields": "body_vector", "k": top}],
             "top": top,
-            "select": (
+            "select": select
+            or (
                 "id,policy_id,document_id,document_version,clause_id,clause_number,"
                 "section_heading,heading,body,status"
             ),
         }
+        clauses: list[str] = []
         if policy_ids:
             if len(policy_ids) == 1:
-                body["filter"] = f"policy_id eq '{policy_ids[0]}'"
+                clauses.append(f"policy_id eq '{policy_ids[0]}'")
             else:
                 # search.in expects a plain delimiter-separated value list (no quoting
                 # per-value); safe here since our policy_ids are UUIDs (no commas/pipes).
                 id_list = ",".join(policy_ids)
-                body["filter"] = f"search.in(policy_id, '{id_list}', ',')"
+                clauses.append(f"search.in(policy_id, '{id_list}', ',')")
+        if filter_expr:
+            clauses.append(f"({filter_expr})")
+        if clauses:
+            body["filter"] = " and ".join(clauses)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=self._headers(), json=body)
         if resp.status_code >= 400:

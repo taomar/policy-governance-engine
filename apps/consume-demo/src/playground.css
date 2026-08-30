@@ -225,7 +225,7 @@ button {
 .pg-intro {
   max-width: 1280px;
   margin: 0 auto;
-  padding: var(--sp-3) 22px 0;
+  padding: var(--sp-2) 22px 0;
 }
 
 .pg-intro__purpose {
@@ -238,17 +238,20 @@ button {
   margin-top: var(--sp-1);
   font-size: var(--fs-sm);
   color: var(--text-secondary);
-  max-width: 90ch;
+  max-width: 96ch;
 }
 
+/* One vertical stack: the docket, then the preview of what it will send, then
+   what came back. The docket does its own two-column work internally, so the
+   page frame no longer owns a rail — a 380px rail of metadata was what put the
+   send button 1,500px down the page. */
 .pg-main {
   max-width: 1280px;
   margin: 0 auto;
-  padding: var(--sp-4) 22px 64px;
-  display: grid;
-  grid-template-columns: 380px minmax(0, 1fr);
-  gap: var(--sp-5);
-  align-items: start;
+  padding: var(--sp-3) 22px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
 }
 
 .pg-results {
@@ -581,7 +584,10 @@ button {
   border-color: var(--indigo-ink);
   color: #ffffff;
   height: 36px;
-  width: 100%;
+  /* Sized to its own words rather than stretched across whatever column it
+     lands in. It is the one primary action on the surface; it does not need
+     to be a full-width bar to be found. */
+  padding: 0 var(--sp-5);
   font-size: var(--fs-base);
   font-weight: 600;
 }
@@ -634,37 +640,256 @@ button {
   background: var(--brand-100);
 }
 
-/* ---------- Docket -------------------------------------------------------- */
+/* ---------- Docket ---------------------------------------------------------
+   Three regions of one form. The connection register rules the top, the case
+   takes the wide column and ends in its send band, and request metadata sits
+   in a narrow rail beside the case rather than above the button.
+   -------------------------------------------------------------------------- */
 
 .docket {
-  position: sticky;
-  top: var(--sp-4);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--section-gap);
+  align-items: start;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.docket__summary {
+  display: none;
+  grid-column: 1 / -1;
+}
+
+/* ---------- Connection register -------------------------------------------- */
+
+/* One bordered container ruled into entries by hairlines, not four fields
+   floating on the paper. The Ruled-Divider Rule, applied sideways. */
+.connbar {
+  grid-column: 1 / -1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.05fr) minmax(0, 0.85fr) minmax(0, 1.25fr)
+    minmax(0, 1.05fr);
+  overflow: hidden;
+}
+
+.connbar__cell {
+  padding: var(--sp-2) var(--card-pad);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
   min-width: 0;
 }
 
-.docket__group {
-  border-bottom: 1px solid var(--border-strong);
+.connbar__cell--state {
+  background: var(--bg-sunken);
+  justify-content: flex-start;
+  /* The last entry in the register, so it carries no rule of its own.
+     `:last-of-type` cannot say this: the notes row is the last `div` here. */
+  border-right: none;
+}
+
+/* The resolution entry is the one cell you do not type into, so it sits on
+   recessed paper. Secondary ink steps one shade darker there: `--text-secondary`
+   holds 4.8:1 on white and only 4.2:1 on this fill, which is under the floor. */
+.connbar__cell--state .field__label,
+.connbar__cell--state .muted,
+.connbar__cell--state .mono--muted {
+  color: var(--slate-600);
+}
+
+.connbar__state {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 32px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.connbar__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connbar__project {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+.connbar__ids {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.connbar__version-id {
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.connbar__state-bad {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* The fine print the register owes the reader, ruled off beneath the cells so
+   a 250-character warning never has to live inside a 280px column. */
+.connbar__notes {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--sp-2) var(--card-pad);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--slate-50);
+}
+
+/* The one-line caption a cell owes its own control, sitting under it rather
+   than in a block of standing prose below the register. */
+.connbar__note {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* ---------- The case ------------------------------------------------------- */
+
+.compose {
+  grid-column: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.compose__body {
   padding: var(--card-pad);
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
 }
 
-.docket__group:last-of-type {
-  border-bottom: none;
+/* The scenario is the primary input of the page, so it is sized like one: tall
+   enough to hold a real multi-sentence case without scrolling inside itself,
+   and set a step up from the metadata around it. */
+.textarea--scenario {
+  min-height: 240px;
+  font-size: var(--fs-md);
 }
 
-.docket__submit {
-  padding: var(--card-pad);
+/* The send band. Ruled off the scenario above it, on the same recessed paper
+   the docket has always used for the act of sending. */
+.compose__send {
+  margin-top: auto;
+  padding: var(--sp-3) var(--card-pad) var(--card-pad);
   border-top: 1px solid var(--border-strong);
+  background: var(--slate-50);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  background: var(--slate-50);
 }
 
-.docket__summary {
-  display: none;
+.compose__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.compose__effort {
+  flex: 0 1 180px;
+  min-width: 140px;
+}
+
+.compose__controls .btn--primary {
+  margin-left: auto;
+}
+
+.compose__readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compose__blocked {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ---------- Request metadata rail ------------------------------------------ */
+
+.advanced {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.advanced__group {
+  border: none;
+  border-bottom: 1px solid var(--border-strong);
+  margin: 0;
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.advanced__group:last-of-type {
+  border-bottom: none;
+}
+
+.advanced__group > legend {
+  padding: 0;
+}
+
+/* The rail is a support surface: its captions step down a size so the fields
+   stay findable and the block stays short enough to sit beside the case. */
+.advanced .field__caption {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.advanced .mono {
+  overflow-wrap: anywhere;
+}
+
+/* A disclosure row, not a button: it opens prose in place, so it reads as a
+   line of the register that can be unfolded. */
+.disclosure-toggle {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.disclosure-toggle:hover {
+  color: var(--btn-hover-ink);
+}
+
+.advanced__note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 
 .input-with-action {
@@ -718,6 +943,342 @@ button {
   background: var(--slate-200);
   border-radius: var(--radius-sm);
   margin: 6px 10px;
+}
+
+.skeleton-row--inline {
+  height: 10px;
+  width: 70%;
+  margin: 0;
+}
+
+/* ---------- Two-track result surface (case_decision_v2) -------------------- */
+
+/* One bordered container ruled into entries, not a grid of cards. The whole
+   point of this band is that the two tracks are read as two halves of one
+   answer, and two floating cards would say the opposite. */
+.outcome-band {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.outcome-band__asked {
+  padding: var(--sp-3) var(--card-pad);
+  border-bottom: 1px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.outcome-band__askedvalue {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  color: var(--text-heading);
+  letter-spacing: -0.01em;
+}
+
+.outcome-band__tracks {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each track is one ruled row: what it is, how it came out, and what that
+   means, on one baseline. The tint is the semantic hue's own resting field, so
+   an answered track and a blocked one cannot be read as the same result from
+   across a desk — and the chip inside carries the word regardless, because
+   nothing on this page means anything by colour alone. */
+.track-row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, auto) minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: baseline;
+  padding: 10px var(--card-pad);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.track-row:last-child {
+  border-bottom: none;
+}
+
+.track-row--allow {
+  background: var(--success-bg);
+}
+
+.track-row--action {
+  background: var(--warning-bg);
+}
+
+.track-row--deny {
+  background: var(--danger-bg);
+}
+
+.track-row--note {
+  background: var(--info-bg);
+}
+
+.track-row--neutral {
+  background: var(--bg-surface);
+}
+
+.track-row__track {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.track-row__state {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.track-row__title {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+/* The sentence that says the two halves came out differently. Ruled off the
+   rows above it on the recessed paper the page uses for "this is about what you
+   just read", not tinted with a semantic hue of its own -- it is a statement
+   about two results, and it must not look like a third. */
+.outcome-split {
+  border-top: 1px solid var(--border-strong);
+  padding: var(--sp-3) var(--card-pad);
+  background: var(--bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.outcome-split__heading {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  color: var(--text-heading);
+}
+
+.outcome-split__body {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  max-width: 88ch;
+}
+
+.outcome-band__reasoning {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.outcome-band__reasoning > summary {
+  padding: 8px var(--card-pad);
+}
+
+/* ---------- Track result panels ------------------------------------------- */
+
+/* The tone is carried by the panel head's fill rather than by a rule down one
+   edge: the head already names the track and holds the chip, so tinting it puts
+   the semantic where the words are. */
+.result-panel--allow .panel__head {
+  background: var(--success-bg);
+  border-bottom-color: var(--success-border);
+}
+
+.result-panel--action .panel__head {
+  background: var(--warning-bg);
+  border-bottom-color: var(--warning-border);
+}
+
+.result-panel--deny .panel__head {
+  background: var(--danger-bg);
+  border-bottom-color: var(--danger-border);
+}
+
+.result-panel--note .panel__head {
+  background: var(--info-bg);
+  border-bottom-color: var(--info-border);
+}
+
+.result-panel__answer {
+  font-size: var(--fs-title);
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--text-heading);
+  max-width: 76ch;
+}
+
+/* A non-answer is a sentence, never an empty line. An empty space under a
+   heading that reads "Verdict" is read as a refusal. */
+.result-panel__notreached {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  max-width: 76ch;
+}
+
+.result-panel__explanation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 82ch;
+}
+
+/* ---------- Missing information ------------------------------------------- */
+
+/* The primary content of a blocked verdict, and sized like it. This is the only
+   part of that response a caller can act on, so it is a register of real
+   entries rather than a metadata row of comma-separated strings. */
+.missing-block {
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  overflow: hidden;
+}
+
+.missing-block__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 10px var(--card-pad) 0;
+}
+
+.missing-block__heading {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  color: var(--text-heading);
+}
+
+.missing-block__lead {
+  padding: 2px var(--card-pad) 10px;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  max-width: 84ch;
+}
+
+.missing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--warning-border);
+  background: var(--bg-surface);
+}
+
+.missing-item {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: var(--sp-3);
+  padding: 10px var(--card-pad);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.missing-item:last-child {
+  border-bottom: none;
+}
+
+.missing-item__ordinal {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+  padding-top: 1px;
+}
+
+.missing-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.missing-item__label {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.missing-item__why {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  max-width: 84ch;
+}
+
+.missing-item__why .eyebrow,
+.missing-item__body .eyebrow {
+  margin-right: var(--sp-1);
+}
+
+.missing-block__action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: 10px var(--card-pad);
+  border-top: 1px solid var(--warning-border);
+}
+
+/* ---------- Rule-level retrieval slice ------------------------------------ */
+
+.rule-slice {
+  flex-basis: 100%;
+  margin-top: var(--sp-1);
+  padding: var(--sp-2) 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rule-slice__claim {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rule-slice__ids > summary {
+  font-size: var(--fs-xs);
+  padding: 2px 0;
+}
+
+.rule-slice__idlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  padding-top: var(--sp-1);
+}
+
+/* Rule-level ranking detail. Kept inside the slice block rather than given a
+   surface of its own: it explains how that slice was chosen, and a reader who
+   has to look somewhere else for it has to hold two things in mind at once. */
+.rule-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--sp-1);
+  margin-top: var(--sp-1);
+  border-top: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.rule-ranking .eyebrow {
+  margin-right: var(--sp-1);
+}
+
+@media (max-width: 639px) {
+  .track-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+
+  .missing-item {
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: var(--sp-2);
+  }
 }
 
 /* ---------- Banners ------------------------------------------------------- */
@@ -1168,26 +1729,54 @@ button {
 
 /* ---------- Responsive ---------------------------------------------------- */
 
-@media (max-width: 1119px) {
-  .pg-main {
-    grid-template-columns: 340px minmax(0, 1fr);
+@media (max-width: 1279px) {
+  .docket {
+    grid-template-columns: minmax(0, 1fr) 320px;
   }
 }
 
-/* Single column below 900px. The docket un-sticks and moves above the
-   results; nothing collapses out of existence. */
-@media (max-width: 899px) {
-  .pg-main {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--sp-3);
+/* The connection register runs out of room for four side-by-side entries
+   before the docket runs out of room for two columns, so it folds to two
+   entries per row first and keeps its hairlines. */
+@media (max-width: 1119px) {
+  .connbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
+  .connbar__cell:nth-of-type(2n) {
+    border-right: none;
+  }
+
+  .connbar__cell:nth-of-type(-n + 2) {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+/* One column below 980px, and the case comes first. `RequestDocket` reorders
+   the DOM at the same breakpoint rather than leaving CSS to move boxes past
+   a tab order that stayed put. */
+@media (max-width: 979px) {
   .docket {
-    position: static;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .docket--collapsed .docket__group,
-  .docket--collapsed .docket__submit {
+  .connbar,
+  .compose,
+  .advanced {
+    grid-column: 1 / -1;
+  }
+
+  .compose__send {
+    margin-top: 0;
+  }
+}
+
+/* Single column below 900px. The docket collapses to its summary after a
+   decision; nothing collapses out of existence. */
+@media (max-width: 899px) {
+  .docket--collapsed .connbar,
+  .docket--collapsed .compose,
+  .docket--collapsed .advanced {
     display: none;
   }
 
@@ -1199,6 +1788,9 @@ button {
     padding: 10px var(--card-pad);
     min-height: 44px;
     flex-wrap: wrap;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
   }
 
   /* The tab strip becomes a ruled register of collapsible rows. Same nodes and
@@ -1252,6 +1844,31 @@ button {
     padding-right: var(--sp-3);
   }
 
+  /* The register stacks into rows rather than cells, and the vertical rules
+     become horizontal ones. It is still one container, still ruled. */
+  .connbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connbar__cell {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* The notes row already rules itself off the register above it. */
+  .connbar__cell--state {
+    border-bottom: none;
+  }
+
+  .compose__controls .btn--primary {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .compose__effort {
+    flex: 1 1 100%;
+  }
+
   .code__pre {
     font-size: 11.5px;
     grid-template-columns: 30px minmax(0, 1fr);
@@ -1267,7 +1884,7 @@ button {
   }
 
   .verdict-band__verdict {
-    font-size: 15px;
+    font-size: var(--fs-lg);
   }
 
   .pill {

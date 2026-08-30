@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { CaseDecisionEnvelope, CitationRef } from '../contracts/caseDecision'
+import type { CitationRef, MergedCitationRef } from '../contracts/caseDecision'
 import { headingLabel, humanise } from '../lib/format'
 import { resolvePayloadUrl } from '../lib/payloadUrl'
 
@@ -13,6 +13,18 @@ import { resolvePayloadUrl } from '../lib/payloadUrl'
  * never a paraphrase, a summary or a reconstruction. A paraphrased "quotation"
  * on a policy receipt is a fabricated citation with extra steps, and the whole
  * grounding apparatus upstream exists to stop exactly that.
+ *
+ * WHY "CITED BY" IS A COLUMN AND NOT A HEADING
+ *
+ * A v2 receipt answers two tracks from one corpus and merges their citations by
+ * rule id, tagging each with the track or tracks that rested on it. The rule
+ * that *states* a cap is frequently the same rule that *decides* whether a case
+ * was within it, and it is one authority, not two. Splitting the evidence into
+ * an "information evidence" table and a "verdict evidence" table would print
+ * that rule twice and invite a reader to count two. So there is one table, and
+ * the track tags travel per row. A v1 receipt has no tracks; its rows carry the
+ * decider route in the same column, which is the same question — what produced
+ * this — answered with the vocabulary that receipt has.
  *
  * The table becomes ruled stacked rows below 900px rather than scrolling
  * sideways, because a quoted provision that has slid off the right edge is
@@ -85,22 +97,63 @@ function PayloadLink({ citation, baseUrl }: { citation: CitationRef; baseUrl: st
   )
 }
 
-export function EvidenceTable({
-  envelope,
-  baseUrl,
+/**
+ * Which track (or tracks) rested on this rule, or — on a v1 receipt that has no
+ * tracks — which gather route decided. Always a word, never a bare colour.
+ */
+function CitedBy({
+  citation,
+  fallbackRoute,
 }: {
-  envelope: CaseDecisionEnvelope
+  citation: MergedCitationRef
+  fallbackRoute?: string | null
+}) {
+  const serves = citation.serves ?? []
+  if (serves.length === 0) {
+    return (
+      <span className="tag tag--neutral" data-testid="evidence-cited-by">
+        {humanise(fallbackRoute)}
+      </span>
+    )
+  }
+  return (
+    <span className="tag-row" data-testid="evidence-cited-by">
+      {serves.map((track) => (
+        <span
+          key={track}
+          className={`tag tag--${track === 'verdict' ? 'action' : 'neutral'}`}
+          data-testid={`evidence-serves-${track}`}
+        >
+          {track === 'verdict' ? 'Verdict' : 'Information'}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+export function EvidenceTable({
+  citations,
+  baseUrl,
+  fallbackRoute,
+}: {
+  /** The merged citation list. v1 rows simply carry no `serves`. */
+  citations: MergedCitationRef[]
   /** The API this page is calling. Relative `payload_url`s resolve against it. */
   baseUrl: string
+  /** v1's decider route, shown in `Cited by` when a row has no track tags. */
+  fallbackRoute?: string | null
 }) {
-  const citations = envelope.citations ?? []
-
   return (
     <section className="panel" id="rule-evidence" aria-labelledby="evidence-heading">
       <div className="panel__head">
         <h3 className="panel__title" id="evidence-heading">
           Rule evidence
         </h3>
+        {citations.length > 0 ? (
+          <span className="chip chip--neutral" data-testid="evidence-count">
+            {citations.length === 1 ? '1 rule' : `${citations.length} rules`}
+          </span>
+        ) : null}
       </div>
 
       {citations.length === 0 ? (
@@ -115,8 +168,8 @@ export function EvidenceTable({
         <>
           <table className="evidence-table" data-testid="playground-evidence-table">
             <caption className="visually-hidden">
-              The rules this decision rests on, with the policy each came from and the verbatim
-              source text where it was returned.
+              The rules this decision rests on, with the policy each came from, which track cited
+              it, and the verbatim source text where it was returned.
             </caption>
             <thead>
               <tr>
@@ -127,7 +180,7 @@ export function EvidenceTable({
                   Provision / heading
                 </th>
                 <th scope="col" style={{ width: '12%' }}>
-                  Route / effect
+                  Cited by
                 </th>
                 <th scope="col" style={{ width: '12%' }}>
                   Page / section
@@ -150,11 +203,7 @@ export function EvidenceTable({
                     {headingLabel(citation.policy?.heading_path, citation.policy?.provision_key)}
                   </td>
                   <td>
-                    {/* The word is always present; `—` when the envelope
-                        reported no route, never a bare colour. */}
-                    <span className="tag tag--neutral">
-                      {humanise(envelope.decision.decider_route)}
-                    </span>
+                    <CitedBy citation={citation} fallbackRoute={fallbackRoute} />
                   </td>
                   <td>{pageSection(citation)}</td>
                   <td>
@@ -176,10 +225,8 @@ export function EvidenceTable({
                   <code className="mono">{citation.rule_id}</code>{' '}
                   {headingLabel(citation.policy?.heading_path, citation.policy?.provision_key)}
                 </span>
-                <span className="xsmall muted">
-                  Route / effect: {humanise(envelope.decision.decider_route)} · Page / section:{' '}
-                  {pageSection(citation)}
-                </span>
+                <CitedBy citation={citation} fallbackRoute={fallbackRoute} />
+                <span className="xsmall muted">Page / section: {pageSection(citation)}</span>
                 <Quote citation={citation} />
                 <PayloadLink citation={citation} baseUrl={baseUrl} />
               </li>

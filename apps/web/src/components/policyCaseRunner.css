@@ -156,6 +156,84 @@
   margin-top: 12px;
 }
 
+/*
+ * The two tracks, stacked. They are separated by the same rule-less spacing the
+ * rest of this surface uses: a track is not a status badge and must not be
+ * given a colour rail that would read as one, since the whole point is that a
+ * verdict still needing facts is not a failure of the information beside it.
+ */
+.project-case-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/*
+ * What the case was read as asking for. Quiet, because it is the frame for the
+ * answers rather than an answer; it sits above them and is set at body weight.
+ */
+.project-case-asked {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+
+.project-case-track {
+  margin: 0;
+}
+
+/*
+ * A track that never ran. One line, at the same border and radius as a track
+ * that did, so the structure a reader learns stays the same and no dead space
+ * is reserved for an answer nobody asked for.
+ */
+.project-case-track--quiet {
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+
+/*
+ * The facts a verdict is waiting on. A list rather than a row of chips: each
+ * item carries a label, the reason the case turns on it and the rules waiting
+ * for it, which is what a form is built from and what a chip cannot hold.
+ */
+.project-case-missing {
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+}
+
+.project-case-missing__item {
+  margin-bottom: 6px;
+}
+
+.project-case-missing__rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+  margin-top: 2px;
+}
+
+.project-case-evidence {
+  margin-top: 4px;
+}
+
+/*
+ * The question as the pipeline actually read it. Set apart from the reader's
+ * own words the way a quotation is set apart from prose — by an inset and the
+ * sunken surface this app already uses for text it did not write — because it
+ * is neither the reader's sentence nor the document's, and letting it look like
+ * either would defeat the one thing it is for: being compared against both.
+ */
+.project-case-processing-scenario {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.02);
+}
+
 .project-case-raw > summary {
   cursor: pointer;
   color: rgba(15, 23, 42, 0.65);

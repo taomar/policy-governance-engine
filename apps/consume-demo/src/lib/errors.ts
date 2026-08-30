@@ -1,4 +1,4 @@
-import type { ApiErrorDetail } from '../contracts/caseDecision'
+import { INDEX_PROJECTION_UNAVAILABLE, type ApiErrorDetail } from '../contracts/caseDecision'
 
 /**
  * What went wrong, said in a way a reader can act on.
@@ -193,6 +193,24 @@ export function mapDecisionError(input: {
           code === 'additional_instructions_too_long' ? 'focus-guidance' : 'focus-scenario',
       }
     case 503:
+      /* NOT A TRANSIENT OUTAGE, AND MUST NOT BE OFFERED AS ONE.
+         `index_projection_unavailable` is the single retrieval state the server
+         refuses rather than answering with an empty 200, because a question
+         reduced to the processing language matched against a corpus never
+         rendered into it scores near zero on every policy -- and a near-zero
+         ranking reads exactly like a real "nothing bears on this". No amount of
+         retrying changes that: the corpus projection has to be rebuilt first.
+         Rendering the generic "try again shortly" here would send a caller into
+         a retry loop against a condition only an operator can clear. */
+      if (code === INDEX_PROJECTION_UNAVAILABLE) {
+        return {
+          ...base,
+          status,
+          heading: 'This project’s search index has no usable projection, so nothing could be compared.',
+          body: `The index for "${projectKey}" is missing its corpus projection, or the projection was superseded or left incomplete by an unfinished rebuild. Retrying will not clear this: ask the project owner to rebuild the index, then send the case again. Nothing was evaluated, and no answer was produced — this is deliberately not returned as "no policy matched your question", which is what an unrendered corpus would otherwise look like. ${serverMessage}`.trim(),
+          recovery: 'none',
+        }
+      }
       return {
         ...base,
         status,

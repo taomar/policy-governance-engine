@@ -174,6 +174,253 @@ export const DECISION_STATUS_COPY = {
 } as const
 
 /**
+ * Per-track outcome copy for `case_decision_v2`.
+ *
+ * v1 had one status; v2 has two outcomes, and the vocabulary they share is not
+ * the same claim on each track. `no_rule_bears` on the information track means
+ * "no retained rule states anything on this subject"; on the verdict track it
+ * means "no retained rule decides this case". Written apart so neither has to
+ * be phrased vaguely enough to cover both.
+ *
+ * Every entry names what did *not* happen as plainly as what did. A caller who
+ * cannot tell "the policies say no" from "no policy speaks to this" has been
+ * given a worse answer than none.
+ */
+export const INFORMATION_OUTCOME_COPY = {
+  answered: {
+    label: 'Answered',
+    tone: 'allow',
+    title: 'The retained policies state something on this subject',
+    description: 'What they state is below, with the rules it rests on.',
+  },
+  no_rule_bears: {
+    label: 'No rule bears',
+    tone: 'neutral',
+    title: 'No retained rule states anything on this subject',
+    description:
+      'The policies below were read and none of them speaks to what was asked. This is a real answer, and it is not the same as nothing having been read.',
+  },
+  declined: {
+    label: 'No answer composed',
+    tone: 'action',
+    title: 'No informational answer was composed',
+    description:
+      'The retained policies were reached, but no usable statement of what they say was returned.',
+  },
+  failed: {
+    label: 'Failed',
+    tone: 'deny',
+    title: 'The information track failed before an answer was produced',
+    description: 'Nothing here should be used as evidence of what the policies state.',
+  },
+  not_requested: {
+    label: 'Not asked for',
+    tone: 'neutral',
+    title: 'This question did not ask what the policies state',
+    description:
+      'The classifier read the question as asking for a determination only, so the information track was never run. Nothing was suppressed.',
+  },
+  not_evaluated: {
+    label: 'Not evaluated',
+    tone: 'neutral',
+    title: 'Nothing was evaluated, so nothing was stated',
+    description:
+      'Retrieval produced no record to answer from. The project may have published nothing, the index may be missing, or no published policy may bear on the question.',
+  },
+} as const
+
+export const VERDICT_OUTCOME_COPY = {
+  answered: {
+    label: 'Verdict reached',
+    tone: 'allow',
+    title: 'The evaluated rules settle this case',
+    description: 'The determination below is what the evaluated published policies returned.',
+  },
+  missing_required_facts: {
+    label: 'Needs facts',
+    tone: 'action',
+    title: 'The evaluated rules need facts this case did not supply',
+    description:
+      'An empty verdict here is not a refusal — the case was never decided. Supply the facts below and send it again.',
+  },
+  not_settled_by_rules: {
+    label: 'Not settled by rules',
+    tone: 'note',
+    title: 'The evaluated rules bear on this case but do not settle it',
+    description:
+      'This is not a verdict. The explanation below says what the rules cover and what they leave open.',
+  },
+  no_rule_bears: {
+    label: 'No rule bears',
+    tone: 'neutral',
+    title: 'No evaluated rule decides this case',
+    description:
+      'The policies below were read, and none contains a rule that determines this scenario.',
+  },
+  declined: {
+    label: 'No verdict composed',
+    tone: 'action',
+    title: 'No verdict was composed',
+    description: 'The evaluated rules were reached, but no usable determination was returned.',
+  },
+  failed: {
+    label: 'Failed',
+    tone: 'deny',
+    title: 'The verdict track failed before a determination was produced',
+    description: 'No verdict was reached and nothing here should be used as evidence.',
+  },
+  not_requested: {
+    label: 'Not asked for',
+    tone: 'neutral',
+    title: 'This question did not ask for a determination',
+    description:
+      'The classifier read the question as asking what the policies state, not whether a case complies. No verdict was withheld, because none was sought.',
+  },
+  not_evaluated: {
+    label: 'Not evaluated',
+    tone: 'neutral',
+    title: 'Nothing was evaluated, so nothing was decided',
+    description:
+      'Retrieval produced no record to decide from. This is not the same as the policies being read and settling nothing.',
+  },
+} as const
+
+/** The language boundary, and what it did and did not touch. */
+export const LANGUAGE = {
+  heading: 'Language',
+  absent: 'This receipt predates the language boundary, so it records no language information.',
+  absentCaption:
+    'That is not the same as a boundary that ran and reported nothing. Nothing here should be read as a claim about which language the decision was made in.',
+
+  adjudicatedIn: 'Adjudicated in',
+  askedIn: 'Question observed as',
+  answeredIn: 'This receipt is written in',
+  undTag: 'not well-formed',
+  undCaption:
+    'The tag the rendering observed was not well-formed. The decision is unaffected: every stage reasons in the processing language whatever the question was written in.',
+
+  boundaryLabel: 'Question boundary',
+  boundaryRendered: 'The question was carried into the processing language before anything read it.',
+  boundaryIdentity: 'The rendering call reported the question was already in the processing language.',
+
+  outputLabel: 'Answer rendering',
+  outputRendered: 'The prose in this receipt was carried back into the language the question was asked in.',
+  outputTargetUnknown:
+    'No usable target tag was observed, so the prose is returned exactly as it was reasoned, in the processing language.',
+  outputNotRequired:
+    'No rendering was made because none was needed — either the answer was owed in the processing language, or the evaluation composed no prose at all.',
+
+  guidanceLabel: 'Caller guidance',
+  guidanceRendered: 'Your guidance was carried into the processing language and applied.',
+  guidanceNotRequired: 'No rendering of your guidance was needed.',
+  guidanceDropped:
+    'Your guidance could not be carried into the processing language, so it was dropped rather than applied un-rendered. The decision itself is unaffected.',
+
+  processingHeading: 'The question as it was read',
+  processingSame: 'Identical to the question you sent.',
+  processingDiffers:
+    'This is the text retrieval, classification and both gathers actually ran against. It is not what you sent, and comparing the two is the only way to catch a rendering that changed the question.',
+  processingHashLabel: 'Processing scenario hash',
+  processingHashCaption:
+    'Sealed by the decision hash, so the text that was actually adjudicated cannot be altered on a stored receipt without breaking it.',
+  yourBytesUnchanged:
+    'Your own bytes are untouched beside it: the scenario, its hash and the idempotency binding are all still over exactly what you sent.',
+
+  /**
+   * The claim this page must make loudly, because it is the one a reader is most
+   * likely to assume the other way round after seeing a rendered answer.
+   */
+  citationsUntranslated: 'Cited source text is never translated.',
+  citationsUntranslatedBody:
+    'Every quotation under Rule evidence is the published document’s own words, in the language it was published in. A rendering is applied to the prose this service composes, never to the authority it rests on — a translated quotation would be a paraphrase wearing quotation marks.',
+
+  profilesLabel: 'Translation profiles',
+  profilesCaption:
+    'Versioned contracts. Two contracts can reduce one question to two different texts, so the one used is named and the inbound profile is sealed.',
+  projectionLabel: 'Corpus projection',
+  projectionCaption:
+    'The projection the retrieval index was built under. A query and the text it is scored against must be in one language, and this is what says whether they were.',
+  projectionAbsent: 'The index carries no projection identifier yet.',
+} as const
+
+/** Rule-level retrieval, M2. */
+export const RULE_INDEX = {
+  stateLabel: 'Rule index',
+  matched: 'Queried, and its ranking was fused with the others.',
+  degraded:
+    'Rule documents exist under the expected projection and the query against them failed recoverably. The selection ran without that ranking, so rules reachable only through the rule index may not have been placed.',
+  unavailable: 'Not consulted for this question.',
+  hitsZeroMatched:
+    'The rule index was asked and placed none of this policy’s rules. That is an answer, not an outage.',
+  elevated: (n: number) =>
+    n === 1
+      ? '1 policy was ranked higher because one of its own rules surfaced'
+      : `${n} policies were ranked higher because one of their own rules surfaced`,
+  elevatedCaption:
+    'Including policies the policy-level search did not return at all. A rule beyond what its policy’s own document could carry is reachable only this way.',
+  elevatedNone:
+    'No policy’s ranking was changed by a rule surfacing, so rule-level retrieval altered nothing on this question.',
+
+  candidatesLabel: 'Candidate pool',
+  quantityCaption:
+    'A quantity rank places rules whose stated quantity admits one the question states. It decides whether a rule is worth reading, never what the rule decides.',
+  diversityQuota: (n: number) =>
+    `${n} of the budget’s slots were reserved so distinct source passages are covered before a passage’s second rule competes.`,
+  withoutProjection: (n: number) =>
+    n === 1
+      ? '1 rule could not be scored by relevance: the index returned no English projection for it.'
+      : `${n} rules could not be scored by relevance: the index returned no English projection for them.`,
+  withoutProjectionCaption:
+    'They score zero rather than being scored against the document’s own language — one language on both sides of a match, always — and can still be placed by the rule index or the quantity rank.',
+
+  projectionReady: 'The index reported a complete corpus projection under the expected contract.',
+  projectionNotReady:
+    'The index did not report a complete projection under the expected contract. Treat every ranking below as made over a corpus that may not be comparable to the question.',
+} as const
+
+/** The two-track result surface. */
+export const V2 = {
+  askedHeading: 'What this question asked for',
+  askedBoth: 'Information and a verdict',
+  askedInformation: 'Information only',
+  askedVerdict: 'A verdict only',
+  askedNeither: 'Nothing was classified',
+  askedNeitherCaption:
+    'Retrieval produced no record to evaluate, so the classifier never ran. Both tracks report not evaluated.',
+  askedCaption:
+    'Read by the classifier from the question itself. There is no request field that sets it: a caller who could declare the shape of their own answer could choose it.',
+  informationTrack: 'Information',
+  verdictTrack: 'Verdict',
+  classifierReasoning: 'Why the question was read that way',
+  classifierReasoningCaption:
+    'Prose from the classifier explaining the routing. Deliberately outside the decision hash: it explains how the question was routed, not what was decided.',
+
+  splitHeading: 'The two halves of this answer came out differently',
+  splitAnsweredBlocked:
+    'The policies were able to state what they say. They were not able to decide the case, because facts it needs were not supplied. Neither result qualifies the other: what the policies state is settled, and the determination is still open.',
+  splitBlockedCaption: 'The empty verdict below is not a refusal.',
+
+  informationHeading: 'What the policies state',
+  verdictHeading: 'Verdict',
+  explanationLabel: 'Explanation',
+  noteLabel: 'Caveat from the answer',
+  missingHeading: 'Facts this case must supply',
+  missingLead:
+    'No verdict can be reached until these are in the scenario. Each one names the rules waiting on it.',
+  missingWhyNeeded: 'Why it is needed',
+  missingRequiredBy: 'Required by',
+  missingNoReason:
+    'No reason was composed for this fact. It is listed as the policy record names it, and nothing has been invented here.',
+  missingCopy: 'Copy the checklist',
+  missingAction: 'Add these to the scenario above and send the case again.',
+  verdictNotReached: 'No verdict was reached.',
+  informationNotAnswered: 'No statement of what the policies say was composed.',
+  unrecognisedHeading: 'This receipt is in an envelope this page does not recognise',
+  unrecognisedBody:
+    'It is shown below exactly as it was returned, and nothing has been interpreted. Read the raw response, and treat no part of it as a verdict.',
+} as const
+
+/**
  * Retrieval copy, verbatim from `ProjectCaseRunner`'s `RETRIEVAL_COPY`, so the
  * two surfaces describe one server event with one set of words.
  */
@@ -251,6 +498,73 @@ export const RETRIEVAL_COPY: Record<string, { tone: string; message: string; des
  * appear when the predicate permits it.
  */
 export const RETRIEVAL_NARROWED_HEADING = 'Policies considered by narrowing'
+
+/**
+ * The heading for the case `RETRIEVAL_COPY` has no entry for: search kept every
+ * published policy, and one of them was still read as a slice of its rules.
+ *
+ * `retrieval.status` is `not_narrowed` there, and taking the status entry at
+ * face value would print "All published policies were evaluated" over a receipt
+ * where sixty-six of a policy's seventy-four rules were never read. The status
+ * is not wrong — search narrowed nothing — it simply does not describe the
+ * second narrowing, so this sentence does.
+ */
+export const RETRIEVAL_SLICED_HEADING =
+  'Every published policy was searched; at least one was read as a slice of its rules'
+
+export const RETRIEVAL_SLICED_DESCRIPTION =
+  'Search did not need to select between the published policies. A policy holding more rules than one case can read was still narrowed to the rules that bear on the question, so a retained policy here is not necessarily a policy read whole.'
+
+/**
+ * Two things that look alike in a count and are not the same claim.
+ *
+ * A **collapsed duplicate** is proven identical: same condition, effect, type,
+ * mode, required facts, authority, scope, effective window, carve-outs and
+ * relationship targets. Its record was not read and its terms were — in the
+ * policy it names. It is the only discard whose content still reached the
+ * gather, and reporting it as an ordinary discard would tell a reader that
+ * terms went unweighed when they did not.
+ *
+ * A **diversity-deferred** policy is not proven identical to anything. It
+ * ranked inside the budget and was offered after it because a policy requiring
+ * the same thing was offered first. Calling it a duplicate would assert an
+ * equivalence the system never established, so the word never appears here.
+ *
+ * The same care applies one level down, to rules. `represented_rule_ids` names
+ * rules that were *not read* — their content was covered by an identical rule
+ * that was. The copy must not let "represented" be read as "also read".
+ */
+export const DUPLICATES = {
+  collapsedHeading: 'Collapsed as exact duplicates',
+  collapsedLead:
+    'These policies govern identically to one that was retrieved, so only one copy took a slot. Their records were not read; their terms were, in the policy each names below.',
+  collapsedInto: 'Terms read in',
+  collapsedChip: 'Exact duplicate',
+  collapsedCount: (n: number) =>
+    n === 1
+      ? '1 policy was collapsed into an identical one'
+      : `${n} policies were collapsed into identical ones`,
+
+  deferredHeading: 'Deferred for coverage, not as duplicates',
+  deferredBody:
+    'These ranked inside the retention budget and were offered after it because a policy requiring the same thing was offered first. They are not proven identical to anything and are not duplicates: each keeps its own rank and score, and each was discarded for being outside the budget.',
+  deferredCount: (n: number) =>
+    n === 1
+      ? '1 policy was deferred so a differently-governing policy could be offered first'
+      : `${n} policies were deferred so differently-governing policies could be offered first`,
+
+  selectionOrderLabel: 'Selection order',
+  selectionOrderCaption:
+    'Relevance first, then normative-content diversity: among candidates requiring the same thing, the highest-ranked is offered before any second member of that group. This is what puts a highly-ranked policy outside the budget.',
+
+  ruleCollapsedCount: (n: number) =>
+    n === 1
+      ? '1 further rule was not a candidate: an earlier rule of this policy governs identically.'
+      : `${n} further rules were not candidates: an earlier rule of this policy governs identically.`,
+  representedHeading: 'Exact copies of rules that were read',
+  representedCaption:
+    'None of these was put in front of the model. Each is an exact copy of a rule that was read, so its content was covered — but the rule itself was not read, and this is not a second reading of it.',
+} as const
 
 export const RECEIPT = {
   heading: 'Decision receipt',

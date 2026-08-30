@@ -38,6 +38,20 @@ export const POLICY_SUBSCRIPTION_KEY_ENV = "POLICY_SUBSCRIPTION_KEY";
 /** The header the key travels in. Not `Authorization`: it is not a token. */
 export const SUBSCRIPTION_KEY_HEADER = "X-Policy-Subscription-Key";
 
+/** The envelope every decision made now is answered as.
+ *
+ *  Named rather than spelled inline so the example, its caption and its guard
+ *  cannot drift into disagreeing about which contract is being taught. */
+export const RECEIPT_SCHEMA_V2 = "case_decision_v2";
+
+/** The envelope a receipt written before the two-track redesign is replayed as.
+ *
+ *  Nothing writes it any more. It appears in the worked example only because a
+ *  stored decision is served as what it was written as — a receipt whose content
+ *  changed after the fact is not evidence of anything — so an integrator holding
+ *  keys from then meets it and is owed the branch. */
+export const RECEIPT_SCHEMA_V1 = "case_decision_v1";
+
 /** The example request, in one place so all four snippets agree.
  *
  * Typed as the server's request contract, so a field the API does not accept
@@ -158,11 +172,22 @@ export function buildCurlSnippet(target: ConsumeTarget): string {
 
 /** Python: the same call, read the way a receipt must be read.
  *
- * The status branch is not decoration. `verdict` is only populated when the
- * decision status is `answered`, so an example that printed it directly would
+ * The status branches are not decoration. A case asks for up to two things —
+ * what the published policies *state*, and how the case *comes out* — and each
+ * requested track is answered on its own. `outcome` carries one status per
+ * track and is read first, because both sections are `null` when their track
+ * did not run: an example that reached straight into `receipt["verdict"]` would
+ * raise a `TypeError` on the very ordinary case of a question that asked only
+ * what the policies say. And `verdict["decision"]` is populated only when the
+ * verdict was reached, so an example that printed it unconditionally would
  * teach the exact mistake the envelope exists to prevent — a caller reading an
- * empty string as "allowed". The branch is therefore mandatory in this snippet,
- * and a unit test holds it there. */
+ * empty string as "allowed". Both branches are mandatory here, and unit tests
+ * hold them in that order.
+ *
+ * The `schema_version` branch is there for one honest reason: nothing writes
+ * `case_decision_v1` any more, but an `Idempotency-Key` issued before the
+ * two-track redesign still replays the receipt it named, in the shape that
+ * receipt was written in. A caller starting today only ever meets v2. */
 export function buildPythonSnippet(target: ConsumeTarget): string {
   return [
     "import os",
@@ -180,8 +205,9 @@ export function buildPythonSnippet(target: ConsumeTarget): string {
     "}",
     "",
     "# Optional. Shapes how the answer is explained; it cannot change which",
-    "# policies were read or what they decide. Leave it out entirely when you",
-    "# have no guidance — an absent key and an empty string are not the same.",
+    "# policies were read, what your question is read as asking for, or what the",
+    "# policies decide. Leave it out entirely when you have no guidance — an",
+    "# absent key and an empty string are not the same.",
     `body["additional_instructions"] = "${EXAMPLE_CASE_REQUEST.additional_instructions}"`,
     "",
     "response = requests.post(",
@@ -202,17 +228,50 @@ export function buildPythonSnippet(target: ConsumeTarget): string {
     "",
     'print("decision_id:", receipt["decision_id"])',
     "",
-    "# Read the status before the verdict. Only an answered decision carries one,",
-    "# so reading it first would turn a not-settled case into a silent allow.",
-    '# receipt["decision_status"] repeats this same value at the top level.',
-    'if receipt["decision"]["status"] == "answered":',
-    '    print("verdict:", receipt["decision"]["verdict"])',
+    `# Every decision made now is ${RECEIPT_SCHEMA_V2}. A receipt written before the`,
+    "# two-track redesign is replayed in the shape it was written in, so branch on",
+    "# the version only if you still hold Idempotency-Keys from then.",
+    `if receipt["schema_version"] == "${RECEIPT_SCHEMA_V1}":`,
+    "    # One status, one verdict, and no separate information track.",
+    '    if receipt["decision_status"] == "answered":',
+    '        print("verdict:", receipt["decision"]["verdict"])',
+    "    else:",
+    '        print("no verdict:", receipt["decision_status"])',
+    '    print("explanation:", receipt["decision"]["explanation"])',
     "else:",
-    '    print("no verdict:", receipt["decision"]["status"])',
+    "    # Read outcome before either section. Your question is read as asking",
+    "    # for what the policies state, for a verdict, or for both, and each",
+    "    # requested track is answered on its own — one can answer while the",
+    "    # other cannot.",
+    '    outcome = receipt["outcome"]',
+    '    print("asked for information:", receipt["asked"]["information_requested"])',
+    '    print("asked for a verdict:", receipt["asked"]["verdict_requested"])',
     "",
-    'print("explanation:", receipt["decision"]["explanation"])',
-    'for citation in receipt["citations"]:',
-    '    print("citation:", citation["rule_id"], citation["source"].get("text"))',
+    "    # Both sections are null when their track did not run, so neither is",
+    '    # subscripted before its own outcome has been read. "not_requested"',
+    '    # means you did not ask; "not_evaluated" means nothing was evaluated',
+    "    # at all. Neither is the policies refusing you an answer.",
+    '    if outcome["information"] == "answered":',
+    '        print("information:", receipt["information"]["answer"])',
+    "    else:",
+    '        print("no information:", outcome["information"])',
+    "",
+    '    if outcome["verdict"] == "answered":',
+    '        print("verdict:", receipt["verdict"]["decision"])',
+    '        print("explanation:", receipt["verdict"]["explanation"])',
+    '    elif outcome["verdict"] == "missing_required_facts":',
+    "        # The case cannot be decided until these are supplied. This is not",
+    "        # a refusal, and it is not a verdict.",
+    '        for fact in receipt["verdict"]["missing_information"]:',
+    '            print("needs:", fact["label"], "-", fact["why_needed"])',
+    "    else:",
+    '        print("no verdict:", outcome["verdict"])',
+    "",
+    "    # One entry per rule, whichever track cited it; a rule both tracks cited",
+    '    # appears once and carries both tags in "serves".',
+    '    for citation in receipt["citations"]:',
+    '        print("citation:", citation["rule_id"], citation["serves"], citation["source"].get("text"))',
+    "",
     'print("receipt_url:", receipt["receipt_url"])',
   ].join("\n");
 }

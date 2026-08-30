@@ -138,6 +138,49 @@ class PolicyIndexState(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     attempted_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The rendering contract the indexed documents' retrieval text was produced
+    #: under. Staleness has two axes and this is the second one: an index built
+    #: for the active version but under a superseded projection cannot be matched
+    #: against by a query rendered under the current one, and a record that
+    #: reported only the version could not say so. Null on a row written before
+    #: projections existed, and on any build that did not finish — which is the
+    #: same fact, and is read as "not projected" rather than as an old profile.
+    projection_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Whether the indexed projection was checked against the record it was
+    #: built from, and under which statement of what that check requires.
+    #:
+    #: A SECOND CLAIM, NOT A SECOND OPINION ON THE FIRST
+    #:
+    #: `projection_profile` says the retrieval text was *produced* under a
+    #: contract. It cannot say the text is a rendering of the record it names —
+    #: a rendering call that returned, an embedding that returned and an upload
+    #: that was acknowledged are all facts about transport. These columns carry
+    #: the separate verdict, and it is versioned separately because it moves for
+    #: a different reason: the rendering contract changes when the text would
+    #: change, this changes when what counts as acceptable does.
+    #:
+    #: Null on every row written before validation existed, and that is the
+    #: honest value rather than an inconvenience. Backfilling `passed` would
+    #: claim a check that never ran, and the readiness gate would then trust a
+    #: corpus nobody looked at; the repair is one validation run per project.
+    #:
+    #: **This row is a report and never an authority.** The gate reads the
+    #: manifest document in the search index, which is written first, so a row
+    #: here can lag behind what is in force but can never be ahead of it.
+    quality_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    quality_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: How many aligned pairs actually produced a score, how many deterministic
+    #: findings there were, and the worst and average similarity across the
+    #: corpus. Numbers only: no finding, no document text, no source. A column
+    #: that could hold prose here would be a column holding a policy sentence
+    #: the first time somebody wanted the record to be more helpful.
+    quality_checked_documents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_structural_findings: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_min_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_mean_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class PolicyAuthority(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -926,9 +969,11 @@ class PolicyCaseDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
       * `policy_version_id` is NOT NULL — but a case put to a project that has
         published nothing is a legitimate, answerable outcome with no version.
       * `request_facts_json` is NOT NULL structured facts — a case is prose.
-      * `overall_status` is the XACML enum — a case's outcome vocabulary is
-        `answered | missing_required_facts | not_settled_by_rules | no_rule_bears
-        | declined | failed | not_evaluated`, which shares no member with it.
+      * `overall_status` is the XACML enum — a case has no single outcome at
+        all. It is answered as two independent tracks, each with its own
+        vocabulary (`answered | missing_required_facts | not_settled_by_rules |
+        no_rule_bears | declined | failed`, plus this layer's `not_requested`
+        and `not_evaluated`), and neither shares a member with XACML's.
 
     Generalising over those differences would not be an abstraction, it would be
     a misfiling. So this is its own table, and `evaluations` is left exactly as
@@ -991,9 +1036,33 @@ class PolicyCaseDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: Which envelope `response_json` holds. Written on every completed row from
+    #: the two-track redesign onwards; NULL on rows written before it, which are
+    #: `case_decision_v1` by definition and are backfilled as such. Stored rather
+    #: than sniffed from the JSON because how a receipt is read must not depend
+    #: on a heuristic over its own body.
+    schema_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     #: The decision's own outcome, distinct from the row's lifecycle above. Null
     #: while pending and on failure — there is no outcome to report yet.
+    #:
+    #: Since `case_decision_v2` this is *derived*, not authoritative: it carries
+    #: the verdict track's status when there is one and the information track's
+    #: otherwise, so operational queries written against the single-value shape
+    #: keep working. The two columns below are the honest per-track values, and
+    #: `response_json` is the authority for both.
     decision_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    #: What the classifier read the question as asking for, one column each.
+    #: Null on a pending, failed, or pre-v2 row. Kept as columns rather than
+    #: read out of the envelope so "how many callers asked for both?" is a query
+    #: rather than a scan of stored JSON.
+    information_requested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verdict_requested: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    #: Each track's own status, null when that track did not run — which covers
+    #: "not requested" and "nothing was evaluated" alike. `response_json` tells
+    #: those two apart; these columns exist for counting, not for reading a
+    #: decision out of.
+    information_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    verdict_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     scenario_text: Mapped[str] = mapped_column(Text, nullable=False)
     scenario_hash: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -1022,9 +1091,12 @@ class PolicyCaseDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     decision_summary_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     citation_ids_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     trace_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    #: The full `case_decision_v1` envelope, written only for a completed row.
-    #: This is what a receipt read replays, so a reader gets the bytes the caller
-    #: got rather than a re-derivation that could drift from them.
+    #: The full receipt envelope, written only for a completed row, in whichever
+    #: version `schema_version` names. This is what a receipt read replays, so a
+    #: reader gets the bytes the caller got rather than a re-derivation that
+    #: could drift from them — and rather than a re-projection into a newer
+    #: shape, which for a pre-v2 row would mean inventing content that decision
+    #: never had.
     response_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     decision_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)

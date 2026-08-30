@@ -490,6 +490,7 @@ OPERATION_BANDS: Final[dict[tuple[str, str], str]] = {
     ("GET", "/api/policy-sets/{key}/policies"): READ,
     ("GET", "/api/policy-sets/{key}/policy-index"): READ,
     ("POST", "/api/policy-sets/{key}/policy-index/rebuild"): AUTHOR,
+    ("POST", "/api/policy-sets/{key}/policy-index/validate"): AUTHOR,
     ("GET", "/api/policy-sets/{key}/provisions/{provision_key}/history"): READ,
     ("POST", "/api/policy-sets/{key}/publish"): AUTHOR,
     ("POST", "/api/policy-sets/{key}/review"): AUTHOR,

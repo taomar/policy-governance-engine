@@ -21,6 +21,7 @@ from policy_platform.api.schemas import (
     MarkPolicySetReviewedRequest,
     PolicyIndexBuildResponse,
     PolicyIndexStateResponse,
+    PolicyIndexValidationResponse,
     PolicySetResponse,
     UpdatePolicySetRequest,
     UpdateTrustedConfigRequest,
@@ -51,15 +52,21 @@ from policy_platform.infrastructure.persistence.policy_set_teardown import (
 )
 from policy_platform.infrastructure.persistence.policy_version_import import import_approved_policy_version
 from policy_platform.infrastructure.search.search_client import AzureSearchClient
+from policy_platform.infrastructure.assistants.ai_case_language import (
+    ENGLISH_PROJECTION_PROFILE,
+)
 from policy_platform.infrastructure.search.policy_index import (
     drop_project_policy_index,
     failed_policy_index_build_outcome,
     policy_index_build_outcome_payload,
     policy_index_freshness,
     policy_index_name,
+    policy_index_validation_payload,
     read_policy_index_state,
     rebuild_project_policy_index,
     record_policy_index_build_state,
+    record_projection_quality,
+    validate_project_policy_index,
 )
 from policy_platform.infrastructure.settings import get_settings
 from policy_platform.infrastructure.extraction.policy_formulator import check_trusted_config
@@ -459,7 +466,15 @@ async def get_policy_index_state_endpoint(
     state = (
         await read_policy_index_state(session, policy_set_id=policy_set.id)
     )
-    freshness = policy_index_freshness(state, active_version_number)
+    freshness = policy_index_freshness(
+        state,
+        active_version_number,
+        # Staleness has two axes. An index built for the active version but under
+        # a superseded rendering contract cannot be matched against by a query
+        # rendered under the current one, and reporting it `current` would send a
+        # reader looking for a problem this record can already prove.
+        expected_projection_profile=ENGLISH_PROJECTION_PROFILE,
+    )
     return PolicyIndexStateResponse(
         policy_set_key=key,
         index_name=state.index_name if state else policy_index_name(key),
@@ -472,6 +487,13 @@ async def get_policy_index_state_endpoint(
         built_at=state.built_at if state else None,
         attempted_at=state.attempted_at if state else None,
         error=state.error if state else None,
+        quality_state=state.quality_state if state else None,
+        quality_profile=state.quality_profile if state else None,
+        quality_checked_documents=state.quality_checked_documents if state else None,
+        quality_structural_findings=state.quality_structural_findings if state else None,
+        quality_min_similarity=state.quality_min_similarity if state else None,
+        quality_mean_similarity=state.quality_mean_similarity if state else None,
+        quality_validated_at=state.quality_validated_at if state else None,
     )
 
 
@@ -484,6 +506,27 @@ async def rebuild_policy_index_endpoint(
     The index contains only published policies from the active approved version.
     A project with no active version is therefore a coherent empty build, not an
     error: the response carries ``version_number: null`` and ``document_count: 0``.
+
+    WHAT A REBUILD NOW DOES, AND WHAT IT COSTS
+
+    It renders each policy's retrieval text — and, for a policy holding more rules
+    than one case can read, each of its rules' — into the language the pipeline
+    matches in, embeds the renderings, and writes a policy document plus one
+    document per such rule. That is one rendering call per policy (its rules
+    batched with it), so the time a rebuild takes grows with the corpus and not
+    only with its size in bytes.
+
+    It is also **the only repair**. Nothing here re-extracts and nothing here is
+    the only copy of anything: every document is derived from the active approved
+    version in PostgreSQL, so rolling back a bad projection means running this
+    again, not restoring anything.
+
+    The response says which of the two counts the documents fell into
+    (``policy_document_count``, ``rule_document_count``), which rendering contract
+    they were built under (``projection_profile``), and whether the manifest
+    reached ``ready`` (``manifest_state``). A build that did not finish reports a
+    null profile and an ``incomplete`` manifest — and a project in that state is
+    refused by retrieval rather than answered from part of itself.
     """
 
     repo = PolicySetRepository(session)
@@ -509,6 +552,75 @@ async def rebuild_policy_index_endpoint(
     await record_policy_index_build_state(session, policy_set_id=policy_set.id, outcome=outcome)
     await session.commit()
     return policy_index_build_outcome_payload(outcome)
+
+
+@router.post(
+    "/{key}/policy-index/validate", response_model=PolicyIndexValidationResponse
+)
+async def validate_policy_index_endpoint(
+    key: str, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Check a projection that is already built, without rebuilding any of it.
+
+    WHY THIS IS NOT JUST "REBUILD"
+
+    A rebuild re-renders every policy through a model and re-uploads every
+    document. That is the right repair when a corpus is *wrong*; it is a
+    remarkably expensive way to answer a question about text that is already in
+    the index. This endpoint asks the question directly: it reads what the index
+    holds, re-derives the authoritative text from PostgreSQL, and compares them.
+    **No rendering call is made and no content document is written.**
+
+    It exists because every corpus built before the faithfulness gate is in the
+    index right now — complete, `ready`, and unvalidated — and the gate refuses
+    all of them until somebody checks. This is how they get checked, at the cost
+    of one embedding pass instead of a full re-render.
+
+    WHAT IT CHANGES
+
+    One document: the manifest, annotated with the verdict, its profile, the
+    counts and the two scores. `manifest_state` is not touched — whether every
+    expected document landed is a fact about a build that already happened, and
+    a validation has no standing to revise it.
+
+    **On failure nothing is deleted.** The verdict is recorded, the readiness
+    gate stops matching against the corpus, and every document stays where it
+    is. A failed validation is not proof the documents are wrong; it is proof
+    this build cannot vouch for them, and destroying the evidence would turn a
+    reversible finding into an outage.
+
+    THE ORDER, AND WHAT IT GUARANTEES
+
+    The manifest is written before this row is. The manifest is what the gate
+    reads, so the record here can lag behind what is in force and can never be
+    ahead of it — there is no ordering in which this table claims a validation
+    the index does not carry.
+
+    `recorded: false` means the verdict never reached the manifest and is
+    therefore not in force, whatever it says.
+    """
+
+    repo = PolicySetRepository(session)
+    policy_set = await repo.get_by_key(key)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail=f"policy set '{key}' not found")
+
+    projections = await published_case_payloads_for_policy_set(session, policy_set.id)
+    outcome = await validate_project_policy_index(
+        policy_set_key=key,
+        projections=projections,
+    )
+
+    # Recorded only when the verdict actually reached the manifest. A row saying
+    # `passed` beside an index carrying no such claim is the one disagreement
+    # this design must not be able to produce, and the guard for it is here
+    # rather than in a comment: an unrecorded verdict is not written down.
+    if outcome.recorded and outcome.quality is not None:
+        state = await read_policy_index_state(session, policy_set_id=policy_set.id)
+        if state is not None:
+            record_projection_quality(state, outcome.quality)
+            await session.commit()
+    return policy_index_validation_payload(outcome)
 
 
 @router.get("/{key}/workspace-counts")

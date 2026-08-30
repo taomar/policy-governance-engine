@@ -409,6 +409,15 @@ _QUARANTINE: dict[str, str] = {
     "infrastructure/ingestion/source_structure.py::detect_references": "helper, test call sites only",
     "infrastructure/ingestion/source_structure.py::push_heading": "helper, test call sites only",
     # --- Contract shapes and helpers nothing in production constructs or calls. ---
+    "contracts/case_decision.py::compute_decision_hash": (
+        "the `case_decision_v1` seal. Nothing computes a v1 hash any more -- every new "
+        "decision is `case_decision_v2` and a stored v1 receipt is replayed with the hash "
+        "it was written with, never recomputed. It is retained rather than deleted because "
+        "it is the published *specification* of what a v1 seal covers: a holder of a v1 "
+        "receipt verifying it independently reimplements this function, and "
+        "`DECISION_HASH_INCLUDES` beside it is only checkable while it exists. Deleting it "
+        "would silently retire the rule that already-issued receipts were sealed under"
+    ),
     "contracts/canonical_document.py::SpanReference": "contract type, unconstructed in production",
     "contracts/canonical_document.py::CanonicalDocument.element_by_id": "contract helper, no caller",
     "contracts/policy.py::PrincipalContext": "contract type, unconstructed in production",
@@ -466,6 +475,15 @@ _QUARANTINE: dict[str, str] = {
     #
     # Remove this entry if the analyser ever learns to see env.py.
     "infrastructure/persistence/migration_target.py::apply_migration_target": "called by alembic/env.py, which this analyser does not scan; wired, not orphaned",
+    # --- Declared ahead of the milestone that fills it in. ---
+    #
+    # (Nothing is currently declared here. `EnglishProjectionReadiness` was, and
+    # its entry said "remove this when the reader is gated on it" — which the
+    # corpus-projection milestone did: `search/policy_index.read_projection_
+    # readiness` builds one from the live index and `ai_case_project` refuses a
+    # project whose index cannot be matched against. This is the good outcome
+    # the quarantine exists to notice, so the entry is gone rather than
+    # reworded.)
 }
 
 

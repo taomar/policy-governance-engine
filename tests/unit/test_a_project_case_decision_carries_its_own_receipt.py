@@ -35,6 +35,7 @@ under test rather than of a mock's shape.
 """
 from __future__ import annotations
 
+import copy
 import os
 import uuid
 from datetime import date
@@ -65,7 +66,10 @@ from policy_platform.api.routers.policy_decisions import (  # noqa: E402
 from policy_platform.application import policy_case_decision  # noqa: E402
 from policy_platform.contracts.case_decision import (  # noqa: E402
     MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
+    CaseDecisionEnvelopeV2,
     additional_instructions_hash,
+    compute_decision_hash_v2,
+    decision_hash_preimage_v2_lang,
     normalise_additional_instructions,
 )
 from policy_platform.contracts.conditions import AllCondition  # noqa: E402
@@ -87,6 +91,10 @@ from policy_platform.domain.models import (  # noqa: E402
     SourceDocument,
 )
 from policy_platform.infrastructure.assistants import ai_case_intent, ai_case_project  # noqa: E402
+from policy_platform.infrastructure.assistants.ai_case_language import (  # noqa: E402
+    ENGLISH_PROJECTION_PROFILE,
+    INDEX_PROJECTION_UNAVAILABLE,
+)
 from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
 from policy_platform.infrastructure.persistence.policy_version_import import (  # noqa: E402
     import_approved_policy_version,
@@ -98,6 +106,8 @@ from policy_platform.infrastructure.persistence.repositories.case_decisions impo
 from policy_platform.infrastructure.search.policy_index import policy_document_id  # noqa: E402
 from policy_platform.infrastructure.settings import Settings  # noqa: E402
 from tests.fixtures.factories import make_rule  # noqa: E402
+from tests.fixtures.language_boundary import install_language_boundary  # noqa: E402
+from tests.fixtures.search_stubs import manifest_ids  # noqa: E402
 
 
 @compiles(JSONB, "sqlite")
@@ -209,7 +219,9 @@ class _StubSearchClient:
     async def index_exists(self, name: str) -> bool:
         return True
 
-    async def vector_search(self, index: str, *, query_text: str, vector: list, top: int) -> list[dict]:
+    async def vector_search(self, index: str, **kwargs: Any) -> list[dict]:
+        if "'rule'" in (kwargs.get("filter_expr") or ""):
+            return []
         return [
             {
                 "id": policy_document_id(
@@ -220,6 +232,9 @@ class _StubSearchClient:
             }
             for key, score in ((_ALPHA_KEY, 0.9), (_BETA_KEY, 0.4))
         ]
+
+    async def find_ids_by_filter(self, index: str, **kwargs: Any) -> list[str]:
+        return manifest_ids(kwargs.get("filter_expr", ""))
 
 
 class _Gather:
@@ -264,13 +279,17 @@ async def _gather(
         return _Gather.reply
     return {
         "intent": ai_case_intent.DECISION,
+        "information_requested": False,
+        "verdict_requested": True,
         "classification_reasoning": "the question supplies facts and asks for a ruling",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
         "informational": None,
         "decision": {
             "status": ai_case_intent.ANSWERED,
             "verdict": "not compliant",
             "answer": "Written approval was required and was not obtained.",
             "missing_required_facts": [],
+            "missing_information": [],
             "citations": [
                 {
                     "rule_id": _ALPHA_RULE,
@@ -290,6 +309,37 @@ async def _gather(
             },
         },
         "reasoning_effort": reasoning_effort,
+    }
+
+
+def _informational_branch(*, answer: str = "The policy requires written approval first.") -> dict:
+    """A populated information track citing the same rule the verdict track does.
+
+    Deliberately the same rule: the overlap is the ordinary case — the rule that
+    *states* a requirement is usually the rule that *decides* whether it was met
+    — and it is what makes the merged citation list's deduplication observable.
+    """
+
+    return {
+        "status": ai_case_intent.ANSWERED,
+        "answer": answer,
+        "citations": [
+            {
+                "rule_id": _ALPHA_RULE,
+                "source": {"state": "quoted", "text": _ALPHA_SOURCE, "page": 1, "section": "Section 1"},
+                "policy": {"provision_id": None, "provision_key": _ALPHA_KEY, "heading_path": ["1. Expenses"]},
+            }
+        ],
+        "note": "",
+        "grounding": {
+            "prompt_version": ai_case_intent.PROMPT_VERSION,
+            "rules_available": 2,
+            "citations_requested": 1,
+            "rules_cited": 1,
+            "fabricated_citations": [],
+            "oversize": False,
+            "policies_grounded": 1,
+        },
     }
 
 
@@ -392,11 +442,16 @@ async def _seed(session) -> None:
 class _Harness:
     """Everything a test needs to drive and then inspect one decision."""
 
-    def __init__(self, client, maker, settings: Settings, active_version_id: str) -> None:
+    def __init__(
+        self, client, maker, settings: Settings, active_version_id: str, language
+    ) -> None:
         self.client = client
         self.maker = maker
         self.settings = settings
         self.active_version_id = active_version_id
+        #: The language boundary's double. Every decision below crosses it, so a
+        #: test that cares what the decider was actually given reads it here.
+        self.language = language
         self.owner_token = _token(settings, username="owner@example.com", role=VIEWER)
         self.other_token = _token(settings, username="stranger@example.com", role=VIEWER)
         self.author_token = _token(settings, username="author@example.com", role=POLICY_AUTHOR)
@@ -472,6 +527,11 @@ async def harness(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_case_project, "AzureOpenAIClient", _StubEmbeddingClient)
     monkeypatch.setattr(ai_case_project, "AzureSearchClient", _StubSearchClient)
     monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _gather)
+    # The third network call. Left at its identity default, so every assertion in
+    # this file means what it meant before the boundary existed: the question is
+    # reported as already being in the processing language and is passed on
+    # unchanged. What the boundary itself does is held in its own suite.
+    language = install_language_boundary(monkeypatch)
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -500,7 +560,7 @@ async def harness(monkeypatch, tmp_path):
 
     app.dependency_overrides[get_session] = _override
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield _Harness(client, maker, settings, active_version_id)
+        yield _Harness(client, maker, settings, active_version_id, language)
     await engine.dispose()
 
 
@@ -520,10 +580,29 @@ async def test_a_decision_returns_a_receipt_that_reads_back_identically(harness)
     assert response.status_code == 200, response.text
     body = response.json()
 
-    assert body["schema_version"] == "case_decision_v1"
-    assert body["hash_basis"] == "case_decision_v1"
-    assert body["decision_status"] == "answered"
-    assert body["decision"]["verdict"] == "not compliant"
+    assert body["schema_version"] == "case_decision_v2"
+    # The schema did not move; the seal did. Every field the language boundary
+    # adds is additive and optional, so a reader pinned to `case_decision_v2`
+    # keeps working — but a verifier recomputing the hash must branch on this.
+    assert body["hash_basis"] == "case_decision_v2_lang"
+    assert body["language"]["processing_language"] == "en"
+    assert body["language"]["source_language"] == "en"
+    assert body["language"]["boundary_state"] == "identity"
+    assert body["language"]["output_rendering_state"] == "not_required"
+    assert body["language"]["processing_scenario"] == body["request"]["scenario"]
+    assert body["receipt_status"] == "completed"
+    assert body["asked"] == {
+        "information_requested": False,
+        "verdict_requested": True,
+        "classification_reasoning": "the question supplies facts and asks for a ruling",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+    }
+    assert body["outcome"] == {"information": "not_requested", "verdict": "answered"}
+    assert body["information"] is None
+    assert body["verdict"]["reached"] is True
+    assert body["verdict"]["decision"] == "not compliant"
+    assert body["verdict"]["route"] == "decision"
+    assert [c["serves"] for c in body["citations"]] == [["verdict"]]
     assert body["decision_hash"]
     assert body["receipt_url"] == f"/api/policy-decisions/{body['decision_id']}"
     assert body["latency_ms"] >= 0
@@ -531,9 +610,17 @@ async def test_a_decision_returns_a_receipt_that_reads_back_identically(harness)
     stored = await harness.rows()
     assert len(stored) == 1
     assert stored[0].status == "completed"
+    assert stored[0].schema_version == "case_decision_v2"
     assert stored[0].decision_hash == body["decision_hash"]
     assert stored[0].scenario_text == "I paid the invoice before asking. Was that allowed?"
     assert stored[0].citation_ids_json == [_ALPHA_RULE]
+    # The per-track index columns, and the derived scalar the older operational
+    # queries are written against.
+    assert stored[0].information_requested is False
+    assert stored[0].verdict_requested is True
+    assert stored[0].information_status is None
+    assert stored[0].verdict_status == "answered"
+    assert stored[0].decision_status == "answered"
 
     receipt = await harness.get_receipt(body["decision_id"])
     assert receipt.status_code == 200, receipt.text
@@ -988,13 +1075,18 @@ def _settings_without_ai(base: Settings) -> Settings:
 async def test_a_retrieval_that_evaluated_nothing_is_a_completed_receipt(harness, monkeypatch) -> None:
     """"No published policy bears on this" is an answer, not an error.
 
-    It gets a `200` and a full receipt, and its `decision_status` is
-    `not_evaluated` with an empty verdict — so a client that reads the status
-    first can never mistake "we did not evaluate" for "the policies say no".
+    It gets a `200` and a full receipt. Both tracks report `not_evaluated` and
+    both sections are null — so a client that reads `outcome` first can never
+    mistake "we did not evaluate" for "the policies say no". The classifier never
+    ran either, which is why `asked` names no classifier and both booleans are
+    false: `not_evaluated` in `outcome` is what tells that apart from a caller
+    who genuinely asked for nothing.
     """
 
     class _NoMatchSearch(_StubSearchClient):
-        async def vector_search(self, index: str, *, query_text: str, vector: list, top: int) -> list[dict]:
+        async def vector_search(self, index: str, **kwargs: Any) -> list[dict]:
+            if "'rule'" in (kwargs.get("filter_expr") or ""):
+                return []
             return [
                 {
                     "id": policy_document_id(
@@ -1011,9 +1103,10 @@ async def test_a_retrieval_that_evaluated_nothing_is_a_completed_receipt(harness
 
     assert response.status_code == 200
     body = response.json()
-    assert body["decision_status"] in {"not_evaluated"}
-    assert body["decision"]["verdict"] == ""
-    assert body["decision"]["decider_route"] is None
+    assert body["outcome"] == {"information": "not_evaluated", "verdict": "not_evaluated"}
+    assert body["information"] is None
+    assert body["verdict"] is None
+    assert body["asked"]["classifier_version"] is None
     assert body["citations"] == []
     assert body["retrieval"]["status"] in {"no_match", "index_stale"}
     assert _Gather.calls == [], "nothing was evaluated, so nothing should have been gathered"
@@ -1021,6 +1114,8 @@ async def test_a_retrieval_that_evaluated_nothing_is_a_completed_receipt(harness
     row = (await harness.rows())[0]
     assert row.status == "completed"
     assert row.decision_status == "not_evaluated"
+    assert row.information_status is None
+    assert row.verdict_status is None
     assert row.decision_hash
 
     # It reads back like any other completed receipt.
@@ -1037,13 +1132,17 @@ async def test_a_declined_decision_carries_no_verdict(harness) -> None:
 
     _Gather.reply = {
         "intent": ai_case_intent.DECISION,
+        "information_requested": False,
+        "verdict_requested": True,
         "classification_reasoning": "asks for a ruling",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
         "informational": None,
         "decision": {
             "status": ai_case_intent.DECLINED,
             "verdict": "compliant",  # a verdict that must not survive the status
             "answer": "",
             "missing_required_facts": [],
+            "missing_information": [],
             "citations": [],
             "note": "the retained records were too large to read in one pass",
             "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION, "oversize": True},
@@ -1053,28 +1152,30 @@ async def test_a_declined_decision_carries_no_verdict(harness) -> None:
 
     body = (await harness.post()).json()
 
-    assert body["decision_status"] == "declined"
-    assert body["decision"]["verdict"] == ""
-    assert body["decision"]["note"]
+    assert body["outcome"]["verdict"] == "declined"
+    assert body["verdict"]["reached"] is False
+    assert body["verdict"]["decision"] == ""
+    assert body["verdict"]["note"]
 
 
 async def test_an_informational_answer_names_its_route_and_carries_no_verdict(harness) -> None:
-    """`answered` does not imply a determination, and the route says which it was.
+    """An information-only case answers the information track and nothing else.
 
-    The gather classifies a question as informational — "what does the policy
-    require?" — or as a decision — "was this compliant?". Both can be `answered`,
-    and only the second produces a verdict. A client that reads `decision_status`
-    alone would treat an informational answer's empty verdict as a missing one,
-    so `decider_route` is carried beside it and the explanation holds the actual
-    content.
+    The classifier reads "what does the policy require?" as asking what the
+    policies state and not for a ruling. The information section is populated and
+    the verdict is null with `outcome.verdict: not_requested` — which is the
+    distinction a caller needs: no verdict was withheld, none was asked for.
 
     This is the shape a live call against a real project produced, which is why
-    it is pinned rather than left to the decision branch alone.
+    it is pinned rather than left to the verdict branch alone.
     """
 
     _Gather.reply = {
         "intent": ai_case_intent.INFORMATIONAL,
+        "information_requested": True,
+        "verdict_requested": False,
         "classification_reasoning": "asks after the rule rather than supplying facts",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
         "informational": {
             "status": ai_case_intent.ANSWERED,
             "answer": "Travel must be approved by higher management before tickets are booked.",
@@ -1094,15 +1195,26 @@ async def test_an_informational_answer_names_its_route_and_carries_no_verdict(ha
 
     body = (await harness.post()).json()
 
-    assert body["decision_status"] == "answered"
-    assert body["decision"]["decider_route"] == "informational"
-    assert body["decision"]["verdict"] == ""
-    assert body["decision"]["explanation"]
+    assert body["outcome"] == {"information": "answered", "verdict": "not_requested"}
+    assert body["verdict"] is None
+    assert body["information"]["answered"] is True
+    assert body["information"]["route"] == "informational"
+    assert body["information"]["answer"]
+    # A track that answered puts its prose in `answer`; `explanation` is for a
+    # branch that composed prose *without* answering, so it stays null here.
+    assert body["information"]["explanation"] is None
+    assert body["citations"][0]["serves"] == ["information"]
     assert body["citations"][0]["source"]["text"] == _ALPHA_SOURCE
     # The citation is traceable to the policy it came from, and to where that
     # policy can be read in full.
     assert body["citations"][0]["policy"]["provision_key"] == _ALPHA_KEY
     assert body["citations"][0]["policy"]["payload_url"].startswith("/api/policy-payload/")
+
+    row = (await harness.rows())[0]
+    assert row.information_status == "answered"
+    assert row.verdict_status is None
+    # The derived scalar falls back to the track that ran.
+    assert row.decision_status == "answered"
 
 
 async def test_the_envelope_links_to_policies_and_never_inlines_one(harness) -> None:
@@ -1636,7 +1748,10 @@ async def test_hostile_guidance_does_not_move_the_status_or_the_verdict(harness)
 
     _Gather.reply = {
         "intent": ai_case_intent.DECISION,
+        "information_requested": False,
+        "verdict_requested": True,
         "classification_reasoning": "supplies facts",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
         "informational": None,
         "decision": {
             # A hostile caller's desired outcome, as if the model had complied.
@@ -1644,6 +1759,7 @@ async def test_hostile_guidance_does_not_move_the_status_or_the_verdict(harness)
             "verdict": "compliant",
             "answer": "",
             "missing_required_facts": [],
+            "missing_information": [],
             "citations": [],
             "note": "some caller guidance was not followed",
             "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION},
@@ -1659,11 +1775,15 @@ async def test_hostile_guidance_does_not_move_the_status_or_the_verdict(harness)
         )
     ).json()
 
-    assert body["decision_status"] == "no_rule_bears"
-    assert body["decision"]["verdict"] == "", "a verdict survived a non-answered status"
+    assert body["outcome"]["verdict"] == "no_rule_bears"
+    assert body["verdict"]["reached"] is False
+    assert body["verdict"]["decision"] == "", "a verdict survived a non-reached status"
     assert body["citations"] == []
+    # Guidance cannot conjure a track the classifier did not ask for either.
+    assert body["outcome"]["information"] == "not_requested"
+    assert body["information"] is None
     # The refusal is visible on the receipt rather than silent.
-    assert "not followed" in body["decision"]["note"]
+    assert "not followed" in body["verdict"]["note"]
 
 
 async def test_the_seal_covers_the_guidance_that_was_applied(harness) -> None:
@@ -1680,5 +1800,543 @@ async def test_the_seal_covers_the_guidance_that_was_applied(harness) -> None:
     # Same project, same question, same canned answer — only the guidance
     # differs, and the seal notices.
     assert first["request"]["scenario_hash"] == second["request"]["scenario_hash"]
-    assert first["decision"] == second["decision"]
+    assert first["verdict"] == second["verdict"]
     assert first["decision_hash"] != second["decision_hash"]
+
+
+# ── the two tracks a case can ask for ────────────────────────────────
+
+
+async def test_an_information_only_case_returns_no_verdict_section(harness) -> None:
+    """Acceptance 1: what the policies state, and nothing pretending to be a ruling.
+
+    `verdict: null` with `outcome.verdict: not_requested` is the honest report.
+    A client rendering "verdict: —" from an empty string, as v1's shape invited,
+    was showing a determination that was never sought.
+    """
+
+    _Gather.reply = {
+        "intent": ai_case_intent.INFORMATIONAL,
+        "information_requested": True,
+        "verdict_requested": False,
+        "classification_reasoning": "asks what the policies provide",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        "informational": _informational_branch(),
+        "decision": None,
+        "reasoning_effort": "medium",
+    }
+
+    body = (await harness.post(scenario="What does the policy require before booking?")).json()
+
+    assert body["asked"]["information_requested"] is True
+    assert body["asked"]["verdict_requested"] is False
+    assert body["outcome"] == {"information": "answered", "verdict": "not_requested"}
+    assert body["information"]["answered"] is True
+    assert body["information"]["citations"], "an answered information track cited nothing"
+    assert body["verdict"] is None
+
+
+async def test_a_mixed_case_answers_both_tracks_and_merges_their_citations(harness) -> None:
+    """Acceptance 3: both halves answered, and one account of what they rested on.
+
+    The rule that states the requirement is the same rule that decides whether it
+    was met — the ordinary case. It appears once in the merged list carrying both
+    tags, because listing it twice would make a reader count two authorities
+    where the policies hold one. Each track still carries its own citations.
+    """
+
+    _Gather.reply = {
+        "intent": ai_case_intent.DECISION,
+        "information_requested": True,
+        "verdict_requested": True,
+        "classification_reasoning": "asks what the rule is and whether the case met it",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        "informational": _informational_branch(),
+        "decision": {
+            "status": ai_case_intent.ANSWERED,
+            "verdict": "not compliant",
+            "answer": "Approval was not obtained before the invoice was paid.",
+            "missing_required_facts": [],
+            "missing_information": [],
+            "citations": [
+                {
+                    "rule_id": _ALPHA_RULE,
+                    "source": {"state": "quoted", "text": _ALPHA_SOURCE, "page": 1, "section": "Section 1"},
+                    "policy": {"provision_key": _ALPHA_KEY, "heading_path": ["1. Expenses"]},
+                },
+                {
+                    "rule_id": _BETA_RULE,
+                    "source": {"state": "quoted", "text": "Managers must record the approval.", "page": 2},
+                    "policy": {"provision_key": _BETA_KEY, "heading_path": ["2. Records"]},
+                },
+            ],
+            "note": "",
+            "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION, "rules_cited": 2},
+        },
+        "reasoning_effort": "medium",
+    }
+
+    body = (
+        await harness.post(
+            scenario="What must be approved, and was paying the invoice first allowed?"
+        )
+    ).json()
+
+    assert body["outcome"] == {"information": "answered", "verdict": "answered"}
+    assert body["information"]["answered"] is True
+    assert body["verdict"]["reached"] is True
+    assert body["verdict"]["decision"] == "not compliant"
+
+    # Deduplicated by rule id, tagged with every track that cited it.
+    serves = {c["rule_id"]: c["serves"] for c in body["citations"]}
+    assert serves == {_ALPHA_RULE: ["information", "verdict"], _BETA_RULE: ["verdict"]}
+    assert len(body["citations"]) == 2
+
+    # Each track keeps its own list; the merge is a view, not a replacement.
+    assert [c["rule_id"] for c in body["information"]["citations"]] == [_ALPHA_RULE]
+    assert [c["rule_id"] for c in body["verdict"]["citations"]] == [_ALPHA_RULE, _BETA_RULE]
+
+    # Both tracks ground separately, so each carries its own report.
+    assert body["information"]["grounding"]["rules_cited"] == 1
+    assert body["verdict"]["grounding"]["rules_cited"] == 2
+
+    row = (await harness.rows())[0]
+    assert row.information_requested is True
+    assert row.verdict_requested is True
+    assert row.information_status == "answered"
+    assert row.verdict_status == "answered"
+
+
+async def test_the_seal_covers_both_tracks_of_a_mixed_case(harness) -> None:
+    """Acceptance 3, continued: neither half can be altered unnoticed.
+
+    A seal that covered only the verdict would leave the statement of what the
+    policies hold editable after the fact — and for an information-only case it
+    would seal nothing at all.
+    """
+
+    def _reply(information_answer: str) -> dict:
+        return {
+            "intent": ai_case_intent.DECISION,
+            "information_requested": True,
+            "verdict_requested": True,
+            "classification_reasoning": "both",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+            "informational": _informational_branch(answer=information_answer),
+            "decision": {
+                "status": ai_case_intent.ANSWERED,
+                "verdict": "not compliant",
+                "answer": "Approval was not obtained.",
+                "missing_required_facts": [],
+                "missing_information": [],
+                "citations": [],
+                "note": "",
+                "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION},
+            },
+            "reasoning_effort": "medium",
+        }
+
+    _Gather.reply = _reply("The policy requires written approval first.")
+    first = (await harness.post(scenario="both halves")).json()
+
+    _Gather.reply = _reply("Something else entirely.")
+    second = (await harness.post(scenario="both halves")).json()
+
+    assert first["verdict"]["decision"] == second["verdict"]["decision"]
+    assert first["information"]["answer"] != second["information"]["answer"]
+    assert first["decision_hash"] != second["decision_hash"]
+
+
+async def test_a_blocked_verdict_still_answers_the_information_that_was_asked(harness) -> None:
+    """Acceptance 4: the case the whole redesign exists for.
+
+    A caller whose case cannot be decided until they supply a fact used to get a
+    status and a list of bare strings, and *no* information — even when they had
+    asked what the policies say. Here they get both: the statement they asked
+    for, and a structured account of what the verdict is waiting on, with a label
+    to show a user, a reason, and the rules that need it.
+    """
+
+    _Gather.reply = {
+        "intent": ai_case_intent.DECISION,
+        "information_requested": True,
+        "verdict_requested": True,
+        "classification_reasoning": "asks the rule and asks for a ruling",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        "informational": _informational_branch(),
+        "decision": {
+            "status": ai_case_intent.MISSING_REQUIRED_FACTS,
+            "verdict": "",
+            "answer": "Whether this was allowed turns on the invoice amount, which was not given.",
+            "missing_required_facts": ["invoice amount"],
+            "missing_information": [
+                {
+                    "fact": "invoice_amount",
+                    "label": "Invoice amount",
+                    "why_needed": "The approval threshold is set by the amount.",
+                    "required_by_rule_ids": [_ALPHA_RULE],
+                }
+            ],
+            "citations": [
+                {
+                    "rule_id": _ALPHA_RULE,
+                    "source": {"state": "quoted", "text": _ALPHA_SOURCE, "page": 1, "section": "Section 1"},
+                    "policy": {"provision_key": _ALPHA_KEY, "heading_path": ["1. Expenses"]},
+                }
+            ],
+            "note": "",
+            "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION, "rules_cited": 1},
+        },
+        "reasoning_effort": "medium",
+    }
+
+    body = (await harness.post(scenario="What is required, and was my payment allowed?")).json()
+
+    assert body["outcome"] == {"information": "answered", "verdict": "missing_required_facts"}
+
+    # The half that could be answered was answered.
+    assert body["information"]["answered"] is True
+    assert body["information"]["answer"]
+
+    # The half that could not says so, and says what it needs.
+    assert body["verdict"]["reached"] is False
+    assert body["verdict"]["decision"] == "", "a blocked verdict must carry no decision"
+    assert body["verdict"]["explanation"]
+    assert body["verdict"]["missing_required_facts"] == ["invoice amount"]
+    (missing,) = body["verdict"]["missing_information"]
+    assert missing == {
+        "fact": "invoice_amount",
+        "label": "Invoice amount",
+        "why_needed": "The approval threshold is set by the amount.",
+        "required_by_rule_ids": [_ALPHA_RULE],
+    }
+
+    assert (await harness.rows())[0].verdict_status == "missing_required_facts"
+
+
+async def test_information_stays_null_when_only_a_verdict_was_asked_for(harness) -> None:
+    """Acceptance 5: a blocked verdict does not conjure an information answer.
+
+    The tempting repair for a case that cannot be decided is to hand back "what
+    the policies say" as a consolation. That would be answering a question the
+    caller did not ask, from a track that never ran, and no field on the receipt
+    would say so.
+    """
+
+    _Gather.reply = {
+        "intent": ai_case_intent.DECISION,
+        "information_requested": False,
+        "verdict_requested": True,
+        "classification_reasoning": "supplies a situation and asks only for a ruling",
+        "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        "informational": None,
+        "decision": {
+            "status": ai_case_intent.MISSING_REQUIRED_FACTS,
+            "verdict": "",
+            "answer": "The amount was not given.",
+            "missing_required_facts": ["invoice amount"],
+            "missing_information": [],
+            "citations": [
+                {
+                    "rule_id": _ALPHA_RULE,
+                    "source": {"state": "quoted", "text": _ALPHA_SOURCE, "page": 1, "section": "Section 1"},
+                    "policy": {"provision_key": _ALPHA_KEY, "heading_path": ["1. Expenses"]},
+                }
+            ],
+            "note": "",
+            "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION},
+        },
+        "reasoning_effort": "medium",
+    }
+
+    body = (await harness.post(scenario="Was my payment allowed?")).json()
+
+    assert body["outcome"] == {"information": "not_requested", "verdict": "missing_required_facts"}
+    assert body["information"] is None
+    # The flat list is still the truth about what is missing, so the structured
+    # field is derived from it rather than left empty.
+    assert [item["label"] for item in body["verdict"]["missing_information"]] == ["invoice amount"]
+    assert body["verdict"]["missing_information"][0]["why_needed"] == ""
+    assert [c["serves"] for c in body["citations"]] == [["verdict"]]
+
+
+async def test_a_stored_v1_receipt_still_reads_back(harness) -> None:
+    """Acceptance 6: a receipt written before the redesign is still a receipt.
+
+    A verdict that stops being citable when the schema moves is exactly what this
+    endpoint exists to stop shipping. So a stored `case_decision_v1` row is served
+    as v1 — its own bytes, its own hash — rather than re-projected into a shape
+    that decision never had, which would require inventing the two booleans
+    nobody ever classified for it.
+    """
+
+    body = (await harness.post()).json()
+    decision_id = body["decision_id"]
+
+    # Rewrite the stored row as the v1 receipt it would have been. Only a
+    # decision made before the redesign can be in this state, which is why it is
+    # constructed rather than produced.
+    legacy = {
+        "schema_version": "case_decision_v1",
+        "decision_id": decision_id,
+        "correlation_id": body["correlation_id"],
+        "idempotency_key": None,
+        "policy_set": body["policy_set"],
+        "active_version": body["active_version"],
+        "caller": body["caller"],
+        "request": body["request"],
+        "decision_status": "answered",
+        "retrieval": body["retrieval"],
+        "considered": body["considered"],
+        "excluded": body["excluded"],
+        "decision": {
+            "intent": "decision",
+            "classification_reasoning": "supplies facts",
+            "status": "answered",
+            "verdict": "not compliant",
+            "explanation": "Written approval was required and was not obtained.",
+            "missing_required_facts": [],
+            "note": "",
+            "decider_route": "decision",
+        },
+        "citations": [
+            {k: v for k, v in citation.items() if k != "serves"} for citation in body["citations"]
+        ],
+        "grounding": {"prompt_version": ai_case_intent.PROMPT_VERSION},
+        "size": body["size"],
+        "trace": body["trace"],
+        "decision_hash": "a-hash-written-under-v1",
+        "hash_basis": "case_decision_v1",
+        "receipt_url": body["receipt_url"],
+        "decided_at": body["decided_at"],
+        "latency_ms": body["latency_ms"],
+    }
+
+    async with harness.maker() as session:
+        row = (
+            await session.execute(
+                select(PolicyCaseDecision).where(PolicyCaseDecision.id == uuid.UUID(decision_id))
+            )
+        ).scalar_one()
+        row.response_json = legacy
+        row.schema_version = "case_decision_v1"
+        row.decision_hash = "a-hash-written-under-v1"
+        row.hash_basis = "case_decision_v1"
+        await session.commit()
+
+    replayed = await harness.get_receipt(decision_id)
+    assert replayed.status_code == 200, replayed.text
+    served = replayed.json()
+
+    assert served["schema_version"] == "case_decision_v1"
+    assert served["decision_status"] == "answered"
+    assert served["decision"]["verdict"] == "not compliant"
+    assert served["decision_hash"] == "a-hash-written-under-v1"
+    # Not re-projected: the v2 fields are absent, because that decision never
+    # had them.
+    assert "asked" not in served
+    assert "outcome" not in served
+
+
+# ── the corpus projection, on the receipt and at the gate ────────────
+
+
+async def test_the_receipt_names_the_corpus_projection_the_answer_was_matched_under(
+    harness,
+) -> None:
+    """A query and the text it was scored against must be in one language.
+
+    The receipt is where that stops being an intention. `language.projection_
+    profile` is the contract the *corpus* was rendered under, taken from the
+    retrieval that actually ran rather than from the constant this build carries
+    — and it is inside the seal, so a stored receipt cannot be relabelled with a
+    projection it was not produced under.
+    """
+
+    body = (await harness.post()).json()
+
+    assert body["language"]["projection_profile"] == ENGLISH_PROJECTION_PROFILE
+    assert body["retrieval"]["projection_profile"] == ENGLISH_PROJECTION_PROFILE
+    assert body["retrieval"]["projection_ready"] is True
+
+    envelope = CaseDecisionEnvelopeV2.model_validate(body)
+    assert envelope.hash_basis == "case_decision_v2_lang"
+    assert compute_decision_hash_v2(envelope) == body["decision_hash"]
+
+    # It is sealed by name, not merely present beside the seal.
+    preimage = decision_hash_preimage_v2_lang(envelope)
+    assert preimage["language"]["projection_profile"] == ENGLISH_PROJECTION_PROFILE
+
+    # Moving the profile alone breaks the seal, which is the whole claim.
+    relabelled = envelope.model_copy(deep=True)
+    relabelled.language.projection_profile = "a-contract-it-was-not-produced-under"
+    assert compute_decision_hash_v2(relabelled) != body["decision_hash"]
+
+    # And dropping it breaks it too, so an absent profile cannot be passed off
+    # as a receipt that simply predates the field.
+    dropped = envelope.model_copy(deep=True)
+    dropped.language.projection_profile = None
+    assert compute_decision_hash_v2(dropped) != body["decision_hash"]
+
+
+async def test_the_reviewer_route_names_the_same_projection_the_receipt_does(
+    harness,
+) -> None:
+    """One decider, one profile, whether or not a receipt is written.
+
+    The unrecorded surface is answered by the same module, so it reports the
+    corpus projection it matched against for the same reason: a reviewer
+    comparing an in-product answer with an audited one must be able to see that
+    both were produced against the same rendering of the corpus, not infer it.
+    """
+
+    response = await harness.client.post(
+        f"/api/ai/policy-sets/{PROJECT_KEY}/case-answer",
+        json={"scenario": "Was the invoice paid before it was approved?"},
+        headers={"Authorization": f"Bearer {harness.author_token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["language"]["projection_profile"] == ENGLISH_PROJECTION_PROFILE
+    assert body["retrieval"]["projection_profile"] == ENGLISH_PROJECTION_PROFILE
+    assert body["retrieval"]["projection_ready"] is True
+
+
+async def test_a_named_policy_claims_no_projection_because_it_consulted_no_index(
+    harness,
+) -> None:
+    """Null is a fact here, not a gap.
+
+    Naming a policy bypasses retrieval entirely, so no index was consulted and no
+    corpus projection was matched against. Reporting the profile this build
+    *expects* would claim a comparison that never happened — the field says what
+    was used, and nothing was.
+    """
+
+    async with harness.maker() as session:
+        provision_id = (
+            await session.execute(
+                select(DocumentProvision.id).where(
+                    DocumentProvision.provision_key == _ALPHA_KEY
+                )
+            )
+        ).scalar_one()
+
+    body = (await harness.post(provision_id=str(provision_id))).json()
+
+    assert body["retrieval"]["status"] == "bypassed"
+    assert body["retrieval"].get("projection_profile") is None
+    assert body["language"]["projection_profile"] is None
+
+    envelope = CaseDecisionEnvelopeV2.model_validate(body)
+    assert compute_decision_hash_v2(envelope) == body["decision_hash"]
+
+
+async def test_a_stored_receipt_written_before_the_projection_existed_is_untouched(
+    harness,
+) -> None:
+    """An older seal is verified by the rule it was written under, not the newest one.
+
+    A `case_decision_v2` receipt was sealed before the corpus projection existed
+    and carries no language block at all. It must still read back byte-for-byte
+    and still verify under its own basis — adding a field to a newer basis may
+    not reach backwards and change what an already-written hash claims.
+    """
+
+    decision_id = (await harness.post()).json()["decision_id"]
+
+    async with harness.maker() as session:
+        row = (
+            await session.execute(
+                select(PolicyCaseDecision).where(PolicyCaseDecision.id == uuid.UUID(decision_id))
+            )
+        ).scalar_one()
+        stored = copy.deepcopy(row.response_json)
+        stored.pop("language", None)
+        stored["hash_basis"] = "case_decision_v2"
+        older = CaseDecisionEnvelopeV2.model_validate(stored)
+        stored["decision_hash"] = compute_decision_hash_v2(older)
+        row.response_json = stored
+        row.hash_basis = "case_decision_v2"
+        row.decision_hash = stored["decision_hash"]
+        await session.commit()
+        expected = stored["decision_hash"]
+
+    replayed = await harness.get_receipt(decision_id)
+    assert replayed.status_code == 200, replayed.text
+    served = replayed.json()
+
+    assert served["schema_version"] == "case_decision_v2"
+    assert served["hash_basis"] == "case_decision_v2"
+    assert served["decision_hash"] == expected
+    assert "language" not in served or served["language"] is None
+    # And it verifies under its own rule, which is the point: the newer basis is
+    # not applied to it and the older one has not moved.
+    assert compute_decision_hash_v2(CaseDecisionEnvelopeV2.model_validate(served)) == expected
+
+
+async def test_a_project_whose_corpus_is_not_projected_is_refused_and_leaves_a_failed_receipt(
+    harness, monkeypatch
+) -> None:
+    """No verdict from a corpus that could not be compared against the question.
+
+    A rendered question matched against an unrendered corpus scores near zero on
+    every policy, and near zero reads exactly like "nothing here bears on your
+    case". So the query is never made: the caller is told which of the two it is,
+    with a code naming the repair, and the reservation that was already written
+    is closed as failed rather than abandoned.
+    """
+
+    class _Unprojected(_StubSearchClient):
+        async def find_ids_by_filter(self, index: str, **kwargs: Any) -> list[str]:
+            return manifest_ids(kwargs.get("filter_expr", ""), ready=False)
+
+        async def vector_search(self, index: str, **kwargs: Any) -> list[dict]:
+            raise AssertionError("an unprojected corpus must not be queried at all")
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _Unprojected)
+
+    response = await harness.post()
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == INDEX_PROJECTION_UNAVAILABLE
+    assert "verdict" not in detail
+    assert _Gather.calls == [], "a case was adjudicated over a corpus it could not be matched against"
+
+    async with harness.maker() as session:
+        row = (
+            await session.execute(
+                select(PolicyCaseDecision).where(
+                    PolicyCaseDecision.id == uuid.UUID(detail["decision_id"])
+                )
+            )
+        ).scalar_one()
+        assert row.status == "failed"
+        assert row.response_json is None
+
+
+async def test_the_reviewer_route_is_gated_on_the_same_projection(harness, monkeypatch) -> None:
+    """One decider, one gate. The unrecorded surface refuses for the same reason.
+
+    A reviewer testing a case and an external system asking for an audited one go
+    through the same module, so a project that cannot be matched against refuses
+    on both. The only difference is what a failure costs: there is no reservation
+    here to close.
+    """
+
+    class _Unprojected(_StubSearchClient):
+        async def find_ids_by_filter(self, index: str, **kwargs: Any) -> list[str]:
+            return manifest_ids(kwargs.get("filter_expr", ""), ready=False)
+
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _Unprojected)
+
+    response = await harness.client.post(
+        f"/api/ai/policy-sets/{PROJECT_KEY}/case-answer",
+        json={"scenario": "Was the invoice paid before it was approved?"},
+        headers={"Authorization": f"Bearer {harness.author_token}"},
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"]["code"] == INDEX_PROJECTION_UNAVAILABLE

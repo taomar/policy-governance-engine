@@ -14,7 +14,7 @@ FastAPI generates and serves the OpenAPI description automatically. With the API
 
 Swagger UI is the fastest way to explore the API: pick a tag, expand an operation, and the exact schema for that request is right there. Treat the generated description as authoritative — this page only orients you. The description is generated from the same Pydantic contracts the evaluator consumes, so it cannot drift from the implementation.
 
-The current surface is **94 paths / 105 operations** across 15 tags.
+The current surface is **95 paths / 106 operations** across 15 tags.
 
 ### Where the API lives in a deployment
 
@@ -26,7 +26,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 
 | Tag | Prefix | Operations | What it covers |
 |---|---|---|---|
-| `policy-sets` | `/api/policy-sets` | 19 | Projects: CRUD, portfolio and workspace counts, review scheduling, versions, exports, and policy-index health. |
+| `policy-sets` | `/api/policy-sets` | 20 | Projects: CRUD, portfolio and workspace counts, review scheduling, versions, exports, and policy-index health. |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue, the same rules grouped by passage, and publication. |
 | `ai` | `/api/ai` | 31 | Everything AI-assisted: extraction, grounded answers, rewrites, quality, correlation, and case testing. |
 | `policy-decisions` | `/api/policy-decisions` | 2 | The audited external contract: put a case to a project's published policies and receive a stored receipt, then read that receipt back by id. Authenticated. [Detail below](#audited-external-decisions-policy-decisions). |
@@ -73,9 +73,9 @@ Three of its groups are worth stating precisely:
 
 - **Scenario evaluation** is split by the route the rule takes, so a rule read by a judge and a rule computed by the engine are each put to the decider its route names.
 - **Quality** covers published rules and candidates, each split into a `POST` that evaluates and a `GET` that reads the last result, plus history.
-- **Case answering** works on one policy or a whole project. The project scope retrieves the policies bearing on the question from that project's own policy index and discards the rest before anything is evaluated — never the whole set. Both surfaces sort the question into an informational one, which the policy answers from what it states, or a determination assessed against the rules, and each is answered in its own right.
+- **Case answering** works on one policy or a whole project. The project scope retrieves the policies bearing on the question from that project's own policy index and discards the rest before anything is evaluated — never the whole set. A question is read as asking for what the policies *state*, for a *verdict* on the case, or for both, and each requested answer is gathered in its own right over the same retrieved policies.
 
-`POST /api/ai/policy-sets/{key}/case-answer` remains what it has always been: the in-product reviewer surface. It persists nothing, returns no decision identity, and its response shape is unchanged. When an external system needs a verdict it can cite later, use `policy-decisions` below instead.
+`POST /api/ai/policy-sets/{key}/case-answer` remains what it has always been: the in-product reviewer surface. It persists nothing, returns no decision identity, and its response keys are unchanged — `intent`, `informational` and `decision` all still mean what they meant, with `information_requested`, `verdict_requested` and `classifier_version` added beside them. When an external system needs a verdict it can cite later, use `policy-decisions` below instead.
 
 ## Audited external decisions (`policy-decisions`)
 
@@ -84,7 +84,9 @@ Two operations, and no others:
 | Operation | What it does |
 |---|---|
 | `POST /api/policy-decisions/{project_key}/case` | Puts a case to a project's published policies, records a receipt, and returns it. |
-| `GET /api/policy-decisions/{decision_id}` | Replays the stored receipt for one decision, byte-identical to what was returned. |
+| `GET /api/policy-decisions/{decision_id}` | Replays the stored receipt for one decision. **Content-equivalent**, not byte-identical: every field carries the value it was written with, and `decision_hash` verifies against the replayed content, but JSON key order may differ from the original response. Compare receipts by `decision_hash` or by parsed value, never by string. |
+
+The receipt is `case_decision_v2`. A case is answered as **two independent tracks** — what the policies state, and what the case comes to — because a single question can ask for either or both. See [A case asks for information, a verdict, or both](#a-case-asks-for-information-a-verdict-or-both).
 
 There is deliberately no list endpoint and no identity endpoint here. A caller composing a console already has `GET /api/policy-sets/{key}` and `GET /api/policy-sets/{key}/active-version`; a third read contract over the same data would be one more thing to keep in step with them.
 
@@ -149,55 +151,245 @@ Without a key every call is a new decision. Two identical questions are two deci
 
 A case takes on the order of ten seconds of model time. Allow for it in your client timeout, and use an idempotency key rather than a retry loop.
 
-### Read `decision_status` before `decision.verdict`
+### A case asks for information, a verdict, or both
 
-A completed receipt does not imply a determination. `decision_status` sits at the top level, above `decision`, precisely so a client reads it first:
+Your question is read as **two independent requests**, by one classifier call:
 
-| `decision_status` | Meaning | Verdict? |
+- **information** — what the retained published policies *state* on the subject;
+- **verdict** — how the case *comes out* under them.
+
+A question can ask for either or both. "What is the overtime limit?" is information-only. "Was my Tuesday shift allowed?" is verdict-only. "What is the limit, and was Tuesday within it?" asks for both, and both are gathered — over the same retrieved policies, concurrently.
+
+**There is no request field for this.** Intent detection is the server's, because a caller who could declare "this is a verdict question" could choose the shape of their own answer, which is the first thing [`additional_instructions`](#additional_instructions--what-a-caller-may-steer) is not allowed to do. `asked` reports what the classifier read, including its reasoning, so you can see the routing rather than guess at it. A classification the server cannot read runs **both** tracks rather than dropping one.
+
+### Read `outcome` before `information` or `verdict`
+
+A completed receipt does not imply a determination. `outcome` carries one value per track and sits above both sections precisely so a client reads it first.
+
+| `outcome.information` / `outcome.verdict` | Meaning | Section present? |
 |---|---|---|
-| `answered` | The rules were applied to the case and a determination was reached. | yes |
-| `missing_required_facts` | The rules bear on the case but the facts needed to apply them were not supplied. | no |
-| `not_settled_by_rules` | The evaluated rules do not settle the question. | no |
-| `no_rule_bears` | The rules were read and none of them bears on the case. | no |
-| `declined` | The decider declined to answer. | no |
-| `failed` | The gather did not produce a usable answer. | no |
-| `not_evaluated` | Retrieval produced no evaluation at all — the project may have published nothing, its policy index may not be built, or no published policy may bear on the question. | no |
+| `answered` | The track ran and produced an answer. For `verdict`, this is the only value that carries a determination. | yes |
+| `missing_required_facts` *(verdict only)* | The rules bear on the case but the facts needed to apply them were not supplied. See `verdict.missing_information`. | yes |
+| `not_settled_by_rules` *(verdict only)* | The evaluated rules do not settle the question. | yes |
+| `no_rule_bears` | The rules were read and none of them bears on this. | yes |
+| `declined` | The gather declined to answer. | yes |
+| `failed` | The gather did not produce a usable answer. | yes |
+| `not_requested` | The question was not read as asking for this track. It was never run. | **no** — the section is `null` |
+| `not_evaluated` | Nothing was evaluated at all — the project may have published nothing, its policy index may not be built, or no published policy may bear on the question. Both tracks report this together. | **no** — the section is `null` |
 
-`not_evaluated` is this layer's own status and is kept apart from every status the decider can return, so "nothing was evaluated" can never be read as "the policies were evaluated and said nothing". All seven are legitimate `200` responses carrying a full receipt. `decision.verdict` is an empty string for every status except `answered`.
+`not_requested` and `not_evaluated` are kept apart deliberately: one says *you did not ask for this*, the other says *there was nothing to answer from*. Collapsing them would let a caller read their own silence as the corpus's, and would make an unbuilt index look like a question that never wanted an answer. When nothing was evaluated the classifier never ran either, so `asked` carries two `false` booleans and a null `classifier_version` — read `outcome` first and `asked` will make sense.
 
-### Retrieval narrows; it does not evaluate everything
+Every value in the table is a legitimate `200` carrying a full receipt.
 
-In project scope the policies bearing on the question are retrieved from that project's own policy index and the rest are discarded **before** anything is evaluated. The receipt reports that narrowing in full: `retrieval` carries the status, method, budget and scan bounds and the counts; `considered` and `excluded` carry the policies themselves with their rank, score and discard reason. There is no mode in which the whole published set is put to a model — when a project has fewer published policies than the retention budget, retrieval reports that nothing needed setting aside rather than claiming a wider evaluation.
+### The verdict invariant
 
-In single scope — when you name a `provision_id` — retrieval is bypassed and that policy alone is evaluated.
+`verdict.decision` is non-empty **if and only if** `verdict.reached` is true, **if and only if** `verdict.status` is `answered`. The envelope enforces this; it is not a convention.
+
+The consequence worth stating plainly: **"not compliant", "denied" and "no" are reached verdicts** and appear in `verdict.decision`. A case that could *not* be decided leaves `decision` empty and reports why in `status`. No client can mistake the second for the first, which was the failure mode a single status field beside an optional verdict string invited.
+
+### A blocked verdict still answers the information you asked for
+
+If the case cannot be decided until you supply facts, `outcome.verdict` is `missing_required_facts` and `verdict.missing_information` carries them in a shape a follow-up form can be built from:
+
+```json
+{ "fact": "weekly-hours",
+  "label": "Hours worked this week",
+  "why_needed": "The cap is measured against the weekly total.",
+  "required_by_rule_ids": ["AI-hours-1"] }
+```
+
+`verdict.missing_required_facts` carries the same facts as a flat list of labels, preserved for clients that already read it. `required_by_rule_ids` is restricted to rules that were actually in front of the gather — a rule id there that named no retained rule is refused exactly as a fabricated citation is.
+
+Crucially, **the information track is unaffected**: if you also asked what the policies state, `information` is populated and answered even though the verdict is blocked. And if you did *not* ask, `information` stays `null` — a blocked verdict never conjures an information answer you did not request.
+
+### English is the only internal language
+
+Every stage of a decision — retrieval, rule classification and both gathers — runs in **English**, whatever language the question arrived in. That is one boundary, drawn deliberately in one place: a pipeline that reasoned in two languages would score an Arabic question against English text, or the reverse, and score nothing.
+
+The caller is not required to write English. A question in another language is rendered into English on the way in, the decision is made in English, and the whitelisted **prose** is rendered back on the way out. Everything else is left exactly as it arrived.
+
+**What is never translated**, in either direction:
+
+- `request.scenario` and `request.additional_instructions` — the caller's own bytes, and their `scenario_hash` / `additional_instructions_hash` digests, which is also what the idempotency binding is taken over;
+- **every verbatim source sentence and citation text.** A citation is the document's own words; a translated quotation is not a quotation. `citations[].source.text` is the original, in the language the document was written in, always;
+- every machine-readable value — rule ids, provision keys, status codes, discard reasons, hashes, fact names, counters.
+
+Only prose composed *by* the decision crosses back: `information.answer` / `explanation` / `note`, `verdict.decision` / `explanation` / `note`, and each `missing_information[].label` / `why_needed`. So a receipt can hold an Arabic quotation under an English-reasoned, Arabic-rendered explanation, and that is the intended shape — not an inconsistency.
+
+The corpus is crossed once, at index-build time rather than per query: the retrieval index stores an English **projection** of each policy beside its identity, and the original is never written into an English-labelled field. Two versioned contracts govern the two crossings, and both are on the receipt:
+| Profile | Value | Governs |
+|---|---|---|
+| `language.input_translation_profile`, `language.output_translation_profile` | `case-language-v4` | The inbound and outbound renderings of the *question and prose* |
+| `language.projection_profile`, `retrieval.projection_profile` | `policy-english-projection-v1` | The rendering of the *corpus* the index was built from |
+
+They version independently: the projection contract did not move when the transport contract went to v4. A query and the text it is scored against must be rendered under one contract or the two are not comparable, which is what `retrieval.projection_profile` exists to state.
+
+> **Projection quality is not yet validated.** Indexes under `policy-english-projection-v1` are live and retrieval against them works. Each rendering passes a structural **preservation check** as it is produced — rejected if empty, implausibly larger or smaller than its source, or if any number or identifier failed to survive — and a failed check rejects the whole batch, so nothing is indexed from a rendering that failed it. But the projection-quality gate that assesses whether a rendering is a *faithful reading* of the passage is still being implemented. Until it validates them, treat retrieval quality on these projections as unvalidated: structurally checked, not quality-assured. See [known limitations](known-limitations.md).
+
+#### The `language` block
+
+Present on every decision made under the boundary; absent only on receipts written before it existed.
+
+```jsonc
+"language": {
+  "source_language": "ar",              // BCP 47 as observed; "und" if the tag was malformed
+  "processing_language": "en",          // always: what retrieval and both gathers worked in
+  "response_language": "ar",            // what the prose in this receipt is written in
+  "boundary_state": "rendered",         // or "identity" — the call ran and reported no change
+  "output_rendering_state": "rendered", // or "not_required" | "target_unknown"
+  "guidance_rendering_state": "rendered",  // or "not_required" | "unrendered_dropped"
+  "input_translation_profile": "case-language-v4",
+  "output_translation_profile": "case-language-v4",   // null when nothing was rendered back
+  "processing_scenario": "...",         // the question as every stage actually read it
+  "processing_scenario_hash": "...",    // SHA-256 over it, sealed by decision_hash
+  "processing_additional_instructions": "...",
+  "projection_profile": "policy-english-projection-v1"
+}
+```
+
+Three of these are worth reading carefully:
+
+- **`boundary_state`** distinguishes `identity` (the rendering call ran and reported the question was already English) from a call that was never made. Those are different facts and are never collapsed.
+- **`output_rendering_state: "not_required"`** covers two situations — the answer was owed in English anyway, *or* the evaluation composed no prose at all (nothing retrieved, no rule bore, a track failed). Read it beside `source_language` to tell them apart. Whenever it is not `rendered`, `output_translation_profile` is null and `response_language` is `processing_language`, because no string in the receipt is in another language.
+- **`guidance_rendering_state: "unrendered_dropped"`** means the caller's presentation guidance could not be carried across and was **dropped rather than applied un-rendered**. The decision is unaffected either way — guidance never reaches retrieval or the classifier.
+
+`processing_scenario` is the text that was actually adjudicated, and `processing_scenario_hash` seals it. That pairing is the point of the block: without it a receipt would show a question in one language and an answer derived from a rendering of it nobody could inspect.
+
+### Retrieval narrows by policy, then by rule
+
+In project scope the policies bearing on the question are retrieved from that project's own policy index and the rest are discarded **before** anything is evaluated. The receipt reports that narrowing in full: `retrieval` carries the status, method, budget and scan bounds and the counts; `considered` and `excluded` carry the policies themselves with their rank, score and discard reason. There is no mode in which the whole published set is put to a model.
+
+**What the index holds, and why a rule can outrank its policy.** The index carries three kinds of document, all rendered under `policy-english-projection-v1`:
+
+- one **policy** document per published provision, always;
+- one **rule** document per rule, but only for a policy holding more than `retrieval.large_policy_rule_threshold` (15) rules. Below that a policy is one governing statement and its own document carries it; above it the policy is a schedule whose rows a single document cannot represent;
+- exactly one **manifest** per project, carrying `manifest_state` (`ready` or `incomplete`), the `projection_profile` and language it was built under, and the document counts expected against those uploaded. The manifest is the readiness gate — see [rebuilding](#rebuilding-the-policy-index).
+
+`retrieval.method` is `hybrid_policy_rule_rrf_v1`. The policy-level and rule-level rankings are fused by **Reciprocal Rank Fusion** (`1 / (60 + rank)`, summed), with a rule's rank attributed to the policy that owns it and each policy taking its own best rule's rank. A policy can therefore be retrieved on the strength of a single row the policy-level document could never have surfaced — including a policy the policy-level search did not return at all.
+
+Three counters report what that did, and they answer different questions:
+
+| Field | Says |
+|---|---|
+| `policy_scan`, `rule_scan` | How many policy-level and rule-level documents the discovery search examined. |
+| `policy_documents_matched`, `rule_documents_matched` | How many of each the search returned. |
+| `policies_elevated_by_rule` | Policies whose ranking was raised by one of their own rules surfacing. **This is the one that says whether rule-level retrieval did anything on this question.** |
+| `projection_ready` | Whether the index reported a complete corpus projection under the expected contract. Only ever `true` on a served answer — anything else is refused, not answered. |
+| `rule_index_state` | `matched` — the rule index was queried and fused. `degraded` — rule documents exist under the expected projection and the query against them failed recoverably, so the selection ran without that ranking. `unavailable` — it was not consulted. |
+
+`rule_index_state` appears both on `retrieval` (project-wide) and on each `considered` entry's `rule_selection` (per policy), because a project-wide degradation and a policy that simply has no rule documents are different facts about different policies inside one answer.
+
+Five further concerns then act between the ranked hits and the model, because rank says nothing about size, nor about whether you have already read the same thing.
+
+**Diversity ordering, before the retention budget.** The budget is a budget of *distinct policies to read*, and a corpus that holds one policy twice spends two of five slots saying one thing. Two mechanisms handle that, and they are **not** the same claim:
+
+- **Exact semantic collapse.** When two candidates are identical in everything the platform stores — every source sentence, condition, effect, type, mode, required fact, authority, scope, effective window, carve-out, and the resolved semantics of every rule they supersede or relate to — the later one is discarded with `discard_reason: "duplicate_policy_content"`, names the retrieved policy in `duplicate_of_provision_key`, and is counted in `retrieval.policies_duplicate_collapsed`. This is the **only** discard that asserts two policies are the same, and it is the only one whose terms still reached the model — in the policy it names.
+- **Normative-content diversity ordering.** Two candidates can require the same thing without being provably identical: the measured case is one provision recorded twice where one copy carries forty-two `related_rule_ids` and the other carries none. That is a real difference in the record, so they are **not** duplicates and are never reported as any. They are merely *ordered*: candidates are grouped by what they require — `related_rule_ids` withheld, because being told which rules to read together is a reading aid rather than a term; **supersession kept**, because displacing one rule and displacing another are different acts — and the highest-ranked member of each group is offered before any second member of a group. `retrieval.policy_selection_order` names the ordering (`relevance_then_normative_content_v1`) and `retrieval.policies_diversity_deferred` counts what the ordering actually **cost**: candidates that ranked inside the retention budget and were displaced out of it. A same-group member that ranked outside the budget anyway is not counted, because nothing displaced it — when no group has two members inside the budget, the count is `0` and the ordering changed nothing.
+
+A deferred candidate keeps its **own** rank and score, stays in `considered`, and carries the ordinary `discard_reason: "outside_budget"` — which therefore means *did not place inside the retention budget*, by rank or by this ordering, rather than *ranked below it*. Read `policy_selection_order` and `policies_diversity_deferred` together when a highly-ranked policy sits outside the budget while a lower-ranked one was retained; that pairing is the explanation, and a non-zero count is the assurance that at least one policy really was displaced rather than merely ranked low. Deferring is not discarding: a group's second member is read whenever the budget reaches it.
+
+**Rule-level retrieval, for a policy that is really a table.** A provision with a dozen rules is one governing statement and goes to the model whole. Past `retrieval.large_policy_rule_threshold` (15) it is a *schedule* — the measured case is a Table of Violations and Penalties with seventy-four rows, one per violation, of which a question touches a handful. Such a policy is read **rule by rule**: its rules are ranked against the question by the policy's own words, and up to `retrieval.selected_rule_budget` (15) are selected.
+
+The same two-mechanism split applies one level down, and the distinction matters more here than anywhere:
+
+- **Exact rule collapse.** A rule identical to an earlier rule of the same policy — by the same full comparison used between policies — is not a candidate for a second slot. `rule_selection.duplicate_rules_collapsed` counts them, and `rule_selection.represented_rule_ids` names the unread ids that are exact copies of ones that were read, so `rules_discarded` is not misread as "unknown content".
+- **Evidence diversity ordering.** **Repeated source text does not mean duplicate rule semantics.** One sentence commonly states several obligations and is extracted into one rule each, so four genuinely different rules — one permitting, one forbidding, one obliging, one routing — can rest on a single passage. They are four rules and are never collapsed. Among the rules that *do* match the question, the best of each distinct source passage is taken before a second rule from a passage already covered. This is selection priority, never a claim that two rules resting on one sentence are one rule, and it can only reorder rules that already matched — a rule that does not bear on the question is never promoted by it.
+
+**The rule budget bounds the record, not one step of building it.** Each selected rule's explicit context — what it supersedes, what the drafter marked as read-together — follows it in, but **only into slots the selection left unused**: the total number of rules put in front of either gather, context included, never exceeds `selected_rule_budget` (15). `rule_selection.context_rules_added` is counted *inside* `selected_rules`, and any context that found no slot, or no room in characters, is named in `context_rules_omitted` rather than dropped in silence.
+
+Every such policy carries `rule_selection` on its `considered` entry:
+
+```jsonc
+"rule_selection": {
+  "total_rules": 74, "selected_rules": 15,
+  "selected_rule_ids": ["AI-…-7", "AI-…-41", …],
+  "rules_discarded": 59,
+  "method": "hybrid_rule_v1",
+  "sliced": true,
+  "context_rules_added": 1, "context_rules_omitted": ["AI-…-52"],
+  "duplicate_rules_collapsed": 0, "represented_rule_ids": [],
+  "rule_index_state": "matched", "rule_index_hits": 9,
+  "lexical_candidates": 12, "quantity_candidates": 4,
+  "fused_candidates": 17, "evidence_diversity_quota": 8,
+  "rules_without_projection": 0,
+  "chars": 38679, "budget_chars": 200000, "oversize": false
+}
+```
+
+The five candidate counters say how the selection was reached rather than what it chose: how many rules the rule index returned (`rule_index_hits`), how many the lexical and quantity rankings each produced, how many distinct rules the fusion had to choose from (`fused_candidates`), and `rules_without_projection` — rules the caller held no English rendering for. Those last score **zero on the lexical rank and are not scored against their stored text as a consolation**, because falling back would reintroduce exactly the cross-language match the projection removes. A zero there is not a dismissal: the rule can still be ranked by the rule index and by quantity, both of which are fused with it.
+
+`evidence_diversity_quota` is how many of the budget's slots passage diversity may claim before relevance takes over — half the budget, rounded up. It is a **reserve, not a filter**: covering the best rule of every distinct passage first sounds right, but in a schedule there are more distinct passages than slots, so an unbounded version exhausts the budget inside the first-of-each pass and a paragraph stating two obligations can never contribute its second, however well it scores.
+
+`selected_rules` always equals the number of rules in the record and the length of `selected_rule_ids`, is never greater than `selected_rule_budget`, and `rules_discarded` is always `total_rules` less `selected_rules`.
+
+`method` is `whole_policy` when the policy was small enough to read entire, or one of three selection algorithms, named rather than described because they are different-sized claims:
+
+| `method` | Means |
+|---|---|
+| `hybrid_rule_v1` | The rule index took part. Its ranking was fused with the lexical and quantity rankings, so a rule the policy document's own text could never have surfaced was reachable. |
+| `scenario_relevance_v3` | Rule documents exist under the expected projection and the query against them failed recoverably. The selection is lexical and quantity over the English projection — a real selection over the right corpus, made without one of its rankings. |
+| `scenario_relevance_v2` | The rule index was not consulted. The selection ranked the policy's own stored words, which is what a receipt written before the rule index existed also means. |
+| `document_order` | **No rule matched the question's terms** and a bounded sample was taken instead. |
+
+`document_order` is a real signal: it says the policy was retained on the search layer's judgement while the rule-level selection had nothing to key on, and an answer resting on such a policy deserves more scrutiny. Emitting any of the others when its ranking did not run would be claiming a ranking that never happened, which is the same class of untruth as claiming a rule was read.
+
+Beside relevance the selection also ranks by **quantity compatibility**: a question stating a quantity ("26 months", "more than sixty minutes") is matched against the quantities and ranges the rules themselves state, so a threshold row is reachable even when it shares little vocabulary with the question. A rule stating no quantity is not dismissed by this — it is simply not ranked by it, and can still be ranked by the rule index and by the lexical pass.
+
+The selection is deterministic — no second model call, no randomness, every tie broken by document order — which is what makes `selected_rule_ids` worth naming on a receipt. Lexical weighting is an inverse document frequency computed over *that policy's own rules*, so the words every row of a schedule shares score nothing and only what distinguishes one row from another can decide. It carries no wordlist for any language.
+
+**Whole-policy fitting, as the backstop.** Slicing makes each record smaller; it does not promise that several together fit. So whole records are still admitted in rank order while they fit `retrieval.payload_budget_chars`, and one that would overflow is set aside with `discard_reason: "outside_payload_budget"` and counted in `retrieval.policies_over_payload_budget`. Later, smaller policies are still admitted, so one large record costs only itself.
+
+Two guarantees hold over all of these passes:
+
+- **Nothing is ever truncated.** A rule is selected whole or not at all; a policy is admitted whole or sliced to whole rules. Half a rule presented as a rule, or part of a policy presented as the policy, is the narrowing a reader cannot detect.
+- **Nothing is silently omitted, and nothing is silently equated.** Every raw candidate stays in `considered` with the rank it achieved. A policy set aside for size, deferred by diversity, or collapsed as an exact duplicate is distinguishable from the others by its `discard_reason` and the counts beside it, and **only** `duplicate_policy_content` asserts sameness. A policy read as a slice says how many of its rules were read and which. **No answer may claim a policy was read whole when a slice of it was.**
+
+When the relevant slice itself does not fit — the selected rules are already the narrowest honest set — the record is refused rather than cut down: `rule_selection.oversize` is `true`, `size.oversize` is `true`, and the affected track declines. The same holds for a policy under the threshold that is larger than one pass on its own. An empty retained set would read as "no published policy matched", which would be false.
+
+In single scope — when you name a `provision_id` — retrieval is bypassed, but a policy over the rule threshold is still read rule by rule and still discloses its selection.
+
+**Retrieval runs once, for the whole question.** Both tracks read the same retained records, and both narrowing passes run once over that one set. That is deliberate: retrieving separately per track would let the statement you are told and the verdict you are given rest on two different sets of policies inside one receipt. The limitation it accepts is [documented](known-limitations.md): a mixed question whose verdict half would have retrieved a different policy than its information half gets one retrieval, tuned to the whole question — and one rule selection, likewise.
 
 ### Envelope
 
-The response is `case_decision_v1`, named in `schema_version` so a consumer can pin it and reject a shape it was not written against.
+The response is `case_decision_v2`, named in `schema_version` so a consumer can pin it and reject a shape it was not written against. `GET` may also serve `case_decision_v1` for a decision made before the two-track redesign — see [Reading an older receipt](#reading-an-older-receipt).
 
 | Field | What it carries |
 |---|---|
-| `schema_version` | `case_decision_v1`. |
+| `schema_version` | `case_decision_v2`. |
+| `receipt_status` | `completed`. Only a completed receipt is served as a body; `pending` and `failed` are answered as errors. |
 | `decision_id`, `correlation_id`, `idempotency_key` | Identity of this call. `decision_id` is what `GET /api/policy-decisions/{decision_id}` takes. |
 | `policy_set` | `{id, key, name}` — trace identity, routing key, display name. |
 | `active_version` | `{version_id, version_number, effective_from, effective_to}`, or `null` when the project has published nothing. This is the version the decider itself loaded, not a re-read of "current" around a ten-second call. |
 | `caller` | `principal_identity`, `principal_role`, `authentication_source`, the caller-declared `calling_system_identity`, and `channel`. The proved identity and the declared label are two fields on purpose. |
 | `request` | `scenario`, `scenario_hash`, `additional_instructions`, `additional_instructions_hash`, `scope` (`project` or `single`), `requested_provision_id`, `reasoning_effort_requested`, `received_at`. |
-| `decision_status` | The seven-value status above. Read it first. |
-| `retrieval` | `status`, `method`, `policy_budget`, `policy_scan`, and the retrieved / considered / retained / discarded / untestable counts, plus a `reason`. |
-| `considered`, `excluded` | Policy references: `provision_id`, `provision_key`, `heading_path`, `rules`, `retained`, `best_rank`, `best_score`, `discard_reason`, `reason`, `payload_url`. |
-| `decision` | `intent`, `classification_reasoning`, `status`, `verdict`, `explanation`, `missing_required_facts`, `note`, `decider_route` (`informational` or `decision`). |
-| `citations` | Per cited rule: `rule_id`, its `policy` reference, and `source` with `state` (`quoted`, `no_citation`, `unresolved`, `not_stored`), `text`, `page`, `section`. |
-| `grounding` | The decider's own grounding report, including `fabricated_citations` — citations the fabrication guard refused. |
-| `size` | `combined_chars`, `budget_chars`, `oversize` for the evaluated record against the one-pass budget. |
+| `asked` | `information_requested`, `verdict_requested`, `classification_reasoning`, `classifier_version`. What the classifier read the question as asking for. |
+| `outcome` | `{information, verdict}` — the two-value status above. **Read it first.** |
+| `information` | `null`, or `{status, answered, answer, explanation, route, citations, note, grounding}`. `answer` is non-empty exactly when `answered` is true; `explanation` carries prose from a track that composed some *without* answering, and is otherwise `null`. |
+| `verdict` | `null`, or `{status, reached, decision, explanation, missing_information, missing_required_facts, route, citations, note, grounding}`. |
+| `retrieval` | `status`, `method` (`hybrid_policy_rule_rrf_v1`), `policy_budget`, `policy_scan`, `rule_scan`, `policies_retrieved`, `policies_considered`, `policies_retained`, `policies_discarded`, `policies_untestable`, plus `payload_budget_chars`, `policies_over_payload_budget`, `large_policy_rule_threshold`, `selected_rule_budget`, `policies_rule_sliced`, `policies_duplicate_collapsed`, `policy_selection_order`, `policies_diversity_deferred`, `projection_profile`, `projection_ready`, `policy_documents_matched`, `rule_documents_matched`, `policies_elevated_by_rule`, `rule_index_state` and a `reason`. |
+| `language` | `null`, or the block described in [English is the only internal language](#english-is-the-only-internal-language). Present on every decision made under the boundary. |
+| `considered`, `excluded` | Policy references: `provision_id`, `provision_key`, `heading_path`, `rules`, `retained`, `best_rank`, `best_score`, `discard_reason` (`outside_budget`, `no_retrieval_match`, `stale_index_version`, `outside_payload_budget`, `duplicate_policy_content`), `duplicate_of_provision_key` (set **only** for `duplicate_policy_content`), `reason`, `payload_url`, and `rule_selection` when the policy was read by rule. |
+| `citations` | Every rule either track rested on, **deduplicated by `rule_id`** and tagged with `serves: ["information"]`, `["verdict"]` or both. Per citation: `rule_id`, its `policy` reference, and `source` with `state` (`quoted`, `no_citation`, `unresolved`, `not_stored`), `text`, `page`, `section`. Each section also carries its own untagged list. |
+| `size` | `combined_chars`, `budget_chars`, `oversize` for the record that was **actually evaluated** — after the payload-budget narrowing, so it describes what the model read rather than what retrieval first selected. |
 | `trace` | `prompt_version`, `instruction_profile`, `model_deployment`, `retrieval_method`, `index_name`, `index_version_id`. Every field is nullable and omitted when unknown. |
 | `decision_hash`, `hash_basis` | The integrity seal and the rule it was taken under. |
 | `receipt_url` | Relative path where this receipt is read back. |
 | `decided_at`, `latency_ms` | When the decision completed, and how long it took. |
 
+Each section carries its **own** `grounding` report — including `fabricated_citations`, the citations the fabrication guard refused. The two tracks ground separately, on different prompts with different citation sets, so a single receipt-level block would have to pick one and present it as the whole.
+
 **No policy record is inlined.** Policies are large and already served byte-for-byte by `GET /api/policy-payload/{provision_id}`; every policy reference in a receipt carries that `payload_url` instead. A receipt that embedded the record would double the corpus into the audit log and go stale the moment the projection changed.
 
 There is no "reasoning effort used" in `trace`. The gather silently drops that parameter and retries when a deployment rejects it, so the effort actually used is not knowable from here. What the caller asked for is knowable, and is reported as `request.reasoning_effort_requested`.
+
+### Reading an older receipt
+
+`case_decision_v1` was the envelope before a case was read as two tracks. It reported one `decision_status` and one `decision` block, and answered a mixed question with only one of its halves. Nothing writes it any more.
+
+Receipts already stored under it are still served as v1 — by `GET`, and by an idempotency replay of a key issued back then. They are **not** re-projected into v2: doing so would mean inventing the two booleans nobody ever classified for that decision, and a receipt whose content changed after the fact is not evidence of anything. `schema_version` tells the two apart, and the OpenAPI description models them as a discriminated union on that field.
+
+If you are integrating now you will only ever see v2. If you hold receipts or idempotency keys from before, branch on `schema_version`.
 
 ### `additional_instructions` — what a caller may steer
 
@@ -206,12 +398,13 @@ The field exists so an integration can show a user the guidance being sent and l
 It shapes **the emphasis, length and format of the explanation, and nothing else.** It cannot change:
 
 - which policies were retrieved or read — it never reaches the retrieval step at all, so it cannot steer which policies are considered;
+- **which tracks run** — it never reaches the classifier either, so it cannot turn an information request into a verdict request or the reverse;
 - what any rule means, or the authority of the published policies;
-- the `decision_status` or the verdict;
+- either track's status, or the verdict;
 - the requirement to cite every rule the answer rests on;
 - the prohibition on drawing on anything outside the published records.
 
-Guidance asking for any of those is ignored for that part, and `decision.note` says so.
+Guidance asking for any of those is ignored for that part, and the affected section's `note` says so.
 
 The normalised text is stored on the receipt, echoed back in `request.additional_instructions` so an integration can show exactly what was applied, bound into the idempotency request hash (so reusing a key with different guidance is a `409`, not a replay), and sealed by digest in `decision_hash`.
 
@@ -219,13 +412,65 @@ The normalised text is stored on the receipt, echoed back in `request.additional
 
 ### `decision_hash` — an integrity seal, not a determinism claim
 
-`decision_hash` is a canonical SHA-256 over a **fixed, documented subset** of the receipt: `schema_version`, the project's routing key, the published version number, the scenario hash, the caller-guidance hash, the scope, the retrieval status, the considered policies by stable provision key with their retained/discarded state, the decision's status, verdict, explanation, missing facts, note and route, and each citation's rule id, source state and verbatim text.
+`decision_hash` is a canonical SHA-256 over a **fixed, documented subset** of the receipt: `schema_version`, the project's routing key, the published version number, the scenario hash, the caller-guidance hash, the scope, the retrieval status, the considered policies by stable provision key with their retained/discarded state **and which of their rules were read** (`selected_rule_ids`, `total_rules`), **both `asked` booleans**, **both `outcome` values**, **both semantic sections in full** (including the structured missing information), and each merged citation's rule id, source state, verbatim text and `serves` tags.
 
-Excluded, and why: `decision_id`, `correlation_id` and `idempotency_key` name the *call* rather than the decision; the project and version UUIDs are surrogate keys that differ between environments while the decision does not; `decided_at`, `received_at` and `latency_ms` mean a slower call did not decide something different; `receipt_url` is a routing detail; and the hash itself.
+Which rules were read is sealed because the same policy read whole and read as a slice of eight rows are two different accounts of the same question, and a hash that could not tell them apart would seal the weaker one. The booleans are sealed because they decide what the receipt answers: a receipt that could be re-labelled "you only asked for information" after the fact would let a missing verdict be explained away.
 
-What it proves is that *this* receipt's decision-defining content has not been altered since it was written. It is **not** a replay or determinism guarantee: a language model is in the path, so the same scenario put twice to the same version may legitimately produce different prose and a different hash. `hash_basis` names the preimage rule so a future basis can be added without making an old hash ambiguous.
+Excluded, and why: `asked.classification_reasoning` and `asked.classifier_version` — the reasoning is prose *about* a routing choice rather than part of what was decided, and sealing it would move the hash whenever a classifier reworded itself; the rule-selection *method* and counts (including `duplicate_rules_collapsed` and `represented_rule_ids`), which are derivable from the ids that are sealed; `policy_selection_order` and `policies_diversity_deferred`, which describe the *ordering* that produced the retained set rather than what it decided — the outcome of that ordering is already sealed, in each policy's retained/discarded state; `decision_id`, `correlation_id` and `idempotency_key` name the *call* rather than the decision; the project and version UUIDs are surrogate keys that differ between environments while the decision does not; `decided_at`, `received_at` and `latency_ms` mean a slower call did not decide something different; `receipt_url` is a routing detail; and the hash itself.
 
-To verify a stored receipt, `GET /api/policy-decisions/{decision_id}` and compare the `decision_hash` you kept against the one served. The envelope is replayed from storage rather than rebuilt, so the comparison is a real check.
+What it proves is that *this* receipt's decision-defining content has not been altered since it was written. It is **not** a replay or determinism guarantee: a language model is in the path, so the same scenario put twice to the same version may legitimately produce different prose and a different hash. `hash_basis` names the preimage rule so a future basis can be added without making an old hash ambiguous — `case_decision_v2_lang`, `case_decision_v2` and `case_decision_v1` are three such rules, and an older hash still means exactly what it meant.
+
+**`case_decision_v2_lang`** is the basis for every decision made under the language boundary. It seals everything `case_decision_v2` did **plus two fields**:
+
+- `processing_scenario_hash` — the digest of the text that was actually adjudicated. Without it, a receipt could show a question in one language while the English rendering the decision was really made from went unsealed and unverifiable.
+- the whole `language` block — the observed source language, the processing and response languages, the three rendering states, and both translation profiles and the projection profile. Two contracts can reduce one question to two different English texts, so which contract was used is part of what was decided.
+
+The caller's own `scenario_hash` remains sealed beside it, so both the words the caller sent and the words the decision read are covered, and neither can be swapped for the other.
+
+To verify a stored receipt, `GET /api/policy-decisions/{decision_id}` and compare the `decision_hash` you kept against the one served. The envelope is replayed from storage rather than rebuilt, so the comparison is a real check. Compare the **hash**, not the response bytes: the replay is content-equivalent rather than byte-identical, and JSON key order may differ between the original response and the replay.
+
+### Rebuilding the policy index
+
+`POST /api/policy-sets/{key}/policy-index/rebuild` → `PolicyIndexBuildResponse`
+
+Rebuilds a project's policy index from the authoritative database: every published policy of the active approved version, re-rendered into English under `policy-english-projection-v1`, re-embedded, and re-uploaded. A project with no active version is a coherent **empty** build, not an error — the response carries `version_number: null` and `document_count: 0`.
+
+Response: `state`, `policy_set_key`, `index_name`, `version_number`, `document_count`, `policy_document_count`, `rule_document_count`, `projection_profile`, `manifest_state`, `indexed_at`, `error`.
+
+**It runs inline, in the request.** The call is held open for the whole rendering and indexing pass and its duration scales with the size of the corpus. Set a generous client timeout and do not run it concurrently against one project. See [known limitations](known-limitations.md) for the cost.
+
+**Atomicity is a manifest state machine, not a transaction.** Azure AI Search has no transaction to enrol in, so the build sequences its writes so that no partial corpus is ever queryable:
+
+1. The manifest is first moved to `incomplete`. If that write is not acknowledged, **the rebuild stops before writing anything** and the corpus that was there is the one that is still there.
+2. The policy, rule and manifest documents are uploaded, and acknowledgements are counted **by key** rather than trusting an HTTP status. If fewer come back than were sent, the build fails here — leaving the manifest `incomplete`.
+3. Documents belonging to this project that are no longer live are swept, *after* the upload succeeds, never before.
+4. Only then is the manifest moved to `ready`.
+
+Because the readiness gate matches on `manifest_state eq 'ready'` **and** the expected `projection_profile`, a project whose rebuild failed at any step answers `503 index_projection_unavailable` rather than serving a half-built corpus. The old documents are not deleted until a new complete set is in place.
+
+**There is no automatic retry and no rollback.** The rebuild is a pure function of the database, so re-running it *is* the recovery: the same input produces the same document ids and overwrites in place. A build that failed leaves the project unmatchable until a rebuild succeeds, which is the intended failure direction — an unmatchable project is visible, a silently half-indexed one is not.
+
+A rendering failure for *any* policy fails the whole build. Stamping a corpus that is English in part would make the profile mean something it must never mean.
+
+The same build also runs **best-effort on publish**, in the publish request, after the publish transaction has committed. A failure there does not fail the publish: it is logged, recorded as a failed build state, and reported by `GET /api/policy-sets/{key}/policy-index`, and this endpoint is the repair.
+
+### Validating the policy index
+
+`POST /api/policy-sets/{key}/policy-index/validate` → `PolicyIndexValidationResponse`
+
+Checks a projection that is **already built**, without rebuilding any of it. The endpoint reads what the index holds, re-derives the authoritative text from PostgreSQL, and compares the two. **No rendering call is made and no content document is written.**
+
+It exists because a corpus that was *transported* successfully is not a corpus that is *faithful*: a rendering call that returned, an embedding that returned and an upload that was acknowledged are facts about carriage, not about meaning. Every corpus built before the faithfulness gate is complete, `ready` and unvalidated — and the gate refuses all of them until something checks. This is how they get checked, at the cost of one embedding pass instead of a full re-render.
+
+Response: `state` (`validated`, `skipped` or `failed`), `policy_set_key`, `index_name`, `projection_profile`, `recorded`, `validated_at`, `error`, and `quality`.
+
+`quality` carries the verdict and nothing that could leak policy text — `state` (`passed`, `failed` or `unavailable`), the `profile` it was reached under, `checked_documents`, `structural_findings`, `below_floor`, `minimum_similarity`, `mean_similarity`, `validated_at`, and `findings` as `{ code, document_id }` pairs. A document id is a digest of platform-generated identifiers, so a finding names a document without quoting one.
+
+`unavailable` is **not** a pass. A check nobody could perform is exactly as much evidence as a check that failed, and the readiness gate treats the two identically — the states are kept apart only because their repairs differ.
+
+`recorded` is the load-bearing field. The verdict is in force only once it reaches the manifest document the readiness gate reads, so a `passed` that was not recorded has changed nothing about what the project may answer. The manifest is written before the state row, so this endpoint can lag what is in force and can never be ahead of it.
+
+**On failure nothing is deleted.** The verdict is recorded, the readiness gate stops matching against the corpus, and every document stays where it is. A failed validation is not proof the documents are wrong; it is proof this build cannot vouch for them, and destroying the evidence would turn a reversible finding into an outage. `manifest_state` is left alone — whether every expected document landed is a fact about a build that already happened, and a validation has no standing to revise it.
 
 ### Errors
 
@@ -250,6 +495,10 @@ To verify a stored receipt, `GET /api/policy-decisions/{decision_id}` and compar
 | `409` | `decision_previously_failed` | The decision for this key failed and carries no verdict. |
 | `409` | `decision_reservation_conflict` | The receipt could not be reserved because a conflicting record exists. |
 | `503` | `ai_unavailable` | Azure OpenAI is not configured, or the decider reported it unavailable. |
+| `503` | `scenario_translation_unavailable` | The question could not be rendered into the processing language. **No decision was attempted.** |
+| `503` | `scenario_translation_empty` | The inbound rendering returned, but with no usable text. Refused rather than adjudicating an empty question. |
+| `503` | `response_translation_unavailable` | A decision was made, but its prose could not be rendered back into the caller's language. Refused rather than returning English prose labelled as the caller's language. |
+| `503` | `index_projection_unavailable` | The project's index carries no `ready` manifest under the expected `policy-english-projection-v1` projection — it was never built, is mid-rebuild, or was built under a superseded contract. Retrieval is refused rather than run against a corpus that cannot be matched. [Rebuild it](#rebuilding-the-policy-index). |
 | `503` | `decision_receipt_unavailable` | The receipt could not be reserved — **no decision was attempted**. Retry. |
 | `500` | `decision_failed` | The decider faulted; the receipt records the failure. |
 | `500` | `decision_receipt_failed` | A decision was made and could **not** be stored. It carries the decision and correlation ids and deliberately carries no verdict — a verdict that cannot be cited later is exactly what this endpoint exists to stop shipping. Retry with a new `Idempotency-Key`. |
@@ -310,13 +559,36 @@ response = requests.post(
 response.raise_for_status()
 decision = response.json()
 
-# Read the status before the verdict. Only "answered" carries one.
-if decision["decision_status"] == "answered":
-    print(decision["decision"]["verdict"])
-    for citation in decision["citations"]:
-        print(citation["rule_id"], citation["source"].get("text"))
+# Read `outcome` before either section. Only "answered" carries a verdict, and
+# the section itself is null for `not_requested` and `not_evaluated` — so check
+# the section for null before reading anything out of it.
+outcome = decision["outcome"]
+
+if decision["information"] is not None:
+    print("What the policies state:", decision["information"]["answer"])
+
+verdict = decision["verdict"]  # null for `not_requested` and `not_evaluated`
+
+if verdict is None:
+    if outcome["verdict"] == "not_requested":
+        print("No verdict was asked for.")
+    else:  # not_evaluated — nothing was evaluated, so there is no section at all
+        print("Nothing was evaluated:", decision["retrieval"]["status"])
+        print("  ", decision["retrieval"].get("reason"))
+elif outcome["verdict"] == "answered":
+    print("Verdict:", verdict["decision"])
+elif outcome["verdict"] == "missing_required_facts":
+    print("No verdict yet — supply:")
+    for item in verdict["missing_information"]:
+        print(f"  {item['label']}: {item['why_needed']}")
 else:
-    print("No verdict:", decision["decision_status"], "—", decision["decision"]["note"])
+    # `not_settled_by_rules`, `no_rule_bears`, `declined`, `failed`: the rules
+    # were read and no verdict followed. `decision` is empty by the invariant,
+    # and `note` says why.
+    print("No verdict:", outcome["verdict"], "—", verdict["note"])
+
+for citation in decision["citations"]:
+    print(citation["rule_id"], citation["serves"], citation["source"].get("text"))
 
 # Verify the receipt was stored, and stored unchanged.
 stored = requests.get(
@@ -328,7 +600,7 @@ stored.raise_for_status()
 assert stored.json()["decision_hash"] == decision["decision_hash"]
 ```
 
-Reading `decision["decision"]["verdict"]` without the status branch is the one mistake this envelope exists to prevent, so neither example does it.
+Reading `decision["verdict"]["decision"]` without branching on `outcome` is the one mistake this envelope exists to prevent, so the example does not do it — and it cannot be made silently, because `verdict` is `null` rather than an empty string when no verdict was reached. That null is also why the example tests the section itself before any branch that reads a field out of it: `not_evaluated` has no `verdict` object, so reaching for `verdict["note"]` on that path would raise rather than report the one outcome that says the corpus had nothing to answer from.
 
 ## Conventions
 

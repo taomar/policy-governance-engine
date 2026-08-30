@@ -1,4 +1,4 @@
-import type { CaseDecisionEnvelope, PolicySetSummary, ActiveVersionSummary } from '../contracts/caseDecision'
+import type { CaseDecisionReceipt, PolicySetSummary, ActiveVersionSummary } from '../contracts/caseDecision'
 import type { DocketValues } from './requestBody'
 import { buildRequestBody, casePath, joinUrl, receiptPath } from './requestBody'
 import { SUBSCRIPTION_KEY_HEADER } from './subscriptionKey'
@@ -147,7 +147,7 @@ export async function postCase(input: {
   correlationId: string
   idempotencyKey?: string
   values: DocketValues
-}): Promise<ApiResult<CaseDecisionEnvelope>> {
+}): Promise<ApiResult<CaseDecisionReceipt>> {
   const { signal, cancel } = withTimeout()
 
   const headers: Record<string, string> = {
@@ -179,7 +179,7 @@ export async function postCase(input: {
       }
     }
 
-    return { ok: true, value: (await response.json()) as CaseDecisionEnvelope, correlationId }
+    return { ok: true, value: (await response.json()) as CaseDecisionReceipt, correlationId }
   } catch (cause) {
     if ((cause as Error)?.name === 'AbortError') {
       return {
@@ -216,7 +216,7 @@ export async function getReceipt(input: {
   baseUrl: string
   decisionId: string
   subscriptionKey: string
-}): Promise<ApiResult<CaseDecisionEnvelope>> {
+}): Promise<ApiResult<CaseDecisionReceipt>> {
   const { signal, cancel } = withTimeout()
   try {
     const response = await fetch(joinUrl(input.baseUrl, receiptPath(input.decisionId)), {
@@ -226,7 +226,7 @@ export async function getReceipt(input: {
     if (!response.ok) {
       return { ok: false, error: mapVerifyError({ status: response.status, detail: await readDetail(response) }) }
     }
-    return { ok: true, value: (await response.json()) as CaseDecisionEnvelope }
+    return { ok: true, value: (await response.json()) as CaseDecisionReceipt }
   } catch (cause) {
     if ((cause as Error)?.name === 'AbortError') {
       return { ok: false, error: mapVerifyError({ status: 'timeout' }) }

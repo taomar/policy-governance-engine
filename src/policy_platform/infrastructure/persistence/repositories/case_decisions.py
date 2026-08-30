@@ -104,6 +104,11 @@ class PolicyCaseDecisionRepository:
         hash_basis: str,
         decided_at: datetime,
         latency_ms: int,
+        schema_version: str | None = None,
+        information_requested: bool | None = None,
+        verdict_requested: bool | None = None,
+        information_status: str | None = None,
+        verdict_status: str | None = None,
     ) -> PolicyCaseDecision:
         """Turn the reservation into the receipt a caller may be shown.
 
@@ -111,12 +116,28 @@ class PolicyCaseDecisionRepository:
         settles it: a caller who named no policy is `project`, and the row must
         agree with the envelope it stores rather than with the guess made before
         the call.
+
+        `schema_version` names which envelope `response` is, so a reader does not
+        have to sniff the JSON to find out. The per-track columns beside it are
+        an *index* over the envelope, written for counting; the envelope in
+        `response` remains the authority, and `decision_status` is derived from
+        the same two tracks by the caller so the single-value queries that
+        predate them keep working.
+
+        The five two-track arguments are keyword-only with defaults so a caller
+        written before them still produces a valid row — one that simply records
+        nothing about the tracks, which is exactly what such a caller knows.
         """
 
         row.status = "completed"
         row.policy_version_id = policy_version_id
         row.version_number = version_number
+        row.schema_version = schema_version
         row.decision_status = decision_status
+        row.information_requested = information_requested
+        row.verdict_requested = verdict_requested
+        row.information_status = information_status
+        row.verdict_status = verdict_status
         row.scope = scope
         row.retrieval_json = retrieval
         row.decision_summary_json = decision_summary

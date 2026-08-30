@@ -194,6 +194,49 @@ class ImportPolicyVersionRequest(BaseModel):
     rules: list[CanonicalRule]
 
 
+class ProjectionQualityFindingResponse(BaseModel):
+    """One thing a validation found, in a shape that cannot carry text.
+
+    A code the platform declared and the key of the document it concerns. A
+    document key is a digest of identifiers this platform generated: it names no
+    content and quotes nothing anyone wrote, so it is safe to serve and it is
+    what an operator needs to look the document up. There is deliberately no
+    message field — that is where a policy sentence would end up the first time
+    somebody wanted a finding to be more helpful.
+    """
+
+    code: str
+    document_id: str | None = None
+
+
+class ProjectionQualityResponse(BaseModel):
+    """Whether an index's projection was checked against the record behind it.
+
+    A separate claim from `projection_profile`, which says only that the
+    retrieval text was *produced* under a contract. Producing it proves the
+    rendering call returned, the embedding call returned and the upload was
+    acknowledged — all facts about transport, none about meaning.
+
+    Counts, scores, profile names and document keys. No source text, no
+    projected text, no service reply, on any path.
+    """
+
+    state: Literal["passed", "failed", "unavailable"]
+    profile: str
+    #: How many aligned pairs actually produced a similarity. Lower than the
+    #: corpus size means some pair could not be scored, which is why the state
+    #: would then be `unavailable` rather than `passed`.
+    checked_documents: int
+    #: Deterministic coverage/link findings over the whole build, counted
+    #: exactly even when the itemised list below is truncated.
+    structural_findings: int
+    below_floor: int
+    minimum_similarity: float | None = None
+    mean_similarity: float | None = None
+    validated_at: str
+    findings: list[ProjectionQualityFindingResponse] = []
+
+
 class PolicyIndexBuildResponse(BaseModel):
     state: str
     policy_set_key: str
@@ -202,6 +245,47 @@ class PolicyIndexBuildResponse(BaseModel):
     document_count: int
     indexed_at: datetime
     error: str | None = None
+    #: How the documents split between the two content types the index holds.
+    #: A policy holding more rules than one case can read gets one document per
+    #: rule as well as its own, so a row past what its policy's combined text can
+    #: carry is still reachable.
+    policy_document_count: int = 0
+    rule_document_count: int = 0
+    #: The versioned rendering contract the retrieval text was produced under.
+    #: Null on any build that did not finish — which is the same fact as an
+    #: `incomplete` manifest, and the fact retrieval refuses on.
+    projection_profile: str | None = None
+    #: `ready` only once every expected document was acknowledged. `incomplete`
+    #: is written before the first upload, so an interrupted rebuild leaves a
+    #: project that refuses rather than one that answers from part of a corpus.
+    manifest_state: str | None = None
+    #: The faithfulness verdict this build reached. Readiness needs **both**
+    #: this and `projection_profile`: a complete corpus that was never checked
+    #: against the record behind it is refused exactly as a half-built one is.
+    quality: ProjectionQualityResponse | None = None
+
+
+class PolicyIndexValidationResponse(BaseModel):
+    """The result of checking a projection that was already built.
+
+    Distinct from a build response because the two are different acts: this one
+    re-renders nothing, re-uploads no content document, and deletes nothing —
+    including on failure, where the corpus stays in the index and simply stops
+    being matchable.
+
+    `recorded` is the load-bearing field. The verdict is only in force once it
+    reaches the manifest document the readiness gate reads, so a `passed` that
+    was not recorded has changed nothing about what this project may answer.
+    """
+
+    state: Literal["validated", "skipped", "failed"]
+    policy_set_key: str
+    index_name: str
+    projection_profile: str
+    recorded: bool
+    validated_at: str
+    error: str | None = None
+    quality: ProjectionQualityResponse | None = None
 
 
 class PolicyIndexStateResponse(BaseModel):
@@ -227,6 +311,21 @@ class PolicyIndexStateResponse(BaseModel):
     error: str | None = None
     source: Literal["recorded_build_state"] = "recorded_build_state"
     live_probe: Literal[False] = False
+    #: The recorded faithfulness verdict, and the profile it was reached under.
+    #: Null on a project validated before this gate existed, which is read as
+    #: "never checked" and refused rather than grandfathered in.
+    #:
+    #: **This is the record, not the gate.** The gate is the manifest document in
+    #: the search index, which is written first; this row can lag behind it and
+    #: can never be ahead of it, so a `passed` here is a report that the check
+    #: ran and never a permission.
+    quality_state: Literal["passed", "failed", "unavailable"] | None = None
+    quality_profile: str | None = None
+    quality_checked_documents: int | None = None
+    quality_structural_findings: int | None = None
+    quality_min_similarity: float | None = None
+    quality_mean_similarity: float | None = None
+    quality_validated_at: datetime | None = None
 
 
 class ApprovedPolicyVersionResponse(BaseModel):

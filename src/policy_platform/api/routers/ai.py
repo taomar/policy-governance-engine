@@ -22,6 +22,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.infrastructure.assistants import ai_chat
+from policy_platform.infrastructure.assistants import ai_case_language, ai_case_project
 from policy_platform.infrastructure.assistants import ai_compare
 from policy_platform.infrastructure.assistants import ai_draft
 from policy_platform.infrastructure.assistants import policy_explainer
@@ -831,9 +832,53 @@ async def answer_project_case(
 
     The response's `retrieval` block and `considered` list name every candidate
     policy, which were retained, which discarded, and on what basis, so a reviewer
-    can always see how much narrowing happened (constraint 10). Retrieval's outcome
-    is one of these distinct `status` values, none of which ever degrades to
-    "evaluate against all" (constraint 5):
+    can always see how much narrowing happened (constraint 10). Five distinct
+    concerns act between the ranked hits and the model, and each is disclosed in
+    its own right because they are different claims about a policy:
+
+      1. *Relevance* — search sets a policy aside as `outside_budget` (it did not
+         place inside the retention budget) or `no_retrieval_match` (it never
+         surfaced).
+      2. *Exact policy equivalence* — a candidate identical to one already
+         retrieved, in every stored respect including the resolved semantics of
+         what it supersedes or relates to, is discarded as
+         `duplicate_policy_content`, names the policy read in its place in
+         `duplicate_of_provision_key`, and is counted in
+         `policies_duplicate_collapsed`. This is the only discard that asserts
+         two policies are the same, and the only one whose terms still reached
+         the model.
+      3. *Normative-content diversity ordering* — candidates that require the
+         same thing without being provably identical are **ordered**, not
+         equated: the highest-ranked of each group is offered before any second
+         member. `policy_selection_order` names the ordering and
+         `policies_diversity_deferred` counts what it cost — candidates that
+         ranked inside the retention budget and were displaced out of it. A
+         deferred candidate is *not* a duplicate, keeps its own rank and score,
+         and carries the ordinary `outside_budget`.
+      4. *Rule-level selection* — a policy holding more than
+         `large_policy_rule_threshold` rules is read *rule by rule* rather than
+         whole, and its `considered` entry carries a `rule_selection` block. The
+         same two-strength split applies one level down: rules identical to an
+         earlier rule of the same policy are collapsed
+         (`duplicate_rules_collapsed`, with `represented_rule_ids` naming the
+         unread copies of read rules), while rules merely sharing a source
+         passage are *ordered* so the best of each distinct passage is taken
+         first — repeated source text is never treated as duplicate rule
+         semantics. `selected_rules` is the total put before the model,
+         **including** `context_rules_added`, and never exceeds
+         `selected_rule_budget`; context fills only slots the selection left
+         unused, and anything that found no slot or no room is named in
+         `context_rules_omitted`.
+      5. *Payload size* — whole records are then admitted in rank order while
+         they fit the payload budget, one that would overflow being set aside as
+         `outside_payload_budget` and counted in `policies_over_payload_budget`.
+
+    No rule and no policy is ever trimmed to fit, and none is dropped silently —
+    see `projection/policy_rule_slice`, `projection/policy_semantic_identity` and
+    `ai_case_project.fit_within_payload_budget` for why each easier design was
+    refused. Retrieval's outcome is one of these
+    distinct `status` values, none of which ever degrades to "evaluate against
+    all" (constraint 5):
 
       - `narrowed`             — a subset was kept and the rest set aside;
                                  `evaluation` present.
@@ -861,6 +906,16 @@ async def answer_project_case(
     `GET /api/policy-sets/{key}/policy-index` reports the recorded state without
     probing Search.
 
+    A fourth condition is repaired by the same rebuild and is **not** a retrieval
+    status here, because the call it belongs to returns no answer at all: an
+    index holding documents that were never rendered into the language a question
+    is matched in — or rendered under a superseded contract, or left half-written
+    by an unfinished rebuild — is answered `503` with
+    `index_projection_unavailable` in the body's `code`. Matching a rendered
+    question against an unrendered corpus scores near zero on every policy, which
+    reads exactly like "no published policy bears on your question"; a reviewer is
+    owed the difference.
+
     When `provision_id` is set the reviewer chose one policy: retrieval is bypassed
     (`status: bypassed`, `scope: single`) and that policy is answered from the same
     published version the project scope reads. A named policy that exists but is
@@ -881,13 +936,42 @@ async def answer_project_case(
           "policy_set_key": str,
           "retrieval": { "status": str, "method": str, "policy_budget": int,
                          "policy_scan": int, "policies_retrieved": int,
+                         # legacy alias of policies_retrieved, kept for callers
+                         # already reading the old name; counts policy
+                         # documents, not clauses
+                         "clauses_retrieved": int,
                          "policies_considered": int, "policies_retained": int,
                          "policies_discarded": int, "policies_untestable": int,
+                         "payload_budget_chars": int,
+                         "policies_over_payload_budget": int,
+                         "large_policy_rule_threshold": int,
+                         "selected_rule_budget": int,
+                         "policies_rule_sliced": int,
+                         "policies_duplicate_collapsed": int,
+                         "policy_selection_order": str,
+                         "policies_diversity_deferred": int,
                          "reason": str? },
           "considered": [ { "provision_id": str, "provision_key": str,
                             "heading_path": [str], "rules": int, "retained": bool,
                             "best_score": float?, "best_rank": int?,
-                            "matched_clauses": int?, "discard_reason": str? } ],
+                            "matched_clauses": int?, "discard_reason": str?,
+                            # set only when discard_reason is
+                            # "duplicate_policy_content"
+                            "duplicate_of_provision_key": str?,
+                            "rule_selection": { "total_rules": int,
+                                                # total put before the model,
+                                                # context included; never more
+                                                # than selected_rule_budget
+                                                "selected_rules": int,
+                                                "selected_rule_ids": [str],
+                                                "rules_discarded": int,
+                                                "method": str, "sliced": bool,
+                                                "context_rules_added": int,
+                                                "context_rules_omitted": [str],
+                                                "duplicate_rules_collapsed": int,
+                                                "represented_rule_ids": [str],
+                                                "chars": int, "budget_chars": int,
+                                                "oversize": bool }? } ],
           "excluded":   [ { "provision_id": str, "provision_key": str,
                             "heading_path": [str], "reason": "no_live_rules" } ],
           "evaluation": <case result> | null,
@@ -915,17 +999,40 @@ async def answer_project_case(
     An unknown project key is 404, as is a `provision_id` that names a policy in a
     different project; a malformed id is 422; an unconfigured model is 503.
 
+    ONE PROCESSING LANGUAGE, HERE TOO
+
+    Ask in any language. The question is carried into the single language this
+    platform reasons in before any policy is read — retrieval, the classifier and
+    both gathers all work in it — and the answer's prose is carried back to the
+    language the question arrived in. The additive `language` block reports both
+    sides, including `processing_scenario`: the text that was actually
+    adjudicated, which is what to compare against if an answer surprises you.
+
+    Nothing machine-readable moves with the language. Statuses, the two `asked`
+    booleans, `missing_required_facts`, every citation's `rule_id`,
+    `provision_key` and verbatim `source.text`, and every `retrieval` counter are
+    byte-identical whichever language the question was written in. A document's
+    own words are never translated.
+
+    A crossing that cannot be made is a refusal, not a fallback: `503` with
+    `scenario_translation_unavailable`, `scenario_translation_empty` or
+    `response_translation_unavailable` in the body's `code`. Answering from the
+    original text would mean reading the question in a language these prompts
+    were not written for, without anything on screen saying so.
+
     WHY THIS GOES THROUGH THE APPLICATION LAYER
 
     The call below is `application.policy_case_decision.answer_project_case`, not
     the decider itself. That module is the only caller of
     `ai_case_project.answer_project_case`, so the reviewer surface here and the
     audited external contract at `POST /api/policy-decisions/{project_key}/case`
-    cannot drift into two deciders. The delegation is behaviour-preserving on
-    purpose: this route still returns the decider's dict unchanged and still
-    writes nothing. A reviewer testing a case is not an external system asking
-    for an auditable decision, and turning every click here into a stored receipt
-    would misfile the reviewer's exploration as a governed decision record.
+    cannot drift into two deciders — and, since the language boundary is crossed
+    through helpers in that same module, they cannot drift into two boundaries
+    either. This route still writes nothing: a reviewer testing a case is not an
+    external system asking for an auditable decision, and turning every click
+    here into a stored receipt would misfile the reviewer's exploration as a
+    governed decision record. The only addition to the response shape is the
+    `language` block.
     """
     policy_set = await PolicySetRepository(session).get_by_key(key)
     if policy_set is None:
@@ -947,6 +1054,26 @@ async def answer_project_case(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ai_case_project.IndexProjectionUnavailable as exc:
+        # Caught before `LanguageBoundaryError`'s sibling clause and before the
+        # generic `RuntimeError` both derive from, because it is a third,
+        # actionable thing: the question crossed the boundary perfectly and the
+        # corpus it would be matched against never did. Answering 200 with "no
+        # published policy matched" would be reporting a comparison that was
+        # never made. The repair is a rebuild of this project's policy index.
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+    except ai_case_language.LanguageBoundaryError as exc:
+        # Caught before the generic `RuntimeError` it derives from, because
+        # which half of the boundary failed is the one thing a caller can act
+        # on: a question that could not be read is a different problem from an
+        # answer that could not be returned, and a bare string would collapse
+        # them into one unactionable outage. Structured for the same reason the
+        # audited contract's refusals are.
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

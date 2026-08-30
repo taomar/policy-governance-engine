@@ -73,19 +73,60 @@ reservation's metadata with its digest, echoed on the receipt and sealed by
 `decision_hash`.
 
 What it is *not* allowed to do is enforced further down, in two places that are
-deliberately not this one. `ai_case_project` admits it to the evaluation gather
+deliberately not this one. `ai_case_project` admits it to the evaluation gathers
 and to nothing else — never the retrieval query, so it cannot steer which
-policies are read; never the intent classifier, so it cannot choose whether the
-answer is a determination. `ai_case_intent.caller_guidance_block` wraps it in
-the invariants it may not cross and marks it lowest priority. This module's job
-is to make sure the exact text that was applied is the exact text that is
-recorded.
+policies are read; never the classifier, so it cannot choose which tracks run.
+`ai_case_intent.caller_guidance_block` wraps it in the invariants it may not
+cross and marks it lowest priority. This module's job is to make sure the exact
+text that was applied is the exact text that is recorded.
+
+THE LANGUAGE BOUNDARY IS CROSSED HERE, AND EXACTLY TWICE
+
+Everything downstream of this module reasons in one language. That is not a
+property those modules assert; it is a property this one establishes, by
+crossing the boundary in both directions around them:
+
+1. **In, before anything reads the corpus.** The question is reduced to the
+   processing language by one unconditional bounded call, and the *rendered*
+   text is what reaches retrieval, rule slicing, the classifier and both
+   gathers. The original never goes downstream on any path, including a failing
+   one — a fallback to it would put a language the prompts were not written for
+   into adjudication, which is the whole of what the boundary prevents. So a
+   crossing that cannot be made closes the reservation as failed and answers
+   `503`, and no verdict is produced.
+2. **Out, after every semantic result is frozen.** A closed whitelist of prose
+   strings — and nothing else — is rendered back to the language the question
+   arrived in. Statuses, booleans, selector keys, rule ids, policy identities,
+   counters, hashes and every verbatim source sentence are never handed to that
+   step, so they cannot move because a reader asked for another language.
+
+What the caller sent is untouched by both. `request.scenario`,
+`request.scenario_hash`, `request.additional_instructions` and the idempotency
+request hash are all over the caller's own bytes; a rendering never enters them,
+because a rendering that varied would otherwise make a caller's byte-for-byte
+retry look like a different request. What was *adjudicated* is recorded beside
+them, in the receipt's `language` block, and sealed.
+
+WHAT IS WRITTEN, AND WHAT CAN STILL BE READ
+
+Every new receipt is `case_decision_v2`: two independent tracks, each with its
+own status, citations and grounding. Nothing writes v1 any more.
+
+Rows written under v1 are still replayed as v1 — by `GET` and by an idempotency
+replay alike. That is not politeness towards old clients; it is the point of
+having written a receipt. Re-projecting a stored v1 decision into v2 would
+require inventing the two booleans nobody classified for it, and a receipt whose
+content changed after the fact is not evidence of anything. So the stored
+`schema_version` decides which envelope a row is read as, and the two form a
+discriminated union rather than one shape with optional halves.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import time
 import uuid
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -96,31 +137,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from policy_platform.contracts.case_decision import (
     CHANNEL_API,
-    HASH_BASIS,
+    HASH_BASIS_V2,
+    HASH_BASIS_V2_LANG,
     MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
     NOT_EVALUATED,
-    SCHEMA_VERSION,
+    NOT_REQUESTED,
+    ROUTE_DECISION,
+    ROUTE_INFORMATIONAL,
+    SCHEMA_VERSION_V2,
+    SERVES_INFORMATION,
+    SERVES_VERDICT,
     STATUS_WITH_VERDICT,
+    AskedRef,
     CallerRef,
     CaseDecisionEnvelope,
+    CaseDecisionEnvelopeV2,
     CitationRef,
     CitationSourceRef,
-    DecisionRef,
+    InformationSection,
+    LanguageRef,
+    MergedCitationRef,
+    MissingInformationItem,
+    OutcomeRef,
     PolicyRef,
     PolicySetRef,
     RequestRef,
     RetrievalRef,
+    RuleSelectionRef,
     SizeRef,
     TraceRef,
+    VerdictSection,
     VersionRef,
     additional_instructions_hash,
-    compute_decision_hash,
+    compute_decision_hash_v2,
     normalise_additional_instructions,
     request_hash,
     scenario_hash,
+    validate_receipt,
 )
 from policy_platform.domain.models import DocumentProvision, PolicyCaseDecision
-from policy_platform.infrastructure.assistants import ai_case_intent, ai_case_project
+from policy_platform.infrastructure.assistants import (
+    ai_case_intent,
+    ai_case_language,
+    ai_case_project,
+)
 from policy_platform.infrastructure.persistence.repositories.case_decisions import (
     PolicyCaseDecisionRepository,
 )
@@ -137,10 +197,15 @@ RECEIPT_PATH = "/api/policy-decisions/{decision_id}"
 #: inlining the record — see `contracts/case_decision.py` for why.
 POLICY_PAYLOAD_PATH = "/api/policy-payload/{provision_id}"
 
-#: The decision statuses a receipt may carry, mirroring the contract's closed
-#: set. Anything the gather produced that is not in here is recorded as `failed`
-#: rather than passed through, because an unrecognised status is not a verdict.
-_KNOWN_DECISION_STATUSES = frozenset(
+#: The gather statuses a receipt may carry, mirroring the contract's closed
+#: sets. Anything a gather produced that is not in here is recorded as `failed`
+#: rather than passed through, because an unrecognised status is not an answer.
+#: The two tracks are named apart because their vocabularies genuinely differ:
+#: only a verdict can be blocked on missing facts or left unsettled by the rules.
+_KNOWN_INFORMATION_STATUSES = frozenset(
+    {"answered", "no_rule_bears", "declined", "failed"}
+)
+_KNOWN_VERDICT_STATUSES = frozenset(
     {
         "answered",
         "missing_required_facts",
@@ -150,6 +215,282 @@ _KNOWN_DECISION_STATUSES = frozenset(
         "failed",
     }
 )
+
+
+# ── the closed set of prose the reader's language may reach ──────────
+#
+# WHY A WHITELIST AND NOT AN INSTRUCTION
+#
+# The output rendering step is handed these strings and nothing else. It never
+# sees a status, a boolean, a selector key, a rule id, a policy identity, a
+# counter, a hash or a citation's verbatim source sentence — so it cannot alter
+# one. That is the difference between an invariant and a hope: a model told
+# "answer in this language" will helpfully translate the quotations too, and
+# every safeguard against that which lives in a prompt is one bad sample away
+# from not holding.
+#
+# The identifiers are opaque handles. They are what the renderer is keyed on,
+# they carry no meaning it could act on, and they are validated back as an exact
+# set — a key that was not sent is discarded and a key that did not return is a
+# failure, so a partially rendered answer is never assembled.
+
+#: The classifier's prose account of how it read the question.
+PROSE_CLASSIFICATION_REASONING = "classification.reasoning"
+
+#: The information track's own words.
+PROSE_INFORMATION_ANSWER = "information.answer"
+PROSE_INFORMATION_NOTE = "information.note"
+
+#: The verdict track's own words. `verdict.decision` is the short verdict
+#: *string* — prose, and language-dependent by design. `verdict.status` is the
+#: machine field a client must key on, and it is not in this set.
+PROSE_VERDICT_DECISION = "verdict.decision"
+PROSE_VERDICT_EXPLANATION = "verdict.explanation"
+PROSE_VERDICT_NOTE = "verdict.note"
+
+#: One missing fact's human-facing halves. `fact` — the selector key a follow-up
+#: form is built on — is deliberately absent: it is an identifier, not a
+#: sentence, and translating it would change what a caller keys on.
+PROSE_MISSING_LABEL = "missing_information.{index}.label"
+PROSE_MISSING_WHY_NEEDED = "missing_information.{index}.why_needed"
+
+
+def _prose_slots(evaluation: dict) -> Iterator[tuple[str, dict, str]]:
+    """Every place in one evaluation that holds prose a reader is owed.
+
+    Yields `(field_id, container, key)` so the collection pass and the write-back
+    pass are the *same* traversal rather than two that have to be kept in step.
+    A field that could be collected and not written back — or written back and
+    never collected — would be a silent half-rendering, which is precisely the
+    outcome the whole step is arranged to make impossible.
+
+    The shape it walks is the decider's own: an evaluation carries up to two
+    branches, and both the two-track receipt and the older single-branch one are
+    projected from those same two dicts. So covering the branches covers every
+    envelope this platform serves.
+    """
+
+    if isinstance(evaluation.get("classification_reasoning"), str):
+        yield (PROSE_CLASSIFICATION_REASONING, evaluation, "classification_reasoning")
+
+    informational = evaluation.get("informational")
+    if isinstance(informational, dict):
+        yield (PROSE_INFORMATION_ANSWER, informational, "answer")
+        yield (PROSE_INFORMATION_NOTE, informational, "note")
+
+    decision = evaluation.get("decision")
+    if isinstance(decision, dict):
+        yield (PROSE_VERDICT_DECISION, decision, "verdict")
+        yield (PROSE_VERDICT_EXPLANATION, decision, "answer")
+        yield (PROSE_VERDICT_NOTE, decision, "note")
+        for index, item in enumerate(decision.get("missing_information") or []):
+            if not isinstance(item, dict):
+                continue
+            yield (PROSE_MISSING_LABEL.format(index=index), item, "label")
+            yield (PROSE_MISSING_WHY_NEEDED.format(index=index), item, "why_needed")
+
+
+def prose_for_rendering(evaluation: dict | None) -> dict[str, str]:
+    """The whitelisted prose of one evaluation, keyed by field identifier.
+
+    Empty and whitespace-only values are left out: there is nothing to render,
+    and asking for one back would turn "the gather said nothing here" into a
+    rendering failure.
+    """
+
+    if not isinstance(evaluation, dict):
+        return {}
+    fields: dict[str, str] = {}
+    for field_id, container, key in _prose_slots(evaluation):
+        value = container.get(key)
+        if isinstance(value, str) and value.strip():
+            fields[field_id] = value
+    return fields
+
+
+def _with_rendered_prose(response: dict, rendered: Mapping[str, str]) -> dict:
+    """A copy of the decider's answer with the rendered prose put back in place.
+
+    A copy, because the original English is what was reasoned and stays
+    available to the caller of this function. Only the evaluation subtree is
+    copied deeply — nothing else in the response is touched, so every citation,
+    counter, identity and disclosure in it is the same object it was.
+    """
+
+    evaluation = response.get("evaluation")
+    if not isinstance(evaluation, dict) or not rendered:
+        return response
+
+    translated = copy.deepcopy(evaluation)
+    for field_id, container, key in _prose_slots(translated):
+        if field_id in rendered:
+            container[key] = rendered[field_id]
+    return {**response, "evaluation": translated}
+
+
+# ── the boundary, crossed once and used by both paths ────────────────
+#
+# WHY THE ORCHESTRATION LIVES HERE AND NOT AT EITHER ROUTE
+#
+# The same reason the decider call does. Two callers need the boundary — the
+# audited external contract and the in-product reviewer surface — and a boundary
+# implemented twice is a boundary that holds until one copy is edited. So the
+# crossing is written once, beside the single decider call site it wraps, and
+# both entry points below go through it.
+#
+# What differs between the two callers is *what a failure costs*, not what the
+# crossing does: the audited path has a reservation to close and answers with a
+# failed receipt, the reviewer path has none and lets the error reach its route.
+# So these helpers raise, and each caller decides what raising means. Neither is
+# allowed to fall back to the original text, which is the one behaviour that
+# would make the boundary decorative.
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageCrossing:
+    """What the inbound crossing produced, and what the outbound one will need.
+
+    `scenario` and `guidance` are the only texts that go downstream. The
+    observed source language rides along because the answer has to be rendered
+    back towards it, and because the receipt has to say what was observed.
+    """
+
+    normalised: ai_case_language.NormalisedScenario
+    guidance: str
+    guidance_state: str
+
+    @property
+    def scenario(self) -> str:
+        """The question as every stage below this line will read it."""
+
+        return self.normalised.english
+
+
+async def cross_into_processing_language(scenario: str, guidance: str) -> LanguageCrossing:
+    """Carry one question, and any guidance, into the language the pipeline reasons in.
+
+    Unconditional for the question: there is no detection step and no branch, so
+    a question already in the processing language makes the same call and comes
+    back as itself. Raises `LanguageBoundaryError` when that crossing cannot be
+    made — a caller must refuse rather than pass the original on.
+
+    Guidance crosses in its own call, which carries no question and no policy
+    record. It is re-normalised and re-measured afterwards because the ceiling
+    belongs to the text that is actually sent, and a rendering that grew past it
+    is dropped rather than truncated. A guidance crossing never raises: losing a
+    presentation preference is a smaller harm than losing the answer.
+    """
+
+    normalised = await ai_case_language.normalise_scenario(scenario)
+
+    rendered = await ai_case_language.normalise_guidance(
+        guidance, source_language=normalised.source_language
+    )
+    text = rendered.text
+    state = rendered.state
+    if state == ai_case_language.GUIDANCE_RENDERED:
+        text = normalise_additional_instructions(text)
+        if not text or len(text) > MAX_ADDITIONAL_INSTRUCTIONS_CHARS:
+            logger.warning(
+                "caller guidance did not survive its own bounds after crossing the boundary "
+                "and was dropped"
+            )
+            text = ""
+            state = ai_case_language.GUIDANCE_DROPPED
+
+    return LanguageCrossing(normalised=normalised, guidance=text, guidance_state=state)
+
+
+async def cross_out_to_the_reader(
+    response: dict, crossing: LanguageCrossing, *, projection_profile: str | None = None
+) -> tuple[dict, LanguageRef]:
+    """Render the whitelisted prose back, and report what both crossings did.
+
+    Called only once every semantic result is frozen — which policies were read,
+    which tracks ran, both statuses, every citation and every counter. Only the
+    prose moves, and only the prose is ever handed to the rendering step.
+
+    Three outcomes, and none of them is a partial answer:
+
+      * there is no reader-language prose to produce — either the question
+        arrived in the processing language, or the evaluation composed no prose
+        at all — so the renderer is not called and nothing claims it was;
+      * no usable target tag was observed, so the prose is returned as it was
+        reasoned and the metadata says exactly that; or
+      * the prose is rendered, whole, or the crossing raises.
+
+    WHY AN EMPTY WHITELIST IS `not_required` AND NOT `rendered`
+
+    An evaluation can legitimately carry no prose: retrieval produced nothing to
+    answer from, no retained rule bore on the question, or a track failed. There
+    is then nothing for the reader's language to apply to. Reporting `rendered`
+    with a translation profile beside it would claim a rendering that never
+    happened, and would set `response_language` to a language no string in the
+    receipt is written in — which is the one thing this block exists to state
+    truthfully.
+
+    So the whitelist is collected *first* and the renderer is called only when
+    it is non-empty. `not_required` covers both ways a rendering can be
+    unnecessary; the two are told apart by `source_language`, which is the
+    processing language in the first case and something else in the second.
+
+    Returns the response to serve and the language metadata that describes it.
+    The metadata is the same shape on both paths — one is sealed into a receipt
+    and one is not, but a reader of either must be able to tell which text was
+    adjudicated.
+    """
+
+    output_state = ai_case_language.OUTPUT_NOT_REQUIRED
+    output_profile: str | None = None
+    response_language = ai_case_language.PROCESSING_LANGUAGE
+    normalised = crossing.normalised
+
+    if not normalised.is_processing_language:
+        # Collected before anything is decided about the crossing: whether there
+        # is prose at all is the first question, and a renderer called with an
+        # empty payload would be a call made to produce nothing.
+        fields = prose_for_rendering(response.get("evaluation"))
+        if not fields:
+            # `output_state` stays `not_required`, the profile stays null, and
+            # the response language stays the processing one — because no string
+            # in this answer is written in any other.
+            pass
+        elif not normalised.target_known:
+            # The crossing succeeded and the tag did not. Adjudication is
+            # unaffected — it happened in the processing language either way —
+            # so the answer stands and the prose is returned as it was reasoned,
+            # with the metadata saying why.
+            output_state = ai_case_language.OUTPUT_TARGET_UNKNOWN
+        else:
+            rendered = await ai_case_language.render_prose(
+                fields, target_language=normalised.source_language
+            )
+            response = _with_rendered_prose(response, rendered)
+            output_state = ai_case_language.OUTPUT_RENDERED
+            output_profile = ai_case_language.TRANSLATION_PROFILE
+            response_language = normalised.source_language
+
+    language = LanguageRef(
+        source_language=normalised.source_language,
+        processing_language=ai_case_language.PROCESSING_LANGUAGE,
+        response_language=response_language,
+        boundary_state=normalised.boundary_state,
+        output_rendering_state=output_state,
+        guidance_rendering_state=crossing.guidance_state,
+        input_translation_profile=normalised.translation_profile,
+        output_translation_profile=output_profile,
+        processing_scenario=crossing.scenario,
+        processing_scenario_hash=scenario_hash(crossing.scenario),
+        processing_additional_instructions=crossing.guidance,
+        # The contract the *corpus* was rendered under, taken from the retrieval
+        # that actually ran rather than from the constant this process was built
+        # with. Those are different facts: the constant says which projection
+        # this build expects, and only the retrieval knows which one it matched
+        # against — or that it never consulted an index at all, which is what a
+        # null here means on the single-policy scope.
+        projection_profile=projection_profile,
+    )
+    return response, language
 
 
 # ── the caller, as this layer sees them ──────────────────────────────
@@ -173,9 +514,15 @@ class Caller:
 
 @dataclass(frozen=True, slots=True)
 class CaseDecisionOutcome:
-    """A finalised receipt and whether it was decided now or replayed."""
+    """A finalised receipt and whether it was decided now or replayed.
 
-    envelope: CaseDecisionEnvelope
+    `envelope` is a v2 receipt for anything decided now, and may be either
+    version on a replay: an idempotency key issued before the two-track redesign
+    still names the row it named, and that row is answered as what it was
+    written as rather than re-projected into a shape it never had.
+    """
+
+    envelope: CaseDecisionEnvelopeV2 | CaseDecisionEnvelope
     replayed: bool
 
 
@@ -238,6 +585,13 @@ async def _invoke_decider(
     defaulted here — the reviewer path passes `""` on purpose, so the fact that
     the legacy route carries no caller guidance is written down at its call site
     instead of resting on a default that could later change.
+
+    `scenario` is likewise passed explicitly, and what each caller passes is the
+    whole of the language contract: the audited path passes the **rendered**
+    question, because everything below this line reasons in one language and a
+    receipt must be able to prove which text was read. The reviewer path passes
+    the reviewer's own text — see `answer_project_case` for why that difference
+    is deliberate and what it costs.
     """
 
     return await ai_case_project.answer_project_case(
@@ -276,17 +630,70 @@ async def answer_project_case(
     receipt. None of that machinery exists on this route, and a guidance field
     without it would be an unlogged, unbounded influence on an answer nobody can
     reconstruct afterwards.
+
+    IT CROSSES THE SAME LANGUAGE BOUNDARY, THROUGH THE SAME HELPERS
+
+    Every question this platform answers is reduced to one processing language
+    before any policy is read, and this route is not an exception — a reviewer's
+    question put in one language to prompts written in another is the same
+    cross-lingual reading the boundary exists to remove, receipt or no receipt.
+    So the same two helpers run here, and the decider is handed the rendered
+    question exactly as it is on the audited path.
+
+    What differs is only what a failure costs. There is no reservation to close,
+    so a crossing that cannot be made raises `LanguageBoundaryError` and the
+    route answers `503` with the code that names which half failed. It still
+    never falls back to the original text: a reviewer would have no way to see
+    that their question had been read in a language the prompts were not written
+    for, which is precisely the silent failure the boundary removes.
+
+    A project whose index carries no retrieval projection raises
+    `IndexProjectionUnavailable` from the decider and is answered `503` the same
+    way, for the same reason: matching a rendered question against an unrendered
+    corpus produces a confident "nothing bears on your question", and a reviewer
+    is owed the difference between that and "nothing could be compared".
+
+    The return is the decider's dict plus one additive `language` block, so a
+    reviewer surface can show which text was actually adjudicated. Nothing else
+    about the shape moves.
     """
 
-    return await _invoke_decider(
+    crossing = await cross_into_processing_language(scenario, "")
+
+    response = await _invoke_decider(
         session,
         policy_set=policy_set,
-        scenario=scenario,
+        scenario=crossing.scenario,
         provision_id=provision_id,
         reasoning_effort=reasoning_effort,
-        additional_instructions="",
+        additional_instructions=crossing.guidance,
         with_context=False,
     )
+
+    response, language = await cross_out_to_the_reader(
+        response, crossing, projection_profile=_projection_profile(response)
+    )
+    return {**response, "language": language.model_dump(mode="json")}
+
+
+def _projection_profile(response: dict) -> str | None:
+    """The corpus projection the retrieval that actually ran matched against.
+
+    Read from the decider's own retrieval block rather than from the constant
+    this process was built with, because those are two different claims: the
+    constant says which projection this build *expects*, and only the retrieval
+    knows which one it *used* — or that it consulted no index at all, which is
+    what the single-policy scope reports and what a null here means.
+
+    Sealed into the decision hash by way of the language block, so a stored
+    receipt cannot be relabelled with a projection it was not produced under.
+    """
+
+    retrieval = response.get("retrieval")
+    if not isinstance(retrieval, dict):
+        return None
+    profile = retrieval.get("projection_profile")
+    return str(profile) if profile else None
 
 
 # ── the audited path ─────────────────────────────────────────────────
@@ -317,11 +724,23 @@ async def decide_project_case(
     the reservation's metadata with its digest, echoed on the receipt and sealed
     — and passed to the decider, which admits it only to the gather.
 
-    Raises `CaseDecisionError` for every outcome that is not a receipt: guidance
-    that is too long, an idempotency conflict, a reservation that could not be
-    written, a decider refusal (unknown policy, malformed id, model
-    unavailable), and a finalisation that failed. It never returns a verdict
-    that was not stored.
+    THE ORDER THE BOUNDARY IMPOSES
+
+    The question is carried into the processing language *after* the reservation
+    and *before* the decider, and that order is not arbitrary. After the
+    reservation, because the crossing is a model call and a call that fails must
+    close a receipt rather than vanish. Before the decider, because the whole
+    point is that nothing downstream ever sees the original. An idempotency
+    replay happens earlier still and therefore crosses nothing: a caller
+    retrying an answered request gets their stored receipt back without a second
+    rendering, let alone a second decision.
+
+    Raises `CaseDecisionError` for every outcome that is not a receipt: a
+    question or guidance that is too long, an idempotency conflict, a
+    reservation that could not be written, a boundary crossing that could not be
+    made, a decider refusal (unknown policy, malformed id, model unavailable),
+    and a finalisation that failed. It never returns a verdict that was not
+    stored, and never returns one composed from a question it could not read.
     """
 
     settings = get_settings()
@@ -332,6 +751,21 @@ async def decide_project_case(
             status_code=503,
             code="ai_unavailable",
             message="Azure OpenAI is not configured on this server.",
+            correlation_id=correlation_id,
+        )
+
+    # Bounded here, with the guidance, and for the same reason: a question the
+    # boundary could never carry is a permanent client fault, and discovering it
+    # after the reservation would advertise it as the retryable server fault the
+    # crossing's own failure is. Refusing it now costs no row and no model call.
+    if len(scenario) > ai_case_language.MAX_SCENARIO_CHARS:
+        raise CaseDecisionError(
+            status_code=422,
+            code="scenario_too_long",
+            message=(
+                f"scenario is {len(scenario)} characters; the maximum is "
+                f"{ai_case_language.MAX_SCENARIO_CHARS}."
+            ),
             correlation_id=correlation_id,
         )
 
@@ -459,15 +893,55 @@ async def decide_project_case(
 
     decision_id = str(row.id)
 
+    # ── in, across the boundary ───────────────────────────────────────
+    #
+    # The same helper the reviewer path uses, so the two cannot drift. What is
+    # local to this path is what a failure costs: the reservation is already
+    # written, so it is closed as failed and the caller gets a 503 naming which
+    # half of the boundary could not be crossed.
+    try:
+        crossing = await cross_into_processing_language(scenario, guidance)
+    except ai_case_language.LanguageBoundaryError as exc:
+        raise await _fail(
+            session,
+            repo,
+            row,
+            decision_id=decision_id,
+            code=exc.code,
+            message=(
+                "The question could not be carried into the language this platform decides in, "
+                "so no policy was read and no verdict was produced. Retry the request."
+            ),
+            status_code=503,
+            correlation_id=correlation_id,
+            started=started,
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - an unexpected boundary fault is still a refusal
+        logger.exception("case decision %s could not cross the language boundary", decision_id)
+        raise await _fail(
+            session,
+            repo,
+            row,
+            decision_id=decision_id,
+            code=ai_case_language.SCENARIO_TRANSLATION_UNAVAILABLE,
+            message=(
+                "The question could not be carried into the language this platform decides in, "
+                "so no policy was read and no verdict was produced. Retry the request."
+            ),
+            status_code=503,
+            correlation_id=correlation_id,
+            started=started,
+        ) from exc
+
     # ── decide, with no transaction held ──────────────────────────────
     try:
         answer = await _invoke_decider(
             session,
             policy_set=policy_set,
-            scenario=scenario,
+            scenario=crossing.scenario,
             provision_id=normalised_provision_id,
             reasoning_effort=reasoning_effort,
-            additional_instructions=guidance,
+            additional_instructions=crossing.guidance,
             with_context=True,
         )
     except LookupError as exc:
@@ -491,6 +965,26 @@ async def decide_project_case(
             code="invalid_request",
             message=str(exc),
             status_code=422,
+            correlation_id=correlation_id,
+            started=started,
+        ) from exc
+    except ai_case_project.IndexProjectionUnavailable as exc:
+        # Caught before the generic `RuntimeError` it derives from, and closed as
+        # a failed receipt rather than served as an answer. The reservation is
+        # already written, so the refusal closes it; and the refusal is the whole
+        # point — an index that carries no retrieval projection cannot be matched
+        # against by a question rendered into the processing language, and the
+        # answer that would come back is a confident "no published policy bears
+        # on this". A caller has to be able to tell that from "the corpus could
+        # not be compared", which is what this code says.
+        raise await _fail(
+            session,
+            repo,
+            row,
+            decision_id=decision_id,
+            code=exc.code,
+            message=str(exc),
+            status_code=503,
             correlation_id=correlation_id,
             started=started,
         ) from exc
@@ -523,6 +1017,50 @@ async def decide_project_case(
     decided_at = datetime.now(timezone.utc)
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
 
+    # ── out, across the boundary ──────────────────────────────────────
+    #
+    # Again the shared helper, and again the difference is only what a failure
+    # costs. A rendering that cannot be completed leaves a decision that was
+    # made and will not be served: half in one language and half in another is
+    # worse evidence than none.
+    try:
+        response, language = await cross_out_to_the_reader(
+            answer.response, crossing, projection_profile=_projection_profile(answer.response)
+        )
+    except ai_case_language.LanguageBoundaryError as exc:
+        raise await _fail(
+            session,
+            repo,
+            row,
+            decision_id=decision_id,
+            code=exc.code,
+            message=(
+                "The decision was made but its explanation could not be returned in the "
+                "language the question was asked in, so no partial answer is served. "
+                "Retry with a new Idempotency-Key."
+            ),
+            status_code=503,
+            correlation_id=correlation_id,
+            started=started,
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - a mixed-language answer is not an answer
+        logger.exception("case decision %s could not be rendered for its reader", decision_id)
+        raise await _fail(
+            session,
+            repo,
+            row,
+            decision_id=decision_id,
+            code=ai_case_language.RESPONSE_TRANSLATION_UNAVAILABLE,
+            message=(
+                "The decision was made but its explanation could not be returned in the "
+                "language the question was asked in, so no partial answer is served. "
+                "Retry with a new Idempotency-Key."
+            ),
+            status_code=503,
+            correlation_id=correlation_id,
+            started=started,
+        ) from exc
+
     envelope = build_envelope(
         decision_id=decision_id,
         correlation_id=correlation_id,
@@ -533,13 +1071,14 @@ async def decide_project_case(
         reasoning_effort=reasoning_effort,
         requested_provision_id=normalised_provision_id,
         additional_instructions=guidance,
+        language=language,
         received_at=received_at,
         decided_at=decided_at,
         latency_ms=latency_ms,
-        response=answer.response,
+        response=response,
         context=answer.context,
         provision_ids=await _provision_ids_by_key(
-            session, policy_set_id=project_id, response=answer.response
+            session, policy_set_id=project_id, response=response
         ),
     )
 
@@ -548,15 +1087,22 @@ async def decide_project_case(
             row,
             policy_version_id=_version_uuid(answer.context.get("policy_version_id")),
             version_number=answer.context.get("version_number"),
-            decision_status=envelope.decision_status,
+            schema_version=envelope.schema_version,
+            decision_status=legacy_decision_status(envelope),
+            information_requested=envelope.asked.information_requested,
+            verdict_requested=envelope.asked.verdict_requested,
+            information_status=(
+                envelope.information.status if envelope.information is not None else None
+            ),
+            verdict_status=envelope.verdict.status if envelope.verdict is not None else None,
             scope=envelope.request.scope,
             retrieval=envelope.retrieval.model_dump(mode="json"),
-            decision_summary=envelope.decision.model_dump(mode="json"),
+            decision_summary=_decision_summary(envelope),
             citation_ids=[citation.rule_id for citation in envelope.citations],
             trace=envelope.trace.model_dump(mode="json"),
             response=envelope.model_dump(mode="json"),
             decision_hash=envelope.decision_hash,
-            hash_basis=HASH_BASIS,
+            hash_basis=envelope.hash_basis,
             decided_at=decided_at,
             latency_ms=latency_ms,
         )
@@ -621,9 +1167,10 @@ def _resolve_existing(row: PolicyCaseDecision, *, request_hash_now: str) -> Case
         )
 
     if row.status == "completed" and row.response_json:
-        return CaseDecisionOutcome(
-            envelope=CaseDecisionEnvelope.model_validate(row.response_json), replayed=True
-        )
+        # Whichever envelope wrote it. A receipt stored before the two-track
+        # redesign is replayed as v1 — the bytes the caller was given — rather
+        # than re-projected into a shape that decision never had.
+        return CaseDecisionOutcome(envelope=validate_receipt(row.response_json), replayed=True)
 
     if row.status == "pending":
         raise CaseDecisionError(
@@ -714,7 +1261,12 @@ def _version_uuid(value: object) -> uuid.UUID | None:
 
 
 def _referenced_provision_keys(response: dict) -> set[str]:
-    """Every provision key the receipt will mention, from all three places."""
+    """Every provision key the receipt will mention, from all four places.
+
+    Both tracks' citations are read, not just the primary one: a mixed case cites
+    from two gathers, and a policy named only by the track this function did not
+    look at would lose its payload link for no reason a reader could see.
+    """
 
     keys: set[str] = set()
     for entry in (response.get("considered") or []) + (response.get("excluded") or []):
@@ -724,11 +1276,12 @@ def _referenced_provision_keys(response: dict) -> set[str]:
     provision = response.get("provision")
     if provision and provision.get("provision_key"):
         keys.add(str(provision["provision_key"]))
-    branch = _branch(response.get("evaluation"))
-    for citation in (branch or {}).get("citations") or []:
-        policy = citation.get("policy") or {}
-        if policy.get("provision_key"):
-            keys.add(str(policy["provision_key"]))
+    evaluation = response.get("evaluation") or {}
+    for branch in (evaluation.get("informational"), evaluation.get("decision")):
+        for citation in (branch or {}).get("citations") or []:
+            policy = citation.get("policy") or {}
+            if policy.get("provision_key"):
+                keys.add(str(policy["provision_key"]))
     return keys
 
 
@@ -796,14 +1349,15 @@ def build_envelope(
     response: dict,
     context: dict,
     additional_instructions: str = "",
+    language: LanguageRef | None = None,
     provision_ids: dict[str, str] | None = None,
-) -> CaseDecisionEnvelope:
-    """Project the decider's answer and its context into `case_decision_v1`.
+) -> CaseDecisionEnvelopeV2:
+    """Project the decider's answer and its context into `case_decision_v2`.
 
     Kept a module-level function rather than folded into `decide_project_case`
-    so the projection can be exercised on its own — the hash, the status guard
-    and the "no policy payload" rule are properties of this function, not of the
-    endpoint that calls it.
+    so the projection can be exercised on its own — the hash, the two-track
+    outcome guard and the "no policy payload" rule are properties of this
+    function, not of the endpoint that calls it.
 
     `project` is a plain value rather than the ORM row, so this cannot trigger a
     lazy load while assembling a response. `provision_ids` maps a policy's
@@ -814,18 +1368,46 @@ def build_envelope(
     echoes and hashes what it is given, and normalising here as well would let
     the value that was *sent to the model* differ from the value that was
     *sealed*, which is the one thing the echo exists to rule out.
+
+    `language` records which language each stage worked in and carries the
+    question as it was actually adjudicated. **Its presence is what selects the
+    seal**: given one, the receipt is written under `case_decision_v2_lang` and
+    the rendered question and the translation profiles join the preimage;
+    without one, the receipt is written under `case_decision_v2` and sealed by
+    exactly the rule that basis has always named. That is why introducing the
+    boundary migrates nothing — an old receipt and a new one each verify under
+    the basis they were written with, and a verifier branches on the stored
+    `hash_basis` to know which.
+
+    `response` is expected to carry the prose in the language it will be served
+    in. The rendering happens upstream, before this function is called, so what
+    the seal covers is what the caller was given rather than an intermediate
+    nobody saw.
+
+    WHAT IT DOES WITH AN EVALUATION IT DOES NOT RECOGNISE
+
+    The decider's evaluation block is read defensively in one specific way: when
+    it carries neither `information_requested` nor `verdict_requested` — a
+    gather written against the exclusive cut, or a test double of one — the
+    booleans are derived from which branches are actually present. That is not a
+    guess about the caller; it is the honest reading of a record that says which
+    gathers ran, and it keeps this projection working over any shape the decider
+    has ever returned.
     """
 
     ids = provision_ids or {}
     evaluation = response.get("evaluation")
-    decision = _decision_ref(evaluation)
-    citations = _citations(evaluation, provision_ids=ids)
 
-    considered = _considered_refs(response, provision_ids=ids)
-    excluded = [_policy_ref(entry, provision_ids=ids) for entry in (response.get("excluded") or [])]
+    asked = _asked_ref(evaluation)
+    information = (
+        _information_section(evaluation, provision_ids=ids)
+        if asked.information_requested
+        else None
+    )
+    verdict = _verdict_section(evaluation, provision_ids=ids) if asked.verdict_requested else None
 
-    envelope = CaseDecisionEnvelope(
-        schema_version=SCHEMA_VERSION,
+    envelope = CaseDecisionEnvelopeV2(
+        schema_version=SCHEMA_VERSION_V2,
         decision_id=decision_id,
         correlation_id=correlation_id,
         idempotency_key=idempotency_key,
@@ -848,25 +1430,299 @@ def build_envelope(
             reasoning_effort_requested=reasoning_effort,
             received_at=received_at,
         ),
-        decision_status=decision.status,
+        language=language,
+        asked=asked,
+        outcome=OutcomeRef(
+            information=_track_outcome(
+                evaluated=evaluation is not None,
+                requested=asked.information_requested,
+                section=information,
+            ),
+            verdict=_track_outcome(
+                evaluated=evaluation is not None,
+                requested=asked.verdict_requested,
+                section=verdict,
+            ),
+        ),
+        information=information,
+        verdict=verdict,
         retrieval=RetrievalRef(**_retrieval_fields(response.get("retrieval") or {})),
-        considered=considered,
-        excluded=excluded,
-        decision=decision,
-        citations=citations,
-        grounding=_grounding(evaluation),
+        considered=_considered_refs(response, provision_ids=ids),
+        excluded=[_policy_ref(entry, provision_ids=ids) for entry in (response.get("excluded") or [])],
+        citations=_merged_citations(information, verdict),
         size=SizeRef(**(response.get("size") or {})) if response.get("size") else None,
         trace=_trace_ref(response, context, evaluated=evaluation is not None),
         decision_hash="",
-        hash_basis=HASH_BASIS,
+        hash_basis=HASH_BASIS_V2_LANG if language is not None else HASH_BASIS_V2,
         receipt_url=RECEIPT_PATH.format(decision_id=decision_id),
         decided_at=decided_at,
         latency_ms=latency_ms,
     )
     # Assigned after construction because the hash is taken over the envelope's
     # own decision-defining content and cannot exist before it.
-    envelope.decision_hash = compute_decision_hash(envelope)
+    envelope.decision_hash = compute_decision_hash_v2(envelope)
     return envelope
+
+
+def legacy_decision_status(envelope: CaseDecisionEnvelopeV2) -> str:
+    """The one scalar the stored row's `decision_status` column still carries.
+
+    The column predates the two-track receipt and is what operational queries —
+    "how many decisions declined last week" — are written against. Dropping it
+    would break those for no gain, so it is *derived* rather than kept as a
+    second source of truth: the verdict track when there is one, the information
+    track otherwise, and `not_evaluated` when neither ran.
+
+    Verdict wins the tie for the same reason `intent` does: it is the stronger
+    claim, and an operator counting "answered" decisions means the ones that
+    reached a verdict. The envelope remains the authority; this is an index.
+    """
+
+    if envelope.verdict is not None:
+        return envelope.verdict.status
+    if envelope.information is not None:
+        return envelope.information.status
+    return NOT_EVALUATED
+
+
+def _decision_summary(envelope: CaseDecisionEnvelopeV2) -> dict:
+    """The row's at-a-glance summary column, in the two-track shape.
+
+    A summary column that still described one branch would be read as the whole
+    answer by exactly the queries it exists to serve, so it names both tracks and
+    what each came to.
+    """
+
+    return {
+        "schema_version": envelope.schema_version,
+        "asked": envelope.asked.model_dump(mode="json"),
+        "outcome": envelope.outcome.model_dump(mode="json"),
+        "information": (
+            None if envelope.information is None else envelope.information.model_dump(mode="json")
+        ),
+        "verdict": None if envelope.verdict is None else envelope.verdict.model_dump(mode="json"),
+    }
+
+
+def _asked_ref(evaluation: dict | None) -> AskedRef:
+    """What the classifier read the question as asking for.
+
+    When no evaluation ran the classifier never ran either, so both booleans are
+    false and the classifier is unnamed: that is the truth, and the envelope's
+    `outcome` reports `not_evaluated` for both tracks so a reader is not left to
+    infer "you asked for nothing" from it.
+    """
+
+    if not evaluation:
+        return AskedRef(
+            information_requested=False,
+            verdict_requested=False,
+            classification_reasoning=None,
+            classifier_version=None,
+        )
+
+    information = evaluation.get("information_requested")
+    verdict = evaluation.get("verdict_requested")
+    if information is None and verdict is None:
+        # An evaluation from the exclusive cut. Which gathers ran is recorded in
+        # which branches are present, so that is what is read — never guessed.
+        intent = evaluation.get("intent")
+        information = evaluation.get("informational") is not None or intent == "informational"
+        verdict = evaluation.get("decision") is not None or intent == "decision"
+
+    return AskedRef(
+        information_requested=bool(information),
+        verdict_requested=bool(verdict),
+        classification_reasoning=evaluation.get("classification_reasoning"),
+        classifier_version=evaluation.get("classifier_version"),
+    )
+
+
+def _track_outcome(
+    *,
+    evaluated: bool,
+    requested: bool,
+    section: InformationSection | VerdictSection | None,
+) -> str:
+    """One track's outcome: what it came to, or why it has nothing to say.
+
+    Three cases, deliberately not two.
+
+      * Nothing was evaluated at all — retrieval produced no record to answer
+        from — so no classifier ran and neither track could have. Both tracks
+        report `not_evaluated`, whatever the (necessarily false) booleans say.
+      * The track was not asked for: `not_requested`, and the section is null.
+      * Otherwise the gather's own status.
+
+    The first two must not collapse. `not_requested` says the caller did not ask;
+    `not_evaluated` says the corpus had nothing to answer from. Reporting the
+    second as the first would let a caller read their own silence as the
+    corpus's — and, worse, would make an unbuilt index look like a question that
+    never wanted an answer.
+    """
+
+    if not evaluated:
+        return NOT_EVALUATED
+    if not requested:
+        return NOT_REQUESTED
+    if section is None:
+        return NOT_EVALUATED
+    return section.status
+
+
+def _information_section(
+    evaluation: dict | None, *, provision_ids: dict[str, str] | None = None
+) -> InformationSection | None:
+    """What the policies state, or `None` when nothing was evaluated."""
+
+    branch = (evaluation or {}).get("informational")
+    if not isinstance(branch, dict):
+        return None
+
+    status = str(branch.get("status") or "").strip().lower()
+    if status not in _KNOWN_INFORMATION_STATUSES:
+        status = "failed"
+    prose = str(branch.get("answer") or "")
+    if status == STATUS_WITH_VERDICT and not prose.strip():
+        # A gather that claims to have answered and composed nothing has not
+        # answered. `InformationSection` refuses that combination outright, so
+        # normalising here is what keeps a malformed reply a *reported* state
+        # rather than a 500 on an otherwise complete receipt.
+        status = "declined"
+    answered = status == STATUS_WITH_VERDICT
+
+    return InformationSection(
+        status=status,  # type: ignore[arg-type]
+        answered=answered,
+        # The gather only composes prose when it answered; asserting it here
+        # means the section's own invariant does not rest on that staying true.
+        answer=prose if answered else "",
+        # Prose from a branch that did not answer is not an answer and must not
+        # be presented as one — it is why there is none. Today the gather empties
+        # it for every non-answered state, so this is normally null.
+        explanation=(prose or None) if not answered else None,
+        route=ROUTE_INFORMATIONAL,
+        citations=_citation_refs(branch, provision_ids=provision_ids),
+        note=str(branch.get("note") or ""),
+        grounding=_grounding(branch),
+    )
+
+
+def _verdict_section(
+    evaluation: dict | None, *, provision_ids: dict[str, str] | None = None
+) -> VerdictSection | None:
+    """The determination, or `None` when nothing was evaluated.
+
+    The verdict string is re-emptied for every status but `answered`. The gather
+    already does that; re-asserting it means the receipt's invariant — a refusal
+    is a *reached* verdict, and an undecided case carries no decision at all —
+    holds even if a future gather forgets.
+    """
+
+    branch = (evaluation or {}).get("decision")
+    if not isinstance(branch, dict):
+        return None
+
+    status = str(branch.get("status") or "").strip().lower()
+    if status not in _KNOWN_VERDICT_STATUSES:
+        status = "failed"
+    decision = str(branch.get("verdict") or "").strip()
+    if status == STATUS_WITH_VERDICT and not decision:
+        # The gather normalises this away already; re-asserting it here is what
+        # makes the invariant a property of the receipt rather than of the
+        # gather remembering. A determination with no verdict named is not a
+        # determination, and `VerdictSection` refuses the combination outright —
+        # so a reply in that shape becomes a reported state instead of a 500.
+        status = "not_settled_by_rules"
+        decision = ""
+    reached = status == STATUS_WITH_VERDICT
+    blocked = status == "missing_required_facts"
+
+    missing_flat = [str(item) for item in (branch.get("missing_required_facts") or [])] if blocked else []
+
+    return VerdictSection(
+        status=status,  # type: ignore[arg-type]
+        reached=reached,
+        decision=decision if reached else "",
+        explanation=str(branch.get("answer") or ""),
+        missing_information=_missing_information_refs(branch, flat=missing_flat) if blocked else [],
+        missing_required_facts=missing_flat,
+        route=ROUTE_DECISION,
+        citations=_citation_refs(branch, provision_ids=provision_ids),
+        note=str(branch.get("note") or ""),
+        grounding=_grounding(branch),
+    )
+
+
+def _missing_information_refs(branch: dict, *, flat: list[str]) -> list[MissingInformationItem]:
+    """The structured missing facts, from the gather or from the flat list.
+
+    The gather supplies `missing_information` under the current prompt. A reply
+    that carried only the flat list — an older gather, or a model that ignored
+    the structured field — still produces one item per fact here, with the fields
+    it did not supply left empty rather than composed. A reason invented in this
+    layer would read to a caller exactly like one the policy gave.
+    """
+
+    structured = branch.get("missing_information")
+    items: list[MissingInformationItem] = []
+    if isinstance(structured, list):
+        for entry in structured:
+            if not isinstance(entry, dict):
+                continue
+            fact = str(entry.get("fact") or "").strip()
+            label = str(entry.get("label") or "").strip()
+            if not fact and not label:
+                continue
+            items.append(
+                MissingInformationItem(
+                    fact=fact or label,
+                    label=label or fact,
+                    why_needed=str(entry.get("why_needed") or ""),
+                    required_by_rule_ids=[
+                        str(rule_id) for rule_id in (entry.get("required_by_rule_ids") or [])
+                    ],
+                )
+            )
+    if items:
+        return items
+
+    return [
+        MissingInformationItem(fact=fact, label=fact, why_needed="", required_by_rule_ids=[])
+        for fact in flat
+    ]
+
+
+def _merged_citations(
+    information: InformationSection | None, verdict: VerdictSection | None
+) -> list[MergedCitationRef]:
+    """Every rule either track rested on, once, tagged with who rested on it.
+
+    The two tracks cite independently and overlap often — the rule that states a
+    limit is usually the rule that decides whether something was within it.
+    Listing it twice would make a reader count two authorities where the policies
+    hold one, so the merge is by `rule_id` and the tags accumulate. The first
+    occurrence keeps its resolved policy and verbatim source; a second sighting
+    of the same rule id is the same rule, by construction — rule ids are unique
+    across the corpus.
+    """
+
+    merged: dict[str, MergedCitationRef] = {}
+    for section, tag in ((information, SERVES_INFORMATION), (verdict, SERVES_VERDICT)):
+        if section is None:
+            continue
+        for citation in section.citations:
+            existing = merged.get(citation.rule_id)
+            if existing is None:
+                merged[citation.rule_id] = MergedCitationRef(
+                    rule_id=citation.rule_id,
+                    policy=citation.policy,
+                    source=citation.source,
+                    serves=[tag],  # type: ignore[list-item]
+                )
+            elif tag not in existing.serves:
+                existing.serves.append(tag)  # type: ignore[arg-type]
+    return list(merged.values())
 
 
 def _version_ref(context: dict) -> VersionRef | None:
@@ -891,6 +1747,25 @@ _RETRIEVAL_FIELDS = (
     "policies_retained",
     "policies_discarded",
     "policies_untestable",
+    "payload_budget_chars",
+    "policies_over_payload_budget",
+    "large_policy_rule_threshold",
+    "selected_rule_budget",
+    "policies_rule_sliced",
+    "policies_duplicate_collapsed",
+    "policy_selection_order",
+    "policies_diversity_deferred",
+    # What the search itself was, and whether it could be made at all. Named
+    # here for the same reason every other counter is: a decider field that is
+    # not in this tuple does not reach the receipt, so the contract stays the
+    # thing that decides what an audited answer carries.
+    "rule_scan",
+    "projection_profile",
+    "projection_ready",
+    "policy_documents_matched",
+    "rule_documents_matched",
+    "policies_elevated_by_rule",
+    "rule_index_state",
     "reason",
 )
 
@@ -915,10 +1790,21 @@ def _payload_url(provision_id: object) -> str | None:
 
 
 def _policy_ref(entry: dict, *, provision_ids: dict[str, str] | None = None) -> PolicyRef:
-    """One policy reference — identity and a link, never the record itself."""
+    """One policy reference — identity, a link, and which of its rules were read.
+
+    Never the record itself. `rule_selection` rides along because a policy that
+    was narrowed to a slice of its rules must not appear on a receipt as though
+    all of it was weighed; it is absent when the policy was never carried into an
+    evaluation, which is the honest reading of "nothing was selected from it".
+    `duplicate_of_provision_key` rides along for the same reason inverted: a
+    policy collapsed as an exact duplicate was not read, but its terms were — in
+    the policy it names — and a receipt that showed the discard without the
+    representative would read as though those terms went unweighed.
+    """
 
     provision_key = entry.get("provision_key")
     provision_id = entry.get("provision_id") or (provision_ids or {}).get(str(provision_key or ""))
+    selection = entry.get("rule_selection")
     return PolicyRef(
         provision_id=str(provision_id) if provision_id else None,
         provision_key=provision_key,
@@ -928,8 +1814,10 @@ def _policy_ref(entry: dict, *, provision_ids: dict[str, str] | None = None) -> 
         best_rank=entry.get("best_rank"),
         best_score=entry.get("best_score"),
         discard_reason=entry.get("discard_reason"),
+        duplicate_of_provision_key=entry.get("duplicate_of_provision_key"),
         reason=entry.get("reason"),
         payload_url=_payload_url(provision_id),
+        rule_selection=RuleSelectionRef(**selection) if isinstance(selection, dict) else None,
     )
 
 
@@ -957,62 +1845,11 @@ def _considered_refs(response: dict, *, provision_ids: dict[str, str] | None = N
     ]
 
 
-def _branch(evaluation: dict | None) -> dict | None:
-    """The gather's answer, from whichever branch its intent selected."""
+def _citation_refs(
+    branch: dict | None, *, provision_ids: dict[str, str] | None = None
+) -> list[CitationRef]:
+    """One track's citations, each with its policy link and verbatim source."""
 
-    if not evaluation:
-        return None
-    intent = evaluation.get("intent")
-    if intent == "decision":
-        return evaluation.get("decision")
-    if intent == "informational":
-        return evaluation.get("informational")
-    return evaluation.get("decision") or evaluation.get("informational")
-
-
-def _decision_ref(evaluation: dict | None) -> DecisionRef:
-    """The decision block, with `not_evaluated` kept apart from every verdict.
-
-    A retrieval that produced no evaluation is a real outcome and a common one —
-    a project with nothing published, an index not built, no policy bearing on
-    the question. It is reported as `not_evaluated` with an empty verdict, so no
-    client can read "we did not evaluate" as "the policies say no".
-    """
-
-    branch = _branch(evaluation)
-    if branch is None:
-        return DecisionRef(
-            intent=(evaluation or {}).get("intent"),
-            classification_reasoning=(evaluation or {}).get("classification_reasoning"),
-            status=NOT_EVALUATED,
-            verdict="",
-            explanation="",
-            missing_required_facts=[],
-            note="",
-            decider_route=None,
-        )
-
-    status = str(branch.get("status") or "").strip().lower()
-    if status not in _KNOWN_DECISION_STATUSES:
-        status = "failed"
-
-    return DecisionRef(
-        intent=evaluation.get("intent") if evaluation else None,
-        classification_reasoning=(evaluation or {}).get("classification_reasoning"),
-        status=status,  # type: ignore[arg-type]
-        # The gather already empties the verdict for every non-answered status;
-        # re-asserting it here means the receipt's own guard does not depend on
-        # that remaining true.
-        verdict=str(branch.get("verdict") or "") if status == STATUS_WITH_VERDICT else "",
-        explanation=str(branch.get("answer") or ""),
-        missing_required_facts=[str(item) for item in (branch.get("missing_required_facts") or [])],
-        note=str(branch.get("note") or ""),
-        decider_route=(evaluation or {}).get("intent"),
-    )
-
-
-def _citations(evaluation: dict | None, *, provision_ids: dict[str, str] | None = None) -> list[CitationRef]:
-    branch = _branch(evaluation)
     if not branch:
         return []
 
@@ -1038,12 +1875,38 @@ def _citations(evaluation: dict | None, *, provision_ids: dict[str, str] | None 
     return refs
 
 
-def _grounding(evaluation: dict | None) -> dict | None:
-    branch = _branch(evaluation)
+def _grounding(branch: dict | None) -> dict | None:
+    """One track's grounding report, per track rather than per receipt.
+
+    The two tracks ground separately — different prompts, different citation
+    sets, different refusals — so a single grounding block would have to pick
+    one and present it as the receipt's, which is the kind of narrowing a reader
+    cannot see.
+    """
+
     if not branch:
         return None
     grounding = branch.get("grounding")
     return dict(grounding) if isinstance(grounding, dict) else None
+
+
+def _primary_branch(evaluation: dict | None) -> dict | None:
+    """The track a single-value reader should read, when one must be picked.
+
+    Used only for `trace`, which reports one prompt version. The verdict track
+    wins for the same reason it wins everywhere else here: it is the stronger
+    claim. Both tracks run the same prompt family, so the value is the same
+    either way today; the rule is written down so it stays a choice rather than
+    an accident if that ever stops being true.
+    """
+
+    if not evaluation:
+        return None
+    decision = evaluation.get("decision")
+    if isinstance(decision, dict):
+        return decision
+    informational = evaluation.get("informational")
+    return informational if isinstance(informational, dict) else None
 
 
 def _trace_ref(response: dict, context: dict, *, evaluated: bool) -> TraceRef:
@@ -1064,7 +1927,7 @@ def _trace_ref(response: dict, context: dict, *, evaluated: bool) -> TraceRef:
     """
 
     settings = get_settings()
-    grounding = _grounding(response.get("evaluation")) or {}
+    grounding = _grounding(_primary_branch(response.get("evaluation"))) or {}
     retrieval = response.get("retrieval") or {}
 
     return TraceRef(

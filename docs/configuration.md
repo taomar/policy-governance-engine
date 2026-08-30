@@ -349,6 +349,38 @@ No metrics endpoint, tracing, alerting or log aggregation is implemented.
 - Azure AI Search indexing is best-effort: failures are logged and swallowed so a document upload never fails because a downstream service is unavailable. The trade-off is that a document can be fully usable while missing from the index, and nothing reconciles that afterwards except the maintenance scripts in [`docs/testing.md`](testing.md#maintenance-scripts-are-outside-testing).
 - Long AI operations (candidate quality over hundreds of rules) run as a single request without incremental progress reporting.
 
+### The policy index needs a model, and rebuilding it is not free
+
+The project **policy index** — the one the audited decision endpoint retrieves from — is not a plain copy of the corpus. Every policy is rendered into English before it is indexed, so a question in any language can be scored against it, and both the index and the query are stamped with the contract that rendering was made under.
+
+That makes the index build depend on Azure OpenAI, not only on Azure AI Search:
+
+| Setting | Used for |
+|---|---|
+| `AZURE_OPENAI_FAST_DEPLOYMENT`, falling back to `AZURE_OPENAI_DEPLOYMENT` | Rendering each policy's retrieval text into English at build time. |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | Embedding the rendered text. |
+| `AZURE_SEARCH_*` | Holding the resulting documents. |
+
+**Cost, stated plainly.** Rendering is batched — at most 6 items or 3,000 characters per call, with a fixed 4,096-token completion ceiling — and **a batch never crosses a policy boundary**, so the floor is *one model call per published policy*, plus one more for roughly every six rule texts of a policy large enough to get per-rule documents (over 15 rules). A 74-row schedule is therefore around a dozen calls on its own. Embeddings are additional. Calls are made sequentially, one policy after another.
+
+**There is no cache.** Nothing memoises a rendering between builds, so every rebuild re-renders and re-embeds the entire active version from scratch, and pays the full cost again even if one policy changed. This is deliberate rather than pending: a cache keyed on anything less than the exact rendered contract would serve text from a superseded projection, which is the failure the profile stamp exists to make impossible.
+
+The same build runs **inline on publish** (best-effort, after the publish transaction commits — a failure is recorded, not raised) and inline in the rebuild endpoint. Both paths hold their request open for the whole pass. Budget for that in client timeouts and in any reverse-proxy read timeout in front of the API.
+
+**Rebuilding by hand:**
+
+```bash
+curl -X POST "$POLICY_API_BASE/api/policy-sets/$PROJECT_KEY/policy-index/rebuild"
+```
+
+It returns `state`, `document_count`, `policy_document_count`, `rule_document_count`, `projection_profile` and `manifest_state`. A successful build ends with `manifest_state: "ready"`; anything else means the project is still unmatchable and the decision endpoint will answer `503 index_projection_unavailable` for it. Re-running the command **is** the recovery — the build is a pure function of the database, so it produces the same document ids and overwrites in place. There is no automatic retry, and no rollback to perform: a failed build never removes the previous documents, it only leaves the manifest short of `ready`.
+
+Check state without rebuilding with `GET /api/policy-sets/{key}/policy-index`.
+
+**Content filtering.** If the deployment's content filter rejects a policy's text, the build fails with the filtered category surfaced in the error rather than being retried or skipped — one unrendered policy would mean a corpus that is English in part, which the profile must never claim.
+
+**Quality assurance is partial today.** Each rendering is checked structurally as it is produced — rejected if it is empty, implausibly larger or smaller than its source, or if a number or identifier failed to survive it, with the whole batch rejected on any failure. The projection-quality gate that assesses whether a rendering is a faithful reading of the passage is still being implemented. Indexes already built under `policy-english-projection-v1` are live and serving retrieval; until the gate validates them, their retrieval quality is unvalidated rather than assured. A successful rebuild therefore means "indexed and structurally checked", not "quality-approved".
+
 ## Extension points
 
 Places designed to be extended, with the seam already in place:

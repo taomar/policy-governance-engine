@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './playground.css'
 
-import { HEADER, PERSISTENCE_FAILURE, RECEIPT, WAIT } from './copy/strings'
-import type { CaseDecisionEnvelope, ReasoningEffort } from './contracts/caseDecision'
+import { HEADER, PERSISTENCE_FAILURE, RECEIPT, V2, WAIT } from './copy/strings'
+import {
+  classifyReceipt,
+  type CaseDecisionEnvelope,
+  type CaseDecisionEnvelopeV2,
+  type CaseDecisionReceipt,
+  type MergedCitationRef,
+  type ReasoningEffort,
+} from './contracts/caseDecision'
 import { fetchActiveVersion, fetchPolicySet, getReceipt, postCase } from './lib/apiClient'
 import {
   additionalInstructionsHash,
@@ -17,14 +24,19 @@ import { compareReceipts } from './lib/receiptComparison'
 import { buildRequestBody, hostFromBase, isParsableUrl, type DocketValues } from './lib/requestBody'
 
 import { CodeBlock, renderJsonLine } from './components/CodeBlock'
+import { CaseOutcomeBand } from './components/CaseOutcomeBand'
 import { DecisionReceipt } from './components/DecisionReceipt'
 import { DecisionStatusBand } from './components/DecisionStatusBand'
 import { ErrorBand, StaleCaption } from './components/ErrorBand'
 import { EvidenceTable } from './components/EvidenceTable'
+import { GroundingNotices } from './components/GroundingNotices'
+import { InformationPanel } from './components/InformationPanel'
+import { LanguagePanel } from './components/LanguagePanel'
 import { RequestDocket, type ResolutionState } from './components/RequestDocket'
 import { RequestInspector } from './components/RequestInspector'
 import { ResultGrid } from './components/ResultGrid'
 import { RetrievalDisclosure } from './components/RetrievalDisclosure'
+import { VerdictPanel } from './components/VerdictPanel'
 import type { VerifyState } from './components/VerifyReceipt'
 
 /**
@@ -91,6 +103,40 @@ function readPrefill(): { base?: string; key?: string } {
   }
 }
 
+/**
+ * What the live region says when a decision lands.
+ *
+ * A screen-reader user gets one sentence, and for a v2 receipt one sentence has
+ * to carry two outcomes — announcing only the verdict would tell someone whose
+ * information question was answered that nothing came back. So both tracks are
+ * named, and the determination is spoken only when one was reached.
+ */
+function announceReceipt(receipt: CaseDecisionReceipt): string {
+  if (classifyReceipt(receipt) === 'v2') {
+    const v2 = receipt as CaseDecisionEnvelopeV2
+    const information = `Information ${v2.outcome.information.replace(/_/g, ' ')}`
+    const verdict = `verdict ${v2.outcome.verdict.replace(/_/g, ' ')}`
+    const reached = v2.verdict?.reached && v2.verdict.decision ? ` ${v2.verdict.decision}` : ''
+    const facts = v2.verdict?.missing_information?.length ?? 0
+    const blocked =
+      v2.outcome.verdict === 'missing_required_facts' && facts > 0
+        ? ` ${facts} ${facts === 1 ? 'fact is' : 'facts are'} needed.`
+        : ''
+    return `${information}, ${verdict}.${reached}${blocked}`
+  }
+
+  if (classifyReceipt(receipt) === 'v1') {
+    const v1 = receipt as CaseDecisionEnvelope
+    return `Decision ${v1.decision_status}. ${
+      v1.decision_status === 'answered' && v1.decision.verdict
+        ? v1.decision.verdict
+        : 'No verdict.'
+    }`
+  }
+
+  return 'A receipt was returned in an envelope this page does not recognise.'
+}
+
 export default function App() {
   const prefill = useMemo(readPrefill, [])
 
@@ -109,7 +155,7 @@ export default function App() {
   const [resolution, setResolution] = useState<ResolutionState>({ kind: 'idle' })
   const [submitting, setSubmitting] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
-  const [envelope, setEnvelope] = useState<CaseDecisionEnvelope | null>(null)
+  const [envelope, setEnvelope] = useState<CaseDecisionReceipt | null>(null)
   const [sentGuidance, setSentGuidance] = useState<string | undefined>(undefined)
   const [submittedHash, setSubmittedHash] = useState<string | null>(null)
   const [error, setError] = useState<PlaygroundError | null>(null)
@@ -276,13 +322,7 @@ export default function App() {
     // always the one the *next* request will carry.
     setCorrelationId(newUuid())
 
-    onAnnounce(
-      `Decision ${result.value.decision_status}. ${
-        result.value.decision_status === 'answered' && result.value.decision.verdict
-          ? result.value.decision.verdict
-          : 'No verdict.'
-      }`,
-    )
+    onAnnounce(announceReceipt(result.value))
 
     requestAnimationFrame(() => {
       const heading = resultsRef.current?.querySelector<HTMLElement>('#result-heading')
@@ -338,6 +378,18 @@ export default function App() {
   const persistenceFailed = error?.code === 'decision_receipt_failed'
   const showResult = envelope !== null && !persistenceFailed
   const stale = showResult && error !== null
+
+  // The tag decides which answer shape is rendered. `unrecognised` is a real
+  // third branch rather than a fall-through to v1: reading `.decision` off an
+  // envelope that has none is what put a white screen where this receipt should
+  // have been, and the honest response to an envelope this build has never seen
+  // is to render the identity and the raw body and interpret nothing.
+  const kind = envelope ? classifyReceipt(envelope) : null
+  const v2 = kind === 'v2' ? (envelope as CaseDecisionEnvelopeV2) : null
+  const v1 = kind === 'v1' ? (envelope as CaseDecisionEnvelope) : null
+
+  const v2Citations: MergedCitationRef[] = v2?.citations ?? []
+  const v1Citations: MergedCitationRef[] = v1?.citations ?? []
 
   return (
     <>
@@ -395,21 +447,24 @@ export default function App() {
           onExpand={() => setDocketCollapsed(false)}
         />
 
-        <div className="pg-results" ref={resultsRef}>
-          <RequestInspector
-            values={values}
-            baseUrl={baseUrl}
-            projectKey={projectKey}
-            subscriptionKey={subscriptionKey}
-            correlationId={correlationId}
-            idempotencyKey={idempotencyKey}
-            clientRequestHash={clientRequestHash}
-            requestChanged={idempotencyConflict}
-            trace={envelope?.trace ?? null}
-            guidanceRef={guidanceRef}
-            onAnnounce={onAnnounce}
-          />
+        {/* Directly below the composer and below Send, never above it. The
+            preview is one glance away without standing between a reader and
+            the button they came here to press. */}
+        <RequestInspector
+          values={values}
+          baseUrl={baseUrl}
+          projectKey={projectKey}
+          subscriptionKey={subscriptionKey}
+          correlationId={correlationId}
+          idempotencyKey={idempotencyKey}
+          clientRequestHash={clientRequestHash}
+          requestChanged={idempotencyConflict}
+          trace={envelope?.trace ?? null}
+          guidanceRef={guidanceRef}
+          onAnnounce={onAnnounce}
+        />
 
+        <div className="pg-results" ref={resultsRef}>
           {submitting ? (
             <div className="wait-strip" role="status" aria-live="polite" data-testid="playground-wait">
               <strong>
@@ -447,7 +502,74 @@ export default function App() {
 
           {showResult && envelope ? (
             <>
-              <DecisionStatusBand envelope={envelope} stale={stale} />
+              {/* ---------- case_decision_v2: two tracks ---------- */}
+              {v2 ? (
+                <>
+                  {/* Asked, then how each track came out. Everything below is
+                      read in the light of this band, which is why it is first
+                      and why the reading order below follows it: verdict and
+                      the facts it is blocked on, then what the policies state,
+                      then the evidence both rest on. */}
+                  <CaseOutcomeBand envelope={v2} stale={stale} />
+
+                  <GroundingNotices
+                    tracks={[
+                      { track: 'verdict', grounding: v2.verdict?.grounding },
+                      { track: 'information', grounding: v2.information?.grounding },
+                    ]}
+                    size={v2.size}
+                  />
+
+                  {/* A section is rendered exactly when the server carried one.
+                      `not_requested` and `not_evaluated` produce no section, and
+                      the band above has already said which of the two it was --
+                      printing an empty panel would invite a reader to take the
+                      emptiness for a finding. */}
+                  {v2.verdict ? (
+                    <VerdictPanel section={v2.verdict} onAnnounce={onAnnounce} />
+                  ) : null}
+
+                  {v2.information ? <InformationPanel section={v2.information} /> : null}
+
+                  <EvidenceTable citations={v2Citations} baseUrl={baseUrl} />
+                  <RetrievalDisclosure envelope={v2} baseUrl={baseUrl} />
+                  {/* Provenance, with the rest of the provenance: which language
+                      each stage worked in, what was actually adjudicated, and
+                      the standing claim that the quotations above were not
+                      rendered into anything. */}
+                  <LanguagePanel
+                    language={v2.language}
+                    requestScenario={v2.request.scenario}
+                    onAnnounce={onAnnounce}
+                  />
+                </>
+              ) : null}
+
+              {/* ---------- case_decision_v1: one status ---------- */}
+              {v1 ? (
+                <>
+                  <DecisionStatusBand envelope={v1} stale={stale} />
+                  <ResultGrid envelope={v1} onAnnounce={onAnnounce} />
+                  <EvidenceTable
+                    citations={v1Citations}
+                    baseUrl={baseUrl}
+                    fallbackRoute={v1.decision.decider_route}
+                  />
+                  <RetrievalDisclosure envelope={v1} baseUrl={baseUrl} />
+                </>
+              ) : null}
+
+              {/* ---------- an envelope this build has never seen ---------- */}
+              {kind === 'unrecognised' ? (
+                <div className="banner banner--action" data-testid="playground-unrecognised">
+                  <strong className="banner__heading">{V2.unrecognisedHeading}</strong>
+                  <span className="banner__body">{V2.unrecognisedBody}</span>
+                </div>
+              ) : null}
+
+              {/* The receipt reads only fields both envelopes carry, so it is
+                  rendered once for every version -- including one this build
+                  does not recognise, whose identity and seal are still real. */}
               <DecisionReceipt
                 envelope={envelope}
                 sentGuidance={sentGuidance}
@@ -459,14 +581,17 @@ export default function App() {
                 onVerify={() => void verify()}
                 onAnnounce={onAnnounce}
               />
-              <ResultGrid envelope={envelope} onAnnounce={onAnnounce} />
-              <EvidenceTable envelope={envelope} baseUrl={baseUrl} />
-              <RetrievalDisclosure envelope={envelope} baseUrl={baseUrl} />
 
               <details
                 className="panel disclosure"
                 data-testid="playground-raw-json"
-                open={envelope.decision_status === 'not_evaluated'}
+                open={
+                  kind === 'unrecognised' ||
+                  v1?.decision_status === 'not_evaluated' ||
+                  (v2 !== null &&
+                    v2.outcome.information === 'not_evaluated' &&
+                    v2.outcome.verdict === 'not_evaluated')
+                }
               >
                 <summary>{RECEIPT.showRaw}</summary>
                 <div className="panel__body">

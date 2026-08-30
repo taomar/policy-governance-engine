@@ -47,6 +47,25 @@ would be handing them the safeguards, and "let me edit the system prompt" and
 "let me say I want a shorter answer" look identical in a text box. They are not
 identical here: one is not offered at all, and the other is normalised, bounded,
 sealed, recorded, and applied under invariants it cannot cross.
+
+ONE LANGUAGE INSIDE, THE CALLER'S LANGUAGE AT THE EDGE
+
+A question may be asked in any language, and the answer's prose comes back in
+it. In between, everything this platform does happens in the single language its
+prompts are written in — the question is carried into it before any policy is
+read, and only a closed whitelist of finished prose is carried back out.
+
+Two consequences an integrator has to know, both of them in the receipt:
+
+  * **Machine-readable fields do not move with the language.** Statuses, the two
+    `asked` booleans, `outcome`, `missing_information[].fact`, every citation's
+    `rule_id` and verbatim `source.text`, every retrieval counter and
+    `decision_hash` are byte-identical whichever language the question was
+    written in. Key on those, never on the verdict string or a label.
+  * **A crossing that cannot be made is a refusal, not a fallback.** A decision
+    reached from a question the platform could not read would be a decision
+    about a different question, so it is answered `503` with a failed receipt
+    and no verdict at all.
 """
 from __future__ import annotations
 
@@ -63,7 +82,12 @@ from policy_platform.application.policy_case_decision import (
     CaseDecisionError,
     decide_project_case,
 )
-from policy_platform.contracts.case_decision import CaseDecisionEnvelope
+from policy_platform.contracts.case_decision import (
+    CaseDecisionEnvelope,
+    CaseDecisionEnvelopeV2,
+    CaseDecisionReceipt,
+    validate_receipt,
+)
 from policy_platform.infrastructure.assistants import ai_case_intent
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.persistence.repositories import (
@@ -249,7 +273,12 @@ class ProjectCaseDecisionRequest(BaseModel):
     """The body of an external case decision."""
 
     scenario: str = Field(
-        description="The case, in natural language. Stored on the receipt so it shows the question it answered."
+        description=(
+            "The case, in natural language, in any language. Stored on the receipt verbatim so it "
+            "shows the question it answered, and hashed as sent — a rendering never enters the "
+            "idempotency binding. The text every stage actually read is returned beside it in "
+            "`language.processing_scenario`."
+        )
     )
     provision_id: str | None = Field(
         default=None,
@@ -274,12 +303,13 @@ class ProjectCaseDecisionRequest(BaseModel):
             "how long to be, what format to use.\n\n"
             "**This shapes the emphasis and wording of the explanation only. It cannot change the "
             "authoritative policy contract.** Specifically, it cannot change which policies were "
-            "retrieved or read, what any rule means, the `decision_status`, the verdict, the "
-            "requirement to cite every rule the answer rests on, or the prohibition on drawing on "
-            "anything outside the published records. Guidance that asks for any of those is ignored "
-            "for that part, and the answer's `decision.note` says so.\n\n"
-            "It is never sent to the retrieval step, so it cannot steer which policies are "
-            "considered. Maximum 2000 characters after whitespace normalisation; longer is a 422. "
+            "retrieved or read, what any rule means, which tracks ran, either track's status, the "
+            "verdict, the requirement to cite every rule the answer rests on, or the prohibition "
+            "on drawing on anything outside the published records. Guidance that asks for any of "
+            "those is ignored for that part, and the affected section's `note` says so.\n\n"
+            "It is never sent to the retrieval step or to the classifier, so it can steer neither "
+            "which policies are considered nor what your question is read as asking for. Maximum "
+            "2000 characters after whitespace normalisation; longer is a 422. "
             "The normalised text is stored on the receipt, echoed back in `request."
             "additional_instructions`, and included in the idempotency binding — so reusing an "
             "`Idempotency-Key` with different guidance is a 409, not a replay.\n\n"
@@ -357,7 +387,7 @@ def _request_metadata(
     }
 
 
-@router.post("/{project_key}/case", response_model=CaseDecisionEnvelope)
+@router.post("/{project_key}/case", response_model=CaseDecisionReceipt)
 async def decide_case(
     project_key: str,
     body: ProjectCaseDecisionRequest,
@@ -367,22 +397,44 @@ async def decide_case(
     correlation_id_header: str | None = Header(default=None, alias=CORRELATION_HEADER),
     principal: Principal = Depends(require_authenticated_principal),
     session: AsyncSession = Depends(get_session),
-) -> CaseDecisionEnvelope:
+) -> CaseDecisionEnvelopeV2 | CaseDecisionEnvelope:
     """Decide a case against a project's published policies, and record it.
 
-    The decision itself is the existing project-case decider, unchanged: the
-    policies bearing on the question are retrieved and the rest discarded before
-    anything is evaluated, and the answer is grounded to the retained records.
-    What this operation adds is everything an external caller needs to rely on
-    that answer afterwards.
+    Every decision made now is answered as `case_decision_v2`. The response is
+    typed as the union of that and the older `case_decision_v1` for one reason:
+    an `Idempotency-Key` issued before the redesign replays the receipt it named,
+    in the shape that receipt was written in. Branch on `schema_version` if you
+    hold keys from then; a caller starting today will only ever see v2.
 
-    READ `decision_status` BEFORE `decision.verdict`
+    The decision itself is the existing project-case decider, unchanged in the
+    part that matters: the policies bearing on the question are retrieved and the
+    rest discarded before anything is evaluated, and the answer is grounded to
+    the retained records. What this operation adds is everything an external
+    caller needs to rely on that answer afterwards.
 
-    A completed receipt does not imply a determination. `not_evaluated` means
-    retrieval produced no evaluation — the project may have published nothing,
-    its index may not be built, or no published policy may bear on the question.
-    Those are legitimate outcomes with a `200` and a full receipt, and their
-    `verdict` is empty. Only `decision_status: "answered"` carries one.
+    A CASE ASKS FOR UP TO TWO THINGS
+
+    Your question is read as two independent requests: does it ask what the
+    retained published policies **state**, and does it ask for the case to be
+    **evaluated** and a verdict returned. A question can ask for either or both,
+    and both requested answers are gathered — over the same retrieved policies,
+    concurrently. There is no request field for this: intent detection is the
+    server's, because a caller who could declare "this is a verdict question"
+    could choose the shape of their own answer.
+
+    READ `outcome` BEFORE `information` OR `verdict`
+
+    A completed receipt does not imply a determination. `outcome.information` and
+    `outcome.verdict` each carry that track's status, plus `not_requested` (you
+    did not ask for it, and the section is null) and `not_evaluated` (nothing was
+    evaluated at all — the project may have published nothing, its index may not
+    be built, or no published policy may bear on the question). Those are
+    legitimate `200`s with a full receipt.
+
+    Only `outcome.verdict: "answered"` carries a determination. `verdict.decision`
+    is non-empty exactly when `verdict.reached` is true — so a "not compliant" is
+    a reached verdict and a case that could not be decided leaves `decision`
+    empty and reports `missing_information` instead.
 
     IDEMPOTENCY
 
@@ -394,6 +446,9 @@ async def decide_case(
     Without a key, every call is a new decision — two identical questions are
     two decisions, and this endpoint will not pretend otherwise.
 
+    A key issued before the two-track receipt existed replays the receipt it
+    named, in the shape it was written in. Check `schema_version`.
+
     CORRELATION
 
     Send your own id in `X-Correlation-Id` or in the body. Sending both with
@@ -404,26 +459,62 @@ async def decide_case(
 
     `additional_instructions` shapes how the explanation is *presented* and
     nothing else. It cannot change which policies were retrieved, what a rule
-    means, the `decision_status`, the verdict, or the requirement to cite — the
-    published policies remain the authoritative contract, and guidance that asks
-    otherwise is ignored for that part. It never reaches retrieval, so it cannot
-    steer which policies are considered. The normalised text is returned in
-    `request.additional_instructions`, so an integration can show exactly what
-    was applied. The server's own instructions are not returned and are not
-    editable; `trace.prompt_version` and `trace.instruction_profile` name them.
+    means, which tracks ran, either track's status, the verdict, or the
+    requirement to cite — the published policies remain the authoritative
+    contract, and guidance that asks otherwise is ignored for that part. It never
+    reaches retrieval or the classifier, so it can steer neither which policies
+    are considered nor what your question is read as asking for. The normalised
+    text is returned in `request.additional_instructions`, so an integration can
+    show exactly what was applied. The server's own instructions are not returned
+    and are not editable; `trace.prompt_version` and `trace.instruction_profile`
+    name them.
+
+    LANGUAGE
+
+    Ask in any language. Your question is carried into the one language this
+    platform reasons in before any policy is read, every stage — retrieval,
+    classification and both gathers — works in that language, and the
+    explanation is carried back to the language you asked in afterwards. The
+    `language` block reports both sides of that, including
+    `processing_scenario`: the text that was actually adjudicated. Compare it
+    with your own words if a decision surprises you.
+
+    **Nothing machine-readable moves with the language.** Statuses, `asked.*`,
+    `outcome`, `missing_information[].fact`, every citation's `rule_id`,
+    `policy.provision_key` and verbatim `source.text`, `rule_selection.*`, every
+    `retrieval.*` counter and `decision_hash` are byte-identical whatever
+    language a reader asked in. Key on those. The verdict *string*, the labels
+    and the explanations are prose and are language-dependent by design — that
+    is what they are for.
+
+    A document's own words are never translated: `citations[].source.text` is
+    always the source sentence as stored, in the document's own language.
+
+    `request.scenario`, its hash and the idempotency binding are over your own
+    bytes, never over a rendering — so a byte-for-byte retry is still a replay.
+    A replay returns the stored receipt without carrying anything across the
+    boundary a second time.
 
     STATUS CODES
 
     `404` unknown project key, or a `provision_id` naming a policy in another
     project. `422` a malformed id, a conflicting correlation id,
     `additional_instructions` longer than 2000 characters after normalisation,
-    a `reasoning_effort` outside `low | medium | high`, or any of
-    `X-Correlation-Id`, `correlation_id`, `Idempotency-Key`,
-    `calling_system_identity` and `provision_id` longer than 200 characters —
-    all of which are refused before anything is reserved, so a permanent input
-    fault never presents as a retryable one. `401` no authenticated caller.
-    `409` an idempotency conflict. `503` the model is not configured, or the
-    receipt could not be reserved — in which case no decision was attempted.
+    a `scenario` longer than the boundary will carry, a `reasoning_effort`
+    outside `low | medium | high`, or any of `X-Correlation-Id`,
+    `correlation_id`, `Idempotency-Key`, `calling_system_identity` and
+    `provision_id` longer than 200 characters — all of which are refused before
+    anything is reserved, so a permanent input fault never presents as a
+    retryable one. `401` no authenticated caller. `409` an idempotency conflict.
+    `503` the model is not configured, the receipt could not be reserved — in
+    which case no decision was attempted — or a language boundary that could not
+    be crossed: `scenario_translation_unavailable` and
+    `scenario_translation_empty` mean the question could not be carried into the
+    language decisions are made in, and `response_translation_unavailable` means
+    a decision was made but could not be returned in the language it was asked
+    in. All three leave a failed receipt and carry no verdict, because a
+    decision made from a question the platform could not read — or served half
+    in one language and half in another — is not one this endpoint will ship.
     `500` with code `decision_receipt_failed` means a decision was made and
     could not be stored; it carries the decision and correlation ids and
     deliberately carries no verdict.
@@ -496,18 +587,26 @@ async def decide_case(
     return outcome.envelope
 
 
-@router.get("/{decision_id}", response_model=CaseDecisionEnvelope)
+@router.get("/{decision_id}", response_model=CaseDecisionReceipt)
 async def get_decision_receipt(
     decision_id: uuid.UUID,
     response: Response,
     principal: Principal = Depends(require_authenticated_principal),
     session: AsyncSession = Depends(get_session),
-) -> CaseDecisionEnvelope:
+) -> CaseDecisionEnvelopeV2 | CaseDecisionEnvelope:
     """The stored receipt for one decision, byte-identical to what was returned.
 
     The envelope is replayed from storage rather than rebuilt, so verifying a
     receipt is a real check: the `decision_hash` a caller kept must equal the one
     served here, and it will not if the stored content ever changed.
+
+    WHICH ENVELOPE YOU GET
+
+    Whichever one was written. A decision made now is `case_decision_v2`; a
+    decision made before the two-track redesign is still served as
+    `case_decision_v1`, because re-projecting a stored receipt into a newer shape
+    would mean inventing content that decision never had. `schema_version` names
+    it, and the two shapes are a discriminated union on that field.
 
     WHO MAY READ IT
 
@@ -561,4 +660,4 @@ async def get_decision_receipt(
             },
         )
 
-    return CaseDecisionEnvelope.model_validate(row.response_json)
+    return validate_receipt(row.response_json)

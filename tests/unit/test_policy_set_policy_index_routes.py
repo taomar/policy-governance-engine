@@ -18,6 +18,9 @@ from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from policy_platform.api.app import create_app  # noqa: E402
 from policy_platform.api.routers import policy_sets as policy_sets_router  # noqa: E402
 from policy_platform.domain.models import ApprovedPolicyVersion, Base, PolicyIndexState, PolicySet  # noqa: E402
+from policy_platform.infrastructure.assistants.ai_case_language import (  # noqa: E402
+    ENGLISH_PROJECTION_PROFILE,
+)
 from policy_platform.infrastructure.persistence.db import get_session  # noqa: E402
 from policy_platform.infrastructure.persistence.policy_set_teardown import DeletionOutcome  # noqa: E402
 from policy_platform.infrastructure.search.policy_index import (  # noqa: E402
@@ -119,6 +122,11 @@ async def test_get_policy_index_reports_recorded_current_state_without_live_sear
                 status="built",
                 attempted_version_number=6,
                 attempted_at=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+                # Built under the rendering contract the query side uses.
+                # Without it the record would be reporting an index that
+                # matches the active version but cannot be matched *against*,
+                # which is stale on the second axis — see the test below.
+                projection_profile=ENGLISH_PROJECTION_PROFILE,
             )
         )
         await session.commit()
@@ -136,6 +144,53 @@ async def test_get_policy_index_reports_recorded_current_state_without_live_sear
     assert payload["document_count"] == 10
     assert payload["source"] == "recorded_build_state"
     assert payload["live_probe"] is False
+
+
+async def test_an_index_built_without_a_projection_reads_stale_on_the_second_axis(
+    app_with_project,
+) -> None:
+    """Matching the active version is not the same as being matchable.
+
+    A row written before the corpus was rendered — or by a rebuild that could not
+    render it — records a build that really happened and really indexed
+    documents. It just did not put them in the language a question is asked in.
+    Reporting that as `current` would tell an operator there is nothing to do,
+    while every case against the project refuses.
+    """
+
+    http, maker, _monkeypatch = app_with_project
+    async with maker() as session:
+        session.add(
+            ApprovedPolicyVersion(
+                policy_set_id=_SET_ID,
+                version_number=6,
+                effective_from=date(2026, 1, 1),
+                is_active=True,
+                approved_by="policy",
+                approved_at=datetime(2026, 8, 18, 11, 0, tzinfo=UTC),
+            )
+        )
+        session.add(
+            PolicyIndexState(
+                policy_set_id=_SET_ID,
+                index_name=policy_index_name("xx"),
+                indexed_version_number=6,
+                document_count=10,
+                built_at=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+                status="built",
+                attempted_version_number=6,
+                attempted_at=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+                projection_profile=None,
+            )
+        )
+        await session.commit()
+
+    payload = (await http.get("/api/policy-sets/xx/policy-index")).json()
+
+    assert payload["last_attempt"] == "built"
+    assert payload["freshness"] == "stale"
+    # The version comparison is untouched: what moved is the second axis.
+    assert payload["active_version_number"] == payload["indexed_version_number"] == 6
 
 
 async def test_get_policy_index_reports_nothing_to_index_when_no_active_version(app_with_project) -> None:

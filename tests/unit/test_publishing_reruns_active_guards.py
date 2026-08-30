@@ -258,6 +258,19 @@ async def test_publishing_reports_and_persists_policy_index_rebuild_outcome(publ
         "document_count": 1,
         "indexed_at": "2026-08-18T12:00:00Z",
         "error": None,
+        # The double below does not build documents, so the split is zero and no
+        # rendering contract is claimed. What is asserted here is that publish
+        # reports the whole outcome shape rather than a subset of it — a caller
+        # reading "built" needs to be able to see whether the corpus is actually
+        # matchable, and these four fields are where that is said.
+        "policy_document_count": 0,
+        "rule_document_count": 0,
+        "projection_profile": None,
+        "manifest_state": None,
+        # The double uploads nothing, so no corpus was validated and there is no
+        # verdict to report. `None` is that absence stated: it is distinct from a
+        # recorded `unavailable`, which would claim a validation was attempted.
+        "quality": None,
     }
 
     async with maker() as session:

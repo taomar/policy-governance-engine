@@ -2,8 +2,32 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { makeEnvelope, makeNonAnsweredEnvelope } from './lib/testFixtures'
-import { DECISION_STATUSES, type CaseDecisionEnvelope } from './contracts/caseDecision'
+import {
+  makeEnvelope,
+  makeDuplicateCollapsedEnvelope,
+  makeFabricatedCitationV2Envelope,
+  makeInformationOnlyEnvelope,
+  makeLanguageDroppedGuidanceEnvelope,
+  makeLanguageIdentityEnvelope,
+  makeLanguageRenderedEnvelope,
+  makeMixedBlockedEnvelope,
+  makeNonAnsweredEnvelope,
+  makeNoRuleBearsV2Envelope,
+  makeNotEvaluatedV2Envelope,
+  makeProjectionNotReadyEnvelope,
+  makeRuleIndexDegradedEnvelope,
+  makeRuleIndexMatchedEnvelope,
+  makeRuleSlicedEnvelope,
+  makeUnnamedDuplicateEnvelope,
+  makeV2Envelope,
+  makeVerdictOnlyEnvelope,
+  V2_MISSING_INFORMATION,
+} from './lib/testFixtures'
+import {
+  DECISION_STATUSES,
+  type CaseDecisionEnvelope,
+  type CaseDecisionReceipt,
+} from './contracts/caseDecision'
 
 /**
  * The behavioural guarantees, asserted against the rendered page.
@@ -48,7 +72,7 @@ function installFetch(
 }
 
 /** The happy path: project resolves, then the case is answered. */
-function standardHandler(envelope: CaseDecisionEnvelope = makeEnvelope()) {
+function standardHandler(envelope: CaseDecisionReceipt = makeEnvelope()) {
   return (url: string) => {
     if (url.includes('/active-version')) {
       return jsonResponse({ id: '5f2c1a4e-3b6d-4c8f-9a2e-7d1b0c3e9b31', version_number: 7 })
@@ -353,19 +377,44 @@ describe('the docket', () => {
     expect(field.getAttribute('autocomplete')).toBe('off')
   })
 
-  it('says beside the field that showing a credential is a local-demo choice', () => {
+  it('says beside the field that this is a local demo key, in one line', () => {
     installFetch(standardHandler())
     render(<App />)
-    const warning = screen.getByTestId('playground-subscription-key-warning')
-    const text = warning.textContent ?? ''
 
-    expect(text).toContain('Local demonstration only')
-    expect(text).toContain('production browser client must never hold a shared subscription key')
-    // The field points at the warning, so a screen reader reaches it rather
-    // than only a sighted reader who happens to look below the input.
+    // One line beside the control, carrying the three facts that matter while
+    // someone is typing a credential: what kind of key, which header, how long
+    // it is kept. The paragraph about production clients and VITE_ inlining is
+    // real and is kept verbatim, but a connection bar is not where it is read.
+    expect(screen.getByTestId('playground-subscription-key-caption').textContent).toBe(
+      'Local demo key · sent as X-Policy-Subscription-Key · held only for this tab.',
+    )
     expect(
       screen.getByTestId('playground-subscription-key').getAttribute('aria-describedby'),
-    ).toContain('pg-subscription-key-warning')
+    ).toBe('pg-subscription-key-caption')
+  })
+
+  it('keeps the production and VITE_ warning verbatim, one click away', () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    const toggle = screen.getByTestId('playground-key-note-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    const note = screen.getByTestId('playground-subscription-key-warning')
+    // Present in the document and unedited, so nothing the page claimed about
+    // this credential was quietly dropped when it left the first viewport.
+    expect(note.textContent).toContain('Local demonstration only')
+    expect(note.textContent).toContain(
+      'production browser client must never hold a shared subscription key',
+    )
+    // Not shown until asked for.
+    expect(note.closest('[hidden]')).toBeTruthy()
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(
+      screen.getByTestId('playground-subscription-key-warning').closest('[hidden]'),
+    ).toBeNull()
   })
 
   it('starts with an empty key and no prefill note when no local variable is set', () => {
@@ -439,6 +488,127 @@ describe('the docket', () => {
     expect(screen.getByTestId('inspector-changed-chip')).toBeTruthy()
     // The 409 is the demonstration. Blocking the send would hide it.
     expect(screen.getByTestId('playground-submit').getAttribute('aria-disabled')).toBe('false')
+  })
+})
+
+describe('the request composer layout', () => {
+  const follows = (first: HTMLElement, second: HTMLElement) =>
+    Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('puts the connection register above the case, and everything secondary after send', () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    const connbar = screen.getByTestId('playground-connection-bar')
+    const submit = screen.getByTestId('playground-submit')
+    const advanced = screen.getByTestId('playground-advanced')
+    const inspector = screen.getByTestId('playground-request-inspector')
+
+    // Connection is what you configure once, so it rules the top.
+    expect(follows(connbar, submit)).toBe(true)
+    // Nothing secondary stands between a reader and the button they came for:
+    // the metadata rail and the request preview are both after it in the order
+    // a keyboard and a screen reader walk.
+    expect(follows(submit, advanced)).toBe(true)
+    expect(follows(submit, inspector)).toBe(true)
+  })
+
+  it('holds base, project key, subscription key and resolution in one register', () => {
+    installFetch(standardHandler())
+    render(<App />)
+    const connbar = screen.getByTestId('playground-connection-bar')
+
+    expect(within(connbar).getByTestId('playground-base-url')).toBeTruthy()
+    expect(within(connbar).getByTestId('playground-project-key')).toBeTruthy()
+    expect(within(connbar).getByTestId('playground-subscription-key')).toBeTruthy()
+    expect(within(connbar).getByTestId('playground-resolution-idle')).toBeTruthy()
+    // The credential is still shown in clear, with one line beside it. The
+    // long-form warning is not in this register at all: it is in the rail.
+    expect(within(connbar).getByTestId('playground-subscription-key-caption')).toBeTruthy()
+    expect(within(connbar).queryByTestId('playground-subscription-key-warning')).toBeNull()
+    expect(
+      within(screen.getByTestId('playground-advanced')).getByTestId(
+        'playground-subscription-key-warning',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('reports the resolved project and its active version in that register', async () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    fireEvent.change(screen.getByTestId('playground-project-key'), {
+      target: { value: 'demo-project' },
+    })
+    fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+      target: { value: SUBSCRIPTION_KEY },
+    })
+
+    const connbar = screen.getByTestId('playground-connection-bar')
+    await waitFor(() => expect(within(connbar).getByTestId('playground-identity')).toBeTruthy(), {
+      timeout: 3000,
+    })
+    expect(within(connbar).getByTestId('playground-active-version').textContent).toBe('v7')
+  })
+
+  it('keeps the scenario, the reasoning control and send in one composer', () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    const composer = screen.getByTestId('playground-submit').closest('.compose') as HTMLElement
+    expect(composer).toBeTruthy()
+    expect(within(composer).getByTestId('playground-scenario')).toBeTruthy()
+    expect(within(composer).getByTestId('playground-reasoning-effort')).toBeTruthy()
+    // The one sentence that says why the button is refusing, beside the button.
+    expect(within(composer).getByTestId('playground-submit-reason')).toBeTruthy()
+  })
+
+  it('keeps every secondary field reachable in the metadata rail, not hidden', () => {
+    installFetch(standardHandler())
+    render(<App />)
+    const advanced = screen.getByTestId('playground-advanced')
+
+    for (const testId of [
+      'playground-calling-system',
+      'playground-idempotency-key',
+      'playground-correlation',
+      'playground-additional-instructions',
+    ]) {
+      const field = within(advanced).getByTestId(testId)
+      // Secondary means "beside", not "behind a closed disclosure". Everything
+      // that will be sent stays on the page and stays operable.
+      expect(field.closest('[hidden]')).toBeNull()
+    }
+  })
+
+  it('still sends on Ctrl+Enter from the metadata rail, not only from the case', async () => {
+    const calls = installFetch(standardHandler())
+    render(<App />)
+
+    fireEvent.change(screen.getByTestId('playground-project-key'), {
+      target: { value: 'demo-project' },
+    })
+    fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+      target: { value: SUBSCRIPTION_KEY },
+    })
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: 'A supplier in a sanctioned jurisdiction asks about 90-day payment terms.' },
+    })
+    await waitFor(
+      () =>
+        expect((screen.getByTestId('playground-submit') as HTMLButtonElement).disabled).toBe(false),
+      { timeout: 3000 },
+    )
+
+    // Splitting the docket into three regions must not split the shortcut: the
+    // handler is on the form, so the guidance textarea in the rail still sends.
+    fireEvent.keyDown(screen.getByTestId('playground-additional-instructions'), {
+      key: 'Enter',
+      ctrlKey: true,
+    })
+
+    await screen.findByTestId('playground-receipt', {}, { timeout: 3000 })
+    expect(calls.some((call) => call.init?.method === 'POST')).toBe(true)
   })
 })
 
@@ -875,6 +1045,706 @@ describe('errors', () => {
     const band = await screen.findByTestId('playground-error', {}, { timeout: 3000 })
     expect(band.textContent).toContain('API base URL')
     expect(band.textContent).toContain('CORS')
+  })
+})
+
+describe('case_decision_v2: the two-track result', () => {
+  async function renderV2(envelope: CaseDecisionReceipt) {
+    installFetch(standardHandler(envelope))
+    render(<App />)
+    await fillAndSubmit()
+  }
+
+  it('renders a v2 receipt at all, rather than white-screening on the missing v1 keys', async () => {
+    await renderV2(makeV2Envelope())
+
+    // The regression this whole contract change exists for: a v2 envelope has
+    // no `decision` key, and every v1 component read `envelope.decision.*`.
+    expect(screen.getByTestId('playground-outcome-band')).toBeTruthy()
+    expect(screen.getByTestId('playground-receipt')).toBeTruthy()
+    // ...and the v1 surface is not rendered beside it.
+    expect(screen.queryByTestId('playground-verdict-band')).toBeNull()
+    expect(screen.queryByTestId('playground-result-grid')).toBeNull()
+  })
+
+  it('states what the question asked for before either answer', async () => {
+    await renderV2(makeV2Envelope())
+
+    const asked = screen.getByTestId('playground-asked-summary')
+    expect(asked.textContent).toBe('Information and a verdict')
+
+    const band = screen.getByTestId('playground-outcome-band')
+    const verdictPanel = screen.getByTestId('playground-verdict-panel')
+    const informationPanel = screen.getByTestId('playground-information-panel')
+    expect(band.compareDocumentPosition(verdictPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(
+      band.compareDocumentPosition(informationPanel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('always shows both tracks, so an absent track is never mistaken for a silent failure', async () => {
+    await renderV2(makeInformationOnlyEnvelope())
+
+    expect(screen.getByTestId('playground-track-information').getAttribute('data-outcome')).toBe(
+      'answered',
+    )
+    const verdictTrack = screen.getByTestId('playground-track-verdict')
+    expect(verdictTrack.getAttribute('data-outcome')).toBe('not_requested')
+    expect(verdictTrack.textContent).toContain('Not asked for')
+  })
+
+  /* ---------- information only ---------- */
+
+  it('renders an information-only receipt without inventing a verdict panel', async () => {
+    await renderV2(makeInformationOnlyEnvelope())
+
+    expect(screen.getByTestId('playground-asked-summary').textContent).toBe('Information only')
+    expect(screen.getByTestId('playground-information-answer').textContent).toContain(
+      '48 hours in any rolling seven-day period',
+    )
+    // No section was carried, so no panel is rendered: an empty verdict panel
+    // is an emptiness a reader would take for a finding.
+    expect(screen.queryByTestId('playground-verdict-panel')).toBeNull()
+    expect(screen.queryByTestId('playground-verdict')).toBeNull()
+    // And nothing claims the two halves diverged, because only one ran.
+    expect(screen.queryByTestId('playground-outcome-split')).toBeNull()
+  })
+
+  /* ---------- verdict only ---------- */
+
+  it('renders a verdict-only receipt without inventing an information panel', async () => {
+    await renderV2(makeVerdictOnlyEnvelope())
+
+    expect(screen.getByTestId('playground-asked-summary').textContent).toBe('A verdict only')
+    expect(screen.getByTestId('playground-verdict').textContent).toBe('Not compliant')
+    expect(screen.queryByTestId('playground-information-panel')).toBeNull()
+    expect(screen.getByTestId('playground-track-information').getAttribute('data-outcome')).toBe(
+      'not_requested',
+    )
+  })
+
+  it('renders a refusal as a reached verdict, never as an empty one', async () => {
+    await renderV2(makeVerdictOnlyEnvelope())
+
+    // "Not compliant" is a verdict the rules reached. It must appear in the
+    // verdict node, not in the space reserved for "no verdict was reached".
+    expect(screen.getByTestId('playground-verdict').textContent).toBe('Not compliant')
+    expect(screen.queryByTestId('playground-verdict-not-reached')).toBeNull()
+  })
+
+  /* ---------- mixed, both answered ---------- */
+
+  it('renders both answers when both tracks answered, and claims no divergence', async () => {
+    await renderV2(makeV2Envelope())
+
+    expect(screen.getByTestId('playground-verdict').textContent).toBe('Not compliant')
+    expect(screen.getByTestId('playground-information-answer').textContent).toContain('48 hours')
+    expect(screen.queryByTestId('playground-outcome-split')).toBeNull()
+  })
+
+  /* ---------- mixed: information answered, verdict blocked ---------- */
+
+  it('makes the mixed answered/blocked case unmistakable', async () => {
+    await renderV2(makeMixedBlockedEnvelope())
+
+    // Two tracks, two different semantic tones, in one band.
+    expect(screen.getByTestId('playground-track-information').getAttribute('data-tone')).toBe(
+      'allow',
+    )
+    expect(screen.getByTestId('playground-track-verdict').getAttribute('data-tone')).toBe('action')
+
+    // And it is said in words, not left to be inferred from two colours.
+    const split = screen.getByTestId('playground-outcome-split')
+    expect(split.textContent).toContain('came out differently')
+    expect(split.textContent).toContain('what the policies state is settled')
+    expect(screen.getByTestId('playground-split-missing-count').textContent).toBe(
+      '2 facts are outstanding.',
+    )
+  })
+
+  it('renders no verdict node at all when the verdict was not reached', async () => {
+    await renderV2(makeMixedBlockedEnvelope())
+
+    // Not hidden, not dimmed, not placed second: absent. There is no traversal
+    // of this page on which a determination can be read off a blocked case.
+    expect(screen.queryByTestId('playground-verdict')).toBeNull()
+    expect(screen.getByTestId('playground-verdict-not-reached').textContent).toContain(
+      'No verdict was reached',
+    )
+    // The information answer is still fully present beside it.
+    expect(screen.getByTestId('playground-information-answer').textContent).toContain('48 hours')
+  })
+
+  it('renders missing information as an actionable register, not a list of bare strings', async () => {
+    await renderV2(makeMixedBlockedEnvelope())
+
+    const block = screen.getByTestId('playground-missing-information')
+    expect(within(block).getByTestId('missing-count').textContent).toBe('2 facts')
+
+    const items = within(block).getAllByTestId('missing-item')
+    expect(items).toHaveLength(V2_MISSING_INFORMATION.length)
+
+    const labels = within(block).getAllByTestId('missing-item-label').map((n) => n.textContent)
+    expect(labels).toEqual(V2_MISSING_INFORMATION.map((item) => item.label))
+
+    // Each fact says which judgement turns on it, and which rules wait for it.
+    expect(within(block).getAllByTestId('missing-item-why')[0].textContent).toContain(
+      'rolling seven days',
+    )
+    expect(within(block).getAllByTestId('missing-item-rules')[1].textContent).toContain('HR-4.6-R1')
+
+    // And the whole checklist leaves the page in one press.
+    expect(
+      within(block).getByRole('button', { name: /Copy the missing-fact checklist/i }),
+    ).toBeTruthy()
+    expect(block.textContent).toContain('Add these to the scenario above and send the case again.')
+  })
+
+  it('names a missing fact honestly when the gather composed no reason for it', async () => {
+    const envelope = makeMixedBlockedEnvelope()
+    envelope.verdict = {
+      ...envelope.verdict!,
+      missing_information: [
+        { fact: 'shift_end_time', label: 'Shift end time', required_by_rule_ids: [] },
+      ],
+      missing_required_facts: ['Shift end time'],
+    }
+    await renderV2(envelope)
+
+    // Nothing is invented to fill the gap; the absence is stated.
+    expect(screen.getByTestId('missing-item-no-why').textContent).toContain(
+      'No reason was composed',
+    )
+  })
+
+  it('falls back to the flat label list when no structured facts were carried', async () => {
+    const envelope = makeMixedBlockedEnvelope()
+    envelope.verdict = {
+      ...envelope.verdict!,
+      missing_information: [],
+      missing_required_facts: ['Hours already worked', 'Approval timestamp'],
+    }
+    await renderV2(envelope)
+
+    const labels = screen.getAllByTestId('missing-item-label').map((n) => n.textContent)
+    expect(labels).toEqual(['Hours already worked', 'Approval timestamp'])
+  })
+
+  /* ---------- nothing evaluated, and nothing bearing ---------- */
+
+  it('says nothing was evaluated without implying the policies were read and silent', async () => {
+    await renderV2(makeNotEvaluatedV2Envelope())
+
+    expect(screen.getByTestId('playground-asked-summary').textContent).toBe(
+      'Nothing was classified',
+    )
+    expect(screen.getByTestId('playground-track-information').getAttribute('data-outcome')).toBe(
+      'not_evaluated',
+    )
+    expect(screen.getByTestId('playground-track-verdict').getAttribute('data-outcome')).toBe(
+      'not_evaluated',
+    )
+    expect(screen.queryByTestId('playground-information-panel')).toBeNull()
+    expect(screen.queryByTestId('playground-verdict-panel')).toBeNull()
+
+    // The raw envelope opens by default, because it is the primary evidence
+    // when there is no answer to read.
+    expect(screen.getByTestId('playground-raw-json').getAttribute('open')).not.toBeNull()
+  })
+
+  it('distinguishes "no rule bears" from "not evaluated"', async () => {
+    await renderV2(makeNoRuleBearsV2Envelope())
+
+    const info = screen.getByTestId('playground-information-panel')
+    expect(info.textContent).toContain('No retained rule states anything on this subject')
+    expect(info.textContent).toContain('This is a real answer')
+    expect(screen.getByTestId('playground-information-explanation').textContent).toContain(
+      'parking allowances',
+    )
+    expect(screen.queryByTestId('playground-information-answer')).toBeNull()
+  })
+
+  /* ---------- evidence ---------- */
+
+  it('tags each citation with the track or tracks that rested on it', async () => {
+    await renderV2(makeV2Envelope())
+
+    const rows = screen.getAllByTestId('evidence-cited-by')
+    expect(rows.length).toBeGreaterThan(0)
+
+    // The rule both tracks cited appears once and carries both tags, because
+    // the policies hold one authority there, not two.
+    const table = screen.getByTestId('playground-evidence-table')
+    const ruleIds = within(table)
+      .getAllByText(/^HR-/)
+      .map((node) => node.textContent)
+    expect(ruleIds.filter((id) => id === 'HR-4.1-R3')).toHaveLength(1)
+
+    const shared = within(table).getAllByTestId('evidence-cited-by')[1]
+    expect(within(shared).getByTestId('evidence-serves-information')).toBeTruthy()
+    expect(within(shared).getByTestId('evidence-serves-verdict')).toBeTruthy()
+  })
+
+  it('reports a refused citation against the track that tried to make it', async () => {
+    await renderV2(makeFabricatedCitationV2Envelope())
+
+    const banner = screen.getByTestId('playground-fabricated')
+    expect(banner.getAttribute('data-track')).toBe('verdict')
+    expect(banner.textContent).toContain('HR-99.9-R1')
+  })
+
+  /* ---------- rule-level retrieval ---------- */
+
+  it('never claims every published policy was evaluated when a policy was rule-sliced', async () => {
+    await renderV2(makeRuleSlicedEnvelope())
+
+    // Search discarded nothing, so the policy-count test alone would have
+    // printed the over-claiming heading. Sixty-six rules were not read.
+    const heading = screen.getByTestId('retrieval-heading-text').textContent ?? ''
+    expect(heading).not.toContain('All published policies were evaluated')
+
+    expect(screen.getByTestId('retrieval-sliced-banner').textContent).toContain(
+      'One retained policy was read as a slice of its rules',
+    )
+  })
+
+  it('reports the slice: totals, selection, the rule ids read, and what was not', async () => {
+    await renderV2(makeRuleSlicedEnvelope())
+
+    expect(screen.getByTestId('retrieval-counts').textContent).toContain('Rule-sliced 1')
+
+    const claim = screen.getByTestId('rule-slice-claim').textContent ?? ''
+    expect(claim).toContain('8 of 74 rules were read')
+    expect(claim).toContain('66 rules were not read and not evaluated')
+
+    const ids = screen.getByTestId('rule-slice-ids').textContent ?? ''
+    expect(ids).toContain('FIN-12.4-R03')
+    expect(ids).toContain('FIN-12.4-R61')
+
+    // Context a selected rule names but that did not fit is named, not dropped.
+    expect(screen.getByTestId('rule-slice-omitted').textContent).toContain('FIN-12.4-R62')
+
+    // And the budgets that produced the slice are stated.
+    const budgets = screen.getByTestId('retrieval-budgets').textContent ?? ''
+    expect(budgets).toContain('above 40 rules')
+    expect(budgets).toContain('Up to 8 rules')
+
+    // The policy that was read whole says so, rather than saying nothing and
+    // leaving "no slice reported" to be read as "slice not disclosed".
+    expect(screen.getByTestId('retrieval-read-whole').textContent).toContain('Read whole')
+  })
+
+  /* ---------- de-duplication and diversity deferral ---------- */
+
+  it('keeps a collapsed exact duplicate out of the discarded register', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    // Every other discard names content nothing saw. A collapsed duplicate
+    // names content that was read, once, in the policy it points at -- so it
+    // must not sit under a heading that says it went unweighed.
+    const register = screen.getByTestId('retrieval-collapsed-register')
+    expect(register.textContent).toContain('Collapsed as exact duplicates')
+    expect(register.textContent).toContain('HW-7.9')
+    expect(register.textContent).toContain('HW-8.3')
+
+    const discarded = screen.getByText('Discarded before evaluation').closest('.panel')!
+    expect(discarded.textContent).not.toContain('HW-7.9')
+    expect(discarded.textContent).not.toContain('HW-8.3')
+    // The ordinary misses are still there.
+    expect(discarded.textContent).toContain('HW-9.2')
+  })
+
+  it('names where a collapsed duplicate’s terms were actually read', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    const representatives = screen
+      .getAllByTestId('retrieval-duplicate-of')
+      .map((node) => node.textContent)
+    expect(representatives[0]).toContain('Terms read in')
+    expect(representatives[0]).toContain('HW-2.1')
+    expect(representatives[1]).toContain('HW-2.4')
+
+    expect(screen.getByTestId('retrieval-collapsed-note').textContent).toContain(
+      '2 policies were collapsed into identical ones',
+    )
+    expect(screen.getByTestId('retrieval-counts').textContent).toContain('Duplicates collapsed 2')
+  })
+
+  it('says so when a receipt collapsed a duplicate without naming the representative', async () => {
+    await renderV2(makeUnnamedDuplicateEnvelope())
+
+    // Nothing is guessed. The absence is stated where the representative would
+    // have been, because "collapsed into something" with no name is a weaker
+    // claim than "collapsed into HW-2.1" and must not be shown as the same one.
+    expect(screen.getByTestId('retrieval-duplicate-of-unknown').textContent).toContain(
+      'did not name which policy it was collapsed into',
+    )
+  })
+
+  it('never calls a diversity-deferred policy a duplicate', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    const deferred = screen.getByTestId('retrieval-deferred-note').textContent ?? ''
+    expect(deferred).toContain('3 policies were deferred')
+    expect(deferred).toContain('not proven identical to anything')
+    expect(deferred).toContain('are not duplicates')
+
+    // The deferred policy itself stays an ordinary out-of-budget discard: it
+    // carries no duplicate chip and no representative.
+    const discarded = screen.getByText('Discarded before evaluation').closest('.panel')!
+    expect(discarded.textContent).toContain('HW-5.5')
+    expect(discarded.textContent).toContain('Outside Budget')
+    expect(within(discarded as HTMLElement).queryByTestId('retrieval-duplicate-of')).toBeNull()
+  })
+
+  it('names the selection order that put a highly-ranked policy outside the budget', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    const budgets = screen.getByTestId('retrieval-budgets').textContent ?? ''
+    expect(budgets).toContain('Selection order')
+    expect(budgets).toContain('relevance_then_normative_content_v1')
+    expect(budgets).toContain('Relevance first, then normative-content diversity')
+  })
+
+  it('splits a slice’s unread remainder from the copies it represents', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    // 66 were not read. Three of those are exact copies of rules that were, so
+    // reporting all 66 as content nobody saw would overstate the loss -- and
+    // reporting them as read would overstate the reading.
+    const claim = screen.getByTestId('rule-slice-claim').textContent ?? ''
+    expect(claim).toContain('8 of 74 rules were read')
+    expect(claim).toContain('66 were not')
+    expect(claim).toContain('3 of those are exact copies of a rule that was read')
+    expect(claim).toContain('63 rules were not read at all')
+  })
+
+  it('shows represented rule copies without implying they were read', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    const represented = screen.getByTestId('rule-slice-represented')
+    expect(represented.textContent).toContain('HW-2.1-R14')
+    expect(represented.textContent).toContain('HW-2.1-R47')
+
+    // They are not in the list of ids that were read.
+    expect(screen.getByTestId('rule-slice-ids').textContent).not.toContain('HW-2.1-R14')
+
+    // And the caption refuses the inference outright.
+    const disclosure = represented.closest('details')!
+    expect(disclosure.textContent).toContain('None of these was put in front of the model')
+    expect(disclosure.textContent).toContain('is not a second reading of it')
+
+    expect(screen.getByTestId('rule-slice-collapsed').textContent).toContain(
+      '5 further rules were not candidates',
+    )
+  })
+
+  it('glosses scenario_relevance_v2 as the ranking it is', async () => {
+    await renderV2(makeDuplicateCollapsedEnvelope())
+
+    const slice = screen.getByTestId('retrieval-rule-slice').textContent ?? ''
+    expect(slice).toContain('scenario_relevance_v2')
+    expect(slice).toContain("ranked against the question by the policy's own words")
+    // Context is disclosed as spending selected slots, not extending them.
+    expect(slice).toContain('2 of those slots went to context')
+  })
+
+  it('renders an old v2 receipt unchanged when the new fields are absent', async () => {
+    await renderV2(makeRuleSlicedEnvelope())
+
+    // Back-compat: no duplicate or deferral fields on this receipt, so no
+    // sentence about either, and the slice claim keeps its simple arithmetic.
+    expect(screen.queryByTestId('retrieval-collapsed-register')).toBeNull()
+    expect(screen.queryByTestId('retrieval-collapsed-note')).toBeNull()
+    expect(screen.queryByTestId('retrieval-deferred-note')).toBeNull()
+    expect(screen.queryByTestId('rule-slice-represented')).toBeNull()
+    expect(screen.queryByTestId('rule-slice-collapsed')).toBeNull()
+    expect(screen.getByTestId('retrieval-counts').textContent).not.toContain('Duplicates collapsed')
+    expect(screen.getByTestId('rule-slice-claim').textContent).toContain(
+      '66 rules were not read and not evaluated',
+    )
+  })
+
+  it('renders a v1 receipt unchanged when the new fields are absent', async () => {
+    installFetch(standardHandler(makeEnvelope()))
+    render(<App />)
+    await fillAndSubmit()
+
+    expect(screen.queryByTestId('retrieval-collapsed-register')).toBeNull()
+    expect(screen.queryByTestId('retrieval-deferred-note')).toBeNull()
+    expect(screen.getByTestId('retrieval-counts').textContent).toBe(
+      'Considered 12 · Retained 3 · Discarded 9',
+    )
+  })
+
+  /* ---------- the language boundary (M2) ---------- */
+
+  it('shows which language each stage worked in', async () => {
+    await renderV2(makeLanguageRenderedEnvelope())
+
+    const panel = screen.getByTestId('playground-language')
+    expect(within(panel).getByTestId('language-source').textContent).toContain('en-GB')
+    expect(within(panel).getByTestId('language-processing').textContent).toContain('en')
+    expect(within(panel).getByTestId('language-response').textContent).toContain('en-GB')
+    expect(within(panel).getByTestId('language-boundary').textContent).toContain(
+      'carried into the processing language before anything read it',
+    )
+  })
+
+  it('renders the question as it was actually adjudicated when it differs', async () => {
+    await renderV2(makeLanguageRenderedEnvelope())
+
+    // The text every stage read, shown because it is not the text that was
+    // sent, and comparing the two is the only way to catch a rendering that
+    // changed the question.
+    expect(screen.getByTestId('language-processing-differs').textContent).toContain(
+      'not what you sent',
+    )
+    expect(screen.getByTestId('language-processing-scenario').textContent).toContain(
+      'What do the published policies state about laptop replacement eligibility',
+    )
+    expect(screen.getByTestId('language-processing-hash').textContent).toBe('e'.repeat(64))
+
+    // And the caller's own bytes are stated to be untouched.
+    expect(screen.getByTestId('playground-language').textContent).toContain(
+      'the scenario, its hash and the idempotency binding are all still over exactly what you sent',
+    )
+  })
+
+  it('says an identity rendering left the question byte-for-byte', async () => {
+    await renderV2(makeLanguageIdentityEnvelope())
+
+    expect(screen.getByTestId('language-boundary').textContent).toContain(
+      'already in the processing language',
+    )
+    expect(screen.getByTestId('language-processing-same').textContent).toContain(
+      'Identical to the question you sent',
+    )
+    expect(screen.queryByTestId('language-processing-differs')).toBeNull()
+    // `not_required` is explained as needing no rendering, not as one failing.
+    expect(screen.getByTestId('language-output').textContent).toContain('none was needed')
+  })
+
+  it('states plainly when caller guidance was dropped rather than applied un-rendered', async () => {
+    await renderV2(makeLanguageDroppedGuidanceEnvelope())
+
+    const guidance = screen.getByTestId('language-guidance')
+    expect(guidance.textContent).toContain('unrendered_dropped')
+    expect(guidance.textContent).toContain('dropped rather than applied un-rendered')
+    expect(guidance.textContent).toContain('The decision itself is unaffected')
+
+    // A malformed inbound tag is named as malformed, not silently shown raw.
+    expect(screen.getByTestId('language-source').textContent).toContain('not well-formed')
+    expect(screen.getByTestId('language-output').textContent).toContain(
+      'returned exactly as it was reasoned',
+    )
+  })
+
+  it('says the cited source text is never translated, whether or not anything was rendered', async () => {
+    await renderV2(makeLanguageRenderedEnvelope())
+
+    // The claim a reader handed rendered prose is most likely to get wrong.
+    const citations = screen.getByTestId('language-citations')
+    expect(citations.textContent).toContain('Cited source text is never translated')
+    expect(citations.textContent).toContain('the published document’s own words')
+    expect(citations.textContent).toContain('a paraphrase wearing quotation marks')
+  })
+
+  it('names the translation and projection profiles that were used', async () => {
+    await renderV2(makeLanguageRenderedEnvelope())
+
+    expect(screen.getByTestId('language-profiles').textContent).toContain('case-language-in-v1')
+    expect(screen.getByTestId('language-profiles').textContent).toContain('case-language-out-v1')
+    expect(screen.getByTestId('language-projection').textContent).toContain(
+      'english_projection_v1',
+    )
+  })
+
+  it('distinguishes a receipt that predates the boundary from one that reported nothing', async () => {
+    // No `language` block at all: the v2 base fixture predates it.
+    await renderV2(makeV2Envelope())
+
+    expect(screen.getByTestId('language-absent').textContent).toContain(
+      'predates the language boundary',
+    )
+    expect(screen.getByTestId('playground-language').textContent).toContain(
+      'not the same as a boundary that ran and reported nothing',
+    )
+    // Nothing is fabricated to fill the rows.
+    expect(screen.queryByTestId('language-processing')).toBeNull()
+    expect(screen.queryByTestId('language-processing-hash')).toBeNull()
+  })
+
+  /* ---------- rule-level discovery (M2) ---------- */
+
+  it('reports the rule-level scan, the documents matched, and the index state', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+
+    const discovery = screen.getByTestId('retrieval-rule-discovery').textContent ?? ''
+    expect(discovery).toContain('Rule documents examined 412')
+    expect(discovery).toContain('Policy documents returned 6')
+    expect(discovery).toContain('Rule documents returned 23')
+    expect(discovery).toContain('matched')
+
+    expect(screen.getByTestId('retrieval-projection').textContent).toContain(
+      'english_projection_v1',
+    )
+    expect(screen.getByTestId('retrieval-projection').textContent).toContain(
+      'complete corpus projection',
+    )
+  })
+
+  it('says whether rule-level retrieval changed anything, including when it did not', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+    expect(screen.getByTestId('retrieval-elevated').textContent).toContain(
+      '2 policies were ranked higher because one of their own rules surfaced',
+    )
+
+    cleanup()
+    await renderV2(makeRuleIndexDegradedEnvelope())
+    expect(screen.getByTestId('retrieval-elevated').textContent).toContain(
+      'rule-level retrieval altered nothing on this question',
+    )
+  })
+
+  it('reports the fused candidate pool and the diversity quota that shaped it', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+
+    const candidates = screen.getAllByTestId('rule-ranking-candidates')[0].textContent ?? ''
+    expect(candidates).toContain('relevance 19')
+    expect(candidates).toContain('quantity 4')
+    expect(candidates).toContain('fused 27')
+    // A quantity rank decides reading order, never the outcome.
+    expect(candidates).toContain('never what the rule decides')
+
+    expect(screen.getByTestId('rule-ranking-quota').textContent).toContain(
+      '4 of the budget’s slots were reserved',
+    )
+  })
+
+  it('never says an unscorable rule was scored in its own language', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+
+    const unprojected = screen.getByTestId('rule-ranking-unprojected').textContent ?? ''
+    expect(unprojected).toContain('3 rules could not be scored by relevance')
+    expect(unprojected).toContain('no English projection')
+    expect(unprojected).toContain('score zero rather than being scored against the document’s own language')
+    // They remain reachable by the other ranks, and that is said.
+    expect(unprojected).toContain('can still be placed by the rule index or the quantity rank')
+  })
+
+  it('tells zero rule-index hits apart from an index that was never asked', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+
+    // HW-2.4 was read whole and the index placed none of its rules.
+    expect(screen.getByTestId('rule-ranking-zero-matched').textContent).toContain(
+      'asked and placed none',
+    )
+    expect(screen.getByTestId('rule-ranking-zero-matched').textContent).toContain(
+      'an answer, not an outage',
+    )
+  })
+
+  it('surfaces a degraded rule index as a qualified selection, not a silent one', async () => {
+    await renderV2(makeRuleIndexDegradedEnvelope())
+
+    expect(screen.getByTestId('retrieval-rule-index-degraded').textContent).toContain(
+      'query against them failed recoverably',
+    )
+    expect(screen.getByTestId('retrieval-rule-index-degraded').textContent).toContain(
+      'rules reachable only through the rule index may not have been placed',
+    )
+    // And each policy's method says so.
+    expect(screen.getByTestId('retrieval-rule-slice').textContent).toContain(
+      'scenario_relevance_v3',
+    )
+    expect(screen.getByTestId('retrieval-rule-slice').textContent).toContain(
+      "ran without the rule index's ranking",
+    )
+  })
+
+  it('glosses hybrid_rule_v1 as the fused ranking it is', async () => {
+    await renderV2(makeRuleIndexMatchedEnvelope())
+
+    const slice = screen.getByTestId('retrieval-rule-slice').textContent ?? ''
+    expect(slice).toContain('hybrid_rule_v1')
+    expect(slice).toContain('fused with the relevance and quantity ranks')
+  })
+
+  it('qualifies every ranking when the corpus projection was not ready', async () => {
+    await renderV2(makeProjectionNotReadyEnvelope())
+
+    const banner = screen.getByTestId('retrieval-projection-not-ready').textContent ?? ''
+    expect(banner).toContain('did not report a complete projection')
+    expect(banner).toContain('may not be comparable to the question')
+  })
+
+  it('renders none of the M2 retrieval disclosures when the fields are absent', async () => {
+    await renderV2(makeRuleSlicedEnvelope())
+
+    expect(screen.queryByTestId('retrieval-rule-discovery')).toBeNull()
+    expect(screen.queryByTestId('retrieval-elevated')).toBeNull()
+    expect(screen.queryByTestId('retrieval-projection')).toBeNull()
+    expect(screen.queryByTestId('retrieval-projection-not-ready')).toBeNull()
+    expect(screen.queryByTestId('retrieval-rule-index-degraded')).toBeNull()
+    expect(screen.queryByTestId('rule-ranking')).toBeNull()
+  })
+
+  /* ---------- v1 is still readable ---------- */
+  it('still renders a v1 receipt through the v1 surface', async () => {
+    installFetch(standardHandler(makeEnvelope()))
+    render(<App />)
+    await fillAndSubmit()
+
+    expect(screen.getByTestId('playground-verdict-band')).toBeTruthy()
+    expect(screen.getByTestId('playground-result-grid')).toBeTruthy()
+    expect(screen.getByTestId('playground-verdict').textContent).toBe(
+      'Proceed only with prior sanctions clearance.',
+    )
+    // And the v2 surface is not rendered beside it.
+    expect(screen.queryByTestId('playground-outcome-band')).toBeNull()
+  })
+
+  it('shows the v1 decider route in the evidence column that v2 uses for tracks', async () => {
+    installFetch(standardHandler(makeEnvelope()))
+    render(<App />)
+    await fillAndSubmit()
+
+    // v1 rows have no `serves`, so the same column answers the same question
+    // with the vocabulary that receipt has.
+    expect(screen.getAllByTestId('evidence-cited-by')[0].textContent).toContain('Decision')
+    expect(screen.queryByTestId('evidence-serves-verdict')).toBeNull()
+  })
+
+  /* ---------- an envelope this build has never seen ---------- */
+
+  it('renders an unrecognised envelope as itself instead of white-screening', async () => {
+    const future = {
+      ...makeV2Envelope(),
+      schema_version: 'case_decision_v9',
+    } as unknown as CaseDecisionReceipt
+    await renderV2(future)
+
+    expect(screen.getByTestId('playground-unrecognised').textContent).toContain(
+      'envelope this page does not recognise',
+    )
+    // Identity and the seal are still real, so the receipt still renders.
+    expect(screen.getByTestId('playground-receipt')).toBeTruthy()
+    // Nothing is interpreted: no answer surface of either version appears.
+    expect(screen.queryByTestId('playground-outcome-band')).toBeNull()
+    expect(screen.queryByTestId('playground-verdict-band')).toBeNull()
+    expect(screen.getByTestId('playground-raw-json').getAttribute('open')).not.toBeNull()
+  })
+
+  /* ---------- the live region ---------- */
+
+  it('announces both tracks, not just the verdict', async () => {
+    await renderV2(makeMixedBlockedEnvelope())
+
+    const announcement = screen.getByTestId('playground-announcer').textContent ?? ''
+    expect(announcement).toContain('Information answered')
+    expect(announcement).toContain('verdict missing required facts')
+    expect(announcement).toContain('2 facts are needed')
   })
 })
 

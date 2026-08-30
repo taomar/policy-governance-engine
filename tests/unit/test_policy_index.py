@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import UTC, datetime
 from json import JSONDecodeError
@@ -70,18 +71,44 @@ def _settings(*, search_enabled=True, ai_enabled=True):
 
 
 class FakeOpenAI:
+    """An embedder and a rendering model in one, because a rebuild needs both.
+
+    `chat` stands in for the English projection call: it returns each value it
+    was given, unchanged, under the key it was given. That is exactly what a
+    faithful rendering of text already in the processing language does, so the
+    documents a rebuild produces here carry the same text they always did — and
+    every preservation check the projection applies still runs against it.
+    """
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+        self.rendered_batches: list[dict] = []
+
     async def embed(self, texts):
         self.texts = list(texts)
         return [[float(i), 0.0, 1.0] for i, _text in enumerate(texts)]
 
+    async def chat(self, messages, **_kwargs):
+        payload = _projection_payload(messages[-1]["content"])
+        self.rendered_batches.append(payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _projection_payload(user_content: str) -> dict:
+    """Pull the contained JSON object back out of a projection prompt."""
+
+    body = user_content.split("-----\n", 1)[1].rsplit("\n-----", 1)[0]
+    return json.loads(json.loads(body))
+
 
 class FakeSearch:
-    def __init__(self, existing_ids=()):
+    def __init__(self, existing_ids=(), *, ready=True):
         self.created = []
         self.uploaded = []
         self.filters_seen = []
         self.deleted = []
         self.existing_ids = list(existing_ids)
+        self.ready = ready
 
     async def create_index(self, definition):
         self.created.append(definition)
@@ -89,15 +116,21 @@ class FakeSearch:
 
     async def upload_documents(self, index, documents):
         self.uploaded.append((index, list(documents)))
-        return {"value": []}
+        return {"value": [{"key": doc["id"], "status": True} for doc in documents]}
 
     async def find_ids_by_filter(self, index, *, filter_expr, page_size=1000):
         self.filters_seen.append((index, filter_expr, page_size))
+        if "manifest_state" in filter_expr:
+            return ["manifest"] if self.ready else []
         return list(self.existing_ids)
 
     async def delete_documents(self, index, ids):
         self.deleted.append((index, list(ids)))
         return {"value": []}
+
+    @property
+    def uploaded_documents(self) -> list[dict]:
+        return [doc for _index, docs in self.uploaded for doc in docs]
 
 
 class ExplodingSearch(FakeSearch):

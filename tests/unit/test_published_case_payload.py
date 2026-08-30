@@ -21,7 +21,7 @@ from policy_platform.infrastructure.persistence.policy_version_import import imp
 from policy_platform.infrastructure.persistence.provision_snapshot import ProvisionSnapshot
 from policy_platform.infrastructure.projection.policy_case_payload import PROJECTION, to_compact
 from policy_platform.infrastructure.projection.published_case_payload import (
-    published_case_payload_for_policy,
+    published_case_payload_with_extras_for_policy,
     published_case_payloads_for_policy_set,
 )
 from tests.fixtures.factories import make_rule
@@ -175,10 +175,19 @@ async def test_one_policy_helper_returns_none_when_the_policy_or_active_version_
     try:
         await _seed(session)
 
-        alpha = await published_case_payload_for_policy(session, _SET_ID, "alpha-policy")
+        alpha = await published_case_payload_with_extras_for_policy(
+            session, _SET_ID, "alpha-policy"
+        )
         assert alpha is not None
-        assert alpha["envelope"]["provision_key"] == "alpha-policy"
-        assert await published_case_payload_for_policy(session, _SET_ID, "missing-policy") is None
+        assert alpha[0]["envelope"]["provision_key"] == "alpha-policy"
+        # The governing fields the lean payload omits ride beside it, one per rule.
+        assert len(alpha[1]["authority"]) == len(alpha[0]["rules"])
+        assert (
+            await published_case_payload_with_extras_for_policy(
+                session, _SET_ID, "missing-policy"
+            )
+            is None
+        )
         assert await published_case_payloads_for_policy_set(session, "missing-set") == []
     finally:
         await session.close()

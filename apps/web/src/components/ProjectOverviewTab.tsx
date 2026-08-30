@@ -12,7 +12,7 @@ import {
   SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type DeletePolicySetResponse, type PolicyIndexBuildResult, type PolicyIndexState, type PolicySet, type QualityRunSummary, type SourceDocument, type WorkspaceCounts } from "../api";
+import { api, aiApi, PolicyPlatformApiError, type ApprovedPolicyVersion, type DeletePolicySetResponse, type PolicyIndexBuildResult, type PolicyIndexState, type PolicyIndexValidationResult, type PolicySet, type QualityRunSummary, type SourceDocument, type WorkspaceCounts } from "../api";
 import { ActivityPanel } from "./ActivityPanel";
 import { NotesPanel } from "./NotesPanel";
 import { PolicySetSummaryPanel } from "./PolicySetSummaryPanel";
@@ -26,6 +26,7 @@ import {
   policyIndexRepairable,
   rebuildResultMessage,
   retrievalStatusIsIndexRepairable,
+  validationResultMessage,
 } from "../policyIndexHealth";
 
 const { Text } = Typography;
@@ -202,6 +203,8 @@ export function ProjectOverviewTab({
   const [policyIndexLoading, setPolicyIndexLoading] = useState(false);
   const [rebuildingPolicyIndex, setRebuildingPolicyIndex] = useState(false);
   const [rebuildResult, setRebuildResult] = useState<PolicyIndexBuildResult | null>(null);
+  const [validatingPolicyIndex, setValidatingPolicyIndex] = useState(false);
+  const [validationResult, setValidationResult] = useState<PolicyIndexValidationResult | null>(null);
   const [latestQualityRun, setLatestQualityRun] = useState<QualityRunSummary | null | undefined>(undefined);
   const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
   const [activeExtractionByVersion, setActiveExtractionByVersion] = useState<Record<string, boolean>>({});
@@ -350,6 +353,7 @@ export function ProjectOverviewTab({
   const policyIndexCanRebuild =
     (policyIndexState ? policyIndexRepairable(policyIndexState) : false) || arrivedFromLiveIndexFault;
   const rebuildNotice = rebuildResult ? rebuildResultMessage(rebuildResult) : null;
+  const validationNotice = validationResult ? validationResultMessage(validationResult) : null;
   const refreshPolicyIndexState = async () => {
     const state = await api.getPolicyIndexState(policySet.key);
     setPolicyIndexState(state);
@@ -369,6 +373,28 @@ export function ProjectOverviewTab({
       setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
     } finally {
       setRebuildingPolicyIndex(false);
+    }
+  };
+
+  // Validation is offered whenever there is a recorded index to ask about, not
+  // only when the panel already thinks something is wrong. That is the point of
+  // it: a corpus that was built successfully and is *unfaithful* reports as
+  // healthy on every axis this panel can see, and the only way to learn
+  // otherwise is to check it.
+  const handleValidatePolicyIndex = async () => {
+    setValidatingPolicyIndex(true);
+    setPolicyIndexError(null);
+    setValidationResult(null);
+    try {
+      const result = await api.validatePolicyIndex(policySet.key);
+      // Same ordering argument as the rebuild: the notice speaks about the
+      // state below, so the state below is refreshed before the notice exists.
+      await refreshPolicyIndexState();
+      setValidationResult(result);
+    } catch (e) {
+      setPolicyIndexError(e instanceof PolicyPlatformApiError ? e.detail : String(e));
+    } finally {
+      setValidatingPolicyIndex(false);
     }
   };
 
@@ -580,6 +606,9 @@ export function ProjectOverviewTab({
                         Rebuild policy index
                       </Button>
                     )}
+                    <Button size="small" onClick={handleValidatePolicyIndex} loading={validatingPolicyIndex}>
+                      Validate projection
+                    </Button>
                   </div>
                   {policyIndexLoading ? (
                     <Text type="secondary">Loading the recorded index state…</Text>
@@ -604,6 +633,14 @@ export function ProjectOverviewTab({
                           showIcon
                           title={rebuildNotice.message}
                           description={rebuildNotice.description}
+                        />
+                      ) : null}
+                      {validationNotice ? (
+                        <Alert
+                          type={validationNotice.type}
+                          showIcon
+                          title={validationNotice.message}
+                          description={validationNotice.description}
                         />
                       ) : null}
                       <dl className="policy-index-readiness__facts">

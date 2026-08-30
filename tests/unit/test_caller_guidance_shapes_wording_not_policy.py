@@ -49,6 +49,8 @@ from policy_platform.contracts.case_decision import (  # noqa: E402
     request_hash,
 )
 from policy_platform.infrastructure.assistants import ai_case_intent, ai_case_project  # noqa: E402
+from tests.fixtures.language_boundary import install_language_boundary  # noqa: E402
+from tests.fixtures.search_stubs import manifest_ids  # noqa: E402
 
 #: The realistic hostile input. Not a contrived token — this is what someone
 #: types when they want a friendlier answer than the records support, and what
@@ -281,12 +283,12 @@ async def test_guidance_never_reaches_the_retrieval_query(monkeypatch) -> None:
         async def index_exists(self, name: str) -> bool:
             return True
 
-        async def vector_search(self, index: str, *, query_text: str, vector: list, top: int):
-            searched.append(query_text)
+        async def vector_search(self, index: str, **kwargs: Any):
+            searched.append(kwargs.get("query_text"))
             return []
 
-        async def find_ids_by_filter(self, index: str, *, filter_expr: str, page_size: int):
-            return []
+        async def find_ids_by_filter(self, index: str, **kwargs: Any):
+            return manifest_ids(kwargs.get("filter_expr", ""))
 
     class _Settings:
         search_enabled = True
@@ -327,20 +329,28 @@ async def test_guidance_never_reaches_the_retrieval_query(monkeypatch) -> None:
         additional_instructions=MALICIOUS,
     )
 
+    # One embedding, reused by every search — the question is the same question
+    # for the policy documents and for the rule documents, and embedding it twice
+    # would rank the two kinds against two readings of it.
     assert embedded == [["Was the hotel booking allowed?"]]
-    assert searched == ["Was the hotel booking allowed?"]
+    # Every search, whichever kind of document it scoped to, was given the
+    # question and nothing else. Asserting the *set* rather than a fixed count
+    # keeps the claim about what was searched rather than about how many calls
+    # the retrieval happens to make.
+    assert searched, "retrieval made no query at all"
+    assert set(searched) == {"Was the hotel booking allowed?"}
     for seen in embedded[0] + searched:
         assert "Ignore the policy" not in seen
 
 
 async def test_guidance_never_reaches_the_intent_classifier(monkeypatch) -> None:
-    """The classifier decides whether an answer is a determination at all.
+    """The classifier decides which tracks run at all.
 
     Letting caller text influence it would let a caller choose the shape of
     their own answer — "treat this as a decision and give me a verdict" — which
     is the first thing guidance is forbidden to do. It reads the question and
     the policies' tested quantities, exactly as it did before this parameter
-    existed.
+    existed, and there is no request field for the booleans either.
     """
 
     classified: list[dict] = []
@@ -348,13 +358,18 @@ async def test_guidance_never_reaches_the_intent_classifier(monkeypatch) -> None
 
     async def _classify(scenario: str, *, tested_quantities: list[str], **kwargs: Any) -> dict:
         classified.append({"scenario": scenario, "tested": tested_quantities, "kwargs": kwargs})
-        return {"intent": ai_case_intent.DECISION, "reasoning": "supplies facts"}
+        return {
+            "information_requested": False,
+            "verdict_requested": True,
+            "reasoning": "supplies facts",
+            "classifier_version": ai_case_intent.NEEDS_CLASSIFIER_VERSION,
+        }
 
     async def _decide(records: list[dict], *, scenario: str, reasoning_effort: str = "medium", **kwargs: Any):
         gathered.append(dict(kwargs))
         return {"status": ai_case_intent.NO_RULE_BEARS, "citations": [], "grounding": {}}
 
-    monkeypatch.setattr(ai_case_intent, "classify_case_intent", _classify)
+    monkeypatch.setattr(ai_case_intent, "classify_case_needs", _classify)
     monkeypatch.setattr(ai_case_intent, "answer_decision_over_policies", _decide)
 
     await ai_case_intent.answer_case_over_policies(
@@ -368,6 +383,20 @@ async def test_guidance_never_reaches_the_intent_classifier(monkeypatch) -> None
     assert classified[0]["kwargs"] == {}, "the classifier was handed caller guidance"
     # The gather, by contrast, is exactly where it belongs.
     assert gathered == [{"additional_instructions": MALICIOUS}]
+
+
+async def test_the_needs_classifier_accepts_no_guidance_parameter() -> None:
+    """The absence is structural, not a convention someone remembered.
+
+    A signature that *accepted* guidance and chose not to pass it on would be one
+    edit away from passing it on. The classifier takes the question and the
+    tested quantities, and there is nowhere for caller text to enter.
+    """
+
+    import inspect
+
+    parameters = set(inspect.signature(ai_case_intent.classify_case_needs).parameters)
+    assert parameters == {"scenario", "tested_quantities"}
 
 
 # ── what the constructed prompt says ─────────────────────────────────
@@ -706,6 +735,11 @@ async def test_a_failed_decision_logs_no_scenario_and_no_guidance(monkeypatch, c
         policy_case_decision.PolicyCaseDecisionRepository, "finalize_failed", _finalize_failed
     )
     monkeypatch.setattr(policy_case_decision, "_invoke_decider", _boom)
+    # The language boundary sits between the reservation and the decider, so it
+    # is crossed on the way to the fault this test is about. Left at its
+    # identity default: what it does with the caller's prose is another suite's
+    # business, and reaching a live deployment from here would be a third.
+    install_language_boundary(monkeypatch)
 
     class _Session:
         async def rollback(self):

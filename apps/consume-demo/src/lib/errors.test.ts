@@ -24,6 +24,39 @@ describe('mapDecisionError', () => {
     expect(error.recovery).toBe('focus-key')
   })
 
+  describe('the 503 family is split by the server code too', () => {
+    it('does not offer a retry for index_projection_unavailable, because retrying cannot help', () => {
+      const error = mapDecisionError({
+        status: 503,
+        detail: {
+          code: 'index_projection_unavailable',
+          message: 'Expected projection english_projection_v1.',
+        },
+        projectKey,
+      })
+
+      // A rebuild is the only thing that clears this, so the copy must not
+      // send a caller into a retry loop against an operator-only condition.
+      expect(error.recovery).toBe('none')
+      expect(error.body).toContain('Retrying will not clear this')
+      expect(error.body).toContain('rebuild the index')
+      expect(error.body).not.toContain('Try again shortly')
+
+      // And it must not be readable as an empty result.
+      expect(error.heading).toContain('no usable projection')
+      expect(error.body).toContain('deliberately not returned as "no policy matched your question"')
+      // The server's own detail is carried through rather than swallowed.
+      expect(error.body).toContain('Expected projection english_projection_v1.')
+    })
+
+    it('still gives the generic transient copy for any other 503', () => {
+      const error = mapDecisionError({ status: 503, projectKey })
+      expect(error.heading).toBe('The policy service is not available right now.')
+      expect(error.body).toContain('Try again shortly')
+      expect(error.recovery).toBe('retry')
+    })
+  })
+
   describe('the 409 family is split by the server code, not by the status', () => {
     it('idempotency_key_reused offers a new key', () => {
       const error = mapDecisionError({
