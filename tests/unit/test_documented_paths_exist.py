@@ -91,6 +91,26 @@ _EXPECTED_ABSENT: dict[str, str] = {
         "deleted 2026-08-14 as a drifted copy of a runtime prompt; the reference "
         "is the subject of the record of its removal"
     ),
+    # The local-only tree, named from the published pages that describe where
+    # internal material lives. `.gitignore` excludes it at 93-95, so it is absent
+    # from every clone and from CI by design -- the same case as `.venv-graph/`
+    # above. The published sentences are correct about the working method; what
+    # they name is deliberately not shipped, and rewriting them to pretend the
+    # tree does not exist would misdescribe how this repository is actually run.
+    #
+    # Listed leaf by leaf rather than as a prefix so that a *new* broken
+    # reference under the same tree still fails: a pattern here would be a
+    # standing permission for every future path someone invents beneath it.
+    "docs/internal/": "git-ignored local-only tree (.gitignore:93-95)",
+    "docs/internal/adr/": "git-ignored local-only tree (.gitignore:93-95)",
+    "docs/internal/audits/": "git-ignored local-only tree (.gitignore:93-95)",
+    "docs/internal/planning/": "git-ignored local-only tree (.gitignore:93-95)",
+    "docs/internal/planning/repair-passes.md": "git-ignored local-only record",
+    "docs/internal/planning/security-roadmap.md": "git-ignored local-only record",
+    "docs/internal/handover/running-path.md": "git-ignored local-only record",
+    "docs/internal/handover/HANDOVER.md": "git-ignored local-only record",
+    # A build output, produced by `npm run build` and absent until then.
+    "dist/": "build output, git-ignored and absent from a clean checkout",
 }
 
 

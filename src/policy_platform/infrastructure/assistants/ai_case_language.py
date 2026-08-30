@@ -122,6 +122,35 @@ UNKNOWN_LANGUAGE: Final[str] = "und"
 #: for a different provider while a live server was up, so it cannot be proven
 #: unused — and a profile that might name two different contracts is worse than
 #: a gap in the numbering.
+#:
+#: THE PROVIDER THAT EXPERIMENT WAS FOR, AND WHY IT IS NOT HERE
+#:
+#: The experiment was a pivot to a machine-translation service — a transducer
+#: rather than a generative model — and it was argued for on two grounds, both
+#: of which were real:
+#:
+#: 1. **A safety classifier sits in the path of compliance text.** It fails
+#:    preferentially on exactly the passages this platform exists to adjudicate:
+#:    misconduct, harassment, dismissal, penalties. A transducer has no such
+#:    classifier because it is not deciding whether to say something.
+#: 2. **Measured cost.** The corpus preflight recorded 101 calls and 671.5 s for
+#:    38 items — 2.66 calls and 17.7 s per item, roughly 22 minutes for a single
+#:    large schedule — on a publish path that is inline and best-effort in a
+#:    repository with no scheduler and no worker runtime.
+#:
+#: **It was attempted, reverted, and the generative path was repaired instead**
+#: (`v3` → `v4` above). The corpus projection then completed and went live on
+#: this provider. The pivot is therefore **withdrawn as a decision, not
+#: deferred**: the code here is the decision, and a recorded intention
+#: contradicting it would be worse than either choice.
+#:
+#: **Neither motivation went away with the revert, and neither is fixed by it.**
+#: The content-filter exposure is now *handled* — the corpus projection reports
+#: `content_filter` as a first-class failure reason rather than dying — but
+#: handling it is not removing it, and a blocked item is still an item that does
+#: not reach the index. The cost figure is untouched by a decoding fix. Both
+#: remain open, and both are arguments for a worker runtime rather than grounds
+#: to relax a filter or to re-open the provider question on its own.
 TRANSLATION_PROFILE: Final[str] = "case-language-v4"
 
 #: The name the *corpus* projection is stamped with when it is built (M2).
