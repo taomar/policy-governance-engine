@@ -1,6 +1,10 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { INSPECTOR } from '../copy/strings'
-import { MAX_ADDITIONAL_INSTRUCTIONS_CHARS, type TraceRef } from '../contracts/caseDecision'
+import {
+  MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
+  type CaseDecisionReceipt,
+  type TraceRef,
+} from '../contracts/caseDecision'
 import { CodeBlock, renderJsonLine } from './CodeBlock'
 import { subscriptionKeyHeaderLine } from '../lib/subscriptionKey'
 import {
@@ -20,10 +24,13 @@ import {
  * the fact that the audience has to take on trust. It is also why the results
  * column is never an empty void on first load.
  *
- * Three sections, and each one is doing a different job:
+ * Four sections, and each one is doing a different job:
  *
  *   * `Request JSON` is the body, byte for byte, with the guidance key absent
  *     when there is no guidance -- because that is what will be on the wire.
+ *   * `Response JSON` is the full returned envelope, exactly as the page holds
+ *     it. Before the first response it says so rather than showing an empty
+ *     code block.
  *   * `Caller guidance` is the page's central safety statement, rendered as two
  *     registers that cannot be mistaken for one control: what the caller may
  *     edit, and what the server owns and will not expose.
@@ -42,10 +49,11 @@ import {
  * unreachable because a window got smaller.
  */
 
-type SectionId = 'json' | 'guidance' | 'http'
+type SectionId = 'json' | 'response' | 'guidance' | 'http'
 
 const SECTIONS: { id: SectionId; label: string; testId: string }[] = [
   { id: 'json', label: INSPECTOR.tabJson, testId: 'inspector-tab-json' },
+  { id: 'response', label: INSPECTOR.tabResponse, testId: 'inspector-tab-response' },
   { id: 'guidance', label: INSPECTOR.tabGuidance, testId: 'inspector-tab-guidance' },
   { id: 'http', label: INSPECTOR.tabHttp, testId: 'inspector-tab-http' },
 ]
@@ -63,6 +71,8 @@ export interface InspectorProps {
   requestChanged: boolean
   /** From the most recent receipt, when there is one. */
   trace: TraceRef | null
+  /** The full response envelope, shown byte-for-byte as JSON after a request. */
+  response: CaseDecisionReceipt | null
   guidanceRef: RefObject<HTMLTextAreaElement | null>
   onAnnounce: (message: string) => void
 }
@@ -71,6 +81,7 @@ export function RequestInspector(props: InspectorProps) {
   const [active, setActive] = useState<SectionId>('json')
   const [openRows, setOpenRows] = useState<Record<SectionId, boolean>>({
     json: true,
+    response: false,
     guidance: false,
     http: false,
   })
@@ -256,6 +267,23 @@ export function RequestInspector(props: InspectorProps) {
     </div>
   )
 
+  const responsePanel = props.response ? (
+    <CodeBlock
+      text={JSON.stringify(props.response, null, 2)}
+      language="JSON"
+      what="the full response JSON"
+      downloadName={`${props.response.decision_id}.json`}
+      testId="inspector-response-code"
+      onAnnounce={props.onAnnounce}
+      renderLine={renderJsonLine}
+      maxHeight={520}
+    />
+  ) : (
+    <p className="empty-state" data-testid="inspector-response-empty">
+      {INSPECTOR.responseEmpty}
+    </p>
+  )
+
   const httpPanel = (
     <>
       <CodeBlock
@@ -280,6 +308,7 @@ export function RequestInspector(props: InspectorProps) {
 
   const panels: Record<SectionId, React.ReactNode> = {
     json: jsonPanel,
+    response: responsePanel,
     guidance: guidancePanel,
     http: httpPanel,
   }

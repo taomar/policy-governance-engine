@@ -77,8 +77,10 @@ export const INSPECTOR = {
   title: 'Request Inspector',
   subtitle: 'This is the exact request this page will send. It updates as you type.',
   tabJson: 'Request JSON',
+  tabResponse: 'Response JSON',
   tabGuidance: 'Caller guidance',
   tabHttp: 'Raw HTTP',
+  responseEmpty: 'No response yet. Send the request to inspect the full decision envelope here.',
   jsonCaption: 'Correlation and idempotency travel as headers, not in the body. See Raw HTTP.',
   hashLabel: 'Request hash (client preview)',
   hashCaption:

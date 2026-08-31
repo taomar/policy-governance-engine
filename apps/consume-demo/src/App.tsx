@@ -391,6 +391,23 @@ export default function App() {
   const v2Citations: MergedCitationRef[] = v2?.citations ?? []
   const v1Citations: MergedCitationRef[] = v1?.citations ?? []
 
+  const requestInspector = (
+    <RequestInspector
+      values={values}
+      baseUrl={baseUrl}
+      projectKey={projectKey}
+      subscriptionKey={subscriptionKey}
+      correlationId={correlationId}
+      idempotencyKey={idempotencyKey}
+      clientRequestHash={clientRequestHash}
+      requestChanged={idempotencyConflict}
+      trace={envelope?.trace ?? null}
+      response={envelope}
+      guidanceRef={guidanceRef}
+      onAnnounce={onAnnounce}
+    />
+  )
+
   return (
     <>
       <header className="pg-header" role="banner">
@@ -447,22 +464,10 @@ export default function App() {
           onExpand={() => setDocketCollapsed(false)}
         />
 
-        {/* Directly below the composer and below Send, never above it. The
-            preview is one glance away without standing between a reader and
-            the button they came here to press. */}
-        <RequestInspector
-          values={values}
-          baseUrl={baseUrl}
-          projectKey={projectKey}
-          subscriptionKey={subscriptionKey}
-          correlationId={correlationId}
-          idempotencyKey={idempotencyKey}
-          clientRequestHash={clientRequestHash}
-          requestChanged={idempotencyConflict}
-          trace={envelope?.trace ?? null}
-          guidanceRef={guidanceRef}
-          onAnnounce={onAnnounce}
-        />
+        {/* Before a response exists the inspector remains close to the composer
+            so the request can be checked before it is sent. Once Rule evidence
+            exists, the same inspector moves directly below that evidence. */}
+        {!showResult ? requestInspector : null}
 
         <div className="pg-results" ref={resultsRef}>
           {submitting ? (
@@ -532,16 +537,6 @@ export default function App() {
                   {v2.information ? <InformationPanel section={v2.information} /> : null}
 
                   <EvidenceTable citations={v2Citations} baseUrl={baseUrl} />
-                  <RetrievalDisclosure envelope={v2} baseUrl={baseUrl} />
-                  {/* Provenance, with the rest of the provenance: which language
-                      each stage worked in, what was actually adjudicated, and
-                      the standing claim that the quotations above were not
-                      rendered into anything. */}
-                  <LanguagePanel
-                    language={v2.language}
-                    requestScenario={v2.request.scenario}
-                    onAnnounce={onAnnounce}
-                  />
                 </>
               ) : null}
 
@@ -555,9 +550,27 @@ export default function App() {
                     baseUrl={baseUrl}
                     fallbackRoute={v1.decision.decider_route}
                   />
-                  <RetrievalDisclosure envelope={v1} baseUrl={baseUrl} />
                 </>
               ) : null}
+
+              {requestInspector}
+
+              {v2 ? (
+                <>
+                  <RetrievalDisclosure envelope={v2} baseUrl={baseUrl} />
+                  {/* Provenance, with the rest of the provenance: which language
+                      each stage worked in, what was actually adjudicated, and
+                      the standing claim that the quotations above were not
+                      rendered into anything. */}
+                  <LanguagePanel
+                    language={v2.language}
+                    requestScenario={v2.request.scenario}
+                    onAnnounce={onAnnounce}
+                  />
+                </>
+              ) : null}
+
+              {v1 ? <RetrievalDisclosure envelope={v1} baseUrl={baseUrl} /> : null}
 
               {/* ---------- an envelope this build has never seen ---------- */}
               {kind === 'unrecognised' ? (

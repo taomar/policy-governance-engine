@@ -132,10 +132,12 @@ describe('the request inspector, before anything is submitted', () => {
     expect(screen.queryByTestId('playground-result-grid')).toBeNull()
   })
 
-  it('shows all three sections', () => {
+  it('shows request, response, guidance and raw HTTP sections', () => {
     installFetch(standardHandler())
     render(<App />)
     expect(screen.getByTestId('inspector-tab-json')).toBeTruthy()
+    expect(screen.getByTestId('inspector-tab-response')).toBeTruthy()
+    expect(screen.getByTestId('inspector-response-empty').textContent).toContain('No response yet')
     expect(screen.getByTestId('inspector-tab-guidance')).toBeTruthy()
     expect(screen.getByTestId('inspector-tab-http')).toBeTruthy()
   })
@@ -636,6 +638,26 @@ describe('the result', () => {
     }
   })
 
+  it('moves the inspector below Rule evidence and exposes the full response JSON', async () => {
+    const envelope = makeEnvelope()
+    installFetch(standardHandler(envelope))
+    render(<App />)
+    await fillAndSubmit()
+
+    const evidence = screen.getByTestId('playground-evidence-table')
+    const inspector = screen.getByTestId('playground-request-inspector')
+    const retrieval = screen.getByTestId('playground-retrieval')
+    expect(evidence.compareDocumentPosition(inspector) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(inspector.compareDocumentPosition(retrieval) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    )
+
+    const response = screen.getByTestId('inspector-tab-response').textContent ?? ''
+    expect(response).toContain('case_decision_v1')
+    expect(response).toContain(envelope.decision_id)
+    expect(screen.queryByTestId('inspector-response-empty')).toBeNull()
+  })
+
   it('puts the decision status before the verdict in document order', async () => {
     installFetch(standardHandler())
     render(<App />)
@@ -661,8 +683,15 @@ describe('the result', () => {
     // the raw JSON to look tidier would be forging the evidence. Everywhere the
     // page speaks in its own voice, the verdict is absent.
     const raw = screen.getByTestId('playground-raw-json')
+    const responseJson = screen.getByTestId('inspector-tab-response')
     const spoken = Array.from(document.body.querySelectorAll<HTMLElement>('section, .banner'))
-      .filter((node) => !raw.contains(node) && !node.contains(raw))
+      .filter(
+        (node) =>
+          !raw.contains(node) &&
+          !node.contains(raw) &&
+          !responseJson.contains(node) &&
+          !node.contains(responseJson),
+      )
       .map((node) => node.textContent ?? '')
       .join(' ')
     expect(spoken).not.toContain('THIS MUST NEVER BE RENDERED')
