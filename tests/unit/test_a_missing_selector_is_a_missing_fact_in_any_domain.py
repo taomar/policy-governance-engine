@@ -407,6 +407,9 @@ async def test_a_missing_selector_among_explicit_outcomes_is_a_missing_fact(
     ]
     assert decision["citations"][0]["rule_id"] == domain.rule_id
     assert decision["citations"][0]["source"]["text"] == domain.schedule_text
+    user_content = stubbed.calls[-1]["messages"][-1]["content"]
+    assert '"selector_catalogue"' in user_content
+    assert '"selector_catalogue":[]' in user_content
 
 
 @pytest.mark.parametrize("domain", DOMAINS, ids=_DOMAIN_IDS)
@@ -1098,9 +1101,28 @@ def test_the_prompts_ask_for_a_key_and_keep_the_prose_in_the_label() -> None:
         ai_case_intent._DECISION_MULTI_SYSTEM_PROMPT,
     ):
         assert "Write each one as a key, not as prose" in prompt
-        assert "lower case" in prompt and "single hyphens" in prompt
+        assert "When `selector_catalogue` is non-empty" in prompt
+        assert "never invent, paraphrase or normalise one" in prompt
+        assert "When the catalogue is empty" in prompt
         assert "belong in \"label\", not here" in prompt
         assert "this is the prose, and it is the only field here that is" in prompt
+
+
+async def test_a_declared_selector_is_sent_to_the_decision_gather(
+    stubbed,
+) -> None:
+    domain = DOMAINS[0]
+    record = _record(domain)
+    record["payload"]["rules"][0]["required_facts"] = [{"name": domain.selector_fact}]
+    stubbed.verdict_reply = _blocked_reply(domain, status="missing_required_facts")
+
+    decision = await ai_case_intent.answer_decision_over_policies(
+        [record], scenario=domain.blocked_scenario
+    )
+
+    assert decision["status"] == ai_case_intent.MISSING_REQUIRED_FACTS
+    user_content = stubbed.calls[-1]["messages"][-1]["content"]
+    assert f'"selector_catalogue":["{domain.selector_fact}"]' in user_content
 
 
 # ── the two emitted fields are one set, not two readings ────────────

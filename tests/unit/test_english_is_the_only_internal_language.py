@@ -2555,7 +2555,7 @@ def test_the_case_decision_prompts_name_no_readers_language() -> None:
 
     # And the identifier moved with the contract, so an answer composed under
     # the older one stays distinguishable on a stored receipt.
-    assert ai_case_intent.PROMPT_VERSION == "ai-case-intent-v6"
+    assert ai_case_intent.PROMPT_VERSION == "ai-case-intent-v7"
 
 
 def test_the_projection_names_the_next_milestone_will_build_are_declared_here() -> None:

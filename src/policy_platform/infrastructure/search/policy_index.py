@@ -664,7 +664,16 @@ def build_policy_document(
     heading_parts = _strings(metadata.get("heading_path", []))
     rules = _projection_rules(projection)
     source_text = _retrieval_text_for_projection(projection)
-    indexed_text = (retrieval_text or source_text)[:_MAX_RETRIEVAL_TEXT_CHARS].rstrip()
+    # The source is already bounded before rendering. A rendering can be longer
+    # than its source, especially across languages; cutting it back to the source
+    # ceiling after it passed preservation silently drops the tail and makes the
+    # stored text differ from the text whose vector was embedded. Keep a supplied
+    # projection exactly as rendered. Only the unprojected fallback is cut here.
+    indexed_text = (
+        retrieval_text.rstrip()
+        if retrieval_text is not None
+        else source_text[:_MAX_RETRIEVAL_TEXT_CHARS].rstrip()
+    )
     heading_path = " > ".join(heading_parts)
     heading = heading_parts[-1] if heading_parts else provision_key
 
@@ -725,7 +734,11 @@ def build_rule_document(
     heading = heading_parts[-1] if heading_parts else provision_key
     rule_id = str(rule.get("rule_id") or "")
     source_text = rule_retrieval_source_text(projection, rule)
-    indexed_text = (retrieval_text or source_text)[:_MAX_RULE_TEXT_CHARS].rstrip()
+    indexed_text = (
+        retrieval_text.rstrip()
+        if retrieval_text is not None
+        else source_text[:_MAX_RULE_TEXT_CHARS].rstrip()
+    )
 
     return {
         "id": policy_rule_document_id(

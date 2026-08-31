@@ -24,6 +24,7 @@ from policy_platform.infrastructure.search.policy_index import (
     POLICY_INDEX_LAST_SKIPPED,
     PolicyIndexBuildOutcome,
     build_policy_document,
+    build_rule_document,
     policy_index_freshness,
     policy_index_definition,
     policy_index_name,
@@ -334,6 +335,42 @@ def test_build_policy_document_indexes_ids_and_retrieval_text_not_payload():
     assert "Unused leave may be carried over" in document["retrieval_text"]
     assert "rules" not in document
     assert "grounding_projection_v1" not in document
+
+
+def test_policy_projection_growth_is_not_truncated_after_preservation():
+    """The stored text must be the same text whose vector was embedded."""
+
+    rendered = ("rendered policy text " * 700) + "terminal quantity 999"
+    document = build_policy_document(
+        policy_set_key="a-policy-set",
+        projection=_projection(),
+        vector=[0.1, 0.2, 0.3],
+        retrieval_text=rendered,
+        projection_profile="projection-v1",
+    )
+
+    assert len(rendered) > 12_000
+    assert document["retrieval_text"] == rendered
+    assert document["body"] == rendered
+
+
+def test_rule_projection_growth_is_not_truncated_after_preservation():
+    rendered = ("rendered rule text " * 500) + "terminal quantity 999"
+    projection = _projection()
+    rule = projection["rules"][0]
+    document = build_rule_document(
+        policy_set_key="a-policy-set",
+        projection=projection,
+        rule=rule,
+        rule_ordinal=0,
+        vector=[0.1, 0.2, 0.3],
+        retrieval_text=rendered,
+        projection_profile="projection-v1",
+    )
+
+    assert len(rendered) > 8_000
+    assert document["retrieval_text"] == rendered
+    assert document["body"] == rendered
 
 
 def test_build_policy_document_accepts_published_payload_envelope_shape():

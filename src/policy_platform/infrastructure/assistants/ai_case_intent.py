@@ -149,7 +149,13 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-#: Bumped to `v6` when the case-decision prompt family stopped composing in the
+#: Bumped to `v7` when the decision prompts began carrying the closed selector
+#: catalogue and required exact catalogue keys whenever the retained records
+#: declare one. `v6` allowed the model to invent a normalised key and relied on
+#: post-processing to reject it; that turned otherwise answerable missing-fact
+#: cases into `declined`. The prompt and validator now enforce the same contract.
+#:
+#: `v6` marked when the case-decision prompt family stopped composing in the
 #: language the question arrived in. Every prompt below now reasons and composes
 #: in one language; a separate bounded step, outside this module, renders the
 #: finished prose for a reader who asked in another. The two contracts produce
@@ -160,7 +166,7 @@ logger = logging.getLogger(__name__)
 #: `v5` marked the boundary between `missing_required_facts` and
 #: `not_settled_by_rules` being made explicit and enforced in post-processing
 #: (see `_SETTLEMENT_BOUNDARY`).
-PROMPT_VERSION = "ai-case-intent-v6"
+PROMPT_VERSION = "ai-case-intent-v7"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
@@ -523,7 +529,8 @@ or `not_settled_by_rules`."""
 
 _DECISION_SYSTEM_PROMPT = """A reviewer has described a situation and asked for a judgement under \
 one governance policy. You are given the reviewer's question and one policy as a lean JSON record, \
-`grounding_projection_v1`. Apply only this record's rules to the situation. Do not use outside law, \
+`grounding_projection_v1`, plus `selector_catalogue`, the exact keys this record permits for a \
+missing fact. Apply only this record's rules to the situation. Do not use outside law, \
 ordinary workplace knowledge, or assumptions not present in the question or the record.
 
 The record has four parts:
@@ -574,10 +581,11 @@ rule bears or you declined.
 described above — that must be supplied before the judgement asked for can be made. Name them \
 whenever the case is blocked on them, including when you were minded to return `answered` or \
 `not_settled_by_rules`. Empty only when the status is "answered", "no_rule_bears" or "declined". \
-Write each one as a key, not as prose: use the record's own name for it — the `name` under a rule's \
-`required_facts` — wherever the record has one, and otherwise a short key of your own in lower case \
-with words joined by single hyphens, no spaces, no punctuation and no sentence. The words a person \
-reads belong in "label", not here.
+Write each one as a key, not as prose. When `selector_catalogue` is non-empty, use **only an exact \
+key from it**: never invent, paraphrase or normalise one, and decline if none accurately names the \
+missing fact. When the catalogue is empty, the records declared no selector vocabulary, so use a \
+short key of your own in lower case with words joined by single hyphens. The words a person reads \
+belong in "label", not here.
 - "missing_required_facts_detail": the same facts, one object each, in the same order: "fact" (the \
 same key you used in "missing_required_facts"), "label" (a short human label in English — this is \
 the prose, and it is the only field here that is), "why_needed" (one \
@@ -2120,7 +2128,10 @@ async def answer_decision(payload: dict, *, scenario: str, reasoning_effort: str
 
     rules = payload.get("rules") or []
     transport = to_compact(payload)
-    if len(transport) > _MAX_RECORD_CHARS:
+    selector_transport = to_compact(
+        [entry["key"] for entry in selector_catalogue([payload])["selectors"]]
+    )
+    if len(transport) + len(selector_transport) > _MAX_RECORD_CHARS:
         return {
             "status": DECLINED,
             "verdict": "",
@@ -2141,7 +2152,12 @@ async def answer_decision(payload: dict, *, scenario: str, reasoning_effort: str
             ),
         }
 
-    user_content = f"Question: {scenario}\n\nPolicy record (grounding_projection_v1 JSON):\n{transport}"
+    user_content = (
+        f"Question: {scenario}\n\n"
+        f"Policy record (grounding_projection_v1 JSON):\n{transport}\n\n"
+        f"selector_catalogue (JSON array; missing-fact keys must be exact members):\n"
+        f"{selector_transport}"
+    )
     parsed = await _chat_json(
         _DECISION_SYSTEM_PROMPT,
         user_content,
@@ -2313,7 +2329,8 @@ string if you have nothing to add."""
 _DECISION_MULTI_SYSTEM_PROMPT = """A reviewer has described a situation and asked for a judgement under \
 a project's retained policies. You are given the reviewer's question and one or more policies. The \
 policies arrive as a JSON list under `policies`; each entry is `{"policy": <its identity>, "record": <the \
-policy>}`, and each `record` is one lean `grounding_projection_v1`. Apply only these records' rules to \
+policy>}`, and each `record` is one lean `grounding_projection_v1`. The same input carries \
+`selector_catalogue`, the exact keys these records permit for a missing fact. Apply only these records' rules to \
 the situation. Do not use outside law, ordinary workplace knowledge, or assumptions not present in the \
 question or the records.
 
@@ -2366,10 +2383,11 @@ record's `rules`. Empty only if no rule bears or you declined.
 described above — that must be supplied before the judgement asked for can be made. Name them \
 whenever the case is blocked on them, including when you were minded to return `answered` or \
 `not_settled_by_rules`. Empty only when the status is "answered", "no_rule_bears" or "declined". \
-Write each one as a key, not as prose: use the records' own name for it — the `name` under a rule's \
-`required_facts` — wherever a record has one, and otherwise a short key of your own in lower case \
-with words joined by single hyphens, no spaces, no punctuation and no sentence. The words a person \
-reads belong in "label", not here.
+Write each one as a key, not as prose. When `selector_catalogue` is non-empty, use **only an exact \
+key from it**: never invent, paraphrase or normalise one, and decline if none accurately names the \
+missing fact. When the catalogue is empty, the records declared no selector vocabulary, so use a \
+short key of your own in lower case with words joined by single hyphens. The words a person reads \
+belong in "label", not here.
 - "missing_required_facts_detail": the same facts, one object each, in the same order: "fact" (the \
 same key you used in "missing_required_facts"), "label" (a short human label in English — this is \
 the prose, and it is the only field here that is), "why_needed" (one \
@@ -2761,7 +2779,14 @@ async def answer_decision_over_policies(
 
     all_rules, merged_spans, rule_to_policy, policies_view = _union_over_records(records)
     policies_grounded = len(records)
-    transport = to_compact({"policies": policies_view})
+    transport = to_compact(
+        {
+            "policies": policies_view,
+            "selector_catalogue": [
+                entry["key"] for entry in selector_catalogue(records)["selectors"]
+            ],
+        }
+    )
     if len(transport) > _MAX_RECORD_CHARS:
         grounding = _grounding(
             rules_available=len(all_rules),
