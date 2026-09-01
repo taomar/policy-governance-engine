@@ -276,6 +276,37 @@ The response carries the determination for each rule, and those requests are wha
 
 For the endpoint groups, request shapes and common sequences, see the [API guide](api.md).
 
+### Integrate over REST
+
+This is the shortest path from nothing to a working integration. It is a walkthrough, not the reference — every field, every error code and every response shape lives in the [API guide](api.md), and the rules an integrator must not get wrong live in [External consumption](external-consumption.md).
+
+**1. Decide which of the four operations you need.** They are not variations of one call; they answer different questions.
+
+| You want | Call | What you get |
+|---|---|---|
+| A decision you can defend later | `POST /api/policy-decisions/{project_key}/case` | The full audited receipt, stored and replayable |
+| The same decision, smaller on the wire | `POST /api/policy-decisions/{project_key}/case/light` | A compact projection of that *same* stored receipt |
+| Only the policies that bear on a situation | `POST /api/policy-decisions/{project_key}/policies` | Selected policy records — no verdict, no receipt |
+| A receipt you already have | `GET /api/policy-decisions/{decision_id}` | The stored receipt, replayed |
+
+Two of these are routinely misread. **Decision Light is not a faster decision** — it runs the identical adjudication and stores the identical receipt, and only the response is smaller. **Policy JSON is not a decision at all** — it never judges, and presenting its output as a determination is the one misuse the shape is designed to make obvious.
+
+**2. Authenticate.** All four require a proved caller even when RBAC is off. Either a bearer token from your OIDC issuer in `Authorization`, or the operator's shared key in `X-Policy-Subscription-Key`. Use a bearer token when you need per-caller attribution in the audit trail; the shared key is one identity for everyone who holds it — see the entry in [Known limitations](known-limitations.md).
+
+**3. Send the project key, never the display name.** Paths take the key. The UUID is trace identity and is not a path segment. The name changes whenever somebody renames the project.
+
+**4. Send an `Idempotency-Key` on every decision.** It is what makes a retry safe. Without it, two identical questions are two decisions, and the endpoint will not pretend otherwise. Keep the original key when you retry — a new key is a new decision, not a retry. A call that fails *after* the receipt was reserved spends its key, so recovery from that state needs a fresh one.
+
+**5. Set the timeout from the tail, not the average.** A case is a multi-call model operation running for tens of seconds. 120 s is a reasonable default; a receipt read-back needs 30 s because it calls no model at all.
+
+**6. Read the response in the right order.** Read `outcome` first — it says, in two values, whether each track produced anything. Only then read `information` and `verdict`. A verdict that was not reached carries no decision text, deliberately, so there is nothing to mistake for one. Then check `citations`: every one names the rule and the exact source sentence it rests on.
+
+**7. Verify the receipt if you are going to rely on it.** Recompute `decision_hash` according to the `hash_basis` the receipt names and compare that — do not compare response bytes. A replay is content-equivalent, not byte-identical, and JSON key order may differ.
+
+**What not to build.** Do not expect two independent calls to produce identical text or an identical hash — this is a model-mediated decision, and `decision_hash` is an integrity seal, not a determinism guarantee. Do not treat "no rule bears on this" as proof the corpus is silent. Do not translate a quoted source sentence. Do not put a shared subscription key in a browser.
+
+**If it is too slow**, the lever is `reasoning_effort`, not a shorter question — see [what `low` measured](api.md#what-low-measured-on-one-corpus). Shortening the scenario reduces tokens and cost without reliably reducing wall-clock time.
+
 ### Call from your app
 
 **Call from your app** sits on the project header, immediately after **Test a Case**. It answers one question — *how does my service ask this project a question?* — and it answers it without anyone copying a UUID out of a URL bar by hand.
@@ -307,7 +338,7 @@ A separate demonstration client — not part of the product's signed-in surface 
 
 You provide, in one docket:
 
-- **API base**, **project key** and **API subscription key**. The credential is a plain text field, visible on purpose: the playground exists to show the exact request an integrator must reproduce, and a credential nobody can read is one nobody can check against the `401` they just got. It is held in memory for that tab only — never written to storage, the URL or a log — and can be prefilled on a developer machine from a git-ignored `.env.local`. The project's name and active version resolve from the API as you type the project key.
+- **API base**, **project key** and **API subscription key**. The credential renders as dots, with a **Reveal** beside it: masked so the page can be screen-shared and screenshotted without the value going with it, revealable because a credential nobody can read is one nobody can check against the `401` they just got. It is held in memory for that tab only — never written to storage, the URL or a log — and can be prefilled on a developer machine from a git-ignored `.env.local`. The project's name and active version resolve from the API as you type the project key.
 - **The API response you want**, chosen from three: **Decision JSON**, **Decision Light** or **Policy JSON**. The choice changes which operation is called and therefore which fields the docket offers — Policy JSON has no idempotency key, no reasoning effort and no caller guidance, because it stores no receipt and runs no explanation stage.
 - **Scenario** — the case, in plain English.
 - **Reasoning effort**, a **calling system** label, and an optional **idempotency key**.
@@ -317,7 +348,7 @@ Before anything is sent, the **Request Inspector** shows the exact request:
 
 - **Request JSON** — the body as it will be serialised, live as you type, with a client-side preview of the request hash. `additional_instructions` is omitted entirely when empty rather than sent as `""`.
 - **Caller guidance** — two registers that are deliberately never merged. *Caller guidance — editable* is your text. *Server instruction profile — read only* names the server's framing by identifier and has no edit affordance of any kind, because there is nothing to unlock. Between them, the precedence is stated: server instructions and published policy take precedence; caller guidance applies only where it does not conflict.
-- **Raw HTTP** — the request line, every header and the body. This local playground authenticates with `X-Policy-Subscription-Key`, not `Authorization`, and shows the live key in clear; copying or downloading this tab copies that key too. Treat the export as a credential and do not save or share it. The inspector takes the host from **API base** but builds a root-relative `/api/...` request target, so use an origin-only base such as `https://policy.example.com` here. For a gateway mounted below a path such as `/gateway`, use the separate Integration Guide examples, which preserve that prefix.
+- **Raw HTTP** — the request line, every header and the body. This local playground authenticates with `X-Policy-Subscription-Key`, not `Authorization`. The credential is masked here too, with its own **Reveal key** for comparing against a failing call. **Copy and Download never emit the value at all** — they write `$POLICY_SUBSCRIPTION_KEY`, whatever the reveal is set to, because a snippet that leaves this page is pasted into somebody else's service. The inspector takes the host from **API base** but builds a root-relative `/api/...` request target, so use an origin-only base such as `https://policy.example.com` here. For a gateway mounted below a path such as `/gateway`, use the separate Integration Guide examples, which preserve that prefix.
 
 While the call is in flight and after it returns, a **run meter** stays visible with the elapsed time and the service-reported token usage. When any model call returned no usage, the token figure is shown as a floor — *at least N* — rather than as an exact total.
 

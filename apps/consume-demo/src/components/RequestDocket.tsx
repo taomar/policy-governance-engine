@@ -122,6 +122,10 @@ function counterClass(length: number): string {
 export function RequestDocket(props: DocketProps) {
   const [truncatedNotice, setTruncatedNotice] = useState('')
   const [keyNoteOpen, setKeyNoteOpen] = useState(false)
+  // Dots until asked for, and not remembered across mounts: revealing a
+  // credential is a deliberate act for one moment, not a preference that
+  // quietly persists into the next screen share.
+  const [revealKey, setRevealKey] = useState(false)
   const announcedThreshold = useRef<number>(0)
   // Read synchronously on the first render rather than in an effect, so the
   // committed DOM order is never briefly the wrong one for the grid on screen.
@@ -241,14 +245,18 @@ export function RequestDocket(props: DocketProps) {
           ref={props.subscriptionKeyRef}
           className="input input--mono"
           data-testid="playground-subscription-key"
-          /* A plain text field, deliberately. This is a local demonstration
-             of an operator-generated key, and the value has to be readable to
-             be checked against a failing call — which is what a first
-             integration is usually doing when it gets a 401. The credential
-             that must never be visible is a personal bearer token, and this
-             page no longer sends one. What still holds is that nothing is
-             persisted: see `lib/subscriptionKey.ts`. */
-          type="text"
+          /* Dots by default, with a reveal beside it.
+             This field used to be plain text, deliberately: the value has to be
+             readable to be checked against a failing call, which is what a
+             first integration is usually doing when it gets a 401. That reason
+             is still good, and it is served by the reveal.
+             What it did not account for is that this page gets screen-shared,
+             screenshotted and pasted into tickets, and a credential sitting in
+             clear is then in an artefact nobody thinks of as holding one. A
+             field that is readable on demand keeps the debugging affordance
+             without leaving the value on screen for every other purpose.
+             Unchanged: nothing is persisted -- see `lib/subscriptionKey.ts`. */
+          type={revealKey ? 'text' : 'password'}
           value={props.subscriptionKey}
           autoComplete="off"
           spellCheck={false}
@@ -256,6 +264,16 @@ export function RequestDocket(props: DocketProps) {
           aria-describedby="pg-subscription-key-caption"
           onChange={(event) => props.onSubscriptionKey(event.target.value)}
         />
+        <button
+          type="button"
+          className="link-button"
+          data-testid="playground-subscription-key-reveal"
+          aria-pressed={revealKey}
+          aria-controls="pg-subscription-key"
+          onClick={() => setRevealKey((shown) => !shown)}
+        >
+          {revealKey ? DOCKET.hideKey : DOCKET.revealKey}
+        </button>
         {/* One line, and it says the three things a reader needs at the moment
             they are typing a credential: what kind of key this is, which header
             carries it, and how long this page keeps it. The rest -- why a

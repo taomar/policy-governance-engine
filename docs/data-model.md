@@ -1,6 +1,6 @@
 # Data model
 
-This page is for implementers and operators who need the database shape behind published behavior. Thirty tables in PostgreSQL 16, migrated with Alembic (`alembic/versions/`). Twenty-seven are defined as SQLAlchemy models in `src/policy_platform/domain/models.py`; three are migration-only — the two aggregate-limit tables (`policy_aggregate_limits`, `approved_aggregate_limits`), whose API surface and web page are retired while the tables are retained pending a decision, and `extraction_stages`, which records per-stage bookkeeping for document-extraction runs and is used by `policy_set_teardown.py` but has no ORM model.
+This page is for implementers and operators who need the database shape behind published behavior. Thirty-two tables in PostgreSQL 16, migrated with Alembic (`alembic/versions/`). Twenty-nine are defined as SQLAlchemy models in `src/policy_platform/domain/models.py`; three are migration-only — the two aggregate-limit tables (`policy_aggregate_limits`, `approved_aggregate_limits`), whose API surface and web page are retired while the tables are retained pending a decision, and `extraction_stages`, which records per-stage bookkeeping for document-extraction runs and is used by `policy_set_teardown.py` but has no ORM model.
 
 Every table has a UUID primary key and `created_at` / `updated_at` timestamps.
 

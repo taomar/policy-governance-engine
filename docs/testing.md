@@ -136,7 +136,7 @@ Each spec is a JSON list of mutations naming a file, an exact snippet to replace
 | `latest_reading.json` | Which reading is current, and which it replaced |
 | `vacuity_repairs.json` | Four tests found unable to fail, and the defects they now catch |
 
-32 mutations across six specs. `tests/unit/test_mutation_specs_resolve.py` runs inside the ordinary suite and fails if a spec names a file that moved, a snippet that no longer appears, a snippet that appears twice, or a test — including a `path::name` selector — that does not exist. The total is pinned there too, so adding or retiring a mutation is a visible decision rather than a drift.
+34 mutations across six specs. `tests/unit/test_mutation_specs_resolve.py` runs inside the ordinary suite and fails if a spec names a file that moved, a snippet that no longer appears, a snippet that appears twice, or a test — including a `path::name` selector — that does not exist. The total is pinned there too, so adding or retiring a mutation is a visible decision rather than a drift.
 
 Seven exit codes, deliberately distinct:
 

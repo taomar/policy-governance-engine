@@ -32,6 +32,12 @@ import {
   type CaseDecisionEnvelope,
   type CaseDecisionReceipt,
 } from './contracts/caseDecision'
+import {
+  SUBSCRIPTION_KEY_MASK,
+  containsKeyFragment,
+  linesForExport,
+  subscriptionKeyHeaderLine,
+} from './lib/subscriptionKey'
 
 /**
  * The behavioural guarantees, asserted against the rendered page.
@@ -457,12 +463,22 @@ describe('the request inspector, before anything is submitted', () => {
     fireEvent.change(screen.getByTestId('playground-subscription-key'), {
       target: { value: SUBSCRIPTION_KEY },
     })
-    const http = screen.getByTestId('inspector-tab-http').textContent ?? ''
+    const masked = screen.getByTestId('inspector-tab-http').textContent ?? ''
 
-    expect(http).toContain(`X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY}`)
+    // Masked by default, because this tab is the one that gets screenshotted
+    // and pasted into a ticket.
+    expect(masked).not.toContain(SUBSCRIPTION_KEY)
+    expect(masked).toContain(`X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_MASK}`)
+
+    // And readable on demand, because a header with dots in it cannot be
+    // compared against the 401 it is meant to explain.
+    fireEvent.click(screen.getByTestId('inspector-http-reveal'))
+    const revealed = screen.getByTestId('inspector-tab-http').textContent ?? ''
+    expect(revealed).toContain(`X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY}`)
+
     // The credential this page no longer sends must not appear at all: a stray
     // `Authorization` line would tell a reader to configure the wrong thing.
-    expect(http).not.toContain('Authorization:')
+    expect(revealed).not.toContain('Authorization:')
   })
 
   it('renders a placeholder rather than an empty header before a key is entered', () => {
@@ -641,16 +657,61 @@ describe('the request inspector, before anything is submitted', () => {
 })
 
 describe('the docket', () => {
-  it('holds the subscription key in a visible text field with autocomplete off', () => {
+  it('holds the subscription key in a masked field that can be revealed, with autocomplete off', () => {
     installFetch(standardHandler())
     render(<App />)
     const field = screen.getByTestId('playground-subscription-key')
-    // Visible on purpose. This is a local demonstration of an operator-generated
-    // key, and a credential nobody can read is a credential nobody can check
-    // against the 401 they just got. Autocomplete stays off: the browser's
-    // password manager has no business storing a shared system credential.
-    expect(field.getAttribute('type')).toBe('text')
+    // Dots by default, so the value is not sitting in clear in every screen
+    // share and screenshot of this page. Autocomplete stays off either way: the
+    // browser's password manager has no business storing a shared system
+    // credential.
+    expect(field.getAttribute('type')).toBe('password')
     expect(field.getAttribute('autocomplete')).toBe('off')
+
+    // Readable on demand, because a credential nobody can read is a credential
+    // nobody can check against the 401 they just got.
+    fireEvent.click(screen.getByTestId('playground-subscription-key-reveal'))
+    expect(
+      screen.getByTestId('playground-subscription-key').getAttribute('type'),
+    ).toBe('text')
+
+    // And it goes back.
+    fireEvent.click(screen.getByTestId('playground-subscription-key-reveal'))
+    expect(
+      screen.getByTestId('playground-subscription-key').getAttribute('type'),
+    ).toBe('password')
+  })
+
+  it('never copies the credential, whatever the reveal is set to', () => {
+    // Asserted on the transformation rather than through the Copy button,
+    // because the rule is about what leaves the page, not about which of the
+    // several rendered Copy buttons was pressed. `linesForExport` is what the
+    // inspector hands to Copy and Download.
+    //
+    // A key with no English in it, deliberately. `containsKeyFragment` matches
+    // any eight-character run, and the suite's usual demo key contains the word
+    // "subscription" — which also appears in `X-Policy-Subscription-Key`, so it
+    // reports a leak from the header name alone.
+    const opaqueKey = 'qZ7x2Kd9Rt4Wm1Bv6Np3Fh8Lc5Ys0Jg'
+    const revealed = [
+      'POST /api/policy-decisions/demo/case HTTP/1.1',
+      'Host: localhost:8010',
+      subscriptionKeyHeaderLine(opaqueKey, true),
+      'Content-Type: application/json',
+      '',
+      '{"scenario":"x"}',
+    ]
+    // The starting point really does carry the key, so a clean export below is
+    // the rule holding rather than there having been nothing to strip.
+    expect(containsKeyFragment(revealed.join('\n'), opaqueKey)).toBe(true)
+
+    const exported = linesForExport(revealed).join('\n')
+    expect(containsKeyFragment(exported, opaqueKey)).toBe(false)
+    expect(exported).toContain('X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY')
+    // Every other line survives untouched: this rewrites one header, not the
+    // request.
+    expect(exported).toContain('POST /api/policy-decisions/demo/case HTTP/1.1')
+    expect(exported).toContain('{"scenario":"x"}')
   })
 
   it('says beside the field that this is a local demo key, in one line', () => {

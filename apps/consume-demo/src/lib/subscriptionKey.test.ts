@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   SUBSCRIPTION_KEY_ENV,
   SUBSCRIPTION_KEY_HEADER,
+  SUBSCRIPTION_KEY_MASK,
   SUBSCRIPTION_KEY_PLACEHOLDER,
   SUBSCRIPTION_KEY_VITE_VAR,
   containsKeyFragment,
@@ -35,28 +36,52 @@ describe('the names', () => {
 })
 
 describe('the raw HTTP header line', () => {
-  it('shows the key as it will be sent', () => {
-    // Deliberate, and the reversal of an earlier masking decision: this is a
-    // local demonstration of an operator-generated key, and an example with
-    // asterisks where the credential goes cannot be compared against the 401
-    // it is meant to explain.
-    expect(subscriptionKeyHeaderLine('abc123')).toBe('X-Policy-Subscription-Key: abc123')
+  it('masks the key by default, so a screenshot does not carry it', () => {
+    // The page is screen-shared, screenshotted and pasted into tickets. A
+    // credential rendered in clear ends up in an artefact nobody thinks of as
+    // holding one, whether or not anyone needed to read it at that moment.
+    const line = subscriptionKeyHeaderLine('abc123')
+    expect(line).toBe(`X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_MASK}`)
+    expect(line).not.toContain('abc123')
+  })
+
+  it('shows the key when it is explicitly revealed', () => {
+    // The affordance the earlier unmasked version existed for, kept: an example
+    // with dots where the credential goes cannot be compared against the 401 it
+    // is meant to explain. It is one click away rather than always on.
+    expect(subscriptionKeyHeaderLine('abc123', true)).toBe(
+      'X-Policy-Subscription-Key: abc123',
+    )
+  })
+
+  it('does not leak the length of the key through the mask', () => {
+    // One asterisk per character would disclose how long the credential is,
+    // which is a small thing a reader should not learn from a screenshot.
+    const short = subscriptionKeyHeaderLine('abcdefgh')
+    const long = subscriptionKeyHeaderLine('a'.repeat(96))
+    expect(short).toBe(long)
   })
 
   it('trims what the field carries, so a pasted newline is not shown as one', () => {
-    expect(subscriptionKeyHeaderLine('  abc123\n')).toBe('X-Policy-Subscription-Key: abc123')
+    expect(subscriptionKeyHeaderLine('  abc123\n', true)).toBe(
+      'X-Policy-Subscription-Key: abc123',
+    )
   })
 
-  it('renders a placeholder rather than an empty header', () => {
+  it('renders a placeholder rather than an empty header, masked or not', () => {
     // `X-Policy-Subscription-Key:` with nothing after it is a valid-looking
     // line. A reader comparing it against a failing call would go looking for
-    // a server fault instead of for the field they have not filled in.
-    expect(subscriptionKeyHeaderLine('')).toBe(
-      `X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_PLACEHOLDER}`,
-    )
-    expect(subscriptionKeyHeaderLine('   ')).toBe(
-      `X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_PLACEHOLDER}`,
-    )
+    // a server fault instead of for the field they have not filled in. An
+    // absent key is also not a secret, so masking it would hide the real
+    // problem behind dots.
+    for (const revealed of [false, true]) {
+      expect(subscriptionKeyHeaderLine('', revealed)).toBe(
+        `X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_PLACEHOLDER}`,
+      )
+      expect(subscriptionKeyHeaderLine('   ', revealed)).toBe(
+        `X-Policy-Subscription-Key: ${SUBSCRIPTION_KEY_PLACEHOLDER}`,
+      )
+    }
   })
 
   it('reads from the environment in a line meant to leave this page', () => {

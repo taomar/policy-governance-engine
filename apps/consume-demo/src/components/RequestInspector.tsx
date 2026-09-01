@@ -9,7 +9,10 @@ import {
   type TraceRef,
 } from '../contracts/caseDecision'
 import { CodeBlock, renderJsonLine } from './CodeBlock'
-import { subscriptionKeyHeaderLine } from '../lib/subscriptionKey'
+import {
+  linesForExport,
+  subscriptionKeyHeaderLine,
+} from '../lib/subscriptionKey'
 import {
   casePath,
   hostFromBase,
@@ -87,6 +90,10 @@ export interface InspectorProps {
 
 export function RequestInspector(props: InspectorProps) {
   const [active, setActive] = useState<SectionId>('json')
+  // Masked until asked for, and reset per mount rather than remembered: a
+  // reveal is a deliberate act for one moment, not a preference that quietly
+  // persists into the next person's screen share.
+  const [revealKey, setRevealKey] = useState(false)
   const [openRows, setOpenRows] = useState<Record<SectionId, boolean>>({
     json: true,
     response: false,
@@ -125,7 +132,7 @@ export function RequestInspector(props: InspectorProps) {
   const httpLines = [
     `POST ${path} HTTP/1.1`,
     `Host: ${hostFromBase(props.baseUrl)}`,
-    subscriptionKeyHeaderLine(props.subscriptionKey),
+    subscriptionKeyHeaderLine(props.subscriptionKey, revealKey),
     'Content-Type: application/json',
     `X-Correlation-Id: ${props.correlationId}`,
     ...(decisionRequest && props.idempotencyKey.trim()
@@ -135,6 +142,10 @@ export function RequestInspector(props: InspectorProps) {
     bodyWire,
   ]
   const httpText = httpLines.join('\n')
+  // What Copy and Download emit. The credential line is rewritten to its
+  // environment-variable form whatever the reveal is set to — see
+  // `lib/subscriptionKey.ts`, which owns that rule and is tested on it.
+  const httpExportText = linesForExport(httpLines).join('\n')
 
   function onTabKeyDown(event: React.KeyboardEvent, index: number) {
     const last = SECTIONS.length - 1
@@ -321,11 +332,12 @@ export function RequestInspector(props: InspectorProps) {
     <>
       <CodeBlock
         text={httpText}
-        /* Copy and Download emit exactly what is displayed, credential
-           included. That is the point of this tab in a local demonstration —
-           see the module docstring, and `docs/external-consumption.md` for why
-           a production browser client must not hold this credential at all. */
-        copyText={httpText}
+        /* Copy and Download emit the masked line whatever the reveal is set to.
+           A snippet that leaves this page is pasted into somebody else's
+           service, and the reader would ship whatever it carried — so what it
+           carries is `$POLICY_SUBSCRIPTION_KEY`. The reveal below is for
+           reading, never for exporting. */
+        copyText={httpExportText}
         language="HTTP"
         what="the raw HTTP request"
         downloadName="case-request.http"
@@ -333,6 +345,19 @@ export function RequestInspector(props: InspectorProps) {
         testId="inspector-http-code"
         onAnnounce={props.onAnnounce}
       />
+      <button
+        type="button"
+        className="link-button"
+        data-testid="inspector-http-reveal"
+        aria-pressed={revealKey}
+        onClick={() => {
+          const next = !revealKey
+          setRevealKey(next)
+          props.onAnnounce(next ? INSPECTOR.keyRevealed : INSPECTOR.keyHidden)
+        }}
+      >
+        {revealKey ? INSPECTOR.hideKey : INSPECTOR.revealKey}
+      </button>
       <p className="field__caption" data-testid="inspector-http-auth-caption">
         {INSPECTOR.subscriptionKeyCaption}
       </p>

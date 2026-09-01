@@ -31,10 +31,12 @@ export const DOCKET = {
   projectKeyLabel: 'Project key',
   projectKeyHelper: 'Stable key used in API paths—not display name or UUID',
   subscriptionKeyLabel: 'API subscription key',
+  revealKey: 'Reveal',
+  hideKey: 'Hide',
   subscriptionKeyCaption:
     'Sent as X-Policy-Subscription-Key. Held in memory only: never written to storage, the URL, or a log.',
   subscriptionKeyLocalWarning:
-    'Local demonstration only. This field is shown in clear and is copied into the Raw HTTP tab, so use a key your operator generated for local use. A production browser client must never hold a shared subscription key: anything prefixed VITE_ is compiled into the bundle and served to every visitor.',
+    'Local demonstration only. Use a key your operator generated for local use: the Raw HTTP tab masks it, but this field itself is in clear so you can check it. A production browser client must never hold a shared subscription key: anything prefixed VITE_ is compiled into the bundle and served to every visitor.',
   subscriptionKeyPrefilled:
     'Prefilled from VITE_POLICY_SUBSCRIPTION_KEY in this machine’s local .env.local. That file is git-ignored and is a local-demonstration convenience only.',
   resolvedFrom: 'Resolved from the API',
@@ -131,7 +133,11 @@ export const INSPECTOR = {
   profileUnknownBeforeFirst: 'Reported on the receipt after the first decision.',
   profileUnknown: 'Not reported on this receipt.',
   subscriptionKeyCaption:
-    'Shown as it will be sent, so you can compare it against a failing call. Copy and Download emit it too — this is a local demonstration, not a pattern for a production browser client.',
+    'Masked by default. Reveal it to check it against a failing call — most first-integration 401s are a typo here. Copy and Download always emit $POLICY_SUBSCRIPTION_KEY instead of the value, whatever the reveal is set to.',
+  revealKey: 'Reveal key',
+  hideKey: 'Hide key',
+  keyRevealed: 'Subscription key revealed.',
+  keyHidden: 'Subscription key hidden.',
   previewUpdated: 'Request preview updated.',
 } as const
 
