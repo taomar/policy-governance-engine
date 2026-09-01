@@ -450,7 +450,7 @@ class PolicyFormulatorAgent:
         """Formulate one block of policy text. Raises `PolicyFormulationError`.
 
         The token budget and timeout are sized for a reasoning deployment:
-        `gpt-5.6-sol` spends part of the budget on a hidden reasoning pass
+        the deep deployment spends part of the budget on a hidden reasoning pass
         before emitting any visible content, and this prompt is ~3000 lines of
         specification, so an undersized budget returns empty content rather
         than a short answer (see `AzureOpenAIClient.chat`).

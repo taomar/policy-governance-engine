@@ -1,15 +1,25 @@
 """Thin async Azure OpenAI client (direct httpx REST calls, no SDK dependency).
 
 Every endpoint shape here was verified live against the real `scopeaifoundry`
-resource during setup (chat/completions on both `gpt-5.6-sol` and
+resource during setup (chat/completions on `gpt-5.6-sol`, `gpt-5.6-terra` and
 `gpt-5.4-mini`, embeddings on `text-embedding-3-large`, all returned HTTP
 200) — nothing here is a guessed/fabricated API shape.
 
-Two deployments are used deliberately for different jobs:
-- `azure_openai_deployment` (gpt-5.6-sol): higher-quality reasoning work
-  where correctness matters most — extraction, rewrite, quality evaluation.
-- `azure_openai_fast_deployment` (gpt-5.4-mini): interactive Ask-AI chat,
-  where latency matters more than maximum reasoning depth.
+Two deployments are used deliberately for different jobs, and the second is not
+a cheaper version of the first:
+
+- `azure_openai_deployment` — the deep role. Reasoning work where correctness
+  matters most: adjudication gathers, extraction, rewrite, quality evaluation.
+  Any of the `gpt-5.6-*` reasoning deployments serve here; `gpt-5.6-terra` is
+  the measured recommendation (see `.env.example`).
+- `azure_openai_fast_deployment` (`gpt-5.4-mini`) — the determinism role. The
+  intent classifier, the language boundary, and interactive Ask-AI chat. It is
+  chosen because it accepts `temperature=0`, which the reasoning deployments do
+  not, and the first two of those stages depend on that control.
+
+The model name is configuration, so behaviour below is described by role rather
+than by deployment name wherever the behaviour is a property of the class of
+model rather than of one deployment.
 """
 from __future__ import annotations
 
@@ -180,28 +190,34 @@ class AzureOpenAIClient:
 
         NOTE on determinism: which sampling controls a deployment accepts differs
         per model, and an unsupported one is a hard 400 rather than a warning.
-        Probed live against this resource on `gpt-5.6-sol`: `temperature=0` and
-        `top_p=0` are both rejected ("Only the default (1) value is supported" /
-        "not supported with this model"), while `seed` is accepted. So for the
-        reasoning deployment `seed` is the only determinism control available,
-        and callers that pass `temperature` to it will lose the call entirely.
-        Accepting `seed` is not the same as honouring it: measured over six
-        identical quality reviews it made no difference at all. The fast
-        deployment (`gpt-5.4-mini`) does accept `temperature=0`.
+        Probed live against this resource on `gpt-5.6-sol` and re-probed on
+        `gpt-5.6-terra`: both reject `temperature=0` ("Only the default (1) value
+        is supported") and `top_p=0` ("not supported with this model"), while
+        both accept `seed`. `gpt-5.6-luna` rejects `temperature=0` the same way.
+        So for any reasoning deployment `seed` is the only determinism control
+        available, and callers that pass `temperature` to one will lose the call
+        entirely. Accepting `seed` is not the same as honouring it: measured over
+        six identical quality reviews it made no difference at all. The fast
+        deployment (`gpt-5.4-mini`) does accept `temperature=0`, which is why the
+        classifier and the language boundary run there.
 
-        NOTE on reasoning models: `gpt-5.6-sol` (the "quality" deployment used for
-        extraction/rewrite/quality-review) is a reasoning model — it silently spends
-        part of `max_completion_tokens` on a hidden reasoning pass *before* any
-        visible content is produced. If the budget is too small, the entire budget
-        can be consumed by reasoning and the call returns `finish_reason="length"`
-        with an EMPTY `content` string (confirmed live against this resource: a
-        4000-token budget on a 45-clause extraction batch returned 4000 reasoning
-        tokens and 0 content). Callers targeting the reasoning deployment must pass
-        a generous `max_tokens` (observed need: ~1 reasoning-heavy pass + full JSON
-        output, so 16000-20000+ for multi-rule extraction) and a matching `timeout`
-        (large-budget calls observed taking 60-90s+). The fast deployment
-        (`gpt-5.4-mini`) is NOT a reasoning model (`reasoning_tokens=0` in every
-        observed call) and works fine with the smaller defaults.
+        NOTE on reasoning models: the deep deployment is a reasoning model — it
+        silently spends part of `max_completion_tokens` on a hidden reasoning
+        pass *before* any visible content is produced. If the budget is too
+        small, the entire budget can be consumed by reasoning and the call
+        returns `finish_reason="length"` with an EMPTY `content` string
+        (confirmed live against this resource: a 4000-token budget on a 45-clause
+        extraction batch returned 4000 reasoning tokens and 0 content). Callers
+        targeting it must pass a generous `max_tokens` (observed need: ~1
+        reasoning-heavy pass + full JSON output, so 16000-20000+ for multi-rule
+        extraction) and a matching `timeout` (large-budget calls observed taking
+        60-90s+). How much a deployment reasons varies between them — measured
+        over one 20x2 decision matrix, `gpt-5.6-terra` spent about 45% fewer
+        reasoning tokens than `gpt-5.6-sol` for the same verdicts, and
+        `gpt-5.6-luna` about 30% more with two calls exceeding 200 seconds. The
+        fast deployment (`gpt-5.4-mini`) is NOT a reasoning model
+        (`reasoning_tokens=0` in every observed call) and works fine with the
+        smaller defaults.
         """
 
         settings = self._require_enabled()
@@ -225,7 +241,7 @@ class AzureOpenAIClient:
             # anything on top of it that assumes two runs match.
             body["seed"] = seed
         if reasoning_effort is not None:
-            # Reasoning-capable deployments (gpt-5.6-sol) accept this field to
+            # Reasoning-capable deployments accept this field to
             # trade latency for deeper reasoning. Not verified against every
             # deployment — if a target deployment rejects it, callers should
             # catch AzureOpenAIError and retry without it.

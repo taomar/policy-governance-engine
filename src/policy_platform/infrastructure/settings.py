@@ -120,13 +120,23 @@ class Settings(BaseSettings):
 
     # Azure OpenAI (chat/extraction/rewrite/quality + embeddings). All
     # optional so the app still boots with AI features disabled if unset.
+    #
+    # Two chat roles, and they are not interchangeable. The deep deployment does
+    # the reasoning-heavy work and is chosen for answer quality; the fast one
+    # runs the intent classifier and the language boundary and is chosen because
+    # it accepts `temperature=0`, which is the determinism control those two
+    # stages depend on. A reasoning model in the fast slot is a configuration
+    # error rather than a preference: measured on this resource, `gpt-5.6-sol`,
+    # `gpt-5.6-terra` and `gpt-5.6-luna` all reject `temperature=0` outright.
+    #
+    # Named deployments per model were declared here once and never read by
+    # anything, so an operator setting them saw no effect. Routing is the two
+    # roles below and nothing else.
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str = "2024-12-01-preview"
     azure_openai_deployment: str | None = None
     azure_openai_fast_deployment: str | None = None
-    azure_openai_luna_deployment: str | None = None
-    azure_openai_terra_deployment: str | None = None
     azure_openai_embedding_deployment: str | None = None
     azure_openai_embedding_model: str | None = None
     azure_openai_embedding_dimensions: int = 3072

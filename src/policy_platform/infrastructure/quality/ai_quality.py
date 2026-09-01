@@ -1410,7 +1410,7 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
             deployment=settings.azure_openai_deployment,
             json_mode=True,
             # Fixed seed rather than temperature. Probed live against this
-            # resource: the quality deployment (gpt-5.6-sol) returns 400 for
+            # resource: the deep deployment returns 400 for
             # both `temperature=0` ("Only the default (1) value is supported")
             # and `top_p=0`, and `_run_ai_review` swallows every exception --
             # so passing temperature here would quietly convert every review
@@ -1418,8 +1418,9 @@ async def _run_ai_review(rules: list[CanonicalRule], findings: list[dict], polic
             # measured, changes nothing: see `_AI_REVIEW_SEED`. Two reviews of
             # the same rules are two opinions, not one measurement repeated.
             seed=_AI_REVIEW_SEED,
-            # See openai_client.chat() docstring: gpt-5.6-sol is a reasoning
-            # model and needs a generous budget or it returns empty content.
+            # See openai_client.chat() docstring: the deep deployment is a
+            # reasoning model and needs a generous budget or it returns empty
+            # content.
             max_tokens=8000,
             timeout=180.0,
         )

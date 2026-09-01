@@ -89,7 +89,7 @@ async def _suggest_rewrite_for_rule(current_rule: CanonicalRule, *, instruction:
             ],
             deployment=settings.azure_openai_deployment,
             json_mode=True,
-            # See openai_client.chat() docstring: gpt-5.6-sol is a reasoning model
+            # See openai_client.chat() docstring: the deep deployment is a reasoning model
             # and needs a generous budget or it returns empty content.
             max_tokens=8000,
             timeout=180.0,

@@ -394,7 +394,7 @@ async def propose_policy_tests(
         request_payload["reviewer_guidance"] = steer
     user_content = json.dumps(request_payload, indent=2, default=str)
 
-    # See openai_client.chat() docstring: gpt-5.6-sol is a reasoning model
+    # See openai_client.chat() docstring: the deep deployment is a reasoning model
     # and silently returns empty content if max_tokens is too small.
     raw = await ai_client.chat(
         [
