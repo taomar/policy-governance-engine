@@ -1623,6 +1623,22 @@ export interface ProjectCaseMissingInformation {
   required_by_rule_ids?: string[];
 }
 
+/** One condition to confirm before acting on a verdict that *was* reached.
+ *
+ *  The counterpart to `ProjectCaseMissingInformation`. A missing fact means
+ *  there is no verdict; this means there is one, and something has to be
+ *  confirmed before it is acted on — a balance, an approval, a window, a
+ *  category held on a record elsewhere. It qualifies the determination and never
+ *  withdraws it, so a client must not render it as a blocker. Same safeguards:
+ *  `fact` comes from the vocabulary the retained records declare, and
+ *  `required_by_rule_ids` names only rules the gather was actually shown. */
+export interface ProjectCaseVerificationRequirement {
+  fact: string;
+  label?: string;
+  why_needed?: string;
+  required_by_rule_ids?: string[];
+}
+
 /** One track's answer, or the honest account of why it has none.
  *
  *  The same shape serves both tracks; which fields are populated is what tells
@@ -1638,6 +1654,8 @@ export interface ProjectCaseJudgement {
   explanation?: string | null;
   missing_required_facts?: string[];
   missing_information?: ProjectCaseMissingInformation[];
+  /** Carried only by a verdict that was reached. Absent on an older reply. */
+  verification_requirements?: ProjectCaseVerificationRequirement[];
   citations?: ProjectCaseCitation[];
   note?: string | null;
   /** `informational` or `decision` — which gather composed this section. */

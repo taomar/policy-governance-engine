@@ -26,6 +26,7 @@ import {
   NOT_REQUESTED,
   NO_SECTION,
   missingInformationItems,
+  verificationRequirementItems,
   readCaseTracks,
   readDiscovery,
   readLanguage,
@@ -884,6 +885,11 @@ function QuietTrack({ reading, name }: { reading: CaseTrackReading; name: string
  * could not be decided leaves this empty, and nothing on this surface may
  * present the second as the first. The facts a blocked case is waiting on are
  * the actionable part and are given their own panel rather than a sentence.
+ *
+ * A verdict that *was* reached may still carry conditions on acting on it. Those
+ * get their own panel too, in an informational tone rather than the warning one:
+ * the determination above them holds, and borrowing the blocked panel's colour
+ * would tell a reviewer the opposite of what the section means.
  */
 function VerdictTrack({ reading }: { reading: CaseTrackReading }) {
   const copy = outcomeCopy(reading);
@@ -893,6 +899,7 @@ function VerdictTrack({ reading }: { reading: CaseTrackReading }) {
   const verdict = section.verdict?.trim() ?? "";
   const explanation = trackProse(section);
   const missing = missingInformationItems(section);
+  const verifications = verificationRequirementItems(section);
   return (
     <section
       className="policy-case-reading project-case-track"
@@ -992,6 +999,54 @@ function VerdictTrack({ reading }: { reading: CaseTrackReading }) {
                 </li>
               ))}
             </ul>
+          }
+        />
+      ) : null}
+      {verifications.length > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          data-testid="project-case-verification-requirements"
+          title={
+            verifications.length === 1
+              ? "One thing to confirm before acting on this verdict"
+              : `${verifications.length} things to confirm before acting on this verdict`
+          }
+          description={
+            <>
+              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                The verdict above stands on the rules as read. These conditions were not decided by
+                it and must be confirmed against your own records before it is acted on.
+              </Paragraph>
+              <ul className="project-case-missing">
+                {verifications.map((item) => (
+                  <li key={item.fact} className="project-case-missing__item">
+                    <Text strong>
+                      <DirectionalText>{item.label}</DirectionalText>
+                    </Text>
+                    {item.whyNeeded ? (
+                      <div>
+                        <Text type="secondary">
+                          <DirectionalText>{item.whyNeeded}</DirectionalText>
+                        </Text>
+                      </div>
+                    ) : null}
+                    {item.requiredByRuleIds.length > 0 ? (
+                      <div className="project-case-missing__rules">
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Imposed by
+                        </Text>{" "}
+                        {item.requiredByRuleIds.map((ruleId) => (
+                          <Text key={ruleId} code>
+                            {ruleId}
+                          </Text>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
           }
         />
       ) : null}

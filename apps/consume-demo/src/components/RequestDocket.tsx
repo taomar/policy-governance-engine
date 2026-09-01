@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { DOCKET, GUIDANCE_EXAMPLES } from '../copy/strings'
-import { MAX_ADDITIONAL_INSTRUCTIONS_CHARS, type ReasoningEffort } from '../contracts/caseDecision'
+import {
+  MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
+  type PlaygroundResponseMode,
+  type ReasoningEffort,
+} from '../contracts/caseDecision'
 import { newUuid } from '../lib/identifiers'
 import { normaliseAdditionalInstructions } from '../lib/canonicalHash'
 
@@ -82,6 +86,8 @@ export interface DocketProps {
   subscriptionKeyPrefilled: boolean
   scenario: string
   onScenario: (value: string) => void
+  responseMode: PlaygroundResponseMode
+  onResponseMode: (value: PlaygroundResponseMode) => void
   reasoningEffort: ReasoningEffort
   onReasoningEffort: (value: ReasoningEffort) => void
   callingSystemIdentity: string
@@ -168,6 +174,7 @@ export function RequestDocket(props: DocketProps) {
   const guidanceLength = props.additionalInstructions.length
   const normalisedLength = normaliseAdditionalInstructions(props.additionalInstructions).length
   const identity = props.resolution.kind === 'resolved' ? props.resolution.identity : null
+  const decisionRequest = props.responseMode !== 'policies'
   const noActiveVersion = identity !== null && identity.activeVersionNumber === null
   const keyNotFound = props.resolution.kind === 'not-found'
   const hasConnectionNotes =
@@ -365,6 +372,57 @@ export function RequestDocket(props: DocketProps) {
       </div>
 
       <div className="compose__body">
+        <fieldset className="mode-switch" data-testid="playground-response-mode">
+          <legend className="field__label">{DOCKET.responseModeLabel}</legend>
+          <div className="mode-switch__options">
+            <label
+              className={`mode-option${props.responseMode === 'decision' ? ' mode-option--selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="response-mode"
+                value="decision"
+                checked={props.responseMode === 'decision'}
+                onChange={() => props.onResponseMode('decision')}
+              />
+              <span>
+                <strong>{DOCKET.decisionModeLabel}</strong>
+                <small>{DOCKET.decisionModeDescription}</small>
+              </span>
+            </label>
+            <label
+              className={`mode-option${props.responseMode === 'decision-light' ? ' mode-option--selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="response-mode"
+                value="decision-light"
+                checked={props.responseMode === 'decision-light'}
+                onChange={() => props.onResponseMode('decision-light')}
+              />
+              <span>
+                <strong>{DOCKET.decisionLightModeLabel}</strong>
+                <small>{DOCKET.decisionLightModeDescription}</small>
+              </span>
+            </label>
+            <label
+              className={`mode-option${props.responseMode === 'policies' ? ' mode-option--selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="response-mode"
+                value="policies"
+                checked={props.responseMode === 'policies'}
+                onChange={() => props.onResponseMode('policies')}
+              />
+              <span>
+                <strong>{DOCKET.policiesModeLabel}</strong>
+                <small>{DOCKET.policiesModeDescription}</small>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         <div className="field">
           <label className="field__label" htmlFor="pg-scenario">
             {DOCKET.scenarioLabel}
@@ -384,22 +442,26 @@ export function RequestDocket(props: DocketProps) {
 
       <div className="compose__send">
         <div className="compose__controls">
-          <div className="field compose__effort">
-            <label className="field__label" htmlFor="pg-effort">
-              {DOCKET.reasoningLabel}
-            </label>
-            <select
-              id="pg-effort"
-              className="select"
-              data-testid="playground-reasoning-effort"
-              value={props.reasoningEffort}
-              onChange={(event) => props.onReasoningEffort(event.target.value as ReasoningEffort)}
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
+          {decisionRequest ? (
+            <div className="field compose__effort">
+              <label className="field__label" htmlFor="pg-effort">
+                {DOCKET.reasoningLabel}
+              </label>
+              <select
+                id="pg-effort"
+                className="select"
+                data-testid="playground-reasoning-effort"
+                value={props.reasoningEffort}
+                onChange={(event) => props.onReasoningEffort(event.target.value as ReasoningEffort)}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          ) : (
+            <p className="compose__mode-note">{DOCKET.policiesModeNote}</p>
+          )}
 
           <button
             type="submit"
@@ -409,7 +471,13 @@ export function RequestDocket(props: DocketProps) {
             disabled={props.submitDisabledReason !== null || props.submitting}
             title={props.submitDisabledReason ?? undefined}
           >
-            {props.submitting ? DOCKET.submitting : DOCKET.submit}
+            {props.submitting
+              ? DOCKET.submitting
+              : props.responseMode === 'decision'
+                ? DOCKET.submit
+                : props.responseMode === 'decision-light'
+                  ? DOCKET.submitLight
+                  : DOCKET.submitPolicies}
           </button>
         </div>
 
@@ -436,8 +504,10 @@ export function RequestDocket(props: DocketProps) {
         </h2>
       </div>
 
-      <fieldset className="advanced__group">
-        <div className="field">
+      {decisionRequest ? (
+        <>
+          <fieldset className="advanced__group">
+            <div className="field">
           <label className="field__label" htmlFor="pg-calling-system">
             {DOCKET.callingSystemLabel}
           </label>
@@ -485,11 +555,11 @@ export function RequestDocket(props: DocketProps) {
               {DOCKET.idempotencyConflict}
             </p>
           ) : null}
-        </div>
-      </fieldset>
+            </div>
+          </fieldset>
 
-      <fieldset className="advanced__group">
-        <legend className="eyebrow">{DOCKET.guidance}</legend>
+          <fieldset className="advanced__group">
+            <legend className="eyebrow">{DOCKET.guidance}</legend>
 
         <div className="field">
           <div className="field__labelrow">
@@ -575,7 +645,14 @@ export function RequestDocket(props: DocketProps) {
           </div>
           <p className="field__caption">{DOCKET.guidanceExamplesCaption}</p>
         </div>
-      </fieldset>
+          </fieldset>
+        </>
+      ) : (
+        <div className="advanced__group" data-testid="playground-light-mode-note">
+          <span className="eyebrow">Light request</span>
+          <p className="field__caption">{DOCKET.policiesMetadataNote}</p>
+        </div>
+      )}
 
       <fieldset className="advanced__group">
         <legend className="eyebrow">{DOCKET.trace}</legend>
@@ -662,7 +739,11 @@ export function RequestDocket(props: DocketProps) {
         <span className="mono">
           {props.projectKey || 'no project'}
           {identity?.activeVersionNumber != null ? ` · v${identity.activeVersionNumber}` : ''}
-          {` · effort ${props.reasoningEffort}`}
+          {props.responseMode === 'decision'
+            ? ` · full decision · effort ${props.reasoningEffort}`
+            : props.responseMode === 'decision-light'
+              ? ` · decision light · effort ${props.reasoningEffort}`
+              : ' · policy JSON'}
         </span>
         <button type="button" className="btn" onClick={props.onExpand}>
           Edit request

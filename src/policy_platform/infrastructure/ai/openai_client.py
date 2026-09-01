@@ -300,5 +300,6 @@ class AzureOpenAIClient:
         if resp.status_code >= 400:
             raise AzureOpenAIError(f"Azure OpenAI embeddings call failed ({resp.status_code}): {resp.text[:500]}")
         data = resp.json()
+        record_call_usage(data.get("usage") if isinstance(data, dict) else None)
         items = sorted(data["data"], key=lambda item: item["index"])
         return [item["embedding"] for item in items]

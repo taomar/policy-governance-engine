@@ -133,6 +133,8 @@ import asyncio
 import json
 import logging
 import secrets
+import time
+from collections.abc import Callable
 from typing import Final
 
 from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
@@ -149,6 +151,31 @@ from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+#: Bumped to `v12` when every proposed verification began declaring whether it
+#: could change the judgement, allowing the structural plan to promote a
+#: misfiled outcome-determinative check into missing information.
+#:
+#: Bumped to `v11` when a duration measured from one event or relationship
+#: stopped being substituted for a rule's different clock (for example, assigned
+#: use versus entry into service), and action requests were required to treat the
+#: missing policy-defined clock as a blocking fact.
+#:
+#: Bumped to `v10` when elapsed duration stopped being treated as proof that a
+#: contract or other lifecycle term was completed, and a computable conditional
+#: rate was required to return a scoped result with applicability checks.
+#:
+#: Bumped to `v9` when entitlement questions expressed through a rate or formula
+#: were required to return the computable, explicitly scoped outcome instead of
+#: treating an unverified applicability/balance condition as policy silence.
+#:
+#: Bumped to `v8` when the decision prompts began distinguishing a question about
+#: what the rules confer from a question about whether a particular action may
+#: proceed, and gained `verification_requirements` — the conditions that qualify
+#: acting on a determination without hanging the determination itself. Under `v7`
+#: a reviewer who asked whether an entitlement existed was answered with an audit
+#: of everything that would have to be checked before exercising it, in place of
+#: the answer; the two kinds of unknown are now named separately.
+#:
 #: Bumped to `v7` when the decision prompts began carrying the closed selector
 #: catalogue and required exact catalogue keys whenever the retained records
 #: declare one. `v6` allowed the model to invent a normalised key and relied on
@@ -166,7 +193,7 @@ logger = logging.getLogger(__name__)
 #: `v5` marked the boundary between `missing_required_facts` and
 #: `not_settled_by_rules` being made explicit and enforced in post-processing
 #: (see `_SETTLEMENT_BOUNDARY`).
-PROMPT_VERSION = "ai-case-intent-v7"
+PROMPT_VERSION = "ai-case-intent-v12"
 
 VALID_REASONING_EFFORTS = ("low", "medium", "high")
 
@@ -288,31 +315,39 @@ SOURCE_NO_CITATION = "no_citation"  # the rule points at no clause (empty ``evid
 SOURCE_UNRESOLVED = "unresolved"  # it points at a clause, but no span carried the sentence
 SOURCE_NOT_STORED = "not_stored"  # the span is present but its text was never stored (empty)
 
-_CLASSIFY_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy into exactly \
+_PERSONAL_APPLICATION_BOUNDARY = """A value the policy holds can be either the subject of an abstract \
+question or the result of applying the policy to a particular case. Do not classify solely by whether \
+the requested answer is a number, entitlement, status, or limit.
+
+- An abstract question asks what the policy provides without supplying a person, object, transaction, \
+date, duration, category, quantity, or other case facts to apply. That asks for information.
+- A particular-case question supplies facts about a person, object, transaction, or proposed action and \
+asks what the policy gives, permits, requires, recognises, or calculates for that case — including how \
+much that person or case is entitled to. That asks for a verdict even when the requested outcome is an \
+entitlement amount rather than yes/no. The supplied facts are inputs and the entitlement, eligibility, \
+band, amount, or status is the applied outcome.
+- Mentioning a role or category alone is not enough. The distinction is whether the question offers facts \
+as true of a particular case and asks what follows for that case.
+- If one question explicitly asks both for the general rule and for its own case outcome, it asks for both.
+
+Examples are semantic shapes, not phrases to match: asking the general allowance for a class is abstract; \
+stating a person's service duration and asking their allowance is an application. Asking the general \
+inspection interval is abstract; supplying a vessel class and asking its interval is an application. \
+Asking the contribution table is abstract; supplying an account tier and asking the applicable rate is an \
+application."""
+
+
+_CLASSIFY_SYSTEM_PROMPT = f"""You sort one question a reviewer has put to a governance policy into exactly \
 one of two kinds. You are given the question and, below it, the facts and quantities the policy's rules \
 test — the things a rule is measured against. Decide which kind the question is by what it does with \
 those tested facts, not by any word it happens to use.
 
-One thing separates the two kinds: whether the question SUPPLIES a tested fact or ASKS AFTER one.
+{_PERSONAL_APPLICATION_BOUNDARY}
 
-- "informational": the reviewer is asking the policy to state a fact or quantity it holds — a limit, an \
-entitlement, a definition, a procedure. The value they name is the subject they want told, the answer \
-they are seeking; they have not supplied it. Naming their own role, status, or category — the position \
-they hold or the group they belong to — only points at which part of the policy they mean. It is not \
-one of the tested facts, and it does not turn a request into a case.
+- "informational": the reviewer asks only for the abstract policy statement.
 
-- "decision": the reviewer has SUPPLIED one of the tested facts as true of their own situation — a \
-number, a date, an event, a state of affairs — and wants to know how the policy comes out on it: \
-whether something is permitted, required, in breach, or within a limit. What marks this kind is that a \
-fact the governing rule tests is already present in the question, offered as an input to be applied.
-If the question gives a concrete value or state of affairs and asks whether that supplied value is \
-allowed, compliant, within the limit, or otherwise acceptable, that is a decision: the value is an input \
-to test, not the policy fact being asked after.
-
-The reliable test is what the reviewer has done with the tested fact at issue. Two questions can name \
-the same category and differ only here: one asks what value the policy sets for that category — asking \
-after the quantity the rule tests — while the other states that value as already true of the reviewer's \
-own case, supplying it. The first is informational; the second is a decision.
+- "decision": the reviewer asks the policy to apply to supplied case facts and return the resulting \
+permission, obligation, breach, eligibility, entitlement, amount, band, status, or other outcome.
 
 If a question does both — supplies one tested fact and asks after another — it is a "decision". The \
 determination it calls for will name the rules it rests on and state what they hold, so the part it \
@@ -331,7 +366,7 @@ whether the question supplied it or asked after it, and therefore which kind it 
 #: `asked.classifier_version` so a caller can tell which reading produced their
 #: routing. Bumped whenever the prompt's cut changes in a way that could change
 #: which tracks run for the same question.
-NEEDS_CLASSIFIER_VERSION = "ai-case-needs-v1"
+NEEDS_CLASSIFIER_VERSION = "ai-case-needs-v2"
 
 #: How many independent readings of one question the needs classifier takes
 #: before it reports which tracks to run.
@@ -353,28 +388,27 @@ NEEDS_CLASSIFIER_SAMPLES: Final[int] = 3
 #: money on one question.
 NEEDS_CLASSIFIER_SAMPLES_MAX: Final[int] = 5
 
-_CLASSIFY_NEEDS_SYSTEM_PROMPT = """You sort one question a reviewer has put to a governance policy \
+_CLASSIFY_NEEDS_SYSTEM_PROMPT = f"""You sort one question a reviewer has put to a governance policy \
 by what it asks the policy FOR. You are given the question and, below it, the facts and quantities \
 the policy's rules test — the things a rule is measured against.
 
 Report TWO INDEPENDENT judgements. They are not alternatives: a question may ask for one, the other, \
 or both, and you must decide each on its own.
 
-1. "information_requested": the reviewer wants the policy to STATE something it holds — a limit, an \
-entitlement, a definition, a procedure, a deadline. The value they name is the subject they want \
-told; they have not supplied it. Naming their own role, status, or category only points at which \
-part of the policy they mean, and does not by itself make this false.
+{_PERSONAL_APPLICATION_BOUNDARY}
 
-2. "verdict_requested": the reviewer wants the policy APPLIED to a situation and an outcome returned \
-— whether something is permitted, required, in breach, compliant, or within a limit. What marks this \
-is that the question offers a state of affairs to be judged, or asks in terms that call for a ruling \
-on a case, rather than merely asking what the policy holds.
+1. "information_requested": true only when the reviewer explicitly asks for the abstract policy \
+statement — the general limit, definition, procedure, table, deadline, or entitlement rule.
+
+2. "verdict_requested": true when the reviewer asks what follows for a particular case whose facts \
+they supplied — including how much that person or case is entitled to, eligible for, assigned, charged, \
+or required to do.
 
 Judge each independently:
 
 - A question that only asks what the policy provides is information true, verdict false.
-- A question that only supplies a situation and asks how it comes out is information false, verdict \
-true.
+- A question that supplies personal or case facts and asks what applies to that case is information \
+false, verdict true, even when the answer will state a number or entitlement.
 - A question that does both — "what is the overtime limit, and was my Tuesday shift within it?" — is \
 BOTH true. Do not choose between them, and do not set one false because the other is more prominent.
 - If the reviewer asks for a ruling and would plainly also want the governing rule stated back to \
@@ -521,11 +555,121 @@ if another — then the determination is not finished, and `answered` is the wro
 anything in `missing_required_facts` or `missing_required_facts_detail`; if you have named something \
 there, that is your status.
 
+A determination is still finished when the only things left over are conditions on *acting* on it \
+rather than on reaching it. Those go in `verification_requirements`, which is not the list this \
+paragraph is about: naming something there says nothing about whether the judgement was reached, and \
+it never converts a determination into a block. Nothing may appear in both lists.
+
 Before you return, read back what you have written and check it against the status you chose. If any \
 part of it says a value about this case is unknown, unstated, conditional, or would have to be \
-supplied, then a fact would settle this: the status is `missing_required_facts` and that value \
-belongs in the list of missing facts. That check applies whether you were about to return `answered` \
-or `not_settled_by_rules`."""
+supplied, ask which of two things that value is. If the judgement asked for would come out one way \
+on one value of it and another way on another, a fact would settle this: the status is \
+`missing_required_facts` and that value belongs in the list of missing facts. If the judgement asked \
+for holds whatever that value turns out to be, and it governs only what has to be confirmed before \
+anyone acts on the judgement, the status stands and that value belongs in \
+`verification_requirements`. That check applies whether you were about to return `answered` or \
+`not_settled_by_rules`."""
+
+#: The second boundary these prompts must draw, and it sits across the first.
+#:
+#: WHAT IT REPAIRS
+#:
+#: A reviewer asked whether a right the records confer was theirs at all. The
+#: retained rules established it from what they had already said. The reply
+#: nonetheless returned `missing_required_facts`, naming every value that would
+#: have to be checked before the right could actually be exercised — a quantity
+#: standing to their account, an approval, a schedule, a window. Each of those is
+#: a real condition. None of them bore on the question that was asked. The
+#: reviewer was told their question could not be answered, when it had been.
+#:
+#: The reading was not unreasonable under the older prompt: `_SETTLEMENT_BOUNDARY`
+#: asks whether any value about the case is unstated, and several were. What it
+#: did not ask was *whether the judgement turns on them* — which is the whole
+#: difference between a fact that settles a question and a condition on acting.
+#:
+#: WHY IT IS WRITTEN AS A SHAPE AND NOT AS A CASE
+#:
+#: The shape is not rare and is not tied to any subject. Every governance corpus
+#: distinguishes what it confers or imposes from the procedure for exercising or
+#: discharging it: a permission and the licence check before using it, a charge
+#: and the release of the thing charged for, an award and the disbursement.
+#: So the paragraph names no policy area, no rule and no selector, and the
+#: examples it gives are drawn from unrelated subjects on purpose.
+_ENTITLEMENT_AND_EXECUTION = """Two different questions can be asked about the same rules, and they \
+have different answers. Decide which one was asked before you choose a status.
+
+- **Does a right, an entitlement, an obligation, a liability or a status exist?** The reviewer is \
+asking what the rules confer, impose or recognise. If the retained rules establish that from what the \
+reviewer has already said, the question is settled: return `answered` and say so. Conditions that \
+govern *exercising* what the rules confer — a quantity currently standing to the reviewer's account, \
+an approval that has to be sought, a schedule or sequence that has to be respected, a window or a \
+notice period, a registration, a category somebody who holds the record has to confirm — do not make \
+the entitlement conditional. They are things to confirm before acting on it, and they belong in \
+`verification_requirements`.
+
+When the rules express that entitlement as a rate, formula, schedule or table, and the reviewer supplies \
+the values needed to calculate one row or one amount, calculate it. A desired amount or an intention to \
+use the entitlement does not by itself turn an entitlement calculation into a request for operational \
+approval. Return an explicitly scoped verdict — for example, what the stated rate produces and whether \
+the requested amount sits within it — and put unresolved applicability, recorded balance, approval, \
+roster, timing or account-state conditions in `verification_requirements`. Do not call the rules \
+`not_settled_by_rules` merely because one of those checks remains.
+
+The scope must stay honest. If the scenario affirmatively contradicts a condition, do not apply that \
+rule. If it does not establish whether the condition holds, state the result **under the named rule or \
+formula** and name that applicability condition as a check; never turn a conditional calculation into an \
+unqualified entitlement.
+
+Do not invent a lifecycle state from elapsed time. Saying that a person, contract, permit, account or \
+asset has existed for a duration does not by itself say that its term was completed, renewed, terminated \
+or left incomplete. When the rule turns on one of those states and the scenario supplies only a duration, \
+the state is unverified — not contradicted — and belongs in `verification_requirements`.
+
+Do not substitute one clock for another. A duration measured from assignment, possession, employment, \
+registration, subscription or use does not establish a duration measured from a different event named by \
+the rule — entry into service, contract commencement, approval, activation, renewal or publication — unless \
+the scenario or the rule explicitly says those events coincide. If the reviewer asks whether a particular \
+action may proceed and the result turns on the policy-defined clock, the missing start event is a \
+`missing_required_fact`, not a check attached to a reached verdict. If the reviewer asks only what a rate \
+or entitlement produces, return the scoped calculation and put the clock alignment in \
+`verification_requirements` as described above.
+
+This is a mandatory status boundary: when a cited rule supplies a rate, formula, schedule or table and \
+the scenario supplies the arithmetic or row-selection inputs, `not_settled_by_rules` is unavailable. \
+Return the truthful result scoped to that rule, and expose every unresolved applicability condition as a \
+check before acting.
+
+- **May this particular action, transaction or request proceed?** The reviewer is asking for a \
+decision on something they are about to do. Here every value the rules turn on is \
+outcome-determinative: if the rules would come out one way on one value and another way on another, \
+and the reviewer has not said which, the case is blocked and that value is a missing required fact.
+
+Do not turn the first question into the second. A reviewer who asked whether something is conferred \
+has not asked for an audit of their current position, and replacing the answer with a list of \
+everything that would have to be checked before they could act leaves the question they asked \
+unanswered. State what the rules establish, and list the checks separately.
+
+This too is a shape to recognise rather than a vocabulary to match, and it is the same in every \
+subject: whether a class of licence permits an activity, against whether this activity may be carried \
+out today; whether a charge applies to a category of goods, against whether this consignment may be \
+released; whether a grant is available to a class of applicant, against whether this application \
+succeeds."""
+
+#: The returned field the boundary above needs, written once and used by both
+#: decision prompts. The single-policy and multi-policy paths must not drift, and
+#: the wording here is deliberately neutral about how many records there are.
+_VERIFICATION_REQUIREMENTS_FIELD = """- "verification_requirements": the conditions that do not \
+change the judgement you reached but must be confirmed before anyone acts on it. One object each: \
+"fact" (the key the condition is keyed on, chosen under exactly the rule stated for \
+"missing_required_facts" above — an exact key from `selector_catalogue` when that catalogue is \
+non-empty, and otherwise a short key of your own in lower case with words joined by single hyphens), \
+"label" (a short human label in English), "why_needed" (one sentence saying what has to be confirmed \
+and why), "outcome_determinative" (false for a genuine check; true if changing this value could change \
+the judgement, which means you placed it here only provisionally and the validator will promote it to \
+missing information), and "required_by_rule_ids" (the `rule_id`s that impose the condition, only ids that appear \
+in the records shown to you). Empty list when there are none. Never put a value here that the \
+judgement itself turns on — that is a missing required fact — and never name the same value in both \
+lists."""
 
 _DECISION_SYSTEM_PROMPT = """A reviewer has described a situation and asked for a judgement under \
 one governance policy. You are given the reviewer's question and one policy as a lean JSON record, \
@@ -560,6 +704,8 @@ rules turn on that they did not state is a missing required fact, not a conditio
 
 """ + _SETTLEMENT_BOUNDARY + """
 
+""" + _ENTITLEMENT_AND_EXECUTION + """
+
 Write in English: it is the one language every stage of this system reads and writes in, and a \
 separate step renders the finished prose for a reader who asked in another. The answer is your own \
 wording; do not present it as a direct quotation of the document. Every load-bearing statement must \
@@ -573,7 +719,9 @@ or declined. When the rules settle part of the case, this states that settled pa
 final outcome is still blocked.
 - "verdict": a short plain-language verdict when status is "answered" (for example "compliant", \
 "not compliant", "allowed", "not allowed"). Empty otherwise. A verdict that has to be qualified by \
-a value the reviewer did not give is not a verdict; name that value instead.
+a value the reviewer did not give is not a verdict; name that value instead. A verdict qualified \
+only by conditions on acting is still a verdict: state it, and put those conditions in \
+"verification_requirements".
 - "cited_rule_ids": the `rule_id`s of the rules your answer or non-answer explanation draws on. \
 Every rule you relied on, no rule you did not, and only ids that appear in `rules`. Empty only if no \
 rule bears or you declined.
@@ -592,6 +740,7 @@ the prose, and it is the only field here that is), "why_needed" (one \
 sentence saying which judgement turns on it), and "required_by_rule_ids" (the `rule_id`s that need \
 it, only ids that appear in `rules`). Empty unless "missing_required_facts" is non-empty. Never name \
 a fact here that is absent from "missing_required_facts".
+""" + _VERIFICATION_REQUIREMENTS_FIELD + """
 - "unsettled_reason": required when status is "not_settled_by_rules", empty for every other status. \
 "missing_case_fact" if some fact of the reviewer's own situation would settle the judgement — in \
 which case the status is wrong, and you should return "missing_required_facts" naming that fact \
@@ -642,6 +791,16 @@ def _grounding(
         # with the count so a reader knows which vocabulary refused it.
         "selector_catalogue_version": SELECTOR_CATALOGUE_VERSION,
         "selectors_out_of_catalogue": [],
+        # Reported separately from the line above, and deliberately so. A name
+        # refused from the missing-fact list means this layer can no longer say
+        # what the determination hangs on, and the decision below escalates. A
+        # name refused from the verification list means one optional check could
+        # not be expressed in the records' own vocabulary, which is a smaller
+        # thing: the determination was grounded without it and stands. Folding
+        # the two counts together would make an optional check look like a
+        # failure of grounding, and would let a reader draw the wrong conclusion
+        # from a receipt that is in fact sound.
+        "verification_selectors_out_of_catalogue": [],
     }
 
 
@@ -1557,6 +1716,16 @@ def _selector_membership(rules: list[dict]) -> dict:
     }
 
 
+def _selector_membership_for_records(records: list[dict]) -> dict:
+    """The exact catalogue advertised to a gather, in validator form."""
+
+    catalogue = selector_catalogue(records)
+    return {
+        "alias_index": catalogue["alias_index"],
+        "declared": bool(catalogue["selectors"]),
+    }
+
+
 def _fact_identity(raw: str, fact_names: dict[str, str]) -> str:
     """The stable key for one named fact: the record's name for it, or the derived one."""
 
@@ -1566,6 +1735,50 @@ def _fact_identity(raw: str, fact_names: dict[str, str]) -> str:
         # whatever the gather meant rather than emitting an empty identifier.
         return str(raw).strip()
     return fact_names.get(key, key)
+
+
+def _selector_resolver(
+    membership: dict | None, fact_names: dict[str, str]
+) -> tuple[Callable[[str], str | None], list[str]]:
+    """A resolver for one closed-vocabulary check, and the refusals it records.
+
+    Returns the function that turns a name the model wrote into the canonical
+    key it belongs to — or ``None`` — together with the list that accumulates
+    every name it refused, in first-seen order. Idempotent: resolving the same
+    name twice refuses it once.
+
+    Two callers share this, and each gets **its own** refusal list. That is the
+    point of returning the list rather than writing to a shared one: a name
+    refused from the missing-fact list and a name refused from the verification
+    list have different consequences downstream, and a single list would make
+    them indistinguishable at exactly the moment the difference matters.
+
+    The two restraints of :func:`_selector_membership` are honoured here, once,
+    for both callers: an undeclared corpus enforces nothing, and a refusal is
+    recorded rather than performed silently.
+    """
+
+    alias_index = (membership or {}).get("alias_index") or {}
+    enforcing = bool((membership or {}).get("declared"))
+    refused: list[str] = []
+
+    def _resolve(raw: str) -> str | None:
+        text = str(raw).strip()
+        if not text:
+            return None
+        if enforcing:
+            # Resolved by the catalogue's own alias index, so a name written in
+            # any spelling the records use resolves to the one selector it is,
+            # and a name the records never used resolves to nothing.
+            canonical = alias_index.get(_fact_key(text))
+            if canonical is None:
+                if text not in refused:
+                    refused.append(text)
+                return None
+            return fact_names.get(canonical, canonical) or None
+        return _fact_identity(text, fact_names) or None
+
+    return _resolve, refused
 
 
 def _reconciled_missing_facts(
@@ -1652,31 +1865,8 @@ def _reconciled_missing_facts(
     ordered_keys: list[str] = []
     written_as: dict[str, str] = {}
     described: dict[str, dict] = {}
-    dropped: list[str] = []
 
-    alias_index = (membership or {}).get("alias_index") or {}
-    enforcing = bool((membership or {}).get("declared"))
-
-    def _resolve(raw: str) -> str | None:
-        """The canonical key one named fact resolves to, or ``None``.
-
-        Records a refusal on the way past, so enforcement is observable rather
-        than silent. Idempotent: resolving the same name twice refuses it once.
-        """
-
-        text = str(raw).strip()
-        if not text:
-            return None
-        if enforcing:
-            # Resolved by the catalogue's own alias index, so a fact named by any
-            # spelling the records use resolves to the one selector it is, and a
-            # name the records never used resolves to nothing.
-            resolved = alias_index.get(_fact_key(text))
-            if resolved is None:
-                if text not in dropped:
-                    dropped.append(text)
-                return None
-        return _fact_identity(text, fact_names) or None
+    _resolve, dropped = _selector_resolver(membership, fact_names)
 
     for name in plan.named_facts:
         key = _resolve(name)
@@ -1725,6 +1915,146 @@ def _reconciled_missing_facts(
     return items, dropped
 
 
+def _reconciled_verification_requirements(
+    plan: CasePlan,
+    parsed: dict,
+    *,
+    available_ids: set[str],
+    fact_names: dict[str, str],
+    missing_keys: set[str],
+    membership: dict | None = None,
+) -> tuple[list[dict], list[dict], list[str], list[str]]:
+    """The checks a caller must confirm before acting, held to the same standards.
+
+    WHAT THIS IS FOR
+
+    A determination can be complete and still not be a licence to act. The rules
+    settle whether something is conferred; a separate set of conditions governs
+    exercising it — a quantity currently standing to an account, an approval, a
+    sequence, a window. Before this field existed those conditions had one place
+    to go, and it was the list of missing facts, which meant naming any of them
+    turned an answered case into a blocked one. A reviewer who asked whether a
+    right existed was handed an audit instead of an answer.
+
+    So they are carried separately, and the separation is the whole behaviour:
+    genuine checks are **additive**. A condition explicitly marked
+    ``outcome_determinative`` is not a genuine check: it was placed in this list
+    provisionally and is returned separately so the caller can promote it to
+    missing information before settling status.
+
+    WHY THE SAFEGUARDS ARE THE SAME
+
+    Everything that makes ``missing_information`` trustworthy applies here
+    unchanged, because a caller acts on both:
+
+      * a name must resolve to something the retained records declare, through
+        the same alias index, so a check keyed on an invented selector cannot
+        reach a caller looking exactly like one the policy imposed;
+      * rule ids are filtered against the closed rule set, exactly as citations
+        are, so a check cannot be attributed to a rule that was never retained;
+      * refusals are returned rather than swallowed, so the check is observable.
+
+    WHY ONE SAFEGUARD IS DELIBERATELY DIFFERENT
+
+    A refused name here does **not** escalate the status, and the caller above
+    must not treat it as though it did. The reasoning that makes a refused
+    missing-fact name fatal is that the determination still hangs on something
+    this layer can no longer name. Nothing hangs on these: the determination was
+    grounded without them. Dropping one loses an optional check — reported in the
+    grounding block, distinctly — and a determination that was separately
+    grounded is not invalidated by it.
+
+    ``missing_keys`` closes the last gap. A value cannot be both what the
+    judgement turns on and a condition on acting; if a reply names it in both
+    places, the blocking reading is kept and the optional one is discarded,
+    which is the same one-directional preference the status repairs above make.
+
+    WHICH HALF OF THE REPLY EACH ARGUMENT IS (M3)
+
+    ``plan`` supplies the identities: which conditions were named, in what order,
+    and which rules each was attributed to. ``parsed`` is read only for the
+    describing halves — the label and the reason. Rewording either cannot change
+    the set of checks, their order, or anything about the status.
+    """
+
+    resolve, refused = _selector_resolver(membership, fact_names)
+
+    ordered_keys: list[str] = []
+    written_as: dict[str, str] = {}
+    rule_ids: dict[str, list[str]] = {}
+    outcome_determinative: dict[str, bool] = {}
+
+    for claim in plan.named_verifications:
+        key = resolve(claim.fact)
+        if key is None or key in missing_keys:
+            # A value the judgement turns on is not an optional check, whatever
+            # else the reply also called it.
+            continue
+        if key not in written_as:
+            written_as[key] = claim.fact
+            ordered_keys.append(key)
+            rule_ids[key] = []
+            outcome_determinative[key] = False
+        # Canonical aliases are one condition. If any occurrence says the value
+        # can change the judgement, the blocking interpretation wins.
+        outcome_determinative[key] = (
+            outcome_determinative[key]
+            or claim.outcome_determinative is not False
+        )
+        for rid in claim.rule_ids:
+            rid = str(rid)
+            if rid in available_ids and rid not in rule_ids[key]:
+                rule_ids[key].append(rid)
+
+    described: dict[str, dict] = {}
+    description_resolve, _description_refused = _selector_resolver(membership, fact_names)
+    entries = parsed.get("verification_requirements")
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            fact = str(entry.get("fact") or "").strip()
+            label = str(entry.get("label") or "").strip()
+            key = description_resolve(fact or label)
+            if key is None or key not in written_as:
+                # A description of a check the plan did not name describes
+                # nothing this decision carries, so it is not carried either.
+                continue
+            supplied = described.setdefault(key, {"label": "", "why_needed": ""})
+            if label and not supplied["label"]:
+                supplied["label"] = label
+            why = str(entry.get("why_needed") or "").strip()
+            if why and not supplied["why_needed"]:
+                supplied["why_needed"] = why
+
+    def items(keys: list[str]) -> list[dict]:
+        return [
+            {
+                "fact": key,
+                "label": (described.get(key) or {}).get("label") or written_as[key],
+                "why_needed": (described.get(key) or {}).get("why_needed") or "",
+                "required_by_rule_ids": list(rule_ids.get(key) or []),
+            }
+            for key in keys
+        ]
+
+    optional_keys = [
+        key for key in ordered_keys if not outcome_determinative[key]
+    ]
+    blocking_keys = [
+        key for key in ordered_keys if outcome_determinative[key]
+    ]
+    blocking_written = {
+        claim.fact
+        for claim in plan.named_verifications
+        if claim.outcome_determinative is not False
+    }
+    optional_refused = [name for name in refused if name not in blocking_written]
+    blocking_refused = [name for name in refused if name in blocking_written]
+
+    return items(optional_keys), items(blocking_keys), optional_refused, blocking_refused
+
+
 def _unsettled_reason(plan: CasePlan) -> str:
     """Which kind of non-settlement the gather reported, normalised.
 
@@ -1745,6 +2075,7 @@ def _decision_from_parsed(
     spans: dict,
     policies_grounded: int | None = None,
     rule_to_policy: dict[str, dict] | None = None,
+    selector_membership: dict | None = None,
 ) -> dict:
     """Materialise the decision states from one parsed model response.
 
@@ -1756,6 +2087,13 @@ def _decision_from_parsed(
     Every returned shape carries ``missing_information`` beside the flat
     ``missing_required_facts``. Both are empty for every status but
     ``missing_required_facts``, and neither is ever populated without the other.
+
+    ``verification_requirements`` sits beside them and is normally the opposite kind of
+    thing: the conditions a caller must confirm before acting on a determination
+    that *was* reached. It is carried only where the status is ``answered``, it
+    is additive. A proposed check whose structural
+    ``outcome_determinative`` flag is true is first promoted to missing
+    information; a genuine check can neither make a case blocked nor rescue one.
 
     Three of the states are resolved here rather than taken as given, because the
     model can return a reply whose own structured fields contradict the status it
@@ -1831,12 +2169,18 @@ def _decision_from_parsed(
             "answer": "",
             "missing_required_facts": [],
             "missing_information": [],
+            "verification_requirements": [],
             "citations": [],
             "note": note,
             "grounding": grounding,
         }
 
     answer = prose["answer"].strip()
+    membership = (
+        selector_membership
+        if selector_membership is not None
+        else _selector_membership(rules)
+    )
     # Reconciled once, from both structured fields together, and used for every
     # decision below as well as for both emitted fields. Reading them separately
     # is what let the flat list a caller hashes and the block their UI renders
@@ -1847,10 +2191,37 @@ def _decision_from_parsed(
         parsed,
         available_ids=available_ids,
         fact_names=fact_names,
-        membership=_selector_membership(rules),
+        membership=membership,
     )
     missing_required_facts = [item["fact"] for item in missing_items]
     grounding["selectors_out_of_catalogue"] = out_of_catalogue
+
+    # Read here beside the missing facts, from the same reply and against the
+    # same closed vocabulary. Genuine checks remain outside status. Anything the
+    # plan marks outcome-determinative was misfiled and is promoted before status
+    # is settled, using structured identities rather than prose.
+    (
+        verification_items,
+        promoted_missing_items,
+        verification_out_of_catalogue,
+        promoted_out_of_catalogue,
+    ) = _reconciled_verification_requirements(
+        plan,
+        parsed,
+        available_ids=available_ids,
+        fact_names=fact_names,
+        missing_keys=set(missing_required_facts),
+        membership=membership,
+    )
+    existing_missing = set(missing_required_facts)
+    for item in promoted_missing_items:
+        if item["fact"] not in existing_missing:
+            missing_items.append(item)
+            existing_missing.add(item["fact"])
+    missing_required_facts = [item["fact"] for item in missing_items]
+    out_of_catalogue.extend(promoted_out_of_catalogue)
+    grounding["verification_selectors_out_of_catalogue"] = verification_out_of_catalogue
+    grounding["verifications_promoted_to_missing"] = len(promoted_missing_items)
 
     status = plan.status
     if status not in _DECISION_STATUSES:
@@ -1868,6 +2239,7 @@ def _decision_from_parsed(
             "answer": "",
             "missing_required_facts": [],
             "missing_information": [],
+            "verification_requirements": [],
             "citations": [],
             "note": note,
             "grounding": grounding,
@@ -1955,6 +2327,7 @@ def _decision_from_parsed(
             "answer": "",
             "missing_required_facts": [],
             "missing_information": [],
+            "verification_requirements": [],
             "citations": [],
             "note": note,
             "grounding": grounding,
@@ -1975,6 +2348,12 @@ def _decision_from_parsed(
         "answer": answer,
         "missing_required_facts": missing_required_facts if blocked else [],
         "missing_information": missing_items if blocked else [],
+        # Only where there is something to act on. A check to perform before
+        # exercising a determination is meaningless where no determination was
+        # reached, and emitting one beside a blocked or unsettled case would put
+        # a second list of outstanding things in front of a reader who already
+        # has one and invite them to read the two as the same kind of thing.
+        "verification_requirements": verification_items if status == ANSWERED else [],
         "citations": citations,
         "note": note,
         "grounding": grounding,
@@ -2138,6 +2517,7 @@ async def answer_decision(payload: dict, *, scenario: str, reasoning_effort: str
             "answer": "",
             "missing_required_facts": [],
             "missing_information": [],
+            "verification_requirements": [],
             "citations": [],
             "note": (
                 "This policy's record is larger than can be read in one grounded pass, so no judgement "
@@ -2163,7 +2543,12 @@ async def answer_decision(payload: dict, *, scenario: str, reasoning_effort: str
         user_content,
         reasoning_effort=reasoning_effort,
     )
-    return _decision_from_parsed(parsed, rules=rules, spans=payload.get("spans") or {})
+    return _decision_from_parsed(
+        parsed,
+        rules=rules,
+        spans=payload.get("spans") or {},
+        selector_membership=_selector_membership_for_records([payload]),
+    )
 
 
 async def answer_policy_case(payload: dict, *, scenario: str, reasoning_effort: str = "medium") -> dict:
@@ -2232,6 +2617,7 @@ async def answer_policy_case(payload: dict, *, scenario: str, reasoning_effort: 
                 "answer": "",
                 "missing_required_facts": [],
                 "missing_information": [],
+                "verification_requirements": [],
                 "citations": [],
                 "note": "",
                 "grounding": _grounding(
@@ -2362,6 +2748,8 @@ the rules turn on that they did not state is a missing required fact, not a cond
 
 """ + _SETTLEMENT_BOUNDARY + """
 
+""" + _ENTITLEMENT_AND_EXECUTION + """
+
 Write in English: it is the one language every stage of this system reads and writes in, and a \
 separate step renders the finished prose for a reader who asked in another. The answer is your own \
 wording; do not present it as a direct quotation of the document. Every load-bearing statement must \
@@ -2375,7 +2763,9 @@ or declined. When the rules settle part of the case, this states that settled pa
 final outcome is still blocked.
 - "verdict": a short plain-language verdict when status is "answered" (for example "compliant", \
 "not compliant", "allowed", "not allowed"). Empty otherwise. A verdict that has to be qualified by \
-a value the reviewer did not give is not a verdict; name that value instead.
+a value the reviewer did not give is not a verdict; name that value instead. A verdict qualified \
+only by conditions on acting is still a verdict: state it, and put those conditions in \
+"verification_requirements".
 - "cited_rule_ids": the `rule_id`s of the rules your answer or non-answer explanation draws on, from \
 any of the records. Every rule you relied on, no rule you did not, and only ids that appear in some \
 record's `rules`. Empty only if no rule bears or you declined.
@@ -2394,6 +2784,7 @@ the prose, and it is the only field here that is), "why_needed" (one \
 sentence saying which judgement turns on it), and "required_by_rule_ids" (the `rule_id`s that need \
 it, only ids that appear in some record's `rules`). Empty unless "missing_required_facts" is \
 non-empty. Never name a fact here that is absent from "missing_required_facts".
+""" + _VERIFICATION_REQUIREMENTS_FIELD + """
 - "unsettled_reason": required when status is "not_settled_by_rules", empty for every other status. \
 "missing_case_fact" if some fact of the reviewer's own situation would settle the judgement — in \
 which case the status is wrong, and you should return "missing_required_facts" naming that fact \
@@ -2802,6 +3193,7 @@ async def answer_decision_over_policies(
             "answer": "",
             "missing_required_facts": [],
             "missing_information": [],
+            "verification_requirements": [],
             "citations": [],
             "note": (
                 "The retained policies' records together are larger than can be read in one grounded "
@@ -2826,7 +3218,16 @@ async def answer_decision_over_policies(
         spans=merged_spans,
         policies_grounded=policies_grounded,
         rule_to_policy=rule_to_policy,
+        selector_membership=_selector_membership_for_records(records),
     )
+
+
+class _ObservedCaseEvaluation(dict):
+    """A dict-compatible evaluation carrying execution-only observations."""
+
+    def __init__(self, value: dict, *, stage_latency_ms: dict[str, int]) -> None:
+        super().__init__(value)
+        self.stage_latency_ms = dict(stage_latency_ms)
 
 
 async def answer_case_over_policies(
@@ -2890,6 +3291,7 @@ async def answer_case_over_policies(
     """
 
     effort = _normalise_effort(reasoning_effort)
+    stage_latency_ms: dict[str, int] = {}
 
     tested: list[str] = []
     seen: set[str] = set()
@@ -2899,7 +3301,11 @@ async def answer_case_over_policies(
                 seen.add(item)
                 tested.append(item)
 
+    classifier_started = time.perf_counter()
     needs = await classify_case_needs(scenario, tested_quantities=tested)
+    stage_latency_ms["classifier"] = max(
+        0, int((time.perf_counter() - classifier_started) * 1000)
+    )
     information_requested = needs["information_requested"]
     verdict_requested = needs["verdict_requested"]
 
@@ -2943,6 +3349,7 @@ async def answer_case_over_policies(
     # propagates and is not mistaken for a failed gather.
 
     async def _gather_informational() -> dict:
+        started = time.perf_counter()
         try:
             return await answer_informational_over_policies(
                 records,
@@ -2959,8 +3366,13 @@ async def answer_case_over_policies(
                 "note": "",
                 "grounding": _failed_grounding(),
             }
+        finally:
+            stage_latency_ms["information_gather"] = max(
+                0, int((time.perf_counter() - started) * 1000)
+            )
 
     async def _gather_decision() -> dict:
+        started = time.perf_counter()
         try:
             return await answer_decision_over_policies(
                 records,
@@ -2976,10 +3388,15 @@ async def answer_case_over_policies(
                 "answer": "",
                 "missing_required_facts": [],
                 "missing_information": [],
+                "verification_requirements": [],
                 "citations": [],
                 "note": "",
                 "grounding": _failed_grounding(),
             }
+        finally:
+            stage_latency_ms["verdict_gather"] = max(
+                0, int((time.perf_counter() - started) * 1000)
+            )
 
     # Only the requested tracks are started at all. A track that was not asked
     # for costs nothing and, more importantly, produces nothing — so no reader
@@ -2993,10 +3410,14 @@ async def answer_case_over_policies(
         pending.append(DECISION)
         coroutines.append(_gather_decision())
 
+    gather_started = time.perf_counter()
     results = await asyncio.gather(*coroutines) if coroutines else []
+    stage_latency_ms["gather_wall"] = max(
+        0, int((time.perf_counter() - gather_started) * 1000)
+    )
     by_track = dict(zip(pending, results))
 
-    return {
+    return _ObservedCaseEvaluation({
         # The primary branch, for clients written against the exclusive cut. A
         # verdict outranks information because it is the stronger claim and the
         # one such a client will present as the answer.
@@ -3011,4 +3432,4 @@ async def answer_case_over_policies(
         "informational": by_track.get(INFORMATIONAL),
         "decision": by_track.get(DECISION),
         "reasoning_effort": effort,
-    }
+    }, stage_latency_ms=stage_latency_ms)

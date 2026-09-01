@@ -159,7 +159,10 @@ The counts it reports are policies first, then rules (constraint 2).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import math
+import time
 import uuid
 from dataclasses import dataclass
 
@@ -191,6 +194,7 @@ from policy_platform.infrastructure.projection.policy_semantic_identity import (
     policy_normative_group_key,
     policy_semantic_fingerprint,
 )
+from policy_platform.infrastructure.projection.text_canonical import canonical_tokens
 from policy_platform.infrastructure.projection.published_case_payload import (
     active_version_for_policy_set,
     published_case_payload_with_extras_for_policy,
@@ -199,6 +203,7 @@ from policy_platform.infrastructure.projection.published_case_payload import (
 from policy_platform.infrastructure.search.policy_index import (
     CONTENT_TYPE_POLICY,
     CONTENT_TYPE_RULE,
+    POLICY_SEMANTIC_CONFIG,
     odata_string,
     policy_document_id,
     policy_index_filter,
@@ -244,16 +249,46 @@ RETRIEVAL_RULE_SCAN = 120
 #: a rank over whichever rows happened to place globally.
 RETRIEVAL_RULE_RANK_SCAN = 200
 
+# Azure AI Search only sends the top 50 initial results to semantic reranking.
+# Broader scans remain useful as hybrid discovery, but only results carrying an
+# actual reranker score may satisfy the absolute rule-rescue gate.
+SEMANTIC_RERANKER_LIMIT = 50
+
 #: The characters of the retained policies' combined record the gather may read in
 #: one pass — the same ceiling `ai_case_intent` applies to a single policy's
 #: record, shared so the size budget has one source of truth rather than two.
 PAYLOAD_BUDGET_CHARS = _MAX_RECORD_CHARS
 
 #: The retrieval method named in the response, so the reviewer knows which path
-#: produced the narrowing. Policy documents and rule documents are searched
-#: separately and their rankings fused by reciprocal rank, so a provision can be
-#: surfaced by one of its rows as well as by itself.
-RETRIEVAL_METHOD = "hybrid_policy_rule_rrf_v1"
+#: produced the narrowing. Two rankings of the same policy documents may be
+#: fused symmetrically; rule documents never enter that fusion and can only
+#: rescue a parent through independently strong semantic evidence.
+RETRIEVAL_METHOD_LEGACY = "hybrid_policy_rule_rrf_v1"
+RETRIEVAL_METHOD = "direct_policy_rrf_elbow_rule_rescue_v1"
+LIGHT_RETRIEVAL_METHOD = "semantic_policy_elbow_v1"
+
+#: Retrieval-only callers value a small, precise context over the decision
+#: path's deliberate recall bias. Semantic scores are cut at the first meaningful
+#: elbow; when the ranking has no such elbow, three policies remain available
+#: rather than the decision path's five.
+LIGHT_RETRIEVAL_POLICY_BUDGET = 3
+LIGHT_RETRIEVAL_MAX_POLICIES = RETRIEVAL_POLICY_BUDGET
+LIGHT_SEMANTIC_GAP = 0.15
+DECISION_SEMANTIC_GAP = 0.08
+DECISION_STRONG_SEMANTIC_GAP = 0.30
+DECISION_COVERAGE_MIN_SCORE = 0.5
+DECISION_COVERAGE_SEMANTIC_FLOOR = 1.75
+DECISION_COVERAGE_IDF_SMOOTHING = 0.25
+DIRECT_POLICY_ORDER_SEMANTIC = "semantic_strong_lead_v1"
+DIRECT_POLICY_ORDER_RRF = "rrf_hybrid_semantic_v1"
+DIRECT_POLICY_ORDER_HYBRID = "hybrid_search_order_v1"
+
+#: A rule may rescue a policy the direct semantic policy ranking omitted, but it
+#: must be strong in absolute terms and materially stronger than the weakest
+#: directly selected policy. That preserves true row-only recall without letting
+#: a large schedule win merely because it participates in two ranking channels.
+DECISION_RULE_RESCUE_FLOOR = 2.5
+DECISION_RULE_RESCUE_MARGIN = 0.3
 
 #: The method a receipt written before rule documents existed carries. Kept named
 #: so the change is legible rather than a string that silently moved.
@@ -405,121 +440,491 @@ def is_rule_hit(hit: dict) -> bool:
     return bool(hit.get("rule_id")) and bool(hit.get("parent_document_id"))
 
 
-def rule_hits_by_parent(hits: list[dict]) -> dict[str, list[dict]]:
-    """Group rule hits under the policy document each belongs to, in rank order.
+def select_semantic_policy_hits(
+    hits: list[dict],
+    *,
+    default_budget: int = LIGHT_RETRIEVAL_POLICY_BUDGET,
+    max_budget: int = LIGHT_RETRIEVAL_MAX_POLICIES,
+    minimum_gap: float = LIGHT_SEMANTIC_GAP,
+) -> tuple[list[dict], dict]:
+    """Cut a semantic policy ranking at its first meaningful relevance elbow.
 
-    Rank order is the order the search returned, preserved exactly: it is the
-    ranking, and re-sorting it here on a score would replace the service's own
-    fused keyword-and-vector ordering with a partial reading of it.
+    Retrieval-only mode uses the smaller default budget. The decision path uses
+    the same domain-neutral elbow with its five-policy recall budget, then permits
+    independently strong rule-only evidence to rescue an omitted parent. Neither
+    path sums a second ranking channel into a direct policy score.
+
+    Azure's reranker score is domain-neutral and already compares the question
+    with each policy's English projection. A clear adjacent drop chooses the
+    smaller set above it. If no drop reaches the configured floor, the bounded
+    default is used. Missing reranker scores degrade to the same bounded count,
+    never back to all candidates.
     """
 
-    grouped: dict[str, list[dict]] = {}
-    for hit in hits:
-        if not is_rule_hit(hit):
-            continue
-        parent = hit.get("parent_document_id")
-        if not parent:
-            continue
-        grouped.setdefault(str(parent), []).append(hit)
-    return grouped
+    if not hits:
+        return [], {
+            "precision_mode": LIGHT_RETRIEVAL_METHOD,
+            "semantic_candidates": 0,
+            "semantic_selected": 0,
+        }
+
+    ranked = [
+        dict(hit)
+        for hit in hits
+        if isinstance(hit.get("@search.rerankerScore"), (int, float))
+    ]
+    if not ranked:
+        selected = [dict(hit) for hit in hits[:default_budget]]
+        return selected, {
+            "precision_mode": f"{LIGHT_RETRIEVAL_METHOD}_score_unavailable",
+            "semantic_candidates": len(hits),
+            "semantic_selected": len(selected),
+            "semantic_largest_gap": None,
+            "semantic_cutoff_score": None,
+        }
+
+    ranked.sort(
+        key=lambda hit: (
+            -float(hit["@search.rerankerScore"]),
+            str(hit.get("id") or ""),
+        )
+    )
+    window = ranked[:max_budget]
+    gaps = [
+        float(window[index]["@search.rerankerScore"])
+        - float(window[index + 1]["@search.rerankerScore"])
+        for index in range(len(window) - 1)
+    ]
+    largest_gap = max(gaps) if gaps else 0.0
+    if gaps and largest_gap >= minimum_gap:
+        count = gaps.index(largest_gap) + 1
+    else:
+        count = min(default_budget, len(window))
+    selected = window[: max(1, count)]
+    for hit in selected:
+        # `select_retained` exposes `@search.score` as `best_score`. In precision
+        # mode the semantic score, not the pre-rerank hybrid score, is the value
+        # that decided inclusion.
+        hit["@search.score"] = float(hit["@search.rerankerScore"])
+
+    return selected, {
+        "precision_mode": LIGHT_RETRIEVAL_METHOD,
+        "semantic_candidates": len(hits),
+        "semantic_selected": len(selected),
+        "semantic_largest_gap": largest_gap,
+        "semantic_cutoff_score": float(selected[-1]["@search.rerankerScore"]),
+    }
 
 
-def merge_policy_and_rule_hits(
-    policy_hits: list[dict], rule_hits: list[dict]
-) -> tuple[list[dict], dict[str, list[dict]]]:
-    """One ranking of policy documents, fused from two searches.
+def select_decision_policy_hits(
+    policy_hits: list[dict],
+    rule_hits: list[dict],
+    *,
+    rescue_floor: float = DECISION_RULE_RESCUE_FLOOR,
+    rescue_margin: float = DECISION_RULE_RESCUE_MARGIN,
+) -> tuple[list[dict], list[dict], dict[str, list[dict]], dict]:
+    """Select decision policies without rewarding a second ranking channel.
 
-    WHY THERE ARE TWO SEARCHES AT ALL
-
-    A policy document carries one vector over a bounded amount of retrieval text.
-    For an ordinary provision that is the provision. For a schedule of seventy-four
-    independent rows it is a summary of the first few, and every row past the
-    ceiling is not merely ranked low — it is **absent**, so the provision that
-    holds it can only be found by whatever its opening rows happen to say. That is
-    how a question about one violation failed to surface the one document that
-    answers it.
-
-    Rule documents remove that. Each row is its own document with its own vector,
-    so a row can be found on its own terms; and because a row names the provision
-    that holds it, finding the row finds the provision.
-
-    HOW THE TWO RANKINGS BECOME ONE
-
-    Reciprocal rank fusion, the same technique and the same constant Azure AI
-    Search itself uses to combine keyword and vector results:
-    ``1/(K + rank)`` per ranking, summed. A provision found by both rankings
-    outranks one found by either alone; a provision found only by a row of it is
-    admitted on that row's rank; ties break on the document id, which is a stable
-    function of the version and the provision key, so the same two result sets
-    always fuse to the same order.
-
-    WHAT A FUSED HIT CLAIMS
-
-    `@search.score` is carried through from the **policy document** when there was
-    one and is absent otherwise, because a provision surfaced only by one of its
-    rows genuinely has no policy-document score and inventing one would put a
-    number on a receipt that no search produced. `elevated_by_rule` says which
-    happened. `document_version` is taken from whichever document supplied it, so
-    the caller's active-version guard sees the same field on every hit.
-
-    Returns the fused policy-document hits and the rule hits grouped under each,
-    still in the rule search's own rank order.
+    A semantic elbow determines how many direct policy documents have defensible
+    separation. When it exists, those identities are chosen by symmetric RRF
+    over hybrid and semantic ranks of the same policy documents; when it does
+    not, the full hybrid direct-policy pool reaches the final diversity budget.
+    Rule documents never enter that fusion. They can only rescue an omitted
+    parent when their best semantic score is independently strong and materially
+    above the direct cutoff, so corpus size cannot create an extra score channel.
+    Returns the precision candidates, the full ranked direct/rescue disclosure,
+    rule hits grouped by parent, and the selection metadata.
     """
 
-    by_parent = rule_hits_by_parent(rule_hits)
+    semantic_direct, semantic = select_semantic_policy_hits(
+        policy_hits,
+        default_budget=RETRIEVAL_POLICY_BUDGET,
+        max_budget=RETRIEVAL_POLICY_BUDGET,
+        minimum_gap=DECISION_SEMANTIC_GAP,
+    )
+    indexed = list(enumerate(policy_hits))
 
-    policy_rank: dict[str, int] = {}
-    policy_by_id: dict[str, dict] = {}
-    for rank, hit in enumerate(policy_hits):
-        hid = hit.get("id")
-        if hid is None or is_rule_hit(hit):
+    def hybrid_order(item: tuple[int, dict]) -> tuple:
+        index, hit = item
+        score = hit.get("@search.score")
+        if isinstance(score, (int, float)):
+            return (0, -float(score), str(hit.get("id") or ""))
+        return (1, index, str(hit.get("id") or ""))
+
+    hybrid_direct = [dict(hit) for _, hit in sorted(indexed, key=hybrid_order)]
+    scored_in_window = min(
+        RETRIEVAL_POLICY_BUDGET,
+        len(
+            [
+                hit
+                for hit in policy_hits
+                if isinstance(hit.get("@search.rerankerScore"), (int, float))
+            ]
+        ),
+    )
+    elbow_applied = bool(
+        scored_in_window > 1
+        and semantic.get("semantic_largest_gap") is not None
+        and float(semantic["semantic_largest_gap"]) >= DECISION_SEMANTIC_GAP
+        and len(semantic_direct) < scored_in_window
+    )
+    semantic_gap = float(semantic.get("semantic_largest_gap") or 0.0)
+    strong_semantic_lead = elbow_applied and semantic_gap >= DECISION_STRONG_SEMANTIC_GAP
+    if strong_semantic_lead:
+        ranked_direct = sorted(
+            (dict(hit) for hit in policy_hits),
+            key=lambda hit: (
+                0
+                if isinstance(hit.get("@search.rerankerScore"), (int, float))
+                else 1,
+                -float(hit.get("@search.rerankerScore") or 0.0),
+                str(hit.get("id") or ""),
+            ),
+        )
+        for hit in ranked_direct:
+            if isinstance(hit.get("@search.rerankerScore"), (int, float)):
+                hit["@search.score"] = float(hit["@search.rerankerScore"])
+        direct = ranked_direct[: len(semantic_direct)]
+        direct_policy_order = DIRECT_POLICY_ORDER_SEMANTIC
+    elif elbow_applied:
+        # Semantic ranking establishes a defensible cardinality. Identities are
+        # chosen by symmetric RRF over the two rankings of the same policy
+        # documents: hybrid lexical/vector rank and semantic reranker rank.
+        # Every policy has exactly the same two opportunities to participate;
+        # rule documents remain outside this fusion and can only rescue.
+        semantic_ranked = sorted(
+            (dict(hit) for hit in policy_hits),
+            key=lambda hit: (
+                0
+                if isinstance(hit.get("@search.rerankerScore"), (int, float))
+                else 1,
+                -float(hit.get("@search.rerankerScore") or 0.0),
+                str(hit.get("id") or ""),
+            ),
+        )
+        hybrid_rank = {
+            str(hit.get("id")): rank
+            for rank, hit in enumerate(hybrid_direct)
+            if hit.get("id")
+        }
+        semantic_rank = {
+            str(hit.get("id")): rank
+            for rank, hit in enumerate(semantic_ranked)
+            if hit.get("id")
+        }
+        ranked_direct = []
+        for hit in policy_hits:
+            identity = str(hit.get("id") or "")
+            if not identity or identity not in hybrid_rank or identity not in semantic_rank:
+                continue
+            ranked = dict(hit)
+            ranked["@search.score"] = (
+                1.0 / (RRF_K + hybrid_rank[identity])
+                + 1.0 / (RRF_K + semantic_rank[identity])
+            )
+            ranked_direct.append(ranked)
+        ranked_direct.sort(
+            key=lambda hit: (
+                -float(hit["@search.score"]),
+                str(hit.get("id") or ""),
+            )
+        )
+        direct = ranked_direct[: len(semantic_direct)]
+        direct_policy_order = DIRECT_POLICY_ORDER_RRF
+    else:
+        # A flat semantic ranking has not established a precision boundary. Keep
+        # the direct policy pool in hybrid-search order so the existing
+        # duplicate/diversity pass can spend the final five-policy budget across
+        # genuinely different rules. Truncating here would turn semantic
+        # uncertainty into false confidence and make later diversity unreachable.
+        ranked_direct = hybrid_direct
+        direct = ranked_direct
+        semantic["semantic_selected"] = len(direct)
+        semantic["semantic_cutoff_score"] = None
+        direct_policy_order = DIRECT_POLICY_ORDER_HYBRID
+
+    direct_ids = {str(hit.get("id")) for hit in direct if hit.get("id")}
+    policy_by_id = {str(hit.get("id")): hit for hit in policy_hits if hit.get("id")}
+    by_parent: dict[str, list[dict]] = {}
+    for hit in rule_hits:
+        parent = str(hit.get("parent_document_id") or hit.get("document_id") or "")
+        if parent:
+            by_parent.setdefault(parent, []).append(hit)
+
+    cutoff = semantic.get("semantic_cutoff_score")
+    rescues: list[tuple[float, str, dict]] = []
+    for parent, children in by_parent.items():
+        if parent in direct_ids:
             continue
-        hid = str(hid)
-        if hid not in policy_rank:
-            policy_rank[hid] = rank
-            policy_by_id[hid] = hit
-
-    # A provision's rule ranking is the best rank any of its rows achieved. Rows
-    # of one provision are not independent evidence that the provision bears —
-    # they are the same provision, found several times — so the provision enters
-    # the fusion once, at its best row.
-    best_rule_rank: dict[str, int] = {}
-    for rank, hit in enumerate(rule_hits):
-        if not is_rule_hit(hit):
+        scores = [
+            float(hit["@search.rerankerScore"])
+            for hit in children
+            if isinstance(hit.get("@search.rerankerScore"), (int, float))
+        ]
+        if not scores:
             continue
-        parent = hit.get("parent_document_id")
-        if not parent:
+        score = max(scores)
+        required = rescue_floor if cutoff is None else max(rescue_floor, float(cutoff) + rescue_margin)
+        if score < required:
             continue
-        parent = str(parent)
-        if parent not in best_rule_rank:
-            best_rule_rank[parent] = rank
-
-    fused: dict[str, float] = {}
-    for hid, rank in policy_rank.items():
-        fused[hid] = fused.get(hid, 0.0) + 1.0 / (RRF_K + rank)
-    for hid, rank in best_rule_rank.items():
-        fused[hid] = fused.get(hid, 0.0) + 1.0 / (RRF_K + rank)
-
-    merged: list[dict] = []
-    for hid in sorted(fused, key=lambda h: (-fused[h], h)):
-        source = policy_by_id.get(hid)
-        if source is not None:
-            entry = dict(source)
-            entry["elevated_by_rule"] = hid in best_rule_rank
-        else:
-            first_rule = by_parent.get(hid, [{}])[0]
-            entry = {
-                "id": hid,
-                "policy_id": first_rule.get("policy_id"),
-                "document_id": first_rule.get("document_id"),
-                "document_version": first_rule.get("document_version"),
+        source = policy_by_id.get(parent)
+        if source is None:
+            first = children[0]
+            source = {
+                "id": parent,
+                "policy_id": first.get("policy_id"),
+                "document_id": first.get("document_id"),
+                "document_version": first.get("document_version"),
                 "content_type": CONTENT_TYPE_POLICY,
-                "elevated_by_rule": True,
             }
-        entry["id"] = hid
-        merged.append(entry)
+        rescued = dict(source)
+        rescued["@search.score"] = score
+        rescued["@search.rerankerScore"] = score
+        rescued["elevated_by_rule"] = True
+        rescues.append((score, parent, rescued))
 
-    return merged, by_parent
+    rescues.sort(key=lambda item: (-item[0], item[1]))
+    # Do not cap before duplicate collapse. Several policy ids can carry the same
+    # governing content; capping here would let five copies exclude the first
+    # distinct rescue before the downstream content-aware pass can see it.
+    admitted = [item[2] for item in rescues]
+    if elbow_applied:
+        selected = sorted(
+            [*direct, *admitted],
+            key=lambda hit: (
+                -float(hit.get("@search.rerankerScore") or 0.0),
+                bool(hit.get("elevated_by_rule")),
+                str(hit.get("id") or ""),
+            ),
+        )
+    else:
+        # A rule-only parent that clears the absolute semantic floor is stronger
+        # evidence than a flat direct pool. Give it a place in the final budget,
+        # then preserve direct hybrid order for the remaining candidates.
+        selected = [*admitted, *direct]
+    ranked_hits: list[dict] = []
+    ranked_ids: set[str] = set()
+    for hit in [*selected, *ranked_direct]:
+        identity = str(hit.get("id") or "")
+        if not identity or identity in ranked_ids:
+            continue
+        ranked_ids.add(identity)
+        ranked_hits.append(hit)
+
+    return selected, ranked_hits, by_parent, {
+        **semantic,
+        "precision_mode": RETRIEVAL_METHOD,
+        "semantic_elbow_applied": elbow_applied,
+        "direct_policy_order": direct_policy_order,
+        "rule_rescue_candidates": len(rescues),
+        "rule_rescued_policies": len(admitted),
+        "rule_rescue_floor": rescue_floor,
+        "rule_rescue_margin": rescue_margin,
+        "rule_semantic_window": SEMANTIC_RERANKER_LIMIT,
+        "rule_semantic_candidates": sum(
+            1
+            for hit in rule_hits
+            if isinstance(hit.get("@search.rerankerScore"), (int, float))
+        ),
+        "coverage_semantic_floor": DECISION_COVERAGE_SEMANTIC_FLOOR,
+    }
+
+
+def expand_policy_query_coverage(
+    selected: list[dict],
+    ranked: list[dict],
+    *,
+    scenario: str,
+    budget: int = RETRIEVAL_POLICY_BUDGET,
+    minimum_score: float = DECISION_COVERAGE_MIN_SCORE,
+    semantic_floor: float = DECISION_COVERAGE_SEMANTIC_FLOOR,
+) -> tuple[list[dict], int]:
+    """Add direct policies that cover query terms absent from the precision cut.
+
+    The terms come only from the processed-language question and English indexed
+    headings. Body text is used to recognize what the selected policies already
+    cover, but cannot add a policy: expansion is reserved for an explicit aspect
+    named in a heading. Each newly covered term is consumed once, preventing
+    several copies of one aspect from filling the budget.
+    """
+
+    if len(selected) >= budget:
+        return list(selected), 0
+
+    query = set(canonical_tokens(scenario, min_chars=4))
+    if not query:
+        return list(selected), 0
+
+    documents: list[tuple[int, dict, set[str], set[str]]] = []
+    document_frequency: dict[str, int] = {}
+    for rank, hit in enumerate(ranked):
+        heading = " ".join(
+            str(hit.get(field) or "") for field in ("section_heading", "heading")
+        )
+        heading_tokens = set(canonical_tokens(heading, min_chars=4))
+        body_tokens = set(
+            canonical_tokens(str(hit.get("body") or ""), min_chars=4)
+        )
+        tokens = heading_tokens | body_tokens
+        documents.append((rank, hit, heading_tokens, tokens))
+        for token in query & tokens:
+            document_frequency[token] = document_frequency.get(token, 0) + 1
+
+    total = max(1, len(documents))
+    weights = {
+        token: max(
+            0.0,
+            math.log(
+                (total + 1) / (1 + document_frequency.get(token, 0))
+            )
+            + DECISION_COVERAGE_IDF_SMOOTHING,
+        )
+        for token in query
+    }
+    selected_ids = {str(hit.get("id") or "") for hit in selected}
+    covered: set[str] = set()
+    for _rank, hit, _heading_tokens, tokens in documents:
+        if str(hit.get("id") or "") in selected_ids:
+            covered.update(query & tokens)
+
+    def one_edit_apart(left: str, right: str) -> bool:
+        if left == right or abs(len(left) - len(right)) > 1:
+            return left == right
+        if len(left) > len(right):
+            left, right = right, left
+        index_left = index_right = differences = 0
+        while index_left < len(left) and index_right < len(right):
+            if left[index_left] == right[index_right]:
+                index_left += 1
+                index_right += 1
+                continue
+            differences += 1
+            if differences > 1:
+                return False
+            if len(left) == len(right):
+                index_left += 1
+            index_right += 1
+        return differences + (len(right) - index_right) <= 1
+
+    def heading_query_terms(heading_tokens: set[str]) -> set[str]:
+        return {
+            query_token
+            for query_token in query
+            if any(
+                query_token == heading_token
+                or (
+                    len(query_token) >= 4
+                    and len(heading_token) >= 4
+                    and query_token[:2] == heading_token[:2]
+                    and one_edit_apart(query_token, heading_token)
+                )
+                for heading_token in heading_tokens
+            )
+        }
+
+    candidates: list[tuple[float, int, str, dict, set[str]]] = []
+    for rank, hit, heading_tokens, tokens in documents:
+        identity = str(hit.get("id") or "")
+        if not identity or identity in selected_ids:
+            continue
+        semantic_score = hit.get("@search.rerankerScore")
+        if not isinstance(semantic_score, (int, float)) or semantic_score < semantic_floor:
+            continue
+        novel_heading = heading_query_terms(heading_tokens) - covered
+        score = sum(weights[token] for token in novel_heading)
+        if score < minimum_score:
+            continue
+        candidates.append((-score, rank, identity, hit, novel_heading))
+
+    expanded = list(selected)
+    added = 0
+    for _negative_score, _rank, identity, hit, _novel in sorted(candidates):
+        if len(expanded) >= budget:
+            break
+        heading = set(
+            canonical_tokens(
+                " ".join(
+                    str(hit.get(field) or "")
+                    for field in ("section_heading", "heading")
+                ),
+                min_chars=4,
+            )
+        )
+        still_novel = heading_query_terms(heading) - covered
+        if sum(weights[token] for token in still_novel) < minimum_score:
+            continue
+        expanded.append(hit)
+        selected_ids.add(identity)
+        covered.update(still_novel)
+        covered.update(query & set(canonical_tokens(str(hit.get("body") or ""), min_chars=4)))
+        added += 1
+
+    return expanded, added
+
+
+def expand_policy_coverage_after_duplicate_collapse(
+    selected: list[dict],
+    ranked: list[dict],
+    *,
+    scenario: str,
+    by_search_id: dict[str, dict],
+) -> tuple[list[dict], list[str], dict[str, dict], int]:
+    """Apply the coverage budget to distinct policy content, not raw hits.
+
+    Rule-only rescue is deliberately uncapped before the repository's exact
+    duplicate pass. Coverage must follow the same rule: provisional copies cannot
+    consume five slots and prevent a distinct requested aspect from being seen.
+    The original hits remain in the returned list so the receipt still reports
+    every collapsed copy and its representative.
+    """
+
+    def coverage_identity(hit: dict) -> tuple[str, str]:
+        identity = str(hit.get("id") or "")
+        candidate = by_search_id.get(identity)
+        payload = (candidate or {}).get("payload")
+        if not isinstance(payload, dict):
+            return ("id", identity)
+        return (
+            "fingerprint",
+            policy_semantic_fingerprint(
+                payload,
+                governing_extras=candidate.get("governing_extras"),
+            ),
+        )
+
+    seen_groups: set[tuple[str, str]] = set()
+    distinct_selected: list[dict] = []
+    for hit in selected:
+        group = coverage_identity(hit)
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        distinct_selected.append(hit)
+
+    distinct_ranked = list(distinct_selected)
+    for hit in ranked:
+        group = coverage_identity(hit)
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        distinct_ranked.append(hit)
+
+    expanded_distinct, added = expand_policy_query_coverage(
+        distinct_selected,
+        distinct_ranked,
+        scenario=scenario,
+    )
+    original_ids = {str(hit.get("id") or "") for hit in selected}
+    expanded = list(selected)
+    expanded.extend(
+        hit
+        for hit in expanded_distinct
+        if str(hit.get("id") or "") not in original_ids
+    )
+    distinct_ids, duplicates = collapse_duplicate_policies(
+        expanded, by_search_id
+    )
+    return expanded, distinct_ids, duplicates, added
 
 
 @dataclass(frozen=True, slots=True)
@@ -539,6 +944,20 @@ class ProjectCaseAnswer:
     decider loaded, where that load came from, and the search index it consulted
     when retrieval ran. Keys are absent rather than null-filled when the path
     taken never produced them.
+    """
+
+    response: dict
+    context: dict
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectPolicyRetrieval:
+    """The filtered policy records plus the version/search context that selected them.
+
+    This is deliberately not a decision. It carries a precision-ranked subset
+    from the same approved index and uses the same rule slicing and payload
+    fitting, but no classifier, plan, verdict, explanation, citation synthesis,
+    or receipt lifecycle has run.
     """
 
     response: dict
@@ -1112,10 +1531,26 @@ def _retrieval_block(
     rule_documents_matched: int = 0,
     policies_elevated_by_rule: int = 0,
     rule_index_state: str | None = None,
+    retrieval_method: str = RETRIEVAL_METHOD,
+    precision_mode: str | None = None,
+    semantic_candidates: int | None = None,
+    semantic_selected: int | None = None,
+    semantic_largest_gap: float | None = None,
+    semantic_cutoff_score: float | None = None,
+    semantic_elbow_applied: bool | None = None,
+    direct_policy_order: str | None = None,
+    coverage_expanded_policies: int | None = None,
+    coverage_semantic_floor: float | None = None,
+    rule_rescue_candidates: int | None = None,
+    rule_rescued_policies: int | None = None,
+    rule_rescue_floor: float | None = None,
+    rule_rescue_margin: float | None = None,
+    rule_semantic_window: int | None = None,
+    rule_semantic_candidates: int | None = None,
 ) -> dict:
     block = {
         "status": status,
-        "method": RETRIEVAL_METHOD,
+        "method": retrieval_method,
         "policy_budget": RETRIEVAL_POLICY_BUDGET,
         "policy_scan": RETRIEVAL_POLICY_SCAN,
         "rule_scan": RETRIEVAL_RULE_SCAN,
@@ -1168,6 +1603,22 @@ def _retrieval_block(
         "policies_elevated_by_rule": policies_elevated_by_rule,
         "rule_index_state": rule_index_state,
     }
+    if precision_mode is not None:
+        block["precision_mode"] = precision_mode
+        block["semantic_candidates"] = semantic_candidates
+        block["semantic_selected"] = semantic_selected
+        block["semantic_largest_gap"] = semantic_largest_gap
+        block["semantic_cutoff_score"] = semantic_cutoff_score
+        block["semantic_elbow_applied"] = semantic_elbow_applied
+        block["direct_policy_order"] = direct_policy_order
+        block["coverage_expanded_policies"] = coverage_expanded_policies
+        block["coverage_semantic_floor"] = coverage_semantic_floor
+        block["rule_rescue_candidates"] = rule_rescue_candidates
+        block["rule_rescued_policies"] = rule_rescued_policies
+        block["rule_rescue_floor"] = rule_rescue_floor
+        block["rule_rescue_margin"] = rule_rescue_margin
+        block["rule_semantic_window"] = rule_semantic_window
+        block["rule_semantic_candidates"] = rule_semantic_candidates
     if reason is not None:
         block["reason"] = reason
     return block
@@ -1195,8 +1646,25 @@ def _project_response(
     rule_documents_matched: int = 0,
     policies_elevated_by_rule: int = 0,
     rule_index_state: str | None = None,
+    policy_records: list[dict] | None = None,
+    retrieval_method: str = RETRIEVAL_METHOD,
+    precision_mode: str | None = None,
+    semantic_candidates: int | None = None,
+    semantic_selected: int | None = None,
+    semantic_largest_gap: float | None = None,
+    semantic_cutoff_score: float | None = None,
+    semantic_elbow_applied: bool | None = None,
+    direct_policy_order: str | None = None,
+    coverage_expanded_policies: int | None = None,
+    coverage_semantic_floor: float | None = None,
+    rule_rescue_candidates: int | None = None,
+    rule_rescued_policies: int | None = None,
+    rule_rescue_floor: float | None = None,
+    rule_rescue_margin: float | None = None,
+    rule_semantic_window: int | None = None,
+    rule_semantic_candidates: int | None = None,
 ) -> dict:
-    return {
+    response = {
         "scope": SCOPE_PROJECT,
         "policy_set_key": policy_set_key,
         "retrieval": _retrieval_block(
@@ -1217,12 +1685,31 @@ def _project_response(
             rule_documents_matched=rule_documents_matched,
             policies_elevated_by_rule=policies_elevated_by_rule,
             rule_index_state=rule_index_state,
+            retrieval_method=retrieval_method,
+            precision_mode=precision_mode,
+            semantic_candidates=semantic_candidates,
+            semantic_selected=semantic_selected,
+            semantic_largest_gap=semantic_largest_gap,
+            semantic_cutoff_score=semantic_cutoff_score,
+            semantic_elbow_applied=semantic_elbow_applied,
+            direct_policy_order=direct_policy_order,
+            coverage_expanded_policies=coverage_expanded_policies,
+            coverage_semantic_floor=coverage_semantic_floor,
+            rule_rescue_candidates=rule_rescue_candidates,
+            rule_rescued_policies=rule_rescued_policies,
+            rule_rescue_floor=rule_rescue_floor,
+            rule_rescue_margin=rule_rescue_margin,
+            rule_semantic_window=rule_semantic_window,
+            rule_semantic_candidates=rule_semantic_candidates,
         ),
         "considered": considered,
         "excluded": excluded,
         "evaluation": evaluation,
         "size": size,
     }
+    if policy_records is not None:
+        response["policies"] = policy_records
+    return response
 
 
 async def _provision_in_project(session: AsyncSession, *, policy_set, provision_id):
@@ -1330,12 +1817,19 @@ async def _answer_single_scope(
     record = _sliced_record(
         identity, payload, scenario=scenario, governing_extras=governing_extras
     )
+    gather_started = time.perf_counter()
     evaluation = await answer_case_over_policies(
         [record],
         scenario=scenario,
         reasoning_effort=reasoning_effort,
         **_gather_kwargs(additional_instructions),
     )
+    if context is not None:
+        timings = context.setdefault("timings_ms", {})
+        timings.update(getattr(evaluation, "stage_latency_ms", {}))
+        timings["gather_total"] = max(
+            0, int((time.perf_counter() - gather_started) * 1000)
+        )
 
     return {
         "scope": SCOPE_SINGLE,
@@ -1406,6 +1900,7 @@ async def _answer_project_scope(
     reasoning_effort: str,
     additional_instructions: str = "",
     context: dict | None = None,
+    policies_only: bool = False,
 ) -> dict:
     """No policy was named: retrieve the ones that bear on the question, discard
     the rest, and evaluate only the survivors — never the whole set.
@@ -1419,7 +1914,17 @@ async def _answer_project_scope(
     never of the caller's presentation preferences.
     """
 
+    timings: dict[str, int] | None = None
+    if context is not None:
+        timings = context.setdefault("timings_ms", {})
+
+    def elapsed_ms(started: float) -> int:
+        return max(0, int((time.perf_counter() - started) * 1000))
+
+    scope_started = time.perf_counter()
     scope = await load_project_scope(session, policy_set.id)
+    if timings is not None:
+        timings["scope_load"] = elapsed_ms(scope_started)
     candidates = scope["candidates"]
     excluded = scope["excluded"]
     active_version_id = scope.get("active_version_id")
@@ -1442,6 +1947,8 @@ async def _answer_project_scope(
     # state the search ended in, and one omitted at one exit would be a receipt
     # that quietly disagrees with the others.
     disclosure: dict = {}
+    policy_records: list[dict] | None = [] if policies_only else None
+    retrieval_method = LIGHT_RETRIEVAL_METHOD if policies_only else RETRIEVAL_METHOD
 
     def respond(
         status: str,
@@ -1473,6 +1980,8 @@ async def _answer_project_scope(
             policies_rule_sliced=policies_rule_sliced,
             policies_duplicate_collapsed=policies_duplicate_collapsed,
             policies_diversity_deferred=policies_diversity_deferred,
+            policy_records=policy_records,
+            retrieval_method=retrieval_method,
             **disclosure,
         )
 
@@ -1525,7 +2034,7 @@ async def _answer_project_scope(
         # search was unavailable or the project had nothing to search.
         context["index_name"] = index_name
         context["index_version_id"] = active_version_id
-        context["retrieval_method"] = RETRIEVAL_METHOD
+        context["retrieval_method"] = retrieval_method
     rule_index_state = RULE_INDEX_UNAVAILABLE
     try:
         search_client = AzureSearchClient(settings)
@@ -1553,12 +2062,15 @@ async def _answer_project_scope(
         # what "no policy bears on this question" looks like. There is no point
         # downstream at which that can still be told apart, so it is told apart
         # here or not at all.
+        readiness_started = time.perf_counter()
         readiness = await read_projection_readiness(
             search_client,
             index_name,
             policy_set_key=policy_set.key,
             expected_profile=ENGLISH_PROJECTION_PROFILE,
         )
+        if timings is not None:
+            timings["projection_readiness"] = elapsed_ms(readiness_started)
         if context is not None:
             context["projection_profile"] = (
                 readiness.profile if readiness.ready else None
@@ -1572,50 +2084,80 @@ async def _answer_project_scope(
                 "index, then retry.",
             )
 
-        ai_client = AzureOpenAIClient(settings)
-        [vector] = await ai_client.embed([scenario])
-        # One embedding, two searches. The question is the same question for both
-        # and embedding it twice would cost a call to produce the same vector —
-        # and, on a deployment that is not bit-stable, would risk producing two
-        # slightly different ones and ranking the two document kinds against
-        # different readings of the question.
-        policy_scan = await search_client.vector_search(
-            index_name,
-            query_text=scenario,
-            vector=vector,
-            top=RETRIEVAL_POLICY_SCAN,
-            filter_expr=policy_index_filter(
-                policy_set.key,
-                content_type=CONTENT_TYPE_POLICY,
-                projection_profile=readiness.profile,
-            ),
-        )
-        try:
-            rule_scan = await search_client.vector_search(
-                index_name,
-                query_text=scenario,
-                vector=vector,
-                top=RETRIEVAL_RULE_SCAN,
-                filter_expr=policy_index_filter(
-                    policy_set.key,
-                    content_type=CONTENT_TYPE_RULE,
-                    projection_profile=readiness.profile,
-                ),
-                select=_RULE_SELECT,
-            )
-            rule_index_state = RULE_INDEX_MATCHED
-        except Exception as exc:  # noqa: BLE001 - a rule-query failure is recoverable and disclosed
-            # The policy ranking stands and the selection falls back to lexical
-            # and quantity over the English projection. Disclosed rather than
-            # absorbed: the method a receipt names has to be the method that
-            # ran, and `scenario_relevance_v3` is what says a ranking was
-            # missing from the fusion.
-            logger.warning(
-                "project-case rule retrieval failed for set %s: %s", policy_set.key, exc
-            )
+        async def policy_search() -> list[dict]:
+            started = time.perf_counter()
+            try:
+                return await search_client.vector_search(
+                    index_name,
+                    query_text=scenario,
+                    vector=vector,
+                    top=RETRIEVAL_POLICY_SCAN,
+                    filter_expr=policy_index_filter(
+                        policy_set.key,
+                        content_type=CONTENT_TYPE_POLICY,
+                        projection_profile=readiness.profile,
+                    ),
+                    semantic_configuration=POLICY_SEMANTIC_CONFIG,
+                )
+            finally:
+                if timings is not None:
+                    timings["policy_search"] = elapsed_ms(started)
+
+        vector: list[float] | None = None
+        if policies_only:
+            policy_task = asyncio.create_task(policy_search())
+            policy_scan = await policy_task
             rule_scan = []
-            rule_index_state = RULE_INDEX_DEGRADED
-        hits, rule_hits_by_document = merge_policy_and_rule_hits(policy_scan, rule_scan)
+            rule_index_state = RULE_INDEX_UNAVAILABLE
+            hits = policy_scan
+            rule_hits_by_document = {}
+        else:
+            embedding_started = time.perf_counter()
+            ai_client = AzureOpenAIClient(settings)
+            [vector] = await ai_client.embed([scenario])
+            if timings is not None:
+                timings["embedding"] = elapsed_ms(embedding_started)
+
+            async def rule_search() -> tuple[list[dict], str]:
+                started = time.perf_counter()
+                try:
+                    return (
+                        await search_client.vector_search(
+                            index_name,
+                            query_text=scenario,
+                            vector=vector,
+                            top=RETRIEVAL_RULE_SCAN,
+                            filter_expr=policy_index_filter(
+                                policy_set.key,
+                                content_type=CONTENT_TYPE_RULE,
+                                projection_profile=readiness.profile,
+                            ),
+                            select=_RULE_SELECT,
+                            semantic_configuration=POLICY_SEMANTIC_CONFIG,
+                        ),
+                        RULE_INDEX_MATCHED,
+                    )
+                except Exception as exc:  # noqa: BLE001 - recoverable and disclosed
+                    logger.warning(
+                        "project-case rule retrieval failed for set %s: %s",
+                        policy_set.key,
+                        exc,
+                    )
+                    return [], RULE_INDEX_DEGRADED
+                finally:
+                    if timings is not None:
+                        timings["rule_discovery"] = elapsed_ms(started)
+
+            discovery_started = time.perf_counter()
+            policy_task = asyncio.create_task(policy_search())
+            rule_task = asyncio.create_task(rule_search())
+            policy_scan, (rule_scan, rule_index_state) = await asyncio.gather(
+                policy_task, rule_task
+            )
+            if timings is not None:
+                timings["retrieval_discovery_wall"] = elapsed_ms(discovery_started)
+            hits = [*policy_scan, *rule_scan]
+            rule_hits_by_document = {}
     except IndexProjectionUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 - a failed search is its own reported state
@@ -1637,7 +2179,7 @@ async def _answer_project_scope(
             "projection_ready": True,
             "policy_documents_matched": len([h for h in policy_scan if not is_rule_hit(h)]),
             "rule_documents_matched": len([h for h in rule_scan if is_rule_hit(h)]),
-            "policies_elevated_by_rule": len([h for h in hits if h.get("elevated_by_rule")]),
+            "policies_elevated_by_rule": 0,
             "rule_index_state": rule_index_state,
         }
     )
@@ -1723,8 +2265,50 @@ async def _answer_project_scope(
             ),
         )
 
-    stale_hits = [hit for hit in hits if str(hit.get("document_version")) != str(active_version_id)]
-    current_hits = [hit for hit in hits if str(hit.get("document_version")) == str(active_version_id)]
+    stale_policy_ids = {
+        str(
+            hit.get("parent_document_id")
+            if is_rule_hit(hit)
+            else hit.get("id") or hit.get("document_id") or ""
+        )
+        for hit in hits
+        if str(hit.get("document_version")) != str(active_version_id)
+    }
+    stale_policy_ids.discard("")
+    current_policy_hits = [
+        hit for hit in policy_scan if str(hit.get("document_version")) == str(active_version_id)
+    ]
+    current_rule_hits = [
+        hit for hit in rule_scan if str(hit.get("document_version")) == str(active_version_id)
+    ]
+    by_search_id = {c["search_document_id"]: c for c in candidates}
+    selection_started = time.perf_counter()
+    if policies_only:
+        current_hits, precision = select_semantic_policy_hits(current_policy_hits)
+        ranked_current_hits = sorted(
+            (dict(hit) for hit in current_policy_hits),
+            key=lambda hit: (
+                0
+                if isinstance(hit.get("@search.rerankerScore"), (int, float))
+                else 1,
+                -float(hit.get("@search.rerankerScore") or 0.0),
+                str(hit.get("id") or ""),
+            ),
+        )
+        for hit in ranked_current_hits:
+            if isinstance(hit.get("@search.rerankerScore"), (int, float)):
+                hit["@search.score"] = float(hit["@search.rerankerScore"])
+        disclosure.update(precision)
+    else:
+        (
+            current_hits,
+            ranked_current_hits,
+            rule_hits_by_document,
+            precision,
+        ) = select_decision_policy_hits(current_policy_hits, current_rule_hits)
+        disclosure.update(precision)
+    if timings is not None:
+        timings["policy_selection"] = elapsed_ms(selection_started)
     if hits and not current_hits:
         stale_considered = []
         for candidate in candidates:
@@ -1742,7 +2326,7 @@ async def _answer_project_scope(
             considered=stale_considered,
             retained=[],
             discarded=stale_considered,
-            policies_retrieved=len(stale_hits),
+            policies_retrieved=len(stale_policy_ids),
             evaluation=None,
             size=empty_size,
             reason=(
@@ -1751,16 +2335,42 @@ async def _answer_project_scope(
             ),
         )
 
-    by_search_id = {c["search_document_id"]: c for c in candidates}
     # The same policy held twice is one policy. Collapsed *before* the retention
     # budget, because the budget counts distinct policies to read and a copy that
     # consumed a slot is a slot the provision deciding the case never got.
-    distinct_ids, duplicate_policies = collapse_duplicate_policies(current_hits, by_search_id)
+    if (
+        not policies_only
+        and precision["direct_policy_order"] == DIRECT_POLICY_ORDER_RRF
+    ):
+        (
+            current_hits,
+            distinct_ids,
+            duplicate_policies,
+            coverage_added,
+        ) = expand_policy_coverage_after_duplicate_collapse(
+            current_hits,
+            ranked_current_hits,
+            scenario=scenario,
+            by_search_id=by_search_id,
+        )
+        disclosure["coverage_expanded_policies"] = coverage_added
+    else:
+        distinct_ids, duplicate_policies = collapse_duplicate_policies(
+            current_hits, by_search_id
+        )
     # Then order what survived so one budget buys one thing once. This is an
     # ordering, not a claim of equality: a candidate held back here keeps its own
     # rank and is read as soon as the budget reaches it.
     ordered_ids, diversity_deferred = order_by_normative_diversity(distinct_ids, by_search_id)
     in_budget_ids = set(ordered_ids[:RETRIEVAL_POLICY_BUDGET])
+    rescued_ids = {
+        str(hit.get("id"))
+        for hit in current_hits
+        if hit.get("id") and hit.get("elevated_by_rule")
+    }
+    final_rescued = len(in_budget_ids & rescued_ids)
+    disclosure["rule_rescued_policies"] = final_rescued
+    disclosure["policies_elevated_by_rule"] = final_rescued
     # What the ordering actually *cost* a candidate: it would have been read on
     # rank alone and is not read now. A later group member that ranked outside
     # the budget anyway was not displaced by anything — counting it would put a
@@ -1772,7 +2382,7 @@ async def _answer_project_scope(
 
     selection = select_retained(
         candidates,
-        current_hits,
+        ranked_current_hits,
         budget=RETRIEVAL_POLICY_BUDGET,
         in_budget_ids=in_budget_ids,
         duplicates=duplicate_policies,
@@ -1837,6 +2447,7 @@ async def _answer_project_scope(
     # stable. Run only when a retained policy is actually large enough to be read
     # rule by rule — for a project of ordinary provisions there is nothing to
     # rank and no call is made.
+    rule_rank_started = time.perf_counter()
     retained_rule_hits, retained_rule_projections, rule_index_state = await _rank_rules_for_retained(
         search_client,
         index_name,
@@ -1848,9 +2459,13 @@ async def _answer_project_scope(
         candidates_by_entry=candidates_by_entry,
         discovery_hits=rule_hits_by_document,
         rule_index_state=rule_index_state,
+        semantic_configuration=POLICY_SEMANTIC_CONFIG if policies_only else None,
     )
+    if timings is not None:
+        timings["retained_rule_ranking"] = elapsed_ms(rule_rank_started)
     disclosure["rule_index_state"] = rule_index_state
 
+    slice_started = time.perf_counter()
     ranked_pairs = [
         (
             entry,
@@ -1875,13 +2490,44 @@ async def _answer_project_scope(
         _mark_over_payload_budget(entry, retained=retained, discarded=discarded)
 
     records = [record for _, record in fitted_pairs]
+    if timings is not None:
+        timings["rule_slice_and_fit"] = elapsed_ms(slice_started)
 
-    evaluation = await answer_case_over_policies(
-        records,
-        scenario=scenario,
-        reasoning_effort=reasoning_effort,
-        **_gather_kwargs(additional_instructions),
-    )
+    if policy_records is not None:
+        retained_by_key = {
+            str(entry.get("provision_key")): entry
+            for entry, _ in fitted_pairs
+        }
+        for record in records:
+            policy = dict(record["policy"])
+            entry = retained_by_key.get(str(policy.get("provision_key")), {})
+            match = {
+                "best_rank": entry.get("best_rank"),
+                "best_score": entry.get("best_score"),
+            }
+            if entry.get("rule_selection") is not None:
+                match["rule_selection"] = entry["rule_selection"]
+            policy_records.append(
+                {
+                    "policy": policy,
+                    "match": match,
+                    "payload": record["payload"],
+                }
+            )
+
+    evaluation = None
+    if not policies_only:
+        gather_started = time.perf_counter()
+        gather_kwargs = _gather_kwargs(additional_instructions)
+        evaluation = await answer_case_over_policies(
+            records,
+            scenario=scenario,
+            reasoning_effort=reasoning_effort,
+            **gather_kwargs,
+        )
+        if timings is not None:
+            timings.update(getattr(evaluation, "stage_latency_ms", {}))
+            timings["gather_total"] = elapsed_ms(gather_started)
 
     if over_budget:
         reason = (
@@ -1977,12 +2623,13 @@ async def _rank_rules_for_retained(
     *,
     policy_set_key: str,
     scenario: str,
-    vector: list,
+    vector: list | None,
     readiness,
     retained: list[dict],
     candidates_by_entry: dict,
     discovery_hits: dict[str, list[dict]],
     rule_index_state: str,
+    semantic_configuration: str | None = None,
 ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, str]], str]:
     """The rule index's ranking of the retained large policies' own rules.
 
@@ -2026,13 +2673,19 @@ async def _rank_rules_for_retained(
             large_keys.append(str(entry["provision_key"]))
 
     scoped: list[dict] = []
-    if large_keys and rule_index_state == RULE_INDEX_MATCHED:
+    if large_keys and (
+        rule_index_state == RULE_INDEX_MATCHED or semantic_configuration is not None
+    ):
         try:
             scoped = await search_client.vector_search(
                 index_name,
                 query_text=scenario,
                 vector=vector,
-                top=RETRIEVAL_RULE_RANK_SCAN,
+                top=(
+                    min(RETRIEVAL_RULE_RANK_SCAN, SEMANTIC_RERANKER_LIMIT)
+                    if semantic_configuration is not None
+                    else RETRIEVAL_RULE_RANK_SCAN
+                ),
                 filter_expr=(
                     policy_index_filter(
                         policy_set_key,
@@ -2043,7 +2696,9 @@ async def _rank_rules_for_retained(
                     + _provision_key_filter(large_keys)
                 ),
                 select=_RULE_SELECT,
+                semantic_configuration=semantic_configuration,
             )
+            rule_index_state = RULE_INDEX_MATCHED
         except Exception as exc:  # noqa: BLE001 - recoverable, and said so
             logger.warning(
                 "project-case scoped rule ranking failed for set %s: %s", policy_set_key, exc
@@ -2172,3 +2827,34 @@ async def answer_project_case(
     if context is None:
         return response
     return ProjectCaseAnswer(response=response, context=context)
+
+
+async def retrieve_project_policies(
+    session: AsyncSession,
+    *,
+    policy_set,
+    scenario: str,
+    with_context: bool = False,
+) -> dict | ProjectPolicyRetrieval:
+    """Return a precision-ranked published policy subset without a decision.
+
+    It shares the approved corpus, duplicate collapse, large-policy rule slicing,
+    payload fitting, and disclosure machinery with :func:`answer_project_case`.
+    Its policy cut is intentionally narrower: semantic policy ranking replaces
+    the decision path's recall-heavy policy/rule fusion because no downstream
+    gather exists to reject over-kept records.
+    """
+
+    context: dict | None = {} if with_context else None
+    response = await _answer_project_scope(
+        session,
+        policy_set=policy_set,
+        scenario=scenario,
+        reasoning_effort="medium",
+        additional_instructions="",
+        context=context,
+        policies_only=True,
+    )
+    if context is None:
+        return response
+    return ProjectPolicyRetrieval(response=response, context=context)

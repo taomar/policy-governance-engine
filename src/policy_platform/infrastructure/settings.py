@@ -125,6 +125,8 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = "2024-12-01-preview"
     azure_openai_deployment: str | None = None
     azure_openai_fast_deployment: str | None = None
+    azure_openai_luna_deployment: str | None = None
+    azure_openai_terra_deployment: str | None = None
     azure_openai_embedding_deployment: str | None = None
     azure_openai_embedding_model: str | None = None
     azure_openai_embedding_dimensions: int = 3072

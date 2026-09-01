@@ -94,6 +94,7 @@ export function mapDecisionError(input: {
   detail?: unknown
   projectKey: string
   correlationId?: string
+  operation?: 'decision' | 'retrieval'
 }): PlaygroundError {
   const { status, detail, projectKey } = input
   const code = detailCode(detail)
@@ -114,6 +115,15 @@ export function mapDecisionError(input: {
   }
 
   if (status === 'timeout') {
+    if (input.operation === 'retrieval') {
+      return {
+        ...base,
+        status,
+        heading: `The policy retrieval timed out after ${TIMEOUT_SECONDS}s.`,
+        body: 'Policy JSON creates no decision or receipt. Retry the retrieval request.',
+        recovery: 'retry',
+      }
+    }
     return {
       ...base,
       status,

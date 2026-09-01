@@ -235,6 +235,486 @@ def test_every_candidate_appears_in_considered_so_narrowing_is_visible() -> None
     assert retained_flags["prov-b"] is False
 
 
+@pytest.mark.parametrize(
+    ("scores", "expected"),
+    [
+        pytest.param([2.09, 1.79, 1.75, 1.72], 1, id="one-clear-policy"),
+        pytest.param([2.10, 2.08, 1.82, 1.62], 2, id="two-related-policies"),
+        pytest.param([2.14, 2.10, 2.06, 2.04, 2.03], 3, id="flat-ranking"),
+    ],
+)
+def test_light_retrieval_cuts_semantic_rankings_without_fixed_filler(
+    scores: list[float], expected: int
+) -> None:
+    hits = [
+        {
+            "id": f"policy-{index}",
+            "document_version": _PV,
+            "@search.score": 0.03,
+            "@search.rerankerScore": score,
+        }
+        for index, score in enumerate(scores)
+    ]
+
+    selected, disclosure = ai_case_project.select_semantic_policy_hits(hits)
+
+    assert len(selected) == expected
+    assert disclosure["semantic_candidates"] == len(hits)
+    assert disclosure["semantic_selected"] == expected
+    assert disclosure["precision_mode"] == ai_case_project.LIGHT_RETRIEVAL_METHOD
+    assert [hit["@search.score"] for hit in selected] == [
+        hit["@search.rerankerScore"] for hit in selected
+    ]
+
+
+def test_light_retrieval_degrades_to_three_when_semantic_scores_are_unavailable() -> None:
+    hits = [{"id": f"policy-{index}", "@search.score": 1 / (index + 1)} for index in range(8)]
+
+    selected, disclosure = ai_case_project.select_semantic_policy_hits(hits)
+
+    assert [hit["id"] for hit in selected] == ["policy-0", "policy-1", "policy-2"]
+    assert disclosure["precision_mode"].endswith("score_unavailable")
+    assert disclosure["semantic_selected"] == 3
+
+
+def test_decision_precision_does_not_reward_a_large_policy_for_a_second_channel() -> None:
+    direct = [
+        {
+            **_policy_hit("VACATION", 0.03),
+            "@search.rerankerScore": 2.1,
+        },
+        {
+            **_policy_hit("PENALTIES", 0.028),
+            "@search.rerankerScore": 1.58,
+        },
+    ]
+    penalties_parent = policy_document_id(
+        policy_version_id=_PV,
+        provision_key="PENALTIES",
+    )
+    rules = [
+        {
+            "id": f"rule-{index}",
+            "parent_document_id": penalties_parent,
+            "document_version": _PV,
+            "@search.rerankerScore": score,
+        }
+        for index, score in enumerate([2.11, 1.93, 1.77])
+    ]
+
+    selected, ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, rules
+    )
+
+    assert [hit["id"] for hit in selected] == [
+        policy_document_id(policy_version_id=_PV, provision_key="VACATION")
+    ]
+    assert disclosure["rule_rescued_policies"] == 0
+    assert disclosure["precision_mode"] == ai_case_project.RETRIEVAL_METHOD
+    assert disclosure["rule_semantic_window"] == ai_case_project.SEMANTIC_RERANKER_LIMIT
+    assert disclosure["rule_semantic_candidates"] == len(rules)
+    assert {hit["policy_id"] for hit in ranked} == {"VACATION", "PENALTIES"}
+
+
+def test_decision_precision_preserves_a_genuinely_strong_rule_only_policy() -> None:
+    direct = [
+        {
+            **_policy_hit("GENERAL", 0.03),
+            "@search.rerankerScore": 2.1,
+        },
+        {
+            **_policy_hit("OTHER", 0.02),
+            "@search.rerankerScore": 1.6,
+        },
+    ]
+    rescued_parent = policy_document_id(
+        policy_version_id=_PV,
+        provision_key="LATE-SCHEDULE-ROW",
+    )
+    rules = [
+        {
+            "id": "rule-only-hit",
+            "parent_document_id": rescued_parent,
+            "policy_id": "LATE-SCHEDULE-ROW",
+            "document_version": _PV,
+            "@search.rerankerScore": 2.75,
+        }
+    ]
+
+    selected, ranked, by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, rules
+    )
+
+    assert [hit["id"] for hit in selected] == [
+        rescued_parent,
+        policy_document_id(policy_version_id=_PV, provision_key="GENERAL"),
+    ]
+    assert selected[0]["elevated_by_rule"] is True
+    assert by_parent[rescued_parent][0]["id"] == "rule-only-hit"
+    assert disclosure["rule_rescued_policies"] == 1
+    assert ranked[:2] == selected
+    assert ranked[2]["policy_id"] == "OTHER"
+
+
+def test_decision_precision_does_not_expose_an_unscored_rule_only_policy() -> None:
+    direct = [{**_policy_hit("GENERAL", 0.03), "@search.rerankerScore": 2.1}]
+    unseen_parent = policy_document_id(
+        policy_version_id=_PV,
+        provision_key="UNSCORED-SCHEDULE",
+    )
+
+    selected, ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct,
+        [
+            {
+                "id": "unscored-rule",
+                "parent_document_id": unseen_parent,
+                "policy_id": "UNSCORED-SCHEDULE",
+                "document_version": _PV,
+            }
+        ],
+    )
+
+    assert [hit["policy_id"] for hit in selected] == ["GENERAL"]
+    assert disclosure["rule_rescued_policies"] == 0
+    assert [hit["policy_id"] for hit in ranked] == ["GENERAL"]
+
+
+def test_decision_rule_rescues_are_not_capped_before_duplicate_collapse() -> None:
+    parents = [
+        policy_document_id(policy_version_id=_PV, provision_key=f"RESCUE-{index}")
+        for index in range(6)
+    ]
+    rules = [
+        {
+            "id": f"rule-{index}",
+            "parent_document_id": parent,
+            "policy_id": f"RESCUE-{index}",
+            "document_version": _PV,
+            "@search.rerankerScore": 3.0 - index / 100,
+        }
+        for index, parent in enumerate(parents)
+    ]
+
+    selected, ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        [], rules
+    )
+
+    assert {hit["id"] for hit in selected} == set(parents)
+    assert ranked == selected
+    assert disclosure["rule_rescue_candidates"] == 6
+
+
+def test_decision_precision_keeps_rank_disclosure_for_policies_outside_its_cut() -> None:
+    direct = [
+        {**_policy_hit("MATCH", 0.04), "@search.rerankerScore": 2.20},
+        {**_policy_hit("SURFACED-ONE", 0.03), "@search.rerankerScore": 1.80},
+        {**_policy_hit("SURFACED-TWO", 0.02), "@search.rerankerScore": 1.70},
+    ]
+    selected, ranked, _by_parent, _disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+    candidates = [
+        _candidate("prov-match", "MATCH", ["Match"]),
+        _candidate("prov-one", "SURFACED-ONE", ["One"]),
+        _candidate("prov-two", "SURFACED-TWO", ["Two"]),
+    ]
+
+    result = ai_case_project.select_retained(
+        candidates,
+        ranked,
+        budget=ai_case_project.RETRIEVAL_POLICY_BUDGET,
+        in_budget_ids={str(hit["id"]) for hit in selected},
+    )
+    by_key = {entry["provision_key"]: entry for entry in result["considered"]}
+
+    assert by_key["MATCH"]["retained"] is True
+    assert by_key["SURFACED-ONE"]["best_rank"] is not None
+    assert by_key["SURFACED-ONE"]["discard_reason"] == ai_case_project.DISCARD_OUTSIDE_BUDGET
+    assert by_key["SURFACED-TWO"]["best_rank"] is not None
+    assert by_key["SURFACED-TWO"]["discard_reason"] == ai_case_project.DISCARD_OUTSIDE_BUDGET
+
+
+def test_decision_precision_keeps_two_jointly_relevant_direct_policies() -> None:
+    direct = [
+        {**_policy_hit("PENALTIES", 0.03), "@search.rerankerScore": 2.11},
+        {**_policy_hit("ABSENCE", 0.029), "@search.rerankerScore": 2.08},
+        {**_policy_hit("VACATION", 0.02), "@search.rerankerScore": 1.82},
+    ]
+
+    selected, _ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+
+    assert [hit["policy_id"] for hit in selected] == ["PENALTIES", "ABSENCE"]
+    assert disclosure["semantic_selected"] == 2
+
+
+def test_decision_precision_preserves_the_candidate_pool_when_ranking_is_flat() -> None:
+    direct = [
+        {
+            **_policy_hit(f"POLICY-{index}", 0.03 - index / 1000),
+            "@search.rerankerScore": score,
+        }
+        for index, score in enumerate([2.14, 2.10, 2.06, 2.04, 2.03, 2.02])
+    ]
+
+    selected, ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+
+    assert len(selected) == len(direct)
+    assert ranked == selected
+    assert disclosure["semantic_selected"] == len(direct)
+    assert disclosure["semantic_elbow_applied"] is False
+
+
+def test_decision_flat_semantics_preserve_direct_hybrid_order_for_final_selection() -> None:
+    direct = [
+        {**_policy_hit("SEMANTIC-FIRST", 0.02), "@search.rerankerScore": 2.10},
+        {**_policy_hit("HYBRID-FIRST", 0.03), "@search.rerankerScore": 2.08},
+        {**_policy_hit("THIRD", 0.01), "@search.rerankerScore": 2.06},
+    ]
+
+    selected, _ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+
+    assert [hit["policy_id"] for hit in selected] == [
+        "HYBRID-FIRST",
+        "SEMANTIC-FIRST",
+        "THIRD",
+    ]
+    assert disclosure["semantic_elbow_applied"] is False
+
+
+def test_decision_semantic_elbow_sets_count_while_direct_rrf_sets_identity() -> None:
+    direct = [
+        {**_policy_hit("CONSENSUS-FIRST", 0.06), "@search.rerankerScore": 2.20},
+        {**_policy_hit("CONSENSUS-SECOND", 0.05), "@search.rerankerScore": 2.15},
+        {**_policy_hit("HYBRID-ONLY", 0.04), "@search.rerankerScore": 1.70},
+        {**_policy_hit("MIDDLE", 0.03), "@search.rerankerScore": 1.80},
+        {**_policy_hit("SEMANTIC-ONLY", 0.02), "@search.rerankerScore": 1.90},
+    ]
+
+    selected, ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+
+    assert [hit["policy_id"] for hit in selected] == [
+        "CONSENSUS-FIRST",
+        "CONSENSUS-SECOND",
+    ]
+    assert disclosure["semantic_selected"] == 2
+    assert disclosure["semantic_elbow_applied"] is True
+    assert len(ranked) == len(direct)
+
+
+def test_a_strong_semantic_lead_is_not_overridden_by_hybrid_rank() -> None:
+    direct = [
+        {**_policy_hit("HYBRID-FIRST", 0.04), "@search.rerankerScore": 2.10},
+        {**_policy_hit("SEMANTIC-FIRST", 0.03), "@search.rerankerScore": 2.60},
+        {**_policy_hit("OTHER", 0.02), "@search.rerankerScore": 1.70},
+    ]
+
+    selected, _ranked, _by_parent, disclosure = ai_case_project.select_decision_policy_hits(
+        direct, []
+    )
+
+    assert [hit["policy_id"] for hit in selected] == ["SEMANTIC-FIRST"]
+    assert disclosure["direct_policy_order"] == ai_case_project.DIRECT_POLICY_ORDER_SEMANTIC
+
+
+def test_query_coverage_adds_explicit_aspects_missing_from_the_precision_cut() -> None:
+    selected = [
+        {
+            **_policy_hit("REFRESH", 0.04),
+            "section_heading": "Ordinary refresh",
+            "heading": "Refresh interval",
+            "body": "Ordinary refresh follows the standard interval.",
+        }
+    ]
+    ranked = [
+        *selected,
+        {
+            **_policy_hit("DAMAGE", 0.03),
+            "section_heading": "Accidental damage",
+            "heading": "Damage",
+            "body": "Accidental damage has separate replacement requirements.",
+            "@search.rerankerScore": 1.90,
+        },
+        {
+            **_policy_hit("LOSS", 0.02),
+            "section_heading": "Equipment loss",
+            "heading": "Loss",
+            "body": "Loss has separate replacement requirements.",
+            "@search.rerankerScore": 1.90,
+        },
+        {
+            **_policy_hit("UNRELATED", 0.01),
+            "section_heading": "Account inventory",
+            "heading": "Inventory",
+            "body": "Inventory is recorded each quarter.",
+            "@search.rerankerScore": 1.90,
+        },
+    ]
+
+    expanded, added = ai_case_project.expand_policy_query_coverage(
+        selected,
+        ranked,
+        scenario="Explain ordinary refresh, damage, and loss.",
+    )
+
+    assert [hit["policy_id"] for hit in expanded] == ["REFRESH", "DAMAGE", "LOSS"]
+    assert added == 2
+
+
+def test_query_coverage_does_not_widen_a_focused_case_on_generic_overlap() -> None:
+    selected = [
+        {
+            **_policy_hit("REFRESH", 0.04),
+            "section_heading": "Standard refresh",
+            "heading": "Refresh",
+            "body": "A replacement follows the standard refresh interval.",
+        }
+    ]
+    ranked = [
+        *selected,
+        {
+            **_policy_hit("PERFORMANCE", 0.03),
+            "section_heading": "Performance",
+            "heading": "Performance",
+            "body": "Poor performance may permit replacement.",
+            "@search.rerankerScore": 1.90,
+        },
+    ]
+
+    expanded, added = ai_case_project.expand_policy_query_coverage(
+        selected,
+        ranked,
+        scenario="Am I eligible for a replacement under the refresh interval?",
+    )
+
+    assert expanded == selected
+    assert added == 0
+
+
+def test_query_coverage_refuses_a_heading_below_the_semantic_floor() -> None:
+    selected = [
+        {
+            **_policy_hit("PRIMARY", 0.04),
+            "section_heading": "Primary rule",
+            "heading": "Primary",
+            "body": "The primary rule applies.",
+            "@search.rerankerScore": 2.10,
+        }
+    ]
+    ranked = [
+        *selected,
+        {
+            **_policy_hit("WEAK-ASPECT", 0.03),
+            "section_heading": "Explicit aspect",
+            "heading": "Aspect",
+            "body": "The aspect appears only weakly.",
+            "@search.rerankerScore": 1.20,
+        },
+    ]
+
+    expanded, added = ai_case_project.expand_policy_query_coverage(
+        selected,
+        ranked,
+        scenario="Does the primary rule cover this explicit aspect?",
+    )
+
+    assert expanded == selected
+    assert added == 0
+
+
+def test_query_coverage_can_expand_a_two_policy_candidate_pool() -> None:
+    selected = [
+        {
+            **_policy_hit("REFRESH", 0.04),
+            "section_heading": "Refresh",
+            "heading": "Refresh",
+            "body": "The refresh interval applies.",
+            "@search.rerankerScore": 2.10,
+        }
+    ]
+    loss = {
+        **_policy_hit("LOSS", 0.03),
+        "section_heading": "Equipment loss",
+        "heading": "Loss",
+        "body": "Equipment loss has separate requirements.",
+        "@search.rerankerScore": 1.90,
+    }
+
+    expanded, added = ai_case_project.expand_policy_query_coverage(
+        selected,
+        [*selected, loss],
+        scenario="Explain refresh and loss.",
+    )
+
+    assert [hit["policy_id"] for hit in expanded] == ["REFRESH", "LOSS"]
+    assert added == 1
+
+
+def test_duplicate_rescues_do_not_consume_the_coverage_budget() -> None:
+    duplicate_payload = _payload_for("prov-dup", "DUPLICATE", ["C-dup"])
+    candidates = []
+    duplicate_hits = []
+    for index in range(5):
+        candidate = _candidate(
+            f"prov-duplicate-{index}",
+            f"DUPLICATE-{index}",
+            [f"C-{index}"],
+        )
+        candidate["payload"] = duplicate_payload
+        candidates.append(candidate)
+        duplicate_hits.append(
+            {
+                **_policy_hit(f"DUPLICATE-{index}", 0.09 - index / 100),
+                "section_heading": "Repeated schedule",
+                "heading": "Schedule",
+                "body": "The same schedule is repeated.",
+                "@search.rerankerScore": 2.80 - index / 100,
+                "elevated_by_rule": True,
+            }
+        )
+    refresh_candidate = _candidate("prov-refresh", "REFRESH", ["C-refresh"])
+    loss_candidate = _candidate("prov-loss", "LOSS", ["C-loss"])
+    candidates.extend([refresh_candidate, loss_candidate])
+    refresh = {
+        **_policy_hit("REFRESH", 0.04),
+        "section_heading": "Refresh",
+        "heading": "Refresh",
+        "body": "The refresh interval applies.",
+        "@search.rerankerScore": 2.10,
+    }
+    loss = {
+        **_policy_hit("LOSS", 0.03),
+        "section_heading": "Equipment loss",
+        "heading": "Loss",
+        "body": "Equipment loss has separate requirements.",
+        "@search.rerankerScore": 1.90,
+    }
+    selected = [*duplicate_hits, refresh]
+    by_search_id = {candidate["search_document_id"]: candidate for candidate in candidates}
+
+    expanded, distinct_ids, duplicates, added = (
+        ai_case_project.expand_policy_coverage_after_duplicate_collapse(
+            selected,
+            [*selected, loss],
+            scenario="Explain refresh and loss.",
+            by_search_id=by_search_id,
+        )
+    )
+
+    assert len(expanded) == len(selected) + 1
+    assert loss["id"] in distinct_ids
+    assert added == 1
+    assert len(duplicates) == 4
+
+
 # --- the multi-policy gather: fabrication check and per-policy citations --------
 
 
@@ -982,6 +1462,70 @@ async def test_narrowed_is_when_a_policy_is_retained_and_only_then_is_it_evaluat
     assert _ids([{"provision_id": r["policy"]["provision_id"]} for r in evaluated[0]]) == {"prov-a"}
 
 
+async def test_retrieval_only_returns_the_same_filtered_record_without_running_a_gather(
+    monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
+) -> None:
+    """The light path branches only after policy and rule selection are complete."""
+
+    two_candidates = _project_scope(
+        [_candidate("prov-a", "A", ["C-a"]), _candidate("prov-b", "B", ["C-b"])]
+    )
+
+    async def _load_two(session: Any, policy_set_id: Any) -> dict:
+        return two_candidates
+
+    searches: list[dict[str, Any]] = []
+
+    class _MatchingSearchClient:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        async def index_exists(self, *a: Any, **k: Any) -> bool:
+            return True
+
+        async def vector_search(self, *a: Any, **k: Any) -> list[dict]:
+            searches.append(k)
+            return [{**_policy_hit("A", 0.7), "@search.rerankerScore": 2.1}]
+
+        async def find_ids_by_filter(self, *a: Any, **k: Any) -> list[str]:
+            return manifest_ids(k.get("filter_expr", ""))
+
+    async def _must_not_gather(*args: Any, **kwargs: Any) -> dict:
+        raise AssertionError("retrieval-only mode must stop before the gather")
+
+    class _MustNotEmbed:
+        def __init__(self, settings: Any) -> None:
+            raise AssertionError("semantic light retrieval must not create an embedding client")
+
+    monkeypatch.setattr(ai_case_project, "load_project_scope", _load_two)
+    monkeypatch.setattr(ai_case_project, "AzureSearchClient", _MatchingSearchClient)
+    monkeypatch.setattr(ai_case_project, "AzureOpenAIClient", _MustNotEmbed)
+    monkeypatch.setattr(ai_case_project, "answer_case_over_policies", _must_not_gather)
+
+    result = await ai_case_project.retrieve_project_policies(
+        object(),
+        policy_set=_NamespacePolicySet("set-1", "xx"),
+        scenario="which policy bears on this question?",
+        with_context=True,
+    )
+
+    assert isinstance(result, ai_case_project.ProjectPolicyRetrieval)
+    response = result.response
+    assert response["evaluation"] is None
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_NARROWED
+    assert response["retrieval"]["policies_retained"] == 1
+    assert response["retrieval"]["policies_discarded"] == 1
+    assert [item["policy"]["provision_key"] for item in response["policies"]] == ["A"]
+    assert response["policies"][0]["payload"]["envelope"]["provision_key"] == "A"
+    assert response["policies"][0]["match"]["best_rank"] == 0
+    assert result.context["policy_version_id"] == _PV
+    assert len(searches) == 1, "small-policy light retrieval needs one policy search, not rule discovery"
+    assert searches[0]["semantic_configuration"]
+    assert searches[0]["vector"] is None
+    assert response["retrieval"]["method"] == ai_case_project.LIGHT_RETRIEVAL_METHOD
+    assert response["retrieval"]["semantic_selected"] == 1
+
+
 async def test_a_project_within_the_budget_is_not_reported_as_narrowed(
     monkeypatch: pytest.MonkeyPatch, project_settings: _Settings, one_candidate_project: None
 ) -> None:
@@ -1090,4 +1634,3 @@ def test_the_retrieval_states_are_distinct() -> None:
     }
     # Twelve named states, none equal to another.
     assert len(states) == 12
-

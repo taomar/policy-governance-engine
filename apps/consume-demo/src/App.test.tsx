@@ -15,6 +15,7 @@ import {
   makeNoRuleBearsV2Envelope,
   makeNotEvaluatedV2Envelope,
   makeProjectionNotReadyEnvelope,
+  makeQualifiedVerdictEnvelope,
   makeRuleIndexDegradedEnvelope,
   makeRuleIndexMatchedEnvelope,
   makeRuleSlicedEnvelope,
@@ -22,9 +23,12 @@ import {
   makeV2Envelope,
   makeVerdictOnlyEnvelope,
   V2_MISSING_INFORMATION,
+  V2_VERIFICATION_REQUIREMENTS,
 } from './lib/testFixtures'
 import {
+  DECISION_LIGHT_SCHEMA_VERSION,
   DECISION_STATUSES,
+  POLICY_RETRIEVAL_SCHEMA_VERSION,
   type CaseDecisionEnvelope,
   type CaseDecisionReceipt,
 } from './contracts/caseDecision'
@@ -151,6 +155,276 @@ describe('the request inspector, before anything is submitted', () => {
     expect(screen.getByTestId('inspector-tab-json').textContent).toContain(
       'a distinctive scenario string',
     )
+  })
+
+  it('switches to a retrieval-only request with no decision-only fields', () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('radio', { name: /Policy JSON/ }))
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: '  show the policies governing annual leave  ' },
+    })
+
+    const json = screen.getByTestId('inspector-tab-json').textContent ?? ''
+    const http = screen.getByTestId('inspector-tab-http').textContent ?? ''
+    expect(json).toContain('show the policies governing annual leave')
+    expect(json).not.toContain('reasoning_effort')
+    expect(json).not.toContain('calling_system_identity')
+    expect(json).not.toContain('additional_instructions')
+    expect(http).toContain('/api/policy-decisions/{project_key}/policies')
+    expect(http).not.toContain('Idempotency-Key')
+    expect(screen.queryByTestId('playground-reasoning-effort')).toBeNull()
+    expect(screen.queryByTestId('playground-additional-instructions')).toBeNull()
+    expect(screen.getByTestId('playground-light-mode-note')).toBeTruthy()
+  })
+
+  it('opens an integration guide with agent, curl, Python, and REST examples for both modes', async () => {
+    installFetch(standardHandler())
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('playground-integration-guide-button'))
+    const guide = screen.getByTestId('playground-integration-guide')
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(guide).getByRole('button', { name: 'Close integration guide' }),
+      ),
+    )
+    expect(guide.textContent).toContain('/api/policy-decisions/{project_key}/case')
+    expect(guide.textContent).toContain('/api/policy-decisions/{project_key}/case/light')
+    expect(guide.textContent).toContain('/api/policy-decisions/{project_key}/policies')
+    expect(within(guide).getByRole('tab', { name: 'Agents & Copilot' })).toBeTruthy()
+
+    fireEvent.click(within(guide).getByRole('tab', { name: 'cURL' }))
+    expect(guide.textContent).toContain('POLICY_SUBSCRIPTION_KEY')
+    const copy = within(guide).getByRole('button', {
+      name: 'Copy the cURL integration examples',
+    })
+    copy.focus()
+    fireEvent.click(copy)
+    await waitFor(() => expect(document.activeElement).toBe(copy))
+    fireEvent.click(within(guide).getByRole('tab', { name: 'Python' }))
+    expect(guide.textContent).toContain('requests.post')
+    fireEvent.click(within(guide).getByRole('tab', { name: 'REST & OpenAPI' }))
+    expect(guide.textContent).toContain('POST /api/policy-decisions/')
+  })
+
+  describe('policy JSON mode', () => {
+    it('returns filtered policy records without rendering a decision receipt', async () => {
+      const response = {
+        schema_version: POLICY_RETRIEVAL_SCHEMA_VERSION,
+        correlation_id: 'policy-correlation',
+        policy_set: { id: 'set-1', key: 'demo-project', name: 'Demo project' },
+        active_version: { version_id: 'version-1', version_number: 7 },
+        query: { scenario: 'show annual leave policies', scenario_hash: 'a'.repeat(64) },
+        retrieval: {
+          status: 'narrowed',
+          method: 'hybrid_policy_rule_rrf_v1',
+          policies_considered: 3,
+          policies_retained: 1,
+          policies_discarded: 2,
+        },
+        policies: [
+          {
+            policy: {
+              provision_id: 'provision-1',
+              provision_key: 'annual-leave',
+              heading_path: ['Leave', 'Annual leave'],
+            },
+            match: { best_rank: 0, best_score: 0.91 },
+            payload: {
+              projection: 'grounding_projection_v1',
+              rules: [{ rule_id: 'rule-annual-leave' }],
+            },
+          },
+        ],
+        size: { combined_chars: 1200, budget_chars: 200000, oversize: false },
+        language: {
+          source_language: 'en',
+          processing_language: 'en',
+          response_language: 'en',
+          boundary_state: 'identity',
+          output_rendering_state: 'not_required',
+          guidance_rendering_state: 'not_required',
+          input_translation_profile: 'case-language-v4',
+          processing_scenario: 'show annual leave policies',
+          processing_scenario_hash: 'b'.repeat(64),
+        },
+      }
+      const calls = installFetch((url) => {
+        if (url.includes('/active-version')) {
+          return jsonResponse({ id: 'version-1', version_number: 7 })
+        }
+        if (url.includes('/api/policy-sets/')) {
+          return jsonResponse({ id: 'set-1', key: 'demo-project', name: 'Demo project' })
+        }
+        return jsonResponse(response, { headers: { 'X-Correlation-Id': 'policy-correlation' } })
+      })
+
+      render(<App />)
+
+      fireEvent.click(screen.getByRole('radio', { name: /Policy JSON/ }))
+      fireEvent.change(screen.getByTestId('playground-project-key'), {
+        target: { value: 'demo-project' },
+      })
+      fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+        target: { value: SUBSCRIPTION_KEY },
+      })
+      fireEvent.change(screen.getByTestId('playground-scenario'), {
+        target: { value: 'show annual leave policies' },
+      })
+      await waitFor(() =>
+        expect((screen.getByTestId('playground-submit') as HTMLButtonElement).disabled).toBe(false),
+      )
+      fireEvent.click(screen.getByTestId('playground-submit'))
+
+      expect(await screen.findByTestId('playground-policy-result')).toBeTruthy()
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole('heading', { name: 'Filtered policy JSON' }),
+        ),
+      )
+      expect(screen.getByTestId('playground-policy-json').textContent).toContain(
+        'rule-annual-leave',
+      )
+      expect(screen.queryByTestId('playground-receipt')).toBeNull()
+      expect(screen.queryByTestId('playground-verdict-panel')).toBeNull()
+
+      const sent = calls.find((call) => call.url.endsWith('/api/policy-decisions/demo-project/policies'))
+      expect(sent).toBeTruthy()
+      expect(JSON.parse(String(sent?.init?.body))).toEqual({
+        scenario: 'show annual leave policies',
+      })
+      expect((sent?.init?.headers as Record<string, string>)['Idempotency-Key']).toBeUndefined()
+    })
+  })
+
+  describe('Decision Light mode', () => {
+    it('returns compact structured decision JSON and keeps the full receipt behind its URL', async () => {
+      const response = {
+        schema_version: DECISION_LIGHT_SCHEMA_VERSION,
+        response_type: 'decision',
+        decision_id: 'decision-light-1',
+        correlation_id: 'correlation-light-1',
+        idempotency_key: 'one-call-key',
+        policy_set: { id: 'set-1', key: 'demo-project', name: 'Demo project' },
+        active_version: { version_id: 'version-1', version_number: 7 },
+        request: { scenario: 'Is this allowed?', scenario_hash: 'a'.repeat(64) },
+        asked: {
+          information_requested: false,
+          verdict_requested: true,
+          classifier_version: 'ai-case-needs-v2',
+        },
+        outcome: { information: 'not_requested', verdict: 'answered' },
+        information: null,
+        verdict: {
+          status: 'answered',
+          reached: true,
+          decision: 'allowed',
+          explanation: 'The cited policy allows the request.',
+          missing_information: [],
+          verification_requirements: [
+            {
+              fact: 'recorded-balance',
+              label: 'Recorded balance',
+              why_needed: 'Confirm before acting.',
+              required_by_rule_ids: ['R-ONE'],
+            },
+          ],
+          note: '',
+        },
+        retrieval: { status: 'narrowed' },
+        policies: [
+          {
+            provision_id: 'provision-1',
+            provision_key: 'annual-leave',
+            heading_path: ['Annual leave'],
+          },
+        ],
+        citations: [
+          {
+            rule_id: 'R-ONE',
+            policy: {
+              provision_id: 'provision-1',
+              provision_key: 'annual-leave',
+              heading_path: ['Annual leave'],
+            },
+            source: {
+              state: 'quoted',
+              text: 'The policy allows the request.',
+              page: 4,
+              section: 'Annual leave',
+            },
+            serves: ['verdict'],
+          },
+        ],
+        trace: {
+          classifier_version: 'ai-case-needs-v2',
+          prompt_version: 'ai-case-intent-v12',
+          plan_profile: 'case-plan-v3',
+          selector_catalogue_version: 'case-selectors-v1',
+          model_deployment: 'reasoning-model',
+          token_usage: {
+            calls: 5,
+            calls_without_usage: 1,
+            prompt_tokens: 100,
+            completion_tokens: 23,
+            total_tokens: 123,
+            reasoning_tokens: 9,
+          },
+        },
+        decision_hash: 'b'.repeat(64),
+        hash_basis: 'case_decision_v2_lang_verification',
+        receipt_url: '/api/policy-decisions/decision-light-1',
+        latency_ms: 1840,
+      }
+      const calls = installFetch((url) => {
+        if (url.includes('/active-version')) {
+          return jsonResponse({ id: 'version-1', version_number: 7 })
+        }
+        if (url.includes('/api/policy-sets/')) {
+          return jsonResponse({ id: 'set-1', key: 'demo-project', name: 'Demo project' })
+        }
+        return jsonResponse(response, { headers: { 'X-Correlation-Id': 'correlation-light-1' } })
+      })
+      render(<App />)
+
+      fireEvent.click(screen.getByRole('radio', { name: /Decision Light/ }))
+      fireEvent.change(screen.getByTestId('playground-project-key'), {
+        target: { value: 'demo-project' },
+      })
+      fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+        target: { value: SUBSCRIPTION_KEY },
+      })
+      fireEvent.change(screen.getByTestId('playground-scenario'), {
+        target: { value: 'Is this request allowed under the annual leave policy?' },
+      })
+      await waitFor(() =>
+        expect((screen.getByTestId('playground-submit') as HTMLButtonElement).disabled).toBe(false),
+      )
+      fireEvent.click(screen.getByTestId('playground-submit'))
+
+      expect(await screen.findByTestId('playground-light-decision-result')).toBeTruthy()
+      expect(screen.getByTestId('playground-light-decision-json').textContent).toContain(
+        'recorded-balance',
+      )
+      expect(screen.getByTestId('playground-verdict').textContent).toContain('allowed')
+      expect(screen.getByTestId('playground-verification-requirements')).toBeTruthy()
+      expect(screen.getByTestId('evidence-count').textContent).toContain('1 rule')
+      expect(screen.getByTestId('playground-token-total').textContent).toBe('At least 123')
+      expect(screen.getByTestId('playground-run-meter').textContent).toContain(
+        '1 call did not report usage',
+      )
+      expect(screen.getByTestId('playground-light-verdict-outcome').textContent).toContain(
+        'Answered',
+      )
+      expect(screen.queryByTestId('playground-receipt')).toBeNull()
+      const sent = calls.find((call) =>
+        call.url.endsWith('/api/policy-decisions/demo-project/case/light'),
+      )
+      expect(sent).toBeTruthy()
+      expect(String(sent?.init?.body)).toContain('reasoning_effort')
+    })
   })
 
   it('omits additional_instructions entirely when guidance is empty', () => {
@@ -472,24 +746,84 @@ describe('the docket', () => {
     )
   })
 
-  it('warns about a reused key when the request changed, without disabling submit', async () => {
+  it('rotates a successful request key so the next draft is independent', async () => {
     installFetch(standardHandler())
     render(<App />)
     fireEvent.change(screen.getByTestId('playground-idempotency-key'), { target: { value: 'k-1' } })
     await fillAndSubmit()
 
     expect(screen.queryByTestId('playground-idempotency-conflict')).toBeNull()
+    expect((screen.getByTestId('playground-idempotency-key') as HTMLInputElement).value).not.toBe(
+      'k-1',
+    )
 
     fireEvent.change(screen.getByTestId('playground-additional-instructions'), {
       target: { value: 'now something different' },
     })
 
-    expect(screen.getByTestId('playground-idempotency-conflict').textContent).toBe(
-      'Request changed; sending with this key may return 409',
-    )
-    expect(screen.getByTestId('inspector-changed-chip')).toBeTruthy()
-    // The 409 is the demonstration. Blocking the send would hide it.
+    expect(screen.queryByTestId('playground-idempotency-conflict')).toBeNull()
+    expect(screen.queryByTestId('playground-receipt')).toBeNull()
     expect(screen.getByTestId('playground-submit').getAttribute('aria-disabled')).toBe('false')
+  })
+
+  it('removes the previous response as soon as the draft scenario changes', async () => {
+    installFetch(standardHandler(makeV2Envelope()))
+    render(<App />)
+    await fillAndSubmit()
+
+    expect(screen.getByTestId('playground-receipt')).toBeTruthy()
+    expect(screen.getByTestId('playground-verdict-panel')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: 'A different draft asking about annual vacation entitlement.' },
+    })
+
+    expect(screen.queryByTestId('playground-receipt')).toBeNull()
+    expect(screen.queryByTestId('playground-verdict-panel')).toBeNull()
+    expect(screen.getByText(/No decision has been requested yet/i)).toBeTruthy()
+    expect(screen.getByTestId('inspector-tab-json').textContent).toContain(
+      'annual vacation entitlement',
+    )
+  })
+
+  it('does not attach an in-flight response to a draft changed while it was running', async () => {
+    let finish: ((response: Response) => void) | undefined
+    installFetch((url) => {
+      if (url.includes('/active-version')) {
+        return jsonResponse({ id: 'version-1', version_number: 7 })
+      }
+      if (url.includes('/api/policy-sets/')) {
+        return jsonResponse({ id: 'set-1', key: 'demo-project', name: 'Demo project' })
+      }
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    })
+    render(<App />)
+    fireEvent.change(screen.getByTestId('playground-project-key'), {
+      target: { value: 'demo-project' },
+    })
+    fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+      target: { value: SUBSCRIPTION_KEY },
+    })
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: 'A question about sick leave entitlement.' },
+    })
+    await waitFor(() =>
+      expect((screen.getByTestId('playground-submit') as HTMLButtonElement).disabled).toBe(false),
+    )
+    fireEvent.click(screen.getByTestId('playground-submit'))
+    expect(screen.getByTestId('playground-wait')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: 'A new question about annual vacation entitlement.' },
+    })
+    finish?.(jsonResponse(makeV2Envelope()))
+
+    await waitFor(() => expect(screen.queryByTestId('playground-wait')).toBeNull())
+    expect(screen.queryByTestId('playground-receipt')).toBeNull()
+    expect(screen.queryByTestId('playground-verdict-panel')).toBeNull()
+    expect(screen.getByTestId('inspector-tab-json').textContent).toContain('annual vacation')
   })
 })
 
@@ -1028,7 +1362,7 @@ describe('errors', () => {
     )
   })
 
-  it('keeps the previous receipt, dimmed and marked, after a failed refresh', async () => {
+  it('shows only the new call failure, never the previous receipt', async () => {
     let fail = false
     installFetch((url: string) => {
       if (url.includes('/active-version')) return jsonResponse({ id: 'v', version_number: 7 })
@@ -1046,11 +1380,9 @@ describe('errors', () => {
     fireEvent.click(screen.getByTestId('playground-submit'))
     await screen.findByTestId('playground-error', {}, { timeout: 3000 })
 
-    expect(screen.getByTestId('playground-receipt').getAttribute('data-stale')).toBe('true')
-    expect(screen.getByTestId('playground-stale-caption').textContent).toBe(
-      'Previous decision, not refreshed',
-    )
-    expect(screen.getByTestId('receipt-decision-id')).toBeTruthy()
+    expect(screen.queryByTestId('playground-receipt')).toBeNull()
+    expect(screen.queryByTestId('playground-stale-caption')).toBeNull()
+    expect(screen.queryByTestId('receipt-decision-id')).toBeNull()
   })
 
   it('names the base URL and CORS when the request never reached the API', async () => {
@@ -1074,6 +1406,58 @@ describe('errors', () => {
     const band = await screen.findByTestId('playground-error', {}, { timeout: 3000 })
     expect(band.textContent).toContain('API base URL')
     expect(band.textContent).toContain('CORS')
+  })
+
+  it('shows a recovered Decision Light timeout as the stored full receipt', async () => {
+    const stored = makeV2Envelope()
+    installFetch((url, init) => {
+      if (url.includes('/active-version')) {
+        return jsonResponse({ id: 'version-1', version_number: 7 })
+      }
+      if (url.includes('/api/policy-sets/')) {
+        return jsonResponse({ id: 'set-1', key: 'demo-project', name: 'Demo project' })
+      }
+      if (url.endsWith('/case/light')) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Timed out', 'AbortError'))
+          })
+        })
+      }
+      if (url.endsWith('/api/policy-decisions/recovered-decision')) {
+        return jsonResponse(stored)
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('radio', { name: /Decision Light/ }))
+    fireEvent.change(screen.getByTestId('playground-project-key'), {
+      target: { value: 'demo-project' },
+    })
+    fireEvent.change(screen.getByTestId('playground-subscription-key'), {
+      target: { value: SUBSCRIPTION_KEY },
+    })
+    fireEvent.change(screen.getByTestId('playground-scenario'), {
+      target: { value: 'Is this request allowed under the policy?' },
+    })
+    await waitFor(() =>
+      expect((screen.getByTestId('playground-submit') as HTMLButtonElement).disabled).toBe(false),
+    )
+    fireEvent.click(screen.getByTestId('playground-submit'))
+    await vi.advanceTimersByTimeAsync(60_100)
+
+    await screen.findByTestId('playground-error')
+    fireEvent.change(screen.getByTestId('playground-lookup-id'), {
+      target: { value: 'recovered-decision' },
+    })
+    fireEvent.submit(screen.getByTestId('playground-lookup-id').closest('form')!)
+
+    await screen.findByTestId('playground-receipt')
+    expect((screen.getByRole('radio', { name: /Decision JSON/ }) as HTMLInputElement).checked).toBe(
+      true,
+    )
+    expect(screen.queryByTestId('playground-error')).toBeNull()
   })
 })
 
@@ -1257,6 +1641,85 @@ describe('case_decision_v2: the two-track result', () => {
 
     const labels = screen.getAllByTestId('missing-item-label').map((n) => n.textContent)
     expect(labels).toEqual(['Hours already worked', 'Approval timestamp'])
+  })
+
+  /* ---------- checks before acting ---------- */
+
+  it('shows the checks before acting beside a verdict that was reached, not instead of it', async () => {
+    await renderV2(makeQualifiedVerdictEnvelope())
+
+    // The determination is still a determination. Nothing about the checks
+    // downgrades it, hides it or restyles it as a blocked case.
+    expect(screen.getByTestId('playground-verdict').textContent).toContain('Entitled')
+    expect(screen.getByTestId('playground-track-verdict').getAttribute('data-outcome')).toBe(
+      'answered',
+    )
+    expect(screen.queryByTestId('playground-verdict-not-reached')).toBeNull()
+
+    const block = screen.getByTestId('playground-verification-requirements')
+    expect(within(block).getByTestId('verification-count').textContent).toBe('2 checks')
+
+    const labels = within(block)
+      .getAllByTestId('verification-item-label')
+      .map((n) => n.textContent)
+    expect(labels).toEqual(V2_VERIFICATION_REQUIREMENTS.map((item) => item.label))
+
+    // Each check says what to confirm and which rules impose it.
+    expect(within(block).getAllByTestId('verification-item-why')[0].textContent).toContain(
+      'balance that has actually accrued',
+    )
+    expect(within(block).getAllByTestId('verification-item-rules')[1].textContent).toContain(
+      'HR-4.6-R1',
+    )
+
+    // And it says, in words, that the entitlement stands and these are separate.
+    expect(block.textContent).toContain('Checks before acting')
+  })
+
+  it('never renders a check inside the missing-information register', async () => {
+    await renderV2(makeQualifiedVerdictEnvelope())
+
+    // The one confusion the whole field exists to prevent: a condition on
+    // acting read as a reason the case could not be decided.
+    expect(screen.queryByTestId('playground-missing-information')).toBeNull()
+    const block = screen.getByTestId('playground-verification-requirements')
+    expect(within(block).queryAllByTestId('missing-item')).toHaveLength(0)
+  })
+
+  it('shows no checks at all when the verdict was not reached', async () => {
+    const envelope = makeMixedBlockedEnvelope()
+    // Even if a section arrived carrying them, a blocked case has nothing to
+    // verify before acting on: there is nothing it permits yet.
+    envelope.verdict = {
+      ...envelope.verdict!,
+      verification_requirements: V2_VERIFICATION_REQUIREMENTS,
+    }
+    await renderV2(envelope)
+
+    expect(screen.queryByTestId('playground-verification-requirements')).toBeNull()
+    expect(screen.getByTestId('playground-missing-information')).toBeTruthy()
+  })
+
+  it('omits the section entirely when a reached verdict carries no checks', async () => {
+    await renderV2(makeVerdictOnlyEnvelope())
+
+    expect(screen.getByTestId('playground-verdict').textContent).toContain('Not compliant')
+    expect(screen.queryByTestId('playground-verification-requirements')).toBeNull()
+  })
+
+  it('names a check honestly when the gather composed no reason for it', async () => {
+    const envelope = makeQualifiedVerdictEnvelope()
+    envelope.verdict = {
+      ...envelope.verdict!,
+      verification_requirements: [
+        { fact: 'roster_cover', label: 'Roster cover', required_by_rule_ids: [] },
+      ],
+    }
+    await renderV2(envelope)
+
+    expect(screen.getByTestId('verification-item-no-why').textContent).toContain(
+      'No explanation was composed for this check',
+    )
   })
 
   /* ---------- nothing evaluated, and nothing bearing ---------- */

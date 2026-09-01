@@ -2,12 +2,12 @@
 
 An **external client demonstration**. It shows how an agent, a Copilot
 integration, a workflow or a business process calls one governed project's
-published policies over HTTP, and then renders the full audited receipt it is
-answered with.
+published policies over HTTP. The caller chooses a full audited decision receipt
+or the filtered policy records alone.
 
 It is not a second admin UI. It cannot author, edit, approve, publish, compare
 or score a policy, and it has no project register and no review queue. It sends
-one request and reads one receipt.
+one request and renders the JSON response that mode returns.
 
 ## Why it is a separate application
 
@@ -88,7 +88,7 @@ both matter:
 The test suite pins the variable empty (`define` in `vitest.config.ts`), so the
 tests exercise the committed default rather than whatever the machine running
 them happens to have.
-## The two rules the page is built around
+## The rules the decision mode is built around
 
 **Status is read before verdict, always.** The verdict node is not rendered at
 all unless `decision_status` is `answered`. Six of the seven statuses mean
@@ -103,14 +103,18 @@ no hash — regardless of any decision payload in the body.
 
 | Region | What it is for |
 |---|---|
+| Response mode | Choose **Decision JSON**, **Decision Light**, or **Policy JSON** without changing the meaning of any contract |
+| Execution meter | Always-visible round-trip time and service-reported model tokens; missing usage is shown as unreported, never estimated |
 | Request docket | Connection, the subscription key, the case, caller guidance, and the correlation id you are about to send |
 | Request Inspector | The exact request, live, before it is sent: the JSON body, the caller/server guidance split, and the raw HTTP including the credential header |
+| Filtered policy JSON | The exact `policy_retrieval_v1` response when Policy JSON mode is selected; no verdict or receipt is implied |
 | Status band | The decision status first; the verdict only when the status carries one |
 | Decision receipt | Identity, the request as the *server* recorded it, and the hashes |
 | Result | Status, verdict-or-why-not, route, explanation, missing facts, decision hash |
+| Decision Light result | Compact outcome, verdict/checks, cited policies and evidence rendered visually before the exact JSON |
 | Rule evidence | Every cited rule with its provision, page/section and verbatim quotation |
 | Retrieval | What was considered, retained and discarded, and why |
-| Raw JSON | The `case_decision_v1` envelope, unmodified |
+| Raw JSON | The returned `case_decision_v2`, `case_decision_light_v1`, historical `case_decision_v1`, or `policy_retrieval_v1` envelope, unmodified |
 
 ## What the caller may steer, and what it may not
 
@@ -127,7 +131,9 @@ a disabled field implies a lock and a lock implies a key.
 
 | Call | Purpose |
 |---|---|
-| `POST /api/policy-decisions/{project_key}/case` | Put the case; returns the `case_decision_v1` envelope |
+| `POST /api/policy-decisions/{project_key}/case` | Retrieve, reason, explain and store; returns `case_decision_v2` |
+| `POST /api/policy-decisions/{project_key}/case/light` | Make and store the same decision; return `case_decision_light_v1` |
+| `POST /api/policy-decisions/{project_key}/policies` | Apply semantic precision ranking and return `policy_retrieval_v1` without a decision |
 | `GET /api/policy-decisions/{decision_id}` | Read the stored receipt back, for verification |
 | `GET /api/policy-sets/{key}` | Resolve the project's identity from its key |
 | `GET /api/policy-sets/{key}/active-version` | Resolve the version a case would be decided against |

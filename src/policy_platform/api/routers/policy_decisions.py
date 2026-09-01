@@ -10,15 +10,18 @@ compatibility promise, and the response it returns is an answer rather than a
 receipt — nothing correlates a caller's request to a server-side record, so no
 external system can cite, replay or audit a verdict it was given.
 
-So this router is the stable contract. Two operations, deliberately:
+So this router is the stable contract. Four operations, deliberately:
 
   * `POST /api/policy-decisions/{project_key}/case` — decide, and record.
+  * `POST /api/policy-decisions/{project_key}/case/light` — decide and record,
+    then return the compact fixed-schema projection.
+  * `POST /api/policy-decisions/{project_key}/policies` — return the filtered
+    published policy records without deciding.
   * `GET  /api/policy-decisions/{decision_id}` — read the receipt back.
 
-There is no list endpoint and no identity endpoint here. A caller composing a
-console already has `GET /api/policy-sets/{key}` and
-`GET /api/policy-sets/{key}/active-version`; a third read contract over the same
-data would be one more thing to keep in step with them.
+There is no receipt list endpoint and no identity endpoint here. A caller
+composing a console already has `GET /api/policy-sets/{key}` and
+`GET /api/policy-sets/{key}/active-version`.
 
 `project_key` IS THE PUBLIC IDENTIFIER
 
@@ -80,7 +83,9 @@ from policy_platform.api.roles import ADMIN, POLICY_AUTHOR
 from policy_platform.application.policy_case_decision import (
     Caller,
     CaseDecisionError,
+    compact_decision_receipt,
     decide_project_case,
+    retrieve_project_policies,
 )
 from policy_platform.contracts.case_decision import (
     CaseDecisionEnvelope,
@@ -88,6 +93,8 @@ from policy_platform.contracts.case_decision import (
     CaseDecisionReceipt,
     validate_receipt,
 )
+from policy_platform.contracts.policy_retrieval import PolicyRetrievalEnvelope
+from policy_platform.contracts.case_decision_light import CaseDecisionLightEnvelope
 from policy_platform.infrastructure.assistants import ai_case_intent
 from policy_platform.infrastructure.persistence.db import get_session
 from policy_platform.infrastructure.persistence.repositories import (
@@ -334,6 +341,24 @@ class ProjectCaseDecisionRequest(BaseModel):
     )
 
 
+class ProjectPolicyRetrievalRequest(BaseModel):
+    """A scenario used only to select the published policy records that bear on it."""
+
+    scenario: str = Field(
+        description=(
+            "The natural-language situation to filter published policies against. It crosses the "
+            "same one-language retrieval boundary as a decision, but no classifier, adjudicator, "
+            "explanation, or receipt is run."
+        )
+    )
+    correlation_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional. May also be sent as X-Correlation-Id; if both are sent they must match."
+        ),
+    )
+
+
 def _resolve_correlation_id(header_value: str | None, body_value: str | None) -> str:
     """One correlation id out of up to two places it can arrive in.
 
@@ -385,6 +410,137 @@ def _request_metadata(
         "idempotency_key_supplied": bool(idempotency_key),
         "correlation_id_supplied": correlation_id_supplied,
     }
+
+
+@router.post("/{project_key}/policies", response_model=PolicyRetrievalEnvelope)
+async def retrieve_policies(
+    project_key: str,
+    body: ProjectPolicyRetrievalRequest,
+    response: Response,
+    correlation_id_header: str | None = Header(default=None, alias=CORRELATION_HEADER),
+    _principal: Principal = Depends(require_authenticated_principal),
+    session: AsyncSession = Depends(get_session),
+) -> PolicyRetrievalEnvelope:
+    """Return filtered published policy JSON without producing a verdict.
+
+    This is the light integration path. It precision-ranks policy documents,
+    cuts the ranking at a meaningful semantic score gap, and then uses the same
+    duplicate collapse, rule-level narrowing, and payload fitting machinery as
+    the audited decision endpoint. It stops before intent classification and
+    every reasoning/generation stage. The response therefore has no decision id,
+    verdict, explanation, citations synthesized by a gather, or receipt URL.
+
+    The returned ``policies`` are the exact ``grounding_projection_v1`` records
+    the decision path would have read. For a large policy, ``match.rule_selection``
+    names the retained rules and the payload contains that slice only.
+    """
+
+    _validate_correlation_id(correlation_id_header, body.correlation_id)
+    correlation_id = _resolve_correlation_id(correlation_id_header, body.correlation_id)
+    response.headers[CORRELATION_HEADER] = correlation_id
+
+    if not body.scenario.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "scenario_empty",
+                "message": "scenario must contain non-whitespace text.",
+                "correlation_id": correlation_id,
+            },
+        )
+
+    policy_set = await PolicySetRepository(session).get_by_key(project_key)
+    if policy_set is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "project_not_found",
+                "message": f"No project with key '{project_key}'.",
+                "correlation_id": correlation_id,
+            },
+        )
+
+    try:
+        return await retrieve_project_policies(
+            session,
+            policy_set=policy_set,
+            scenario=body.scenario,
+            correlation_id=correlation_id,
+        )
+    except CaseDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+
+
+async def _execute_case_decision(
+    *,
+    project_key: str,
+    body: ProjectCaseDecisionRequest,
+    request: Request,
+    response: Response,
+    idempotency_key: str | None,
+    correlation_id_header: str | None,
+    principal: Principal,
+    session: AsyncSession,
+) -> CaseDecisionEnvelopeV2 | CaseDecisionEnvelope:
+    """One audited decision execution shared by full and light responses."""
+
+    _validate_correlation_id(correlation_id_header, body.correlation_id)
+    correlation_id_supplied = bool(
+        (correlation_id_header or "").strip() or (body.correlation_id or "").strip()
+    )
+    correlation_id = _resolve_correlation_id(correlation_id_header, body.correlation_id)
+    response.headers[CORRELATION_HEADER] = correlation_id
+
+    idempotency_key = (idempotency_key or "").strip() or None
+    provision_id = (body.provision_id or "").strip() or None
+    calling_system_identity = (body.calling_system_identity or "").strip() or None
+    reasoning_effort = (body.reasoning_effort or "").strip()
+    _validate_request_fields(
+        provision_id=provision_id,
+        calling_system_identity=calling_system_identity,
+        reasoning_effort=reasoning_effort,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
+    )
+
+    policy_set = await PolicySetRepository(session).get_by_key(project_key)
+    if policy_set is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "project_not_found",
+                "message": f"No project with key '{project_key}'.",
+                "correlation_id": correlation_id,
+            },
+        )
+
+    try:
+        outcome = await decide_project_case(
+            session,
+            policy_set=policy_set,
+            scenario=body.scenario,
+            provision_id=provision_id,
+            reasoning_effort=reasoning_effort,
+            correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
+            caller=Caller(
+                identity=principal.identity,
+                role=principal.role,
+                authentication_source=principal.source,
+                calling_system_identity=calling_system_identity,
+            ),
+            additional_instructions=body.additional_instructions,
+            request_metadata=_request_metadata(
+                request,
+                idempotency_key=idempotency_key,
+                correlation_id_supplied=correlation_id_supplied,
+            ),
+        )
+    except CaseDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+
+    response.headers[CORRELATION_HEADER] = outcome.envelope.correlation_id
+    return outcome.envelope
 
 
 @router.post("/{project_key}/case", response_model=CaseDecisionReceipt)
@@ -520,71 +676,50 @@ async def decide_case(
     deliberately carries no verdict.
     """
 
-    # Shape first, in this order: bound the correlation id before resolving one
-    # (so an unusable value is reported as itself rather than as a conflict),
-    # then echo the resolved id so every refusal below can carry it, then bound
-    # everything else. All of it happens before the project is looked up, before
-    # a row is reserved and before the model is called — a request that can
-    # never be stored costs no database write and no model time.
-    _validate_correlation_id(correlation_id_header, body.correlation_id)
-    correlation_id_supplied = bool(
-        (correlation_id_header or "").strip() or (body.correlation_id or "").strip()
-    )
-    correlation_id = _resolve_correlation_id(correlation_id_header, body.correlation_id)
-    response.headers[CORRELATION_HEADER] = correlation_id
-
-    idempotency_key = (idempotency_key or "").strip() or None
-    provision_id = (body.provision_id or "").strip() or None
-    calling_system_identity = (body.calling_system_identity or "").strip() or None
-    reasoning_effort = (body.reasoning_effort or "").strip()
-    _validate_request_fields(
-        provision_id=provision_id,
-        calling_system_identity=calling_system_identity,
-        reasoning_effort=reasoning_effort,
+    return await _execute_case_decision(
+        project_key=project_key,
+        body=body,
+        request=request,
+        response=response,
         idempotency_key=idempotency_key,
-        correlation_id=correlation_id,
+        correlation_id_header=correlation_id_header,
+        principal=principal,
+        session=session,
     )
 
-    policy_set = await PolicySetRepository(session).get_by_key(project_key)
-    if policy_set is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "project_not_found",
-                "message": f"No project with key '{project_key}'.",
-                "correlation_id": correlation_id,
-            },
-        )
 
-    try:
-        outcome = await decide_project_case(
-            session,
-            policy_set=policy_set,
-            scenario=body.scenario,
-            provision_id=provision_id,
-            reasoning_effort=reasoning_effort,
-            correlation_id=correlation_id,
-            idempotency_key=idempotency_key,
-            caller=Caller(
-                identity=principal.identity,
-                role=principal.role,
-                authentication_source=principal.source,
-                calling_system_identity=calling_system_identity,
-            ),
-            additional_instructions=body.additional_instructions,
-            request_metadata=_request_metadata(
-                request,
-                idempotency_key=idempotency_key,
-                correlation_id_supplied=correlation_id_supplied,
-            ),
-        )
-    except CaseDecisionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+@router.post("/{project_key}/case/light", response_model=CaseDecisionLightEnvelope)
+async def decide_case_light(
+    project_key: str,
+    body: ProjectCaseDecisionRequest,
+    request: Request,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_HEADER),
+    correlation_id_header: str | None = Header(default=None, alias=CORRELATION_HEADER),
+    principal: Principal = Depends(require_authenticated_principal),
+    session: AsyncSession = Depends(get_session),
+) -> CaseDecisionLightEnvelope:
+    """Run and store the same decision, returning only its essential projection.
 
-    # A replay is the same decision, not a new one, so the correlation echoed is
-    # the receipt's own — the id the stored decision was made under.
-    response.headers[CORRELATION_HEADER] = outcome.envelope.correlation_id
-    return outcome.envelope
+    ``receipt_url`` reads the complete stored receipt. The compact response keeps
+    tracking ids, project/version identity, response type, outcomes, answer or
+    verdict, missing/check fields, cited policy ids, necessary citations, and
+    the integrity seal. It omits retrieval internals, excluded candidates,
+    grounding counters, language transport detail, and duplicate section-level
+    citations.
+    """
+
+    envelope = await _execute_case_decision(
+        project_key=project_key,
+        body=body,
+        request=request,
+        response=response,
+        idempotency_key=idempotency_key,
+        correlation_id_header=correlation_id_header,
+        principal=principal,
+        session=session,
+    )
+    return compact_decision_receipt(envelope)
 
 
 @router.get("/{decision_id}", response_model=CaseDecisionReceipt)

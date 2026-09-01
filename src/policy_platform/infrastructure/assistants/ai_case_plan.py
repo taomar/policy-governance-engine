@@ -59,7 +59,7 @@ from typing import Final
 #: deciding an outcome. It does not move when a prompt is reworded or a prose
 #: field is added, because neither changes what the decision is computed from.
 #: Carried on the receipt so a stored decision can say which reading produced it.
-PLAN_PROFILE: Final[str] = "case-plan-v1"
+PLAN_PROFILE: Final[str] = "case-plan-v3"
 
 #: The keys a reply may state that **decide** the outcome. Closed on purpose: a
 #: key absent from this list cannot reach the decision however it is spelled,
@@ -72,6 +72,7 @@ PLAN_KEYS: Final[frozenset[str]] = frozenset(
         "cited_rule_ids",
         "missing_required_facts",
         "missing_required_facts_detail",
+        "verification_requirements",
         "unsettled_reason",
     }
 )
@@ -95,12 +96,40 @@ PROSE_KEYS: Final[frozenset[str]] = frozenset({"answer", "verdict", "note"})
 #: characters.
 PROSE_PRESENCE_KEYS: Final[frozenset[str]] = frozenset({"answer", "verdict"})
 
-#: `missing_required_facts_detail` is the one entry that is both. Its `fact` and
-#: `required_by_rule_ids` decide; its `label` and `why_needed` are shown. It is
-#: listed in `PLAN_KEYS` because the deciding half is what the plan needs, and
-#: the prose half is carried through untouched by the caller that renders it —
-#: this module never reads it.
+#: `missing_required_facts_detail` and `verification_requirements` are the two
+#: entries that are both. Their `fact` and `required_by_rule_ids` decide; their
+#: `label` and `why_needed` are shown. They are listed in `PLAN_KEYS` because the
+#: deciding half is what the plan needs, and the prose half is carried through
+#: untouched by the caller that renders it — this module never reads it.
 DETAIL_PROSE_FIELDS: Final[frozenset[str]] = frozenset({"label", "why_needed"})
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationClaim:
+    """One condition a reply says must be confirmed before acting, as identities.
+
+    A verification requirement is *not* a missing fact: it does not hang the
+    determination, it qualifies acting on one. But the two are named from the
+    same closed vocabulary and attributed to the same closed rule set, so the
+    deciding half of one is the deciding half of the other — a selector key and
+    the rules that impose it — and the describing half (a label, a reason) is
+    prose that this module never reads.
+
+    Both members are identifiers. Neither can hold a sentence, which is what
+    keeps a verification requirement unable to move a status by being reworded.
+    """
+
+    #: The selector the condition is keyed on, as the reply wrote it. Resolving
+    #: it against the records' declared vocabulary is the decision stage's work.
+    fact: str = ""
+    #: The rule ids the reply attributed the condition to, unfiltered and in the
+    #: order given. Checking them against the closed rule set is, again, the
+    #: decision stage's job; the plan reports what was claimed.
+    rule_ids: tuple[str, ...] = ()
+    #: True means this was placed in the wrong list: changing the value can
+    #: change the judgement, so the decision stage must promote it to a missing
+    #: fact before any answered status can survive.
+    outcome_determinative: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +163,16 @@ class CasePlan:
     #: on. Resolving them against the records' declared vocabulary, and folding
     #: two spellings onto one identifier, is the decision stage's work.
     named_facts: tuple[str, ...] = ()
+    #: The conditions the reply says must be confirmed before acting on a
+    #: determination it *did* reach — a balance to check, an approval to obtain,
+    #: a window to observe. They are additive: naming one says nothing about
+    #: whether the determination was reached, which is the whole difference
+    #: between this member and ``named_facts``.
+    #:
+    #: Identities only, in the order the reply gave them, deduplicated by the
+    #: exact text. Resolving them against the records' declared vocabulary is the
+    #: decision stage's work, exactly as it is for a named fact.
+    named_verifications: tuple[VerificationClaim, ...] = ()
     #: Which kind of non-settlement was reported, if any.
     unsettled_reason: str = ""
     #: Whether the reply composed an answer at all. Presence, never content.
@@ -190,10 +229,73 @@ def plan_from_reply(parsed: dict) -> CasePlan:
         declined=bool(parsed.get("declined")),
         cited_rule_ids=tuple(str(rule_id) for rule_id in cited) if isinstance(cited, list) else (),
         named_facts=tuple(named),
+        named_verifications=_verifications_from_reply(parsed),
         unsettled_reason=str(parsed.get("unsettled_reason") or "").strip().lower(),
         states_answer=bool(str(parsed.get("answer") or "").strip()),
         states_verdict=bool(str(parsed.get("verdict") or "").strip()),
     )
+
+
+def _verifications_from_reply(parsed: dict) -> tuple[VerificationClaim, ...]:
+    """The identities of the conditions a reply says must be confirmed first.
+
+    Read exactly like the deciding half of ``missing_required_facts_detail``:
+    the selector and the rule ids that impose it are taken, the label and the
+    reason beside them are left where a renderer will find them. ``label`` names
+    the condition only when there is no ``fact``, which is the same one narrow
+    allowance the flat/detail reader above makes and for the same reason — a
+    name is not an assertion about the case, so it can supply the plan but never
+    contradict it.
+    """
+
+    entries = parsed.get("verification_requirements")
+    if not isinstance(entries, list):
+        return ()
+
+    claims: list[VerificationClaim] = []
+    claim_index: dict[str, int] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        fact = str(entry.get("fact") or "").strip()
+        label = str(entry.get("label") or "").strip()
+        named = fact or label
+        if not named:
+            continue
+        raw_ids = entry.get("required_by_rule_ids")
+        rule_ids = tuple(str(rid) for rid in raw_ids) if isinstance(raw_ids, list) else ()
+        raw_determinative = entry.get("outcome_determinative")
+        determinative = (
+            raw_determinative if isinstance(raw_determinative, bool) else None
+        )
+        existing_index = claim_index.get(named)
+        if existing_index is None:
+            claim_index[named] = len(claims)
+            claims.append(
+                VerificationClaim(
+                    fact=named,
+                    rule_ids=rule_ids,
+                    outcome_determinative=determinative,
+                )
+            )
+            continue
+
+        existing = claims[existing_index]
+        merged_ids = tuple(dict.fromkeys((*existing.rule_ids, *rule_ids)))
+        if True in (existing.outcome_determinative, determinative):
+            merged_determinative: bool | None = True
+        elif None in (existing.outcome_determinative, determinative):
+            merged_determinative = None
+        else:
+            merged_determinative = False
+        claims[existing_index] = VerificationClaim(
+            fact=existing.fact,
+            rule_ids=merged_ids,
+            # True wins; an omitted flag is still uncertain and therefore safer
+            # than an explicit false when the same condition appears twice.
+            outcome_determinative=merged_determinative,
+        )
+    return tuple(claims)
 
 
 def prose_from_reply(parsed: dict) -> dict[str, str]:

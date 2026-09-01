@@ -331,6 +331,11 @@ export function readCaseTracks(answer: ProjectCaseAnswer): CaseTracksReading {
   const waitedOn = (verdictSection?.missing_information ?? []).flatMap(
     (item) => item.required_by_rule_ids ?? [],
   );
+  // A rule that imposes a check before acting bore on the case as surely as one
+  // that blocked it, so it belongs in the evidence set a reviewer can open.
+  const qualifiedBy = verificationRequirementItems(verdictSection).flatMap(
+    (item) => item.requiredByRuleIds,
+  );
 
   return {
     evaluated,
@@ -344,7 +349,7 @@ export function readCaseTracks(answer: ProjectCaseAnswer): CaseTracksReading {
     information,
     verdict,
     citations,
-    ruleIds: [...new Set([...citations.map((citation) => citation.rule_id), ...waitedOn].filter(Boolean))],
+    ruleIds: [...new Set([...citations.map((citation) => citation.rule_id), ...waitedOn, ...qualifiedBy].filter(Boolean))],
   };
 }
 
@@ -382,6 +387,27 @@ export function missingInformationItems(section: ProjectCaseJudgement | null) {
   return (section.missing_required_facts ?? [])
     .filter(Boolean)
     .map((fact) => ({ fact, label: fact, whyNeeded: "", requiredByRuleIds: [] as string[] }));
+}
+
+/** The conditions to confirm before acting on a verdict that was reached.
+ *
+ *  Read exactly as the missing facts are read, with two deliberate differences.
+ *  There is no flat-list fallback, because there is no older flat field to fall
+ *  back to. And nothing is returned unless the verdict was actually reached: a
+ *  condition on *acting* on a determination is meaningless where there is none,
+ *  so a reply that carried one on a blocked section is ignored rather than
+ *  rendered beside the facts that block it. */
+export function verificationRequirementItems(section: ProjectCaseJudgement | null) {
+  if (!section) return [];
+  if ((section.status ?? "").trim().toLowerCase() !== "answered") return [];
+  return (section.verification_requirements ?? [])
+    .filter((item) => Boolean((item.fact ?? "").trim() || (item.label ?? "").trim()))
+    .map((item) => ({
+      fact: item.fact,
+      label: (item.label ?? "").trim() || item.fact,
+      whyNeeded: (item.why_needed ?? "").trim(),
+      requiredByRuleIds: item.required_by_rule_ids ?? [],
+    }));
 }
 
 /** The discard reason a policy carries when an identical policy was read in its

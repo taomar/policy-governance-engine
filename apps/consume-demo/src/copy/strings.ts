@@ -42,13 +42,26 @@ export const DOCKET = {
   scenarioLabel: 'Scenario',
   scenarioPlaceholder:
     'e.g. A supplier in a sanctioned jurisdiction asks whether we may proceed with a 90-day payment term.',
+  responseModeLabel: 'Choose the API response',
+  decisionModeLabel: 'Decision JSON',
+  decisionModeDescription:
+    'Runs retrieval and the current reasoning path, then returns the verdict, explanation, evidence, and stored receipt.',
+  decisionLightModeLabel: 'Decision Light',
+  decisionLightModeDescription:
+    'Runs and stores the same decision, then returns only essential structured outcomes, ids, policies, and citations.',
+  policiesModeLabel: 'Policy JSON',
+  policiesModeDescription:
+    'Uses semantic precision ranking and returns only the selected published policy records.',
+  policiesModeNote: 'No reasoning effort is needed: this mode stops before the reasoning path.',
+  policiesMetadataNote:
+    'Only the scenario and correlation ID are sent. There is no caller guidance, idempotency key, verdict, or stored receipt.',
   reasoningLabel: 'Reasoning effort',
   callingSystemLabel: 'Calling system',
   callingSystemDefault: 'playground-demo',
   callingSystemCaption: 'Recorded on the decision so the receipt shows who called.',
-  idempotencyLabel: 'Idempotency key (optional)',
+  idempotencyLabel: 'One-call idempotency key (optional)',
   idempotencyCaption:
-    'Send the same key to make a repeated submit return the original decision instead of creating a second one.',
+    'Used for this request and rotated after success. After a failure it stays in place so retrying is safe.',
   idempotencyConflict: 'Request changed; sending with this key may return 409',
   generate: 'Generate',
   guidanceLabel: 'Additional instructions (optional)',
@@ -61,6 +74,8 @@ export const DOCKET = {
     'Generated here before the request so you can see the value you are about to send.',
   regenerate: 'Regenerate',
   submit: 'Send case to policy API',
+  submitLight: 'Run Decision Light',
+  submitPolicies: 'Retrieve filtered policy JSON',
   submitting: 'Sending…',
   submitCaption: 'This sends one request. Nothing is saved on this page. Ctrl or ⌘ + Enter also sends.',
   memoryOnly:
@@ -76,12 +91,19 @@ export const GUIDANCE_EXAMPLES = [
 export const INSPECTOR = {
   title: 'Request Inspector',
   subtitle: 'This is the exact request this page will send. It updates as you type.',
+  policiesSubtitle:
+    'This request stops after filtering. The response contains selected policy records, not a decision receipt.',
+  lightSubtitle:
+    'This runs and stores the same governed decision, then returns its compact fixed-schema projection.',
   tabJson: 'Request JSON',
   tabResponse: 'Response JSON',
   tabGuidance: 'Caller guidance',
   tabHttp: 'Raw HTTP',
   responseEmpty: 'No response yet. Send the request to inspect the full decision envelope here.',
+  policiesResponseEmpty: 'No response yet. Retrieve policies to inspect the filtered JSON here.',
   jsonCaption: 'Correlation and idempotency travel as headers, not in the body. See Raw HTTP.',
+  policiesJsonCaption:
+    'Correlation travels as a header. Policy JSON mode has no idempotency key because it stores no receipt.',
   hashLabel: 'Request hash (client preview)',
   hashCaption:
     "Computed here from the same fields the server hashes. The server's value on the receipt is authoritative.",
@@ -113,12 +135,55 @@ export const INSPECTOR = {
   previewUpdated: 'Request preview updated.',
 } as const
 
+export const INTEGRATION = {
+  button: 'Integration guide',
+  title: 'Use the Policy API in another system',
+  intro:
+    'Choose whether your system needs a governed decision receipt or the filtered policy JSON for its own agent to reason over.',
+  decisionHeading: 'Decision JSON',
+  decisionBody:
+    'Use the case endpoint when the platform should retrieve, reason, explain, cite, and persist an auditable receipt.',
+  decisionLightHeading: 'Decision Light',
+  decisionLightBody:
+    'Use the light case endpoint for the same stored decision with a compact fixed schema containing essential outcomes, ids, policies, and citations.',
+  policiesHeading: 'Policy JSON',
+  policiesBody:
+    'Use the policies endpoint when your agent should receive a small precision-ranked set of approved policy records. No verdict or receipt is produced.',
+  agentHeading: 'Agentic systems and Copilot',
+  agentBody:
+    'Register each POST operation as a separate tool from the OpenAPI schema. Describe the decision tool as authoritative for verdicts and the policy tool as retrieval-only. Keep the subscription key in the server-side tool connection, never in a browser prompt.',
+  close: 'Close integration guide',
+} as const
+
 export const WAIT = {
   line1: 'Searching published policies and evaluating',
+  policiesLine1: 'Filtering published policies',
   elapsedSuffix: 'elapsed',
   line2:
     "The server narrows this project's published policies to the ones that bear on your scenario, then evaluates only those.",
+  policiesLine2:
+    'The server precision-ranks policy records, slices selected large policies by rule, and returns them without running a verdict.',
   long: 'Still working. Long scenarios and large published sets take longer.',
+} as const
+
+export const RUN_METER = {
+  label: 'API execution metrics',
+  eyebrow: 'Last API execution',
+  ready: 'Ready',
+  running: 'Running',
+  complete: 'Complete',
+  failed: 'Failed',
+  time: 'Time taken',
+  tokens: 'Model tokens',
+  pending: 'Pending',
+  notReported: 'Not reported',
+  noCall: 'No call completed',
+  tokenCaption: 'Service-reported after a completed call',
+  modes: {
+    decision: 'Decision JSON',
+    'decision-light': 'Decision Light',
+    policies: 'Policy JSON',
+  },
 } as const
 
 /**
@@ -415,6 +480,15 @@ export const V2 = {
     'No reason was composed for this fact. It is listed as the policy record names it, and nothing has been invented here.',
   missingCopy: 'Copy the checklist',
   missingAction: 'Add these to the scenario above and send the case again.',
+  verificationHeading: 'Checks before acting',
+  verificationLead:
+    'The verdict above stands on the rules as read. These conditions were not decided by it and must be confirmed against your own records before the verdict is acted on.',
+  verificationWhyNeeded: 'What to confirm',
+  verificationRequiredBy: 'Imposed by',
+  verificationNoReason:
+    'No explanation was composed for this check. It is listed as the policy record names it, and nothing has been invented here.',
+  verificationCopy: 'Copy the checks',
+  verificationAction: 'These qualify the verdict. They do not withdraw it.',
   verdictNotReached: 'No verdict was reached.',
   informationNotAnswered: 'No statement of what the policies say was composed.',
   unrecognisedHeading: 'This receipt is in an envelope this page does not recognise',

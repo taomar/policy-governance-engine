@@ -90,6 +90,17 @@ def _ok_with_usage(
     )
 
 
+def _embedding_with_usage(prompt: int, total: int) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+            "usage": {"prompt_tokens": prompt, "total_tokens": total},
+        },
+        request=httpx.Request("POST", "https://example.invalid"),
+    )
+
+
 def _status(code: int, headers: dict | None = None) -> httpx.Response:
     return httpx.Response(
         code,
@@ -190,6 +201,24 @@ class TestASuccessfulCallReportsItsCost:
             await client.chat([{"role": "user", "content": "x"}])
 
         assert scope.report().reasoning_tokens is None
+
+    async def test_an_embedding_call_reports_its_tokens_to_the_same_scope(
+        self, monkeypatch, calls
+    ):
+        client = _client_returning(
+            monkeypatch,
+            calls,
+            [_embedding_with_usage(prompt=5, total=5)],
+        )
+
+        with collect_token_usage() as scope:
+            vectors = await client.embed(["one input"])
+
+        assert vectors == [[0.1, 0.2]]
+        assert scope.report().calls == 1
+        assert scope.report().prompt_tokens == 5
+        assert scope.report().completion_tokens is None
+        assert scope.report().total_tokens == 5
 
 
 class TestTheFourStatesAreHeldApart:

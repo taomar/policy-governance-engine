@@ -2,7 +2,10 @@ import { useEffect, useState, type RefObject } from 'react'
 import { INSPECTOR } from '../copy/strings'
 import {
   MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
+  type CaseDecisionLightEnvelope,
   type CaseDecisionReceipt,
+  type PlaygroundResponseMode,
+  type PolicyRetrievalEnvelope,
   type TraceRef,
 } from '../contracts/caseDecision'
 import { CodeBlock, renderJsonLine } from './CodeBlock'
@@ -10,6 +13,10 @@ import { subscriptionKeyHeaderLine } from '../lib/subscriptionKey'
 import {
   casePath,
   hostFromBase,
+  lightCasePath,
+  policiesPath,
+  policyRequestBodyJson,
+  policyRequestBodyWire,
   requestBodyJson,
   requestBodyWire,
   type DocketValues,
@@ -66,13 +73,14 @@ export interface InspectorProps {
   subscriptionKey: string
   correlationId: string
   idempotencyKey: string
+  responseMode: PlaygroundResponseMode
   clientRequestHash: string
   /** True when a key is live and the hash has moved since it was last used. */
   requestChanged: boolean
   /** From the most recent receipt, when there is one. */
   trace: TraceRef | null
   /** The full response envelope, shown byte-for-byte as JSON after a request. */
-  response: CaseDecisionReceipt | null
+  response: CaseDecisionReceipt | CaseDecisionLightEnvelope | PolicyRetrievalEnvelope | null
   guidanceRef: RefObject<HTMLTextAreaElement | null>
   onAnnounce: (message: string) => void
 }
@@ -99,9 +107,20 @@ export function RequestInspector(props: InspectorProps) {
     return () => query.removeEventListener('change', apply)
   }, [])
 
-  const guidance = props.values.additionalInstructions.trim()
-  const bodyJson = requestBodyJson(props.values)
-  const path = casePath(props.projectKey || '{project_key}')
+  const decisionRequest = props.responseMode !== 'policies'
+  const guidance = decisionRequest ? props.values.additionalInstructions.trim() : ''
+  const bodyJson = decisionRequest
+    ? requestBodyJson(props.values)
+    : policyRequestBodyJson(props.values)
+  const bodyWire = decisionRequest
+    ? requestBodyWire(props.values)
+    : policyRequestBodyWire(props.values)
+  const path =
+    props.responseMode === 'decision'
+      ? casePath(props.projectKey)
+      : props.responseMode === 'decision-light'
+        ? lightCasePath(props.projectKey)
+        : policiesPath(props.projectKey)
 
   const httpLines = [
     `POST ${path} HTTP/1.1`,
@@ -109,9 +128,11 @@ export function RequestInspector(props: InspectorProps) {
     subscriptionKeyHeaderLine(props.subscriptionKey),
     'Content-Type: application/json',
     `X-Correlation-Id: ${props.correlationId}`,
-    ...(props.idempotencyKey.trim() ? [`Idempotency-Key: ${props.idempotencyKey.trim()}`] : []),
+    ...(decisionRequest && props.idempotencyKey.trim()
+      ? [`Idempotency-Key: ${props.idempotencyKey.trim()}`]
+      : []),
     '',
-    requestBodyWire(props.values),
+    bodyWire,
   ]
   const httpText = httpLines.join('\n')
 
@@ -141,20 +162,24 @@ export function RequestInspector(props: InspectorProps) {
         testId="inspector-json-code"
         onAnnounce={props.onAnnounce}
         renderLine={renderJsonLine}
-        caption={INSPECTOR.jsonCaption}
+        caption={decisionRequest ? INSPECTOR.jsonCaption : INSPECTOR.policiesJsonCaption}
       />
-      <p className="small" style={{ marginTop: 8 }}>
-        <span className="eyebrow">{INSPECTOR.hashLabel}</span>
-        <br />
-        <code className="mono" data-testid="inspector-request-hash">
-          {props.clientRequestHash}
-        </code>
-      </p>
-      <p className="field__caption">{INSPECTOR.hashCaption}</p>
+      {decisionRequest ? (
+        <>
+          <p className="small" style={{ marginTop: 8 }}>
+            <span className="eyebrow">{INSPECTOR.hashLabel}</span>
+            <br />
+            <code className="mono" data-testid="inspector-request-hash">
+              {props.clientRequestHash}
+            </code>
+          </p>
+          <p className="field__caption">{INSPECTOR.hashCaption}</p>
+        </>
+      ) : null}
     </>
   )
 
-  const guidancePanel = (
+  const guidancePanel = decisionRequest ? (
     <div className="guidance-registers">
       <section
         className="guidance-editable"
@@ -265,6 +290,10 @@ export function RequestInspector(props: InspectorProps) {
         <p className="small muted">{INSPECTOR.serverProfileNote}</p>
       </section>
     </div>
+  ) : (
+    <p className="empty-state" data-testid="inspector-guidance-not-applicable">
+      Policy JSON mode sends no caller guidance and runs no explanation stage.
+    </p>
   )
 
   const responsePanel = props.response ? (
@@ -272,7 +301,11 @@ export function RequestInspector(props: InspectorProps) {
       text={JSON.stringify(props.response, null, 2)}
       language="JSON"
       what="the full response JSON"
-      downloadName={`${props.response.decision_id}.json`}
+      downloadName={
+        'decision_id' in props.response
+          ? `${props.response.decision_id}.json`
+          : 'filtered-policies.json'
+      }
       testId="inspector-response-code"
       onAnnounce={props.onAnnounce}
       renderLine={renderJsonLine}
@@ -280,7 +313,7 @@ export function RequestInspector(props: InspectorProps) {
     />
   ) : (
     <p className="empty-state" data-testid="inspector-response-empty">
-      {INSPECTOR.responseEmpty}
+      {decisionRequest ? INSPECTOR.responseEmpty : INSPECTOR.policiesResponseEmpty}
     </p>
   )
 
@@ -332,7 +365,13 @@ export function RequestInspector(props: InspectorProps) {
             {INSPECTOR.changedChip}
           </span>
         ) : null}
-        <p className="panel__subtitle">{INSPECTOR.subtitle}</p>
+        <p className="panel__subtitle">
+          {props.responseMode === 'decision'
+            ? INSPECTOR.subtitle
+            : props.responseMode === 'decision-light'
+              ? INSPECTOR.lightSubtitle
+              : INSPECTOR.policiesSubtitle}
+        </p>
       </div>
 
       {narrow ? (

@@ -1,5 +1,9 @@
 import { V2 } from '../copy/strings'
-import type { MissingInformationItem, VerdictSection } from '../contracts/caseDecision'
+import type {
+  MissingInformationItem,
+  VerdictSection,
+  VerificationRequirementItem,
+} from '../contracts/caseDecision'
 import { CopyButton } from './CodeBlock'
 import { verdictCopy } from './CaseOutcomeBand'
 
@@ -29,6 +33,17 @@ import { verdictCopy } from './CaseOutcomeBand'
  * it, with the whole checklist copyable in one press. A flat list of bare
  * strings in a metadata row is what v1 did, and it is why the v2 contract grew
  * `missing_information` in the first place.
+ *
+ * CHECKS BEFORE ACTING ARE NOT MISSING FACTS
+ *
+ * A reached verdict may still carry conditions on *acting* on it — a balance to
+ * check, an approval to seek, a window to observe. Those arrive in
+ * `verification_requirements`, and the one thing this component must never do is
+ * render them where the missing facts go. Missing facts mean there is no answer;
+ * these mean there is one, and something has to be confirmed before it is used.
+ * So they are a separate section, below the verdict rather than in place of it,
+ * carrying none of the blocked panel's tone, and the verdict's own status chip
+ * and colour are untouched by their presence.
  */
 
 function MissingItem({ item, index }: { item: MissingInformationItem; index: number }) {
@@ -141,6 +156,108 @@ export function MissingInformation({
   )
 }
 
+function VerificationItem({
+  item,
+  index,
+}: {
+  item: VerificationRequirementItem
+  index: number
+}) {
+  const ruleIds = item.required_by_rule_ids ?? []
+  return (
+    <li className="missing-item" data-testid="verification-item">
+      <span className="missing-item__ordinal" aria-hidden="true">
+        {index + 1}
+      </span>
+      <div className="missing-item__body">
+        <p className="missing-item__label" data-testid="verification-item-label">
+          {item.label}
+        </p>
+
+        {item.fact && item.fact !== item.label ? (
+          <p className="xsmall muted">
+            Named in the policy record as <code className="mono">{item.fact}</code>
+          </p>
+        ) : null}
+
+        {item.why_needed ? (
+          <p className="missing-item__why" data-testid="verification-item-why">
+            <span className="eyebrow">{V2.verificationWhyNeeded}</span> {item.why_needed}
+          </p>
+        ) : (
+          <p className="xsmall muted" data-testid="verification-item-no-why">
+            {V2.verificationNoReason}
+          </p>
+        )}
+
+        {ruleIds.length > 0 ? (
+          <p className="xsmall" data-testid="verification-item-rules">
+            <span className="eyebrow">{V2.verificationRequiredBy}</span>{' '}
+            {ruleIds.map((id) => (
+              <code className="mono" key={id}>
+                {id}
+              </code>
+            ))}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  )
+}
+
+export function VerificationRequirements({
+  items,
+  onAnnounce,
+}: {
+  items: VerificationRequirementItem[]
+  onAnnounce: (message: string) => void
+}) {
+  if (items.length === 0) return null
+
+  const checklist = items
+    .map((item, index) => {
+      const why = item.why_needed ? ` — ${item.why_needed}` : ''
+      return `${index + 1}. ${item.label}${why}`
+    })
+    .join('\n')
+
+  return (
+    <section
+      className="missing-block missing-block--verify"
+      data-testid="playground-verification-requirements"
+      aria-labelledby="verification-heading"
+    >
+      <div className="missing-block__head">
+        <h4 className="missing-block__heading" id="verification-heading">
+          {V2.verificationHeading}
+        </h4>
+        <span className="chip chip--neutral" data-testid="verification-count">
+          {items.length === 1 ? '1 check' : `${items.length} checks`}
+        </span>
+      </div>
+
+      <p className="missing-block__lead">{V2.verificationLead}</p>
+
+      <ol className="missing-list">
+        {items.map((item, index) => (
+          <VerificationItem item={item} index={index} key={`${item.fact}-${index}`} />
+        ))}
+      </ol>
+
+      <div className="missing-block__action">
+        <CopyButton
+          className="btn"
+          text={checklist}
+          label={V2.verificationCopy}
+          what="the list of checks before acting"
+          onAnnounce={onAnnounce}
+        />
+        <span className="small muted">{V2.verificationAction}</span>
+      </div>
+    </section>
+  )
+}
+
 export function VerdictPanel({
   section,
   onAnnounce,
@@ -152,6 +269,11 @@ export function VerdictPanel({
   const reached = section.reached && Boolean(section.decision?.trim())
   const missing = section.missing_information ?? []
   const fallbackLabels = section.missing_required_facts ?? []
+  // Only for a verdict that was actually reached. The server already restricts
+  // it to `answered`, and re-asserting it here means a hand-built fixture or a
+  // future server cannot make a blocked panel sprout a list of things to confirm
+  // before acting on a determination that does not exist.
+  const verifications = reached ? (section.verification_requirements ?? []) : []
 
   return (
     <section
@@ -199,6 +321,8 @@ export function VerdictPanel({
           fallbackLabels={fallbackLabels}
           onAnnounce={onAnnounce}
         />
+
+        <VerificationRequirements items={verifications} onAnnounce={onAnnounce} />
 
         {(section.citations?.length ?? 0) > 0 ? (
           <p className="small">

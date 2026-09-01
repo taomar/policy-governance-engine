@@ -14,7 +14,7 @@ FastAPI generates and serves the OpenAPI description automatically. With the API
 
 Swagger UI is the fastest way to explore the API: pick a tag, expand an operation, and the exact schema for that request is right there. Treat the generated description as authoritative — this page only orients you. The description is generated from the same Pydantic contracts the evaluator consumes, so it cannot drift from the implementation.
 
-The current surface is **95 paths / 106 operations** across 15 tags.
+The current surface is **97 paths / 108 operations** across 15 tags.
 
 ### Where the API lives in a deployment
 
@@ -29,7 +29,7 @@ All routes are prefixed with `/api`, except `GET /health`.
 | `policy-sets` | `/api/policy-sets` | 20 | Projects: CRUD, portfolio and workspace counts, review scheduling, versions, exports, and policy-index health. |
 | `candidate-rules` | `/api/policy-sets/{key}/candidate-rules` | 11 | The review queue, the same rules grouped by passage, and publication. |
 | `ai` | `/api/ai` | 31 | Everything AI-assisted: extraction, grounded answers, rewrites, quality, correlation, and case testing. |
-| `policy-decisions` | `/api/policy-decisions` | 2 | The audited external contract: put a case to a project's published policies and receive a stored receipt, then read that receipt back by id. Authenticated. [Detail below](#audited-external-decisions-policy-decisions). |
+| `policy-decisions` | `/api/policy-decisions` | 4 | External consumption: full or compact audited decisions, precision-ranked policy JSON, and receipt replay. Authenticated. [Detail below](#audited-external-decisions-policy-decisions). |
 | `evaluations` | `/api/evaluations` | 3 | Run a deterministic evaluation, and browse the append-only decision log (list + detail). |
 | `extraction` | `/api/extraction/{document_version_id}` | 4 | What a run actually saw: the canonical document, its structural graph, the reading plan, and element coverage. |
 | `documents` | `/api/documents` | 4 | List documents, multipart upload, list a version's clauses, assign a document to a project. Upload returns `clauses_search_indexed`, the count written to the search index. |
@@ -79,11 +79,13 @@ Three of its groups are worth stating precisely:
 
 ## Audited external decisions (`policy-decisions`)
 
-Two operations, and no others:
+Four operations:
 
 | Operation | What it does |
 |---|---|
+| `POST /api/policy-decisions/{project_key}/policies` | Semantically precision-ranks published policies, applies rule-level narrowing inside selected large policies, and returns their `grounding_projection_v1` records without classification, adjudication, or a receipt. |
 | `POST /api/policy-decisions/{project_key}/case` | Puts a case to a project's published policies, records a receipt, and returns it. |
+| `POST /api/policy-decisions/{project_key}/case/light` | Runs and stores the same decision as `/case`, then returns the compact `case_decision_light_v1` projection. |
 | `GET /api/policy-decisions/{decision_id}` | Replays the stored receipt for one decision. **Content-equivalent**, not byte-identical: every field carries the value it was written with, and `decision_hash` verifies against the replayed content, but JSON key order may differ from the original response. Compare receipts by `decision_hash` or by parsed value, never by string. |
 
 The receipt is `case_decision_v2`. A case is answered as **two independent tracks** — what the policies state, and what the case comes to — because a single question can ask for either or both. See [A case asks for information, a verdict, or both](#a-case-asks-for-information-a-verdict-or-both).
@@ -92,13 +94,104 @@ There is deliberately no list endpoint and no identity endpoint here. A caller c
 
 For the integration-shaped view of this — what an agent, a Copilot extension or a workflow step actually needs — see [External consumption](external-consumption.md).
 
+### Retrieval-only response
+
+`POST /api/policy-decisions/{project_key}/policies` takes:
+
+```json
+{ "scenario": "Describe the situation whose governing policies you need." }
+```
+
+It returns `policy_retrieval_v1`: `policy_set`, the exact `active_version`, the original query and language-boundary provenance, retrieval disclosure, `policies`, service-reported `token_usage`, and end-to-end `latency_ms`. Policy documents are semantically reranked and cut at the largest meaningful adjacent score gap; when there is no such gap, at most three remain. Each entry contains its stable identity, semantic rank/score and optional `rule_selection`, plus the selected `grounding_projection_v1` payload. Large policies contain only the rules named by `rule_selection`; the 15-rule ceiling remains unchanged. `precision_mode`, `semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, and `semantic_cutoff_score` disclose the cut.
+
+No classifier, plan, verdict gather, explanation renderer, decision hash, or receipt write runs on this route. `Idempotency-Key`, `reasoning_effort`, `calling_system_identity`, and `additional_instructions` therefore do not belong in this request.
+
+### Decision Light response
+
+`POST /api/policy-decisions/{project_key}/case/light` accepts the same request and headers as `/case`. It executes the same single decision path and stores the full `case_decision_v2` receipt; only the immediate response is projected to `case_decision_light_v1`. The `decision_id`, `decision_hash`, `hash_basis`, and `receipt_url` identify that full receipt, so a caller can start compact and fetch the complete audit record later.
+
+The fixed light schema contains:
+
+```json
+{
+  "schema_version": "case_decision_light_v1",
+  "response_type": "informational | decision | mixed | not_evaluated",
+  "decision_id": "…",
+  "correlation_id": "…",
+  "idempotency_key": "…",
+  "policy_set": { "id": "…", "key": "…", "name": "…" },
+  "active_version": { "version_id": "…", "version_number": 1 },
+  "request": { "scenario": "…", "scenario_hash": "…" },
+  "asked": {
+    "information_requested": false,
+    "verdict_requested": true,
+    "classifier_version": "ai-case-needs-v2"
+  },
+  "outcome": { "information": "not_requested", "verdict": "answered" },
+  "information": null,
+  "verdict": {
+    "status": "answered",
+    "reached": true,
+    "decision": "…",
+    "explanation": "…",
+    "missing_information": [],
+    "verification_requirements": [],
+    "note": ""
+  },
+  "retrieval": {
+    "status": "narrowed",
+    "method": "direct_policy_rrf_elbow_rule_rescue_v1",
+    "policies_retained": 1,
+    "rule_rescued_policies": 0,
+    "reason": null
+  },
+  "policies": [
+    { "provision_id": "…", "provision_key": "…", "heading_path": ["…"] }
+  ],
+  "citations": [
+    {
+      "rule_id": "…",
+      "policy": { "provision_id": "…", "provision_key": "…", "heading_path": ["…"] },
+      "source": { "state": "quoted", "text": "…", "page": 1, "section": "…" },
+      "serves": ["verdict"]
+    }
+  ],
+  "trace": {
+    "classifier_version": "…",
+    "prompt_version": "…",
+    "plan_profile": "…",
+    "selector_catalogue_version": "…",
+    "model_deployment": "…",
+    "token_usage": {
+      "calls": 6,
+      "calls_without_usage": 0,
+      "prompt_tokens": 21500,
+      "completion_tokens": 1800,
+      "total_tokens": 23300,
+      "reasoning_tokens": 900
+    },
+    "stage_latency_ms": {
+      "embedding": 1414,
+      "retrieval_discovery_wall": 1740,
+      "gather_wall": 18500
+    }
+  },
+  "decision_hash": "…",
+  "hash_basis": "case_decision_v2_lang_verification",
+  "receipt_url": "/api/policy-decisions/…",
+  "latency_ms": 24500
+}
+```
+
+Fields intentionally omitted from Decision Light: caller details, full retrieval counters, considered/excluded candidates, payload size, language-transport internals, grounding counters, duplicate section-level citations, and timestamps. It retains total `latency_ms`, per-stage `stage_latency_ms`, and service-reported `token_usage` for operational diagnosis. Usage figures remain `null` rather than estimated when no call reported them; when `calls_without_usage` is nonzero beside a numeric total, that total is a lower bound over the calls that did report usage. These fields are execution metadata, are not part of `decision_hash`, and may be absent on historical receipts. The full receipt remains authoritative and available at `receipt_url`.
+
 ### `project_key` is the public identifier
 
 Routing is on the project's stable `key`, the same slug used everywhere else in this API. Every receipt also returns the project's UUID `id` as **trace identity** and its `name` as a **display string**, and neither is ever routed on. A display name in the path is a `404`, and that is the point: a URL built from a name would break the day someone renamed the project.
 
 ### Authentication
 
-Both operations depend on a valid authenticated principal — independently of the global `RBAC_ENABLED` flag. A deployment that has not enabled global enforcement still refuses these two routes to an unauthenticated caller with `401`, because a receipt that cannot name who asked for it is not a receipt. When global enforcement *is* on, the capability bands apply on top: the `POST` is `use`, the `GET` is `read`.
+All four operations depend on a valid authenticated principal — independently of the global `RBAC_ENABLED` flag. A deployment that has not enabled global enforcement still refuses them to an unauthenticated caller with `401`: retrieval exposes filtered published policy JSON, and a receipt must name who asked. When global enforcement *is* on, the three `POST` operations are `use`, and the `GET` is `read`.
 
 Two credentials establish that principal:
 
@@ -137,7 +230,7 @@ Receipt reads are additionally narrowed at the record: a receipt may be read by 
 
 | Header | Direction | Behaviour |
 |---|---|---|
-| `X-Correlation-Id` | request and response | Your own id for this call. Also accepted as the body's `correlation_id`; if both are sent they must match, or `422`. When neither is sent the server generates one. Echoed in the response body and in the response header on both operations — and on a replay it is the *stored* receipt's correlation id, because a replay is the same decision, not a new one. |
+| `X-Correlation-Id` | request and response | Your own id for this call. Also accepted as the body's `correlation_id`; if both are sent they must match, or `422`. When neither is sent the server generates one. Both `POST` responses echo it in the body and header; a receipt replay echoes the *stored* receipt's correlation id, because a replay is the same decision, not a new one. |
 | `Idempotency-Key` | request only | Optional. Makes a retry safe. It is a header rather than a body field on purpose: it describes the delivery of the request, not the question being asked, and putting it in the body would make it part of the request hash it is compared against. |
 
 The key is bound to the authenticated principal, the project, and a canonical hash of the request — which covers the scenario, the named policy, the reasoning effort **and** the normalised caller guidance. So:
@@ -202,6 +295,30 @@ If the case cannot be decided until you supply facts, `outcome.verdict` is `miss
 
 Crucially, **the information track is unaffected**: if you also asked what the policies state, `information` is populated and answered even though the verdict is blocked. And if you did *not* ask, `information` stays `null` — a blocked verdict never conjures an information answer you did not request.
 
+### A reached verdict may still carry checks before acting
+
+Asking whether a right *exists* and asking whether an action *may proceed* are two questions, and the receipt keeps them apart.
+
+When the retained rules establish an entitlement from the facts you supplied, the verdict is **reached** — `status` is `answered` and `decision` is non-empty — even though conditions still stand between that entitlement and exercising it. Those conditions are carried additively in `verdict.verification_requirements`, in the same shape as a missing fact:
+
+```json
+{ "fact": "accrued-balance",
+  "label": "Days accrued as at the requested date",
+  "why_needed": "The entitlement is established; the balance decides how much of it is available now.",
+  "required_by_rule_ids": ["AI-leave-3"] }
+```
+
+The distinction is the one a caller needs:
+
+- **`missing_information`** holds facts that could change the answer. It is non-empty **only** when `status` is `missing_required_facts`, and the verdict is blocked.
+- **`verification_requirements`** holds conditions that do **not** change the answer but must be confirmed before acting on it. It is non-empty **only** when `reached` is true.
+
+The two lists are therefore mutually exclusive by shape, and the envelope enforces both rules. A client must not render verification requirements as missing facts, and must not downgrade the verdict because they are present — the determination stands; these are what to confirm before relying on it.
+
+`fact` is drawn from the same closed selector catalogue as `missing_information`, resolved through the same aliases, and `required_by_rule_ids` is filtered to rules that were actually in front of the gather. An item the catalogue does not admit is discarded and reported in `verdict.grounding`, and — because it qualifies rather than establishes the verdict — discarding one never invalidates the determination it was attached to.
+
+The field is additive. It defaults to `[]`, and a client that has never read it is unaffected.
+
 ### English is the only internal language
 
 Every stage of a decision — retrieval, rule classification and both gathers — runs in **English**, whatever language the question arrived in. That is one boundary, drawn deliberately in one place: a pipeline that reasoned in two languages would score an Arabic question against English text, or the reverse, and score nothing.
@@ -214,7 +331,7 @@ The caller is not required to write English. A question in another language is r
 - **every verbatim source sentence and citation text.** A citation is the document's own words; a translated quotation is not a quotation. `citations[].source.text` is the original, in the language the document was written in, always;
 - every machine-readable value — rule ids, provision keys, status codes, discard reasons, hashes, fact names, counters.
 
-Only prose composed *by* the decision crosses back: `information.answer` / `explanation` / `note`, `verdict.decision` / `explanation` / `note`, and each `missing_information[].label` / `why_needed`. So a receipt can hold an Arabic quotation under an English-reasoned, Arabic-rendered explanation, and that is the intended shape — not an inconsistency.
+Only prose composed *by* the decision crosses back: `information.answer` / `explanation` / `note`, `verdict.decision` / `explanation` / `note`, and each `missing_information[].label` / `why_needed` and `verification_requirements[].label` / `why_needed`. So a receipt can hold an Arabic quotation under an English-reasoned, Arabic-rendered explanation, and that is the intended shape — not an inconsistency.
 
 The corpus is crossed once, at index-build time rather than per query: the retrieval index stores an English **projection** of each policy beside its identity, and the original is never written into an English-labelled field. Two versioned contracts govern the two crossings, and both are on the receipt:
 | Profile | Value | Governs |
@@ -259,13 +376,13 @@ Three of these are worth reading carefully:
 
 In project scope the policies bearing on the question are retrieved from that project's own policy index and the rest are discarded **before** anything is evaluated. The receipt reports that narrowing in full: `retrieval` carries the status, method, budget and scan bounds and the counts; `considered` and `excluded` carry the policies themselves with their rank, score and discard reason. There is no mode in which the whole published set is put to a model.
 
-**What the index holds, and why a rule can outrank its policy.** The index carries three kinds of document, all rendered under `policy-english-projection-v1`:
+**What the index holds, and how a rule can rescue its policy.** The index carries three kinds of document, all rendered under `policy-english-projection-v1`:
 
 - one **policy** document per published provision, always;
 - one **rule** document per rule, but only for a policy holding more than `retrieval.large_policy_rule_threshold` (15) rules. Below that a policy is one governing statement and its own document carries it; above it the policy is a schedule whose rows a single document cannot represent;
 - exactly one **manifest** per project, carrying `manifest_state` (`ready` or `incomplete`), the `projection_profile` and language it was built under, and the document counts expected against those uploaded. The manifest is the readiness gate — see [rebuilding](#rebuilding-the-policy-index).
 
-`retrieval.method` is `hybrid_policy_rule_rrf_v1`. The policy-level and rule-level rankings are fused by **Reciprocal Rank Fusion** (`1 / (60 + rank)`, summed), with a rule's rank attributed to the policy that owns it and each policy taking its own best rule's rank. A policy can therefore be retrieved on the strength of a single row the policy-level document could never have surfaced — including a policy the policy-level search did not return at all.
+`retrieval.method` is `direct_policy_rrf_elbow_rule_rescue_v1`. Direct policy relevance owns the primary ranking; a large policy does not gain a second score merely because it also has rule documents. Semantic reranker scores determine whether a meaningful adjacent drop supports a smaller direct-policy count (`semantic_elbow_applied: true`). A strong semantic lead controls identity directly; otherwise symmetric Reciprocal Rank Fusion combines the hybrid and semantic rankings of those same policy documents, so every policy has the same two ranking opportunities. `direct_policy_order` names which path ran. A moderate RRF cut can be expanded when an omitted English indexed heading covers an explicit query term absent from the selected records and the policy also clears `coverage_semantic_floor`; `coverage_expanded_policies` discloses the result. When semantic scores are flat, no precision boundary has been established, so the full scanned direct-policy pool remains available in hybrid-search order to the existing duplicate/diversity pass. Only the final five-policy budget reaches the gathers. A policy omitted by the direct cut can still be rescued by one of its own rules, but only when the rule independently clears both the absolute `rule_rescue_floor` and the `rule_rescue_margin` above the direct cutoff. Rule documents never enter direct-policy RRF and rule scores are never added to policy scores.
 
 Three counters report what that did, and they answer different questions:
 
@@ -273,9 +390,13 @@ Three counters report what that did, and they answer different questions:
 |---|---|
 | `policy_scan`, `rule_scan` | How many policy-level and rule-level documents the discovery search examined. |
 | `policy_documents_matched`, `rule_documents_matched` | How many of each the search returned. |
-| `policies_elevated_by_rule` | Policies whose ranking was raised by one of their own rules surfacing. **This is the one that says whether rule-level retrieval did anything on this question.** |
+| `semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, `semantic_cutoff_score`, `semantic_elbow_applied` | What the direct-policy precision gate observed and whether it had evidence to narrow. |
+| `direct_policy_order`, `coverage_expanded_policies`, `coverage_semantic_floor` | Which direct ordering ran and whether explicit, semantically supported heading coverage widened its cut. |
+| `rule_rescue_candidates`, `rule_rescued_policies`, `rule_rescue_floor`, `rule_rescue_margin` | How many omitted parents independently cleared the rule-only gate, how many survived the final policy budget, and the thresholds applied. |
+| `rule_semantic_window`, `rule_semantic_candidates` | Azure AI Search reranks at most 50 initial results; these disclose that bound and how many returned rules actually carried a reranker score. Unscored tail rules cannot satisfy semantic rescue. |
+| `policies_elevated_by_rule` | Compatibility alias for `rule_rescued_policies`. It no longer means that a rule score was added to a policy score. |
 | `projection_ready` | Whether the index reported a complete corpus projection under the expected contract. Only ever `true` on a served answer — anything else is refused, not answered. |
-| `rule_index_state` | `matched` — the rule index was queried and fused. `degraded` — rule documents exist under the expected projection and the query against them failed recoverably, so the selection ran without that ranking. `unavailable` — it was not consulted. |
+| `rule_index_state` | `matched` — the rule index was available for rule-only rescue and within-policy slicing. `degraded` — rule documents exist under the expected projection and the query against them failed recoverably. `unavailable` — it was not consulted. |
 
 `rule_index_state` appears both on `retrieval` (project-wide) and on each `considered` entry's `rule_selection` (per policy), because a project-wide degradation and a policy that simply has no rule documents are different facts about different policies inside one answer.
 
@@ -366,13 +487,13 @@ The response is `case_decision_v2`, named in `schema_version` so a consumer can 
 | `asked` | `information_requested`, `verdict_requested`, `classification_reasoning`, `classifier_version`. What the classifier read the question as asking for. |
 | `outcome` | `{information, verdict}` — the two-value status above. **Read it first.** |
 | `information` | `null`, or `{status, answered, answer, explanation, route, citations, note, grounding}`. `answer` is non-empty exactly when `answered` is true; `explanation` carries prose from a track that composed some *without* answering, and is otherwise `null`. |
-| `verdict` | `null`, or `{status, reached, decision, explanation, missing_information, missing_required_facts, route, citations, note, grounding}`. |
-| `retrieval` | `status`, `method` (`hybrid_policy_rule_rrf_v1`), `policy_budget`, `policy_scan`, `rule_scan`, `policies_retrieved`, `policies_considered`, `policies_retained`, `policies_discarded`, `policies_untestable`, plus `payload_budget_chars`, `policies_over_payload_budget`, `large_policy_rule_threshold`, `selected_rule_budget`, `policies_rule_sliced`, `policies_duplicate_collapsed`, `policy_selection_order`, `policies_diversity_deferred`, `projection_profile`, `projection_ready`, `policy_documents_matched`, `rule_documents_matched`, `policies_elevated_by_rule`, `rule_index_state` and a `reason`. |
+| `verdict` | `null`, or `{status, reached, decision, explanation, missing_information, missing_required_facts, verification_requirements, route, citations, note, grounding}`. `verification_requirements` is non-empty only on a reached verdict; see [checks before acting](#a-reached-verdict-may-still-carry-checks-before-acting). |
+| `retrieval` | `status`, `method` (`direct_policy_rrf_elbow_rule_rescue_v1`), direct semantic-gate fields (`semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, `semantic_cutoff_score`, `semantic_elbow_applied`, `direct_policy_order`, `coverage_expanded_policies`, `coverage_semantic_floor`), rule-rescue fields (`rule_rescue_candidates`, `rule_rescued_policies`, `rule_rescue_floor`, `rule_rescue_margin`, `rule_semantic_window`, `rule_semantic_candidates`), `policy_budget`, `policy_scan`, `rule_scan`, `policies_retrieved`, `policies_considered`, `policies_retained`, `policies_discarded`, `policies_untestable`, plus `payload_budget_chars`, `policies_over_payload_budget`, `large_policy_rule_threshold`, `selected_rule_budget`, `policies_rule_sliced`, `policies_duplicate_collapsed`, `policy_selection_order`, `policies_diversity_deferred`, `projection_profile`, `projection_ready`, `policy_documents_matched`, `rule_documents_matched`, the compatibility alias `policies_elevated_by_rule`, `rule_index_state` and a `reason`. |
 | `language` | `null`, or the block described in [English is the only internal language](#english-is-the-only-internal-language). Present on every decision made under the boundary. |
 | `considered`, `excluded` | Policy references: `provision_id`, `provision_key`, `heading_path`, `rules`, `retained`, `best_rank`, `best_score`, `discard_reason` (`outside_budget`, `no_retrieval_match`, `stale_index_version`, `outside_payload_budget`, `duplicate_policy_content`), `duplicate_of_provision_key` (set **only** for `duplicate_policy_content`), `reason`, `payload_url`, and `rule_selection` when the policy was read by rule. |
 | `citations` | Every rule either track rested on, **deduplicated by `rule_id`** and tagged with `serves: ["information"]`, `["verdict"]` or both. Per citation: `rule_id`, its `policy` reference, and `source` with `state` (`quoted`, `no_citation`, `unresolved`, `not_stored`), `text`, `page`, `section`. Each section also carries its own untagged list. |
 | `size` | `combined_chars`, `budget_chars`, `oversize` for the record that was **actually evaluated** — after the payload-budget narrowing, so it describes what the model read rather than what retrieval first selected. |
-| `trace` | `prompt_version`, `instruction_profile`, `model_deployment`, `retrieval_method`, `index_name`, `index_version_id`. Every field is nullable and omitted when unknown. |
+| `trace` | `prompt_version`, `instruction_profile`, `model_deployment`, `retrieval_method`, `index_name`, `index_version_id`, `stage_latency_ms`, and `token_usage`. Timings and service-reported usage describe this execution, are excluded from `decision_hash`, and are nullable on historical receipts. |
 | `decision_hash`, `hash_basis` | The integrity seal and the rule it was taken under. |
 | `receipt_url` | Relative path where this receipt is read back. |
 | `decided_at`, `latency_ms` | When the decision completed, and how long it took. |
@@ -412,15 +533,15 @@ The normalised text is stored on the receipt, echoed back in `request.additional
 
 ### `decision_hash` — an integrity seal, not a determinism claim
 
-`decision_hash` is a canonical SHA-256 over a **fixed, documented subset** of the receipt: `schema_version`, the project's routing key, the published version number, the scenario hash, the caller-guidance hash, the scope, the retrieval status, the considered policies by stable provision key with their retained/discarded state **and which of their rules were read** (`selected_rule_ids`, `total_rules`), **both `asked` booleans**, **both `outcome` values**, **both semantic sections in full** (including the structured missing information), and each merged citation's rule id, source state, verbatim text and `serves` tags.
+`decision_hash` is a canonical SHA-256 over a **fixed, documented subset** of the receipt: `schema_version`, the project's routing key, the published version number, the scenario hash, the caller-guidance hash, the scope, the retrieval status, the considered policies by stable provision key with their retained/discarded state **and which of their rules were read** (`selected_rule_ids`, `total_rules`), **both `asked` booleans**, **both `outcome` values**, **both semantic sections in full** (including structured missing information and checks required before acting), and each merged citation's rule id, source state, verbatim text and `serves` tags.
 
 Which rules were read is sealed because the same policy read whole and read as a slice of eight rows are two different accounts of the same question, and a hash that could not tell them apart would seal the weaker one. The booleans are sealed because they decide what the receipt answers: a receipt that could be re-labelled "you only asked for information" after the fact would let a missing verdict be explained away.
 
 Excluded, and why: `asked.classification_reasoning` and `asked.classifier_version` — the reasoning is prose *about* a routing choice rather than part of what was decided, and sealing it would move the hash whenever a classifier reworded itself; the rule-selection *method* and counts (including `duplicate_rules_collapsed` and `represented_rule_ids`), which are derivable from the ids that are sealed; `policy_selection_order` and `policies_diversity_deferred`, which describe the *ordering* that produced the retained set rather than what it decided — the outcome of that ordering is already sealed, in each policy's retained/discarded state; `decision_id`, `correlation_id` and `idempotency_key` name the *call* rather than the decision; the project and version UUIDs are surrogate keys that differ between environments while the decision does not; `decided_at`, `received_at` and `latency_ms` mean a slower call did not decide something different; `receipt_url` is a routing detail; and the hash itself.
 
-What it proves is that *this* receipt's decision-defining content has not been altered since it was written. It is **not** a replay or determinism guarantee: a language model is in the path, so the same scenario put twice to the same version may legitimately produce different prose and a different hash. `hash_basis` names the preimage rule so a future basis can be added without making an old hash ambiguous — `case_decision_v2_lang`, `case_decision_v2` and `case_decision_v1` are three such rules, and an older hash still means exactly what it meant.
+What it proves is that *this* receipt's decision-defining content has not been altered since it was written. It is **not** a replay or determinism guarantee: a language model is in the path, so the same scenario put twice to the same version may legitimately produce different prose and a different hash. `hash_basis` names the preimage rule so a future basis can be added without making an old hash ambiguous. Current receipts use `case_decision_v2_verification` or `case_decision_v2_lang_verification`; these names record that `verification_requirements` are sealed. Historical `case_decision_v2`, `case_decision_v2_lang`, and `case_decision_v1` receipts remain readable under the basis stored with them.
 
-**`case_decision_v2_lang`** is the basis for every decision made under the language boundary. It seals everything `case_decision_v2` did **plus two fields**:
+**`case_decision_v2_lang_verification`** is the basis for every current decision made under the language boundary. It seals everything `case_decision_v2_verification` does **plus two fields**:
 
 - `processing_scenario_hash` — the digest of the text that was actually adjudicated. Without it, a receipt could show a question in one language while the English rendering the decision was really made from went unsealed and unverifiable.
 - the whole `language` block — the observed source language, the processing and response languages, the three rendering states, and both translation profiles and the projection profile. Two contracts can reduce one question to two different English texts, so which contract was used is part of what was decided.
@@ -577,6 +698,10 @@ if verdict is None:
         print("  ", decision["retrieval"].get("reason"))
 elif outcome["verdict"] == "answered":
     print("Verdict:", verdict["decision"])
+    # Additive, and only ever present here: the determination stands, and these
+    # are the conditions to confirm before acting on it.
+    for item in verdict.get("verification_requirements", []):
+        print(f"  check before acting — {item['label']}: {item['why_needed']}")
 elif outcome["verdict"] == "missing_required_facts":
     print("No verdict yet — supply:")
     for item in verdict["missing_information"]:
@@ -608,7 +733,7 @@ Reading `decision["verdict"]["decision"]` without branching on `outcome` is the 
 - **Policy sets are addressed by `key`** — a stable slug such as `expense-policy` — while most other resources use UUIDs. A project's UUID `id` is trace identity and its `name` is a display string; neither is ever a path segment.
 - **AI endpoints require configuration.** Azure OpenAI is a product requirement, not an option: if it is not configured, every AI route returns `503` before doing any work and the platform is in a degraded diagnostic mode. Retrieval- backed grounding additionally needs `AZURE_SEARCH_*`. Check `GET /api/ai/status` first — it reports both `ai_enabled` and `search_enabled`.
 - **Role-based access control, off by default.** All 105 operations are classified into a capability band — read, use, author, administer — and one dependency enforces the whole registry, so a route cannot be reachable without a classification. It is disabled unless `RBAC_ENABLED` is set; see [configuration](configuration.md) for what to set up first. When enabled, an insufficient role gets `403` with a structured `detail` carrying `code`, `required_role` and `band` rather than a sentence, so clients can render their own wording. Note that the bands do not follow HTTP verbs: many `POST /api/ai/*` routes change nothing and are readable by any role, while a few that write nothing — the ones that exist to compose an edit — require an author.
-- **Two operations require authentication regardless of that flag.** `POST /api/policy-decisions/{project_key}/case` and `GET /api/policy-decisions/{decision_id}` refuse an unauthenticated caller with `401` even where global enforcement is off, because they write and serve an audited receipt that must name who asked. Nothing else bypasses the flag.
+- **Four operations require authentication regardless of that flag.** `POST /api/policy-decisions/{project_key}/policies`, both full and light case `POST`s, and `GET /api/policy-decisions/{decision_id}` refuse an unauthenticated caller with `401` even where global enforcement is off. The retrieval route exposes filtered policy JSON; the other three write, project, or serve an audited receipt that must name who asked. Nothing else bypasses the flag.
 - **Getting a token.** `POST /api/auth/login` with `{username, password}` returns `access_token`; send it as `Authorization: Bearer <token>`. `GET /api/auth/me` reports the principal the server resolved, which is the quickest way to see what a token is actually granting. Both are `read`-band, so a caller who has not signed in can reach them — an unauthenticated request resolves to the least privilege, which satisfies `read`. A wrong password and an unknown username both return `401`, deliberately indistinguishable.
 - **`401` and `403` mean different things.** `401` is "this session is not valid" — the token is missing, expired or not verifiable. `403` is "your role may not do this". A client should clear its session on the first and explain the refusal on the second; merging them logs people out for asking to do something they were never allowed to do.
 - **Manager-only operations.** `request-changes`, `override`, and creating an attestation campaign additionally require `actor_role: "policy_manager"` in the request body. This is the older, narrower check and is not a security boundary on its own; the capability layer above is what enforces access.

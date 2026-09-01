@@ -1,14 +1,14 @@
 """Ambient collection of the token usage a model call reports.
 
-Every Azure OpenAI chat response carries a ``usage`` block —
+Azure OpenAI chat and embedding responses carry a ``usage`` block —
 ``prompt_tokens``, ``completion_tokens``, ``total_tokens`` and, on reasoning
 deployments, a nested ``reasoning_tokens``. Until now the client read that block
 only to explain a truncation and threw it away on the success path, so the one
 cost figure the service hands back on every call reached no reader at all.
 
 This module is the seam that lets a caller ask for those figures without every
-one of :meth:`AzureOpenAIClient.chat`'s callers changing shape. ``chat`` returns
-a bare string; threading a usage object back through its return type would touch
+model client's callers changing shape. ``chat`` returns a bare string and
+``embed`` returns vectors; threading usage through either return type would touch
 every call site, most of which do not want it. Instead the client *publishes*
 each call's usage into whatever collection scope is active
 (:func:`record_call_usage`), and a caller that wants the total opens a scope

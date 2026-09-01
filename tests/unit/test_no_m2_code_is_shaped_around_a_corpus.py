@@ -221,11 +221,28 @@ SCHEMA_KEYS = frozenset(
         "id",
         "elevated_by_rule",
         "@search.score",
+        "@search.rerankerScore",
         "heading_path",
+        "section_heading",
+        "heading",
+        "body",
         "rules",
         "spans",
         "facts",
         "envelope",
+        "semantic_cutoff_score",
+        "semantic_largest_gap",
+        "semantic_selected",
+        "precision_mode",
+        "semantic_elbow_applied",
+        "direct_policy_order",
+        "coverage_semantic_floor",
+        "rule_rescue_candidates",
+        "rule_rescued_policies",
+        "rule_rescue_floor",
+        "rule_rescue_margin",
+        "rule_semantic_window",
+        "rule_semantic_candidates",
     }
 )
 
@@ -673,13 +690,15 @@ def test_fusion_and_diversity_are_purely_relational(module, name: str):
         raise AssertionError(f"{module.__name__}.{name} carries the string {value!r}")
 
 
-def test_the_policy_and_rule_merge_reads_only_document_schema_keys():
-    """The merge orders provisions by rank. What it reads is the schema, not the text."""
+def test_the_decision_policy_selector_reads_only_schema_keys():
+    """The selector orders provisions by evidence, never by domain vocabulary."""
 
-    for value in _function_strings(ai_case_project, "merge_policy_and_rule_hits"):
+    for value in _function_strings(ai_case_project, "select_decision_policy_hits"):
+        if value == "":
+            continue
         assert value in SCHEMA_KEYS, (
-            f"merge_policy_and_rule_hits reads {value!r}, which is not a "
-            "document schema key"
+            f"select_decision_policy_hits reads {value!r}, which is not a "
+            "document or retrieval schema key"
         )
 
 

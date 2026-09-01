@@ -29,6 +29,7 @@ import {
   representedRuleIds,
   ruleSelectionMethodFamily,
   trackProse,
+  verificationRequirementItems,
 } from "./projectCaseTracks";
 
 function answerWith(
@@ -316,6 +317,76 @@ describe("the facts a verdict is waiting on", () => {
     });
     expect(items.map((item) => item.label)).toEqual(["employee category", "date of hire"]);
     expect(items.every((item) => item.whyNeeded === "")).toBe(true);
+  });
+});
+
+describe("the checks a reached verdict is qualified by", () => {
+  const verdictWithChecks = {
+    status: "answered",
+    verdict: "Entitled",
+    answer: "The records confer the entitlement.",
+    route: "decision",
+    missing_required_facts: [],
+    missing_information: [],
+    verification_requirements: [
+      {
+        fact: "accrued_balance_on_the_day",
+        label: "The balance standing on the day",
+        why_needed: "The entitlement is owed; the days come out of a balance that has accrued.",
+        required_by_rule_ids: ["rule-cap"],
+      },
+    ],
+    citations: [],
+    note: "",
+    grounding: { rules_available: 4, rules_cited: 1, policies_grounded: 1, fabricated_citations: [] },
+  };
+
+  it("carries the label, what to confirm and the rules that impose it", () => {
+    expect(verificationRequirementItems(verdictWithChecks)).toEqual([
+      {
+        fact: "accrued_balance_on_the_day",
+        label: "The balance standing on the day",
+        whyNeeded: "The entitlement is owed; the days come out of a balance that has accrued.",
+        requiredByRuleIds: ["rule-cap"],
+      },
+    ]);
+  });
+
+  it("reads nothing from a section that reached no verdict", () => {
+    // A condition on acting is meaningless where nothing is permitted yet, so a
+    // reply that carried one on a blocked section is ignored rather than shown
+    // beside the facts that block it.
+    expect(
+      verificationRequirementItems({
+        ...verdictNeedsFacts,
+        verification_requirements: verdictWithChecks.verification_requirements,
+      }),
+    ).toEqual([]);
+  });
+
+  it("reads nothing from an absent section", () => {
+    expect(verificationRequirementItems(null)).toEqual([]);
+  });
+
+  it("falls back to the key when no label was composed, and never invents a reason", () => {
+    const items = verificationRequirementItems({
+      status: "answered",
+      verification_requirements: [{ fact: "roster_cover", required_by_rule_ids: [] }],
+    });
+    expect(items).toEqual([
+      { fact: "roster_cover", label: "roster_cover", whyNeeded: "", requiredByRuleIds: [] },
+    ]);
+  });
+
+  it("counts a rule that imposes a check as evidence the case rests on", () => {
+    const reading = readCaseTracks(
+      answerWith({
+        intent: "decision",
+        informational: null,
+        decision: verdictWithChecks,
+      }),
+    );
+    expect(reading.ruleIds).toContain("rule-cap");
   });
 });
 

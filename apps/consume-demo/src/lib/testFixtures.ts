@@ -8,6 +8,7 @@ import type {
   MissingInformationItem,
   PolicyRef,
   VerdictSection,
+  VerificationRequirementItem,
 } from '../contracts/caseDecision'
 
 /**
@@ -223,6 +224,30 @@ export const V2_MISSING_INFORMATION: MissingInformationItem[] = [
   },
 ]
 
+/**
+ * Conditions on acting that ride alongside a verdict that *was* reached.
+ *
+ * Deliberately not the same values as the missing facts above: the two lists
+ * mean different things, and a fixture that reused one for the other would let
+ * a test pass while the page conflated them.
+ */
+export const V2_VERIFICATION_REQUIREMENTS: VerificationRequirementItem[] = [
+  {
+    fact: 'accrued_balance_on_the_day',
+    label: 'The balance standing on the day the leave starts',
+    why_needed:
+      'The entitlement is established, but the days can only be taken out of a balance that has actually accrued by then.',
+    required_by_rule_ids: ['HR-4.1-R3'],
+  },
+  {
+    fact: 'roster_cover_for_the_period',
+    label: 'That the roster is covered for the period',
+    why_needed:
+      'The rules make cover a condition of taking the days, not a condition of being owed them.',
+    required_by_rule_ids: ['HR-4.6-R1'],
+  },
+]
+
 function answeredInformation(overrides: Partial<InformationSection> = {}): InformationSection {
   return {
     status: 'answered',
@@ -416,6 +441,25 @@ export function makeVerdictOnlyEnvelope(): CaseDecisionEnvelopeV2 {
     information: null,
     verdict: reachedVerdict(),
     citations: [V2_SHARED_CITATION, V2_VERDICT_CITATION],
+  })
+}
+
+/**
+ * A verdict that was reached and still carries conditions on acting.
+ *
+ * The case the whole "checks before acting" section exists for: the records
+ * settle the entitlement, so a determination is owed, and separately impose
+ * things a caller must confirm before exercising it. Both are true at once, and
+ * the page has to say so without dressing either up as the other.
+ */
+export function makeQualifiedVerdictEnvelope(): CaseDecisionEnvelopeV2 {
+  return makeV2Envelope({
+    outcome: { information: 'answered', verdict: 'answered' },
+    information: answeredInformation(),
+    verdict: reachedVerdict({
+      decision: 'Entitled',
+      verification_requirements: V2_VERIFICATION_REQUIREMENTS,
+    }),
   })
 }
 

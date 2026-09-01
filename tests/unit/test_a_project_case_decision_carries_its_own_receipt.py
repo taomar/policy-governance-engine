@@ -619,7 +619,7 @@ async def test_a_decision_returns_a_receipt_that_reads_back_identically(harness)
     # The schema did not move; the seal did. Every field the language boundary
     # adds is additive and optional, so a reader pinned to `case_decision_v2`
     # keeps working — but a verifier recomputing the hash must branch on this.
-    assert body["hash_basis"] == "case_decision_v2_lang"
+    assert body["hash_basis"] == "case_decision_v2_lang_verification"
     assert body["language"]["processing_language"] == "en"
     assert body["language"]["source_language"] == "en"
     assert body["language"]["boundary_state"] == "identity"
@@ -1305,6 +1305,34 @@ async def test_the_trace_reports_only_what_is_knowable(harness) -> None:
     assert trace["retrieval_method"] == ai_case_project.RETRIEVAL_METHOD
     assert trace["index_version_id"] == harness.active_version_id
     assert trace["index_name"]
+
+
+async def test_the_trace_carries_service_reported_tokens_and_replays_them(harness) -> None:
+    from policy_platform.infrastructure.ai.usage_metering import record_call_usage
+
+    async def report_usage() -> None:
+        record_call_usage(
+            {
+                "prompt_tokens": 21,
+                "completion_tokens": 8,
+                "total_tokens": 29,
+                "completion_tokens_details": {"reasoning_tokens": 3},
+            }
+        )
+
+    _Gather.on_call = report_usage
+    body = (await harness.post()).json()
+
+    assert body["trace"]["token_usage"] == {
+        "calls": 1,
+        "calls_without_usage": 0,
+        "prompt_tokens": 21,
+        "completion_tokens": 8,
+        "total_tokens": 29,
+        "reasoning_tokens": 3,
+    }
+    replay = (await harness.get_receipt(body["decision_id"])).json()
+    assert replay["trace"]["token_usage"] == body["trace"]["token_usage"]
 
 
 # ── caller guidance, over the wire ───────────────────────────────────
@@ -2199,7 +2227,7 @@ async def test_the_receipt_names_the_corpus_projection_the_answer_was_matched_un
     assert body["retrieval"]["projection_ready"] is True
 
     envelope = CaseDecisionEnvelopeV2.model_validate(body)
-    assert envelope.hash_basis == "case_decision_v2_lang"
+    assert envelope.hash_basis == "case_decision_v2_lang_verification"
     assert compute_decision_hash_v2(envelope) == body["decision_hash"]
 
     # It is sealed by name, not merely present beside the seal.

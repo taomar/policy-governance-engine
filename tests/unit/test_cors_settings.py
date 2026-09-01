@@ -72,6 +72,9 @@ class TestDerivedOrigins:
 
 
 class TestExplicitOrigins:
+    def test_a_wildcard_is_preserved_when_an_operator_explicitly_requests_it(self) -> None:
+        assert _settings(cors_allowed_origins="*").allowed_cors_origins == ["*"]
+
     def test_an_explicit_list_is_used_verbatim(self) -> None:
         origins = _settings(
             cors_allowed_origins="https://policy.example.com"

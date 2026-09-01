@@ -198,13 +198,14 @@ class AzureSearchClient:
         index: str,
         *,
         query_text: str,
-        vector: list[float],
+        vector: list[float] | None,
         policy_ids: list[str] | None = None,
         top: int = 6,
         filter_expr: str | None = None,
         select: str | None = None,
+        semantic_configuration: str | None = None,
     ) -> list[dict]:
-        """Hybrid keyword + vector search, optionally scoped to specific `policy_id` values.
+        """Keyword/semantic search, optionally augmented by a query vector.
 
         ``filter_expr`` is an OData expression composed by the caller — the
         per-project index needs to scope a query to one *kind* of document and to
@@ -217,6 +218,11 @@ class AzureSearchClient:
         outside the shared default — a rule document's `rule_id`, its ordinal and
         its parent. Left absent, every existing caller gets the field list it
         always got.
+
+        ``vector=None`` deliberately omits ``vectorQueries``. Retrieval-only
+        policy selection uses Azure's semantic reranker over the English corpus
+        projection and does not pay for an embedding that produced the same live
+        order. Decision retrieval still supplies a vector and remains hybrid.
         """
 
         settings = self._require_enabled()
@@ -226,7 +232,6 @@ class AzureSearchClient:
         )
         body: dict = {
             "search": query_text,
-            "vectorQueries": [{"kind": "vector", "vector": vector, "fields": "body_vector", "k": top}],
             "top": top,
             "select": select
             or (
@@ -234,6 +239,13 @@ class AzureSearchClient:
                 "section_heading,heading,body,status"
             ),
         }
+        if vector is not None:
+            body["vectorQueries"] = [
+                {"kind": "vector", "vector": vector, "fields": "body_vector", "k": top}
+            ]
+        if semantic_configuration:
+            body["queryType"] = "semantic"
+            body["semanticConfiguration"] = semantic_configuration
         clauses: list[str] = []
         if policy_ids:
             if len(policy_ids) == 1:

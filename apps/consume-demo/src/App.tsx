@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './playground.css'
 
-import { HEADER, PERSISTENCE_FAILURE, RECEIPT, V2, WAIT } from './copy/strings'
+import { HEADER, PERSISTENCE_FAILURE, RECEIPT, V2 } from './copy/strings'
 import {
   classifyReceipt,
+  type CaseDecisionLightEnvelope,
   type CaseDecisionEnvelope,
   type CaseDecisionEnvelopeV2,
   type CaseDecisionReceipt,
   type MergedCitationRef,
+  type PlaygroundResponseMode,
+  type PolicyRetrievalEnvelope,
   type ReasoningEffort,
 } from './contracts/caseDecision'
-import { fetchActiveVersion, fetchPolicySet, getReceipt, postCase } from './lib/apiClient'
+import {
+  fetchActiveVersion,
+  fetchPolicySet,
+  getReceipt,
+  postCase,
+  postLightCase,
+  postPolicies,
+} from './lib/apiClient'
 import {
   additionalInstructionsHash,
   normaliseAdditionalInstructions,
@@ -18,24 +28,33 @@ import {
   scenarioHash,
 } from './lib/canonicalHash'
 import type { PlaygroundError } from './lib/errors'
-import { formatElapsed } from './lib/format'
 import { newUuid } from './lib/identifiers'
 import { compareReceipts } from './lib/receiptComparison'
-import { buildRequestBody, hostFromBase, isParsableUrl, type DocketValues } from './lib/requestBody'
+import {
+  buildPolicyRequestBody,
+  buildRequestBody,
+  hostFromBase,
+  isParsableUrl,
+  type DocketValues,
+} from './lib/requestBody'
 
 import { CodeBlock, renderJsonLine } from './components/CodeBlock'
 import { CaseOutcomeBand } from './components/CaseOutcomeBand'
 import { DecisionReceipt } from './components/DecisionReceipt'
+import { DecisionLightResult } from './components/DecisionLightResult'
 import { DecisionStatusBand } from './components/DecisionStatusBand'
-import { ErrorBand, StaleCaption } from './components/ErrorBand'
+import { ErrorBand } from './components/ErrorBand'
 import { EvidenceTable } from './components/EvidenceTable'
 import { GroundingNotices } from './components/GroundingNotices'
 import { InformationPanel } from './components/InformationPanel'
+import { IntegrationGuide } from './components/IntegrationGuide'
 import { LanguagePanel } from './components/LanguagePanel'
+import { PolicyRetrievalResult } from './components/PolicyRetrievalResult'
 import { RequestDocket, type ResolutionState } from './components/RequestDocket'
 import { RequestInspector } from './components/RequestInspector'
 import { ResultGrid } from './components/ResultGrid'
 import { RetrievalDisclosure } from './components/RetrievalDisclosure'
+import { RunMetrics } from './components/RunMetrics'
 import { VerdictPanel } from './components/VerdictPanel'
 import type { VerifyState } from './components/VerifyReceipt'
 
@@ -146,6 +165,7 @@ export default function App() {
   const [subscriptionKey, setSubscriptionKey] = useState(PREFILLED_SUBSCRIPTION_KEY)
 
   const [scenario, setScenario] = useState('')
+  const [responseMode, setResponseMode] = useState<PlaygroundResponseMode>('decision')
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium')
   const [callingSystemIdentity, setCallingSystemIdentity] = useState('playground-demo')
   const [idempotencyKey, setIdempotencyKey] = useState('')
@@ -155,13 +175,18 @@ export default function App() {
   const [resolution, setResolution] = useState<ResolutionState>({ kind: 'idle' })
   const [submitting, setSubmitting] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [completedMs, setCompletedMs] = useState<number | null>(null)
   const [envelope, setEnvelope] = useState<CaseDecisionReceipt | null>(null)
+  const [lightEnvelope, setLightEnvelope] = useState<CaseDecisionLightEnvelope | null>(null)
+  const [policyEnvelope, setPolicyEnvelope] = useState<PolicyRetrievalEnvelope | null>(null)
   const [sentGuidance, setSentGuidance] = useState<string | undefined>(undefined)
   const [submittedHash, setSubmittedHash] = useState<string | null>(null)
+  const [submittedIdempotencyKey, setSubmittedIdempotencyKey] = useState<string | null>(null)
   const [error, setError] = useState<PlaygroundError | null>(null)
   const [verifyState, setVerifyState] = useState<VerifyState>({ kind: 'idle' })
   const [announcement, setAnnouncement] = useState('')
   const [docketCollapsed, setDocketCollapsed] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
 
   const guidanceRef = useRef<HTMLTextAreaElement | null>(null)
   const scenarioRef = useRef<HTMLTextAreaElement | null>(null)
@@ -170,11 +195,48 @@ export default function App() {
   const resultsRef = useRef<HTMLDivElement | null>(null)
 
   const onAnnounce = useCallback((message: string) => setAnnouncement(message), [])
+  const closeIntegrationGuide = useCallback(() => setGuideOpen(false), [])
+  const clearRenderedResponse = useCallback(() => {
+    setEnvelope(null)
+    setLightEnvelope(null)
+    setPolicyEnvelope(null)
+    setSentGuidance(undefined)
+    setError(null)
+    setVerifyState({ kind: 'idle' })
+    setDocketCollapsed(false)
+    setCompletedMs(null)
+  }, [])
 
   const values: DocketValues = useMemo(
     () => ({ scenario, reasoningEffort, callingSystemIdentity, additionalInstructions }),
     [scenario, reasoningEffort, callingSystemIdentity, additionalInstructions],
   )
+  const draftSignature = useMemo(
+    () =>
+      JSON.stringify({
+        mode: responseMode,
+        baseUrl: baseUrl.trim(),
+        projectKey: projectKey.trim(),
+        subscriptionKey,
+        correlationId,
+        idempotencyKey: responseMode !== 'policies' ? idempotencyKey.trim() : '',
+        body:
+          responseMode !== 'policies'
+            ? buildRequestBody(values)
+            : buildPolicyRequestBody(values),
+      }),
+    [
+      baseUrl,
+      correlationId,
+      idempotencyKey,
+      projectKey,
+      responseMode,
+      subscriptionKey,
+      values,
+    ],
+  )
+  const draftSignatureRef = useRef(draftSignature)
+  draftSignatureRef.current = draftSignature
 
   // The preview hash is computed over the same preimage the server binds an
   // idempotency key to, so changing the guidance visibly rotates it and the
@@ -201,7 +263,9 @@ export default function App() {
   )
 
   const idempotencyConflict =
+    responseMode !== 'policies' &&
     idempotencyKey.trim().length > 0 &&
+    idempotencyKey.trim() === submittedIdempotencyKey &&
     submittedHash !== null &&
     submittedHash !== clientRequestHash
 
@@ -274,35 +338,79 @@ export default function App() {
     if (scenario.trim().length < 12) return 'Describe the case in at least 12 characters.'
     if (resolution.kind === 'not-found') return 'No project is published under this key.'
     if (resolution.kind === 'resolved' && resolution.identity.activeVersionNumber === null)
-      return 'No published version to decide against'
+      return responseMode === 'decision'
+        ? 'No published version to decide against'
+        : 'No published version to retrieve'
     return null
-  }, [baseUrl, projectKey, subscriptionKey, scenario, resolution])
+  }, [baseUrl, projectKey, subscriptionKey, scenario, resolution, responseMode])
 
   const submit = useCallback(async () => {
     if (submitDisabledReason !== null || submitting) return
+    const requestStartedAt = Date.now()
 
-    const guidanceForThisCall = buildRequestBody(values).additional_instructions
+    const guidanceForThisCall =
+      responseMode !== 'policies' ? buildRequestBody(values).additional_instructions : undefined
     const hashForThisCall = clientRequestHash
+    const signatureForThisCall = draftSignature
 
+    // Every playground submit is a new visible operation. A prior response is
+    // removed before the request starts so it cannot be read as part of the new
+    // draft while the server is working or after the new call fails.
+    setEnvelope(null)
+    setLightEnvelope(null)
+    setPolicyEnvelope(null)
+    setSentGuidance(undefined)
+    setElapsedMs(0)
+    setCompletedMs(null)
     setSubmitting(true)
     setError(null)
     setVerifyState({ kind: 'idle' })
 
-    const result = await postCase({
-      baseUrl,
-      projectKey,
-      subscriptionKey,
-      correlationId,
-      idempotencyKey,
-      values,
-    })
+    const result =
+      responseMode === 'decision'
+        ? await postCase({
+            baseUrl,
+            projectKey,
+            subscriptionKey,
+            correlationId,
+            idempotencyKey,
+            values,
+          })
+        : responseMode === 'decision-light'
+          ? await postLightCase({
+              baseUrl,
+              projectKey,
+              subscriptionKey,
+              correlationId,
+              idempotencyKey,
+              values,
+            })
+          : await postPolicies({
+              baseUrl,
+              projectKey,
+              subscriptionKey,
+              correlationId,
+              values,
+            })
+    const durationMs = Math.max(0, Date.now() - requestStartedAt)
+    setElapsedMs(durationMs)
+    setCompletedMs(durationMs)
+
+    if (draftSignatureRef.current !== signatureForThisCall) {
+      setSubmitting(false)
+      setError(null)
+      setEnvelope(null)
+      setLightEnvelope(null)
+      setPolicyEnvelope(null)
+      onAnnounce('The response was not shown because the request changed while it was running.')
+      return
+    }
 
     setSubmitting(false)
     setSubmittedHash(hashForThisCall)
+    setSubmittedIdempotencyKey(responseMode !== 'policies' ? idempotencyKey.trim() || null : null)
 
     if (!result.ok) {
-      // The previous receipt is kept and dimmed rather than dropped; `envelope`
-      // is deliberately not cleared here.
       setError(result.error)
       // Focus moves to whatever the caller has to change.
       const focusMap: Record<string, HTMLElement | null> = {
@@ -315,14 +423,42 @@ export default function App() {
       return
     }
 
-    setEnvelope(result.value)
+    if (responseMode === 'decision') {
+      setEnvelope(result.value as CaseDecisionReceipt)
+      setLightEnvelope(null)
+      setPolicyEnvelope(null)
+      onAnnounce(announceReceipt(result.value as CaseDecisionReceipt))
+    } else if (responseMode === 'decision-light') {
+      const light = result.value as CaseDecisionLightEnvelope
+      setLightEnvelope(light)
+      setEnvelope(null)
+      setPolicyEnvelope(null)
+      onAnnounce(
+        `Decision Light returned a ${light.response_type} response with ${light.citations.length} ${
+          light.citations.length === 1 ? 'citation' : 'citations'
+        }.`,
+      )
+    } else {
+      const policies = result.value as PolicyRetrievalEnvelope
+      setPolicyEnvelope(policies)
+      setEnvelope(null)
+      setLightEnvelope(null)
+      onAnnounce(
+        `${policies.policies.length} ${
+          policies.policies.length === 1 ? 'policy was' : 'policies were'
+        } returned. No decision was generated.`,
+      )
+    }
     setSentGuidance(guidanceForThisCall)
     setDocketCollapsed(true)
+    if (responseMode !== 'policies' && idempotencyKey.trim()) {
+      // Keep a failed call's key for a safe retry, but rotate after success so
+      // the next playground submit cannot replay this receipt by accident.
+      setIdempotencyKey(newUuid())
+    }
     // A fresh correlation id for the next call, so the value on screen is
     // always the one the *next* request will carry.
     setCorrelationId(newUuid())
-
-    onAnnounce(announceReceipt(result.value))
 
     requestAnimationFrame(() => {
       const heading = resultsRef.current?.querySelector<HTMLElement>('#result-heading')
@@ -336,9 +472,11 @@ export default function App() {
     baseUrl,
     clientRequestHash,
     correlationId,
+    draftSignature,
     idempotencyKey,
     onAnnounce,
     projectKey,
+    responseMode,
     submitDisabledReason,
     submitting,
     subscriptionKey,
@@ -360,14 +498,20 @@ export default function App() {
       }
       if (!envelope) {
         // A lookup after a timeout: there is nothing to compare against, so the
-        // stored receipt becomes the result rather than a comparison.
+        // stored full receipt becomes the result rather than a comparison. A
+        // Decision Light call stores that same full receipt; switch explicitly
+        // to its full representation rather than hiding it in the wrong state.
         setEnvelope(result.value)
+        setLightEnvelope(null)
+        setPolicyEnvelope(null)
+        if (responseMode === 'decision-light') setResponseMode('decision')
         setVerifyState({ kind: 'idle' })
+        setError(null)
         return
       }
       setVerifyState({ kind: 'compared', comparison: compareReceipts(envelope, result.value) })
     },
-    [baseUrl, envelope, subscriptionKey],
+    [baseUrl, envelope, responseMode, subscriptionKey],
   )
 
   /* ---------- render ---------- */
@@ -376,8 +520,15 @@ export default function App() {
   // strictest reading of "a receipt that was not stored is not a usable
   // success", and it is deliberate.
   const persistenceFailed = error?.code === 'decision_receipt_failed'
-  const showResult = envelope !== null && !persistenceFailed
-  const stale = showResult && error !== null
+  const activeResponse =
+    responseMode === 'decision'
+      ? envelope
+      : responseMode === 'decision-light'
+        ? lightEnvelope
+        : policyEnvelope
+  const showResult = activeResponse !== null && !persistenceFailed
+  // A previous response is never retained across a draft edit or a new submit.
+  const stale = false
 
   // The tag decides which answer shape is rendered. `unrecognised` is a real
   // third branch rather than a fall-through to v1: reading `.decision` off an
@@ -401,8 +552,9 @@ export default function App() {
       idempotencyKey={idempotencyKey}
       clientRequestHash={clientRequestHash}
       requestChanged={idempotencyConflict}
-      trace={envelope?.trace ?? null}
-      response={envelope}
+      trace={envelope?.trace ?? lightEnvelope?.trace ?? null}
+      responseMode={responseMode}
+      response={activeResponse}
       guidanceRef={guidanceRef}
       onAnnounce={onAnnounce}
     />
@@ -417,8 +569,25 @@ export default function App() {
           <span className="pg-header__conn" data-testid="playground-connection">
             {hostFromBase(baseUrl)} · {projectKey.trim() || 'no project'}
           </span>
+          <button
+            type="button"
+            className="btn pg-header__guide"
+            data-testid="playground-integration-guide-button"
+            onClick={() => setGuideOpen(true)}
+          >
+            Integration guide
+          </button>
         </div>
       </header>
+
+      <RunMetrics
+        responseMode={responseMode}
+        response={activeResponse}
+        submitting={submitting}
+        failed={Boolean(error)}
+        elapsedMs={elapsedMs}
+        completedMs={completedMs}
+      />
 
       <div className="pg-intro">
         <p className="pg-intro__purpose">{HEADER.purpose}</p>
@@ -432,24 +601,64 @@ export default function App() {
       <main className="pg-main">
         <RequestDocket
           baseUrl={baseUrl}
-          onBaseUrl={setBaseUrl}
+          onBaseUrl={(value) => {
+            clearRenderedResponse()
+            setBaseUrl(value)
+          }}
           projectKey={projectKey}
-          onProjectKey={setProjectKey}
+          onProjectKey={(value) => {
+            clearRenderedResponse()
+            setProjectKey(value)
+          }}
           subscriptionKey={subscriptionKey}
-          onSubscriptionKey={setSubscriptionKey}
+          onSubscriptionKey={(value) => {
+            clearRenderedResponse()
+            setSubscriptionKey(value)
+          }}
           subscriptionKeyPrefilled={PREFILLED_SUBSCRIPTION_KEY.length > 0}
           scenario={scenario}
-          onScenario={setScenario}
+          onScenario={(value) => {
+            clearRenderedResponse()
+            setScenario(value)
+          }}
+          responseMode={responseMode}
+          onResponseMode={(mode) => {
+            setResponseMode(mode)
+            setEnvelope(null)
+            setLightEnvelope(null)
+            setPolicyEnvelope(null)
+            setError(null)
+            setVerifyState({ kind: 'idle' })
+            setSubmittedHash(null)
+            setSubmittedIdempotencyKey(null)
+            setDocketCollapsed(false)
+            setCompletedMs(null)
+          }}
           reasoningEffort={reasoningEffort}
-          onReasoningEffort={setReasoningEffort}
+          onReasoningEffort={(value) => {
+            clearRenderedResponse()
+            setReasoningEffort(value)
+          }}
           callingSystemIdentity={callingSystemIdentity}
-          onCallingSystemIdentity={setCallingSystemIdentity}
+          onCallingSystemIdentity={(value) => {
+            clearRenderedResponse()
+            setCallingSystemIdentity(value)
+          }}
           idempotencyKey={idempotencyKey}
-          onIdempotencyKey={setIdempotencyKey}
+          onIdempotencyKey={(value) => {
+            clearRenderedResponse()
+            setIdempotencyKey(value)
+          }}
           additionalInstructions={additionalInstructions}
-          onAdditionalInstructions={setAdditionalInstructions}
+          onAdditionalInstructions={(value) => {
+            clearRenderedResponse()
+            setAdditionalInstructions(value)
+          }}
           correlationId={correlationId}
-          onRegenerateCorrelation={() => setCorrelationId(newUuid())}
+          onRegenerateCorrelation={() => {
+            clearRenderedResponse()
+            setCorrelationId(newUuid())
+          }}
           resolution={resolution}
           submitting={submitting}
           submitDisabledReason={submitDisabledReason}
@@ -470,19 +679,6 @@ export default function App() {
         {!showResult ? requestInspector : null}
 
         <div className="pg-results" ref={resultsRef}>
-          {submitting ? (
-            <div className="wait-strip" role="status" aria-live="polite" data-testid="playground-wait">
-              <strong>
-                {WAIT.line1} ·{' '}
-                <span aria-hidden="true" data-testid="playground-elapsed">
-                  {formatElapsed(elapsedMs)} {WAIT.elapsedSuffix}
-                </span>
-              </strong>
-              <span className="small muted">{WAIT.line2}</span>
-              {elapsedMs > 20_000 ? <span className="small muted">{WAIT.long}</span> : null}
-            </div>
-          ) : null}
-
           {error ? (
             <ErrorBand
               error={error}
@@ -503,9 +699,25 @@ export default function App() {
             </div>
           ) : null}
 
-          {stale ? <StaleCaption /> : null}
+          {showResult && responseMode === 'policies' && policyEnvelope ? (
+            <>
+              <PolicyRetrievalResult envelope={policyEnvelope} onAnnounce={onAnnounce} />
+              {requestInspector}
+            </>
+          ) : null}
 
-          {showResult && envelope ? (
+          {showResult && responseMode === 'decision-light' && lightEnvelope ? (
+            <>
+              <DecisionLightResult
+                envelope={lightEnvelope}
+                baseUrl={baseUrl}
+                onAnnounce={onAnnounce}
+              />
+              {requestInspector}
+            </>
+          ) : null}
+
+          {showResult && responseMode === 'decision' && envelope ? (
             <>
               {/* ---------- case_decision_v2: two tracks ---------- */}
               {v2 ? (
@@ -620,19 +832,29 @@ export default function App() {
                 </div>
               </details>
             </>
-          ) : !submitting && !error ? (
+          ) : !showResult && !submitting && !error ? (
             <section className="panel">
               <div className="panel__body">
                 <p className="empty-state">
-                  No decision has been requested yet. The Request Inspector above shows the exact
-                  request this page will send; the receipt, the evidence and the retrieval
-                  disclosure appear here once the API answers.
+                  {responseMode === 'decision'
+                    ? 'No decision has been requested yet. The Request Inspector above shows the exact request this page will send; the receipt, evidence, and retrieval disclosure appear here once the API answers.'
+                    : responseMode === 'decision-light'
+                      ? 'No compact decision has been requested yet. The Request Inspector above shows the exact request; Decision Light JSON appears here once the API answers.'
+                    : 'No policy retrieval has been requested yet. The Request Inspector above shows the exact light request; the filtered policy JSON appears here once the API answers.'}
                 </p>
               </div>
             </section>
           ) : null}
         </div>
       </main>
+
+      <IntegrationGuide
+        open={guideOpen}
+        baseUrl={baseUrl}
+        projectKey={projectKey}
+        onClose={closeIntegrationGuide}
+        onAnnounce={onAnnounce}
+      />
 
       {/* One shared live region. The inspector announces its preview change on
           blur through this node rather than on every keystroke. */}

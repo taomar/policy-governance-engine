@@ -1,11 +1,25 @@
-import type { CaseDecisionReceipt, PolicySetSummary, ActiveVersionSummary } from '../contracts/caseDecision'
+import type {
+  ActiveVersionSummary,
+  CaseDecisionLightEnvelope,
+  CaseDecisionReceipt,
+  PolicyRetrievalEnvelope,
+  PolicySetSummary,
+} from '../contracts/caseDecision'
 import type { DocketValues } from './requestBody'
-import { buildRequestBody, casePath, joinUrl, receiptPath } from './requestBody'
+import {
+  buildPolicyRequestBody,
+  buildRequestBody,
+  casePath,
+  joinUrl,
+  lightCasePath,
+  policiesPath,
+  receiptPath,
+} from './requestBody'
 import { SUBSCRIPTION_KEY_HEADER } from './subscriptionKey'
 import { TIMEOUT_SECONDS, mapDecisionError, mapVerifyError, type PlaygroundError } from './errors'
 
 /**
- * The whole of this app's contact with the platform: four `fetch` calls.
+ * The whole of this app's contact with the platform: six `fetch` calls.
  *
  * There is no client library, no generated SDK and no shared module with the
  * product. That is the demonstration -- if this page needed anything from
@@ -188,6 +202,125 @@ export async function postCase(input: {
           status: 'timeout',
           projectKey: input.projectKey,
           correlationId: input.correlationId,
+        }),
+      }
+    }
+    return {
+      ok: false,
+      error: mapDecisionError({
+        status: 'network',
+        projectKey: input.projectKey,
+        correlationId: input.correlationId,
+      }),
+    }
+  } finally {
+    cancel()
+  }
+}
+
+export async function postLightCase(input: {
+  baseUrl: string
+  projectKey: string
+  subscriptionKey: string
+  correlationId: string
+  idempotencyKey?: string
+  values: DocketValues
+}): Promise<ApiResult<CaseDecisionLightEnvelope>> {
+  const { signal, cancel } = withTimeout()
+  const headers: Record<string, string> = {
+    ...(apiHeaders(input.subscriptionKey) as Record<string, string>),
+    'X-Correlation-Id': input.correlationId,
+  }
+  const key = (input.idempotencyKey ?? '').trim()
+  if (key) headers['Idempotency-Key'] = key
+
+  try {
+    const response = await fetch(joinUrl(input.baseUrl, lightCasePath(input.projectKey)), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildRequestBody(input.values)),
+      signal,
+    })
+    const correlationId = response.headers.get('X-Correlation-Id') ?? undefined
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: mapDecisionError({
+          status: response.status,
+          detail: await readDetail(response),
+          projectKey: input.projectKey,
+          correlationId: correlationId ?? input.correlationId,
+        }),
+      }
+    }
+    return { ok: true, value: (await response.json()) as CaseDecisionLightEnvelope, correlationId }
+  } catch (cause) {
+    if ((cause as Error)?.name === 'AbortError') {
+      return {
+        ok: false,
+        error: mapDecisionError({
+          status: 'timeout',
+          projectKey: input.projectKey,
+          correlationId: input.correlationId,
+        }),
+      }
+    }
+    return {
+      ok: false,
+      error: mapDecisionError({
+        status: 'network',
+        projectKey: input.projectKey,
+        correlationId: input.correlationId,
+      }),
+    }
+  } finally {
+    cancel()
+  }
+}
+
+/** Filter published policies for a scenario, without running or storing a decision. */
+export async function postPolicies(input: {
+  baseUrl: string
+  projectKey: string
+  subscriptionKey: string
+  correlationId: string
+  values: DocketValues
+}): Promise<ApiResult<PolicyRetrievalEnvelope>> {
+  const { signal, cancel } = withTimeout()
+  const headers: Record<string, string> = {
+    ...(apiHeaders(input.subscriptionKey) as Record<string, string>),
+    'X-Correlation-Id': input.correlationId,
+  }
+
+  try {
+    const response = await fetch(joinUrl(input.baseUrl, policiesPath(input.projectKey)), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildPolicyRequestBody(input.values)),
+      signal,
+    })
+    const correlationId = response.headers.get('X-Correlation-Id') ?? undefined
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: mapDecisionError({
+          status: response.status,
+          detail: await readDetail(response),
+          projectKey: input.projectKey,
+          correlationId: correlationId ?? input.correlationId,
+        }),
+      }
+    }
+    return { ok: true, value: (await response.json()) as PolicyRetrievalEnvelope, correlationId }
+  } catch (cause) {
+    if ((cause as Error)?.name === 'AbortError') {
+      return {
+        ok: false,
+        error: mapDecisionError({
+          status: 'timeout',
+          projectKey: input.projectKey,
+          correlationId: input.correlationId,
+          operation: 'retrieval',
         }),
       }
     }

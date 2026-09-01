@@ -1509,13 +1509,19 @@ async def test_a_fact_the_rule_names_is_matched_across_unicode_forms(stubbed) ->
 
 
 @pytest.mark.parametrize("status", ["missing_required_facts", "not_settled_by_rules", "answered"])
-async def test_the_reply_a_client_reads_carries_no_new_field(stubbed, status: str) -> None:
+async def test_the_reply_a_client_reads_is_exactly_the_agreed_shape(stubbed, status: str) -> None:
     """Compatibility, checked rather than assumed.
 
     `unsettled_reason` constrains what the *model* returns; it is not a field
-    added to the reply. Clients already read this shape, and a key appearing in it
-    would be a contract change nobody asked for — one that would have to be
+    added to the reply. Clients already read this shape, and a key appearing in
+    it would be a contract change nobody asked for — one that would have to be
     carried through the envelope and the receipt as well.
+
+    `verification_requirements` is in the set because it *is* such a change, made
+    deliberately and carried everywhere it has to be. It is asserted as part of
+    the agreed shape rather than tolerated as an extra, so the next key that
+    arrives without that work still fails here. Every status carries it, empty
+    where nothing was reached, so a client destructures one shape.
     """
 
     domain = DOMAINS[0]
@@ -1540,10 +1546,12 @@ async def test_the_reply_a_client_reads_carries_no_new_field(stubbed, status: st
         "answer",
         "missing_required_facts",
         "missing_information",
+        "verification_requirements",
         "citations",
         "note",
         "grounding",
     }
+    assert isinstance(decision["verification_requirements"], list)
 
 
 # ── the contract is stated once, semantically, for any subject ───────

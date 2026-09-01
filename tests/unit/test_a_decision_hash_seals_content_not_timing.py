@@ -54,6 +54,7 @@ from policy_platform.application.policy_case_decision import (  # noqa: E402
 from policy_platform.contracts.case_decision import (  # noqa: E402
     DECISION_HASH_V2_INCLUDES,
     HASH_BASIS_V2,
+    HASH_BASIS_V2_WITH_VERIFICATION,
     CaseDecisionEnvelope,
     CaseDecisionEnvelopeV2,
     InformationSection,
@@ -242,6 +243,27 @@ def test_the_seal_is_indifferent_to_when_and_how_long(_=None) -> None:
     assert later.decided_at != baseline.decided_at
 
 
+def test_stage_latency_is_visible_but_not_part_of_the_seal() -> None:
+    baseline = _envelope()
+    observed = _envelope(
+        context={
+            **_CONTEXT,
+            "timings_ms": {
+                "embedding": 1414,
+                "policy_search": 1604,
+                "gather_wall": 18_500,
+            },
+        }
+    )
+
+    assert observed.trace.stage_latency_ms == {
+        "embedding": 1414,
+        "policy_search": 1604,
+        "gather_wall": 18_500,
+    }
+    assert observed.decision_hash == baseline.decision_hash
+
+
 def test_the_seal_is_indifferent_to_record_identity_and_the_url() -> None:
     """Two receipts of the same decided content seal identically.
 
@@ -288,7 +310,7 @@ def test_the_hash_excludes_itself_and_is_reproducible_from_the_envelope() -> Non
 
     envelope = _envelope()
     assert compute_decision_hash_v2(envelope) == envelope.decision_hash
-    assert envelope.hash_basis == HASH_BASIS_V2
+    assert envelope.hash_basis == HASH_BASIS_V2_WITH_VERIFICATION
 
 
 # ── what the seal must notice ────────────────────────────────────────

@@ -139,6 +139,8 @@ from policy_platform.contracts.case_decision import (
     CHANNEL_API,
     HASH_BASIS_V2,
     HASH_BASIS_V2_LANG,
+    HASH_BASIS_V2_LANG_WITH_VERIFICATION,
+    HASH_BASIS_V2_WITH_VERIFICATION,
     MAX_ADDITIONAL_INSTRUCTIONS_CHARS,
     NOT_EVALUATED,
     NOT_REQUESTED,
@@ -166,7 +168,9 @@ from policy_platform.contracts.case_decision import (
     RuleSelectionRef,
     SizeRef,
     TraceRef,
+    TokenUsageRef,
     VerdictSection,
+    VerificationRequirementItem,
     VersionRef,
     additional_instructions_hash,
     compute_decision_hash_v2,
@@ -174,6 +178,22 @@ from policy_platform.contracts.case_decision import (
     request_hash,
     scenario_hash,
     validate_receipt,
+)
+from policy_platform.contracts.policy_retrieval import (
+    PolicyRetrievalEnvelope,
+    PolicyRetrievalQueryRef,
+)
+from policy_platform.contracts.case_decision_light import (
+    CaseDecisionLightEnvelope,
+    LightAskedRef,
+    LightCitationRef,
+    LightInformationRef,
+    LightOutcomeRef,
+    LightPolicyRef,
+    LightRequestRef,
+    LightRetrievalRef,
+    LightTraceRef,
+    LightVerdictRef,
 )
 from policy_platform.domain.models import DocumentProvision, PolicyCaseDecision
 from policy_platform.infrastructure.assistants import (
@@ -183,6 +203,10 @@ from policy_platform.infrastructure.assistants import (
 )
 from policy_platform.infrastructure.persistence.repositories.case_decisions import (
     PolicyCaseDecisionRepository,
+)
+from policy_platform.infrastructure.ai.usage_metering import (
+    UsageScope,
+    collect_token_usage,
 )
 from policy_platform.infrastructure.settings import get_settings
 
@@ -254,6 +278,13 @@ PROSE_VERDICT_NOTE = "verdict.note"
 PROSE_MISSING_LABEL = "missing_information.{index}.label"
 PROSE_MISSING_WHY_NEEDED = "missing_information.{index}.why_needed"
 
+#: One verification requirement's human-facing halves. `fact` is absent for the
+#: same reason it is absent above: it is the selector key a caller confirms
+#: against, not a sentence. These are rendered alongside the missing facts so a
+#: reader who is owed their language is owed it for the conditions on acting too.
+PROSE_VERIFICATION_LABEL = "verification_requirements.{index}.label"
+PROSE_VERIFICATION_WHY_NEEDED = "verification_requirements.{index}.why_needed"
+
 
 def _prose_slots(evaluation: dict) -> Iterator[tuple[str, dict, str]]:
     """Every place in one evaluation that holds prose a reader is owed.
@@ -288,6 +319,11 @@ def _prose_slots(evaluation: dict) -> Iterator[tuple[str, dict, str]]:
                 continue
             yield (PROSE_MISSING_LABEL.format(index=index), item, "label")
             yield (PROSE_MISSING_WHY_NEEDED.format(index=index), item, "why_needed")
+        for index, item in enumerate(decision.get("verification_requirements") or []):
+            if not isinstance(item, dict):
+                continue
+            yield (PROSE_VERIFICATION_LABEL.format(index=index), item, "label")
+            yield (PROSE_VERIFICATION_WHY_NEEDED.format(index=index), item, "why_needed")
 
 
 def prose_for_rendering(evaluation: dict | None) -> dict[str, str]:
@@ -676,6 +712,322 @@ async def answer_project_case(
     return {**response, "language": language.model_dump(mode="json")}
 
 
+async def _retrieve_project_policies(
+    session: AsyncSession,
+    *,
+    policy_set,
+    scenario: str,
+    correlation_id: str,
+    usage_scope: UsageScope,
+    started: float,
+) -> PolicyRetrievalEnvelope:
+    """Return the filtered records the decision path would read, and stop there.
+
+    This is intentionally outside the receipt lifecycle: no decision is made, so
+    there is no decision identity, idempotency key, verdict, or receipt to store.
+    The language boundary and approved corpus are identical to the reasoned path.
+    The policy cut is precision-first rather than recall-first because this path
+    has no grounded gather that can reject an over-kept record.
+    """
+
+    settings = get_settings()
+    if not settings.ai_enabled:
+        raise CaseDecisionError(
+            status_code=503,
+            code="ai_unavailable",
+            message="Azure OpenAI is not configured on this server.",
+            correlation_id=correlation_id,
+        )
+    if len(scenario) > ai_case_language.MAX_SCENARIO_CHARS:
+        raise CaseDecisionError(
+            status_code=422,
+            code="scenario_too_long",
+            message=(
+                f"scenario is {len(scenario)} characters; the maximum is "
+                f"{ai_case_language.MAX_SCENARIO_CHARS}."
+            ),
+            correlation_id=correlation_id,
+        )
+
+    try:
+        crossing = await cross_into_processing_language(scenario, "")
+        selected = await ai_case_project.retrieve_project_policies(
+            session,
+            policy_set=policy_set,
+            scenario=crossing.scenario,
+            with_context=True,
+        )
+    except ai_case_language.LanguageBoundaryError as exc:
+        raise CaseDecisionError(
+            status_code=503,
+            code=exc.code,
+            message=(
+                "The question could not be carried into the language this platform retrieves in, "
+                "so no policy was selected."
+            ),
+            correlation_id=correlation_id,
+        ) from exc
+    except ai_case_project.IndexProjectionUnavailable as exc:
+        raise CaseDecisionError(
+            status_code=503,
+            code=exc.code,
+            message=str(exc),
+            correlation_id=correlation_id,
+        ) from exc
+    except RuntimeError as exc:
+        raise CaseDecisionError(
+            status_code=503,
+            code="ai_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        ) from exc
+
+    response = selected.response
+    _, language = await cross_out_to_the_reader(
+        response,
+        crossing,
+        projection_profile=_projection_profile(response),
+    )
+    project = PolicySetRef(
+        id=str(policy_set.id),
+        key=policy_set.key,
+        name=getattr(policy_set, "name", "") or "",
+    )
+    return PolicyRetrievalEnvelope(
+        correlation_id=correlation_id,
+        policy_set=project,
+        active_version=_version_ref(selected.context),
+        query=PolicyRetrievalQueryRef(
+            scenario=scenario,
+            scenario_hash=scenario_hash(scenario),
+        ),
+        retrieval=RetrievalRef(**_retrieval_fields(response.get("retrieval") or {})),
+        policies=response.get("policies") or [],
+        size=SizeRef(**(response.get("size") or {})),
+        language=language,
+        token_usage=_token_usage_ref(usage_scope),
+        latency_ms=max(0, int((time.perf_counter() - started) * 1000)),
+    )
+
+
+async def retrieve_project_policies(
+    session: AsyncSession,
+    *,
+    policy_set,
+    scenario: str,
+    correlation_id: str,
+) -> PolicyRetrievalEnvelope:
+    """Return filtered policy records with observed duration and model usage."""
+
+    started = time.perf_counter()
+    with collect_token_usage() as usage_scope:
+        return await _retrieve_project_policies(
+            session,
+            policy_set=policy_set,
+            scenario=scenario,
+            correlation_id=correlation_id,
+            usage_scope=usage_scope,
+            started=started,
+        )
+
+
+def compact_decision_receipt(
+    envelope: CaseDecisionEnvelopeV2 | CaseDecisionEnvelope,
+) -> CaseDecisionLightEnvelope:
+    """Project a full stored receipt into the fixed light response contract."""
+
+    if isinstance(envelope, CaseDecisionEnvelopeV2):
+        if envelope.asked.information_requested and envelope.asked.verdict_requested:
+            response_type = "mixed"
+        elif envelope.asked.verdict_requested:
+            response_type = "decision"
+        elif envelope.asked.information_requested:
+            response_type = "informational"
+        else:
+            response_type = "not_evaluated"
+
+        information = (
+            LightInformationRef(
+                status=envelope.information.status,
+                answer=envelope.information.answer,
+                explanation=envelope.information.explanation,
+                note=envelope.information.note,
+            )
+            if envelope.information is not None
+            else None
+        )
+        verdict = (
+            LightVerdictRef(
+                status=envelope.verdict.status,
+                reached=envelope.verdict.reached,
+                decision=envelope.verdict.decision,
+                explanation=envelope.verdict.explanation,
+                missing_information=envelope.verdict.missing_information,
+                verification_requirements=envelope.verdict.verification_requirements,
+                note=envelope.verdict.note,
+            )
+            if envelope.verdict is not None
+            else None
+        )
+        citations = [
+            LightCitationRef(
+                rule_id=citation.rule_id,
+                policy=_light_policy(citation.policy),
+                source=citation.source,
+                serves=list(citation.serves),
+            )
+            for citation in envelope.citations
+        ]
+        grounding = (
+            (envelope.verdict.grounding if envelope.verdict else None)
+            or (envelope.information.grounding if envelope.information else None)
+            or {}
+        )
+        asked = LightAskedRef(
+            information_requested=envelope.asked.information_requested,
+            verdict_requested=envelope.asked.verdict_requested,
+            classifier_version=envelope.asked.classifier_version,
+        )
+        outcome = LightOutcomeRef(
+            information=envelope.outcome.information,
+            verdict=envelope.outcome.verdict,
+        )
+    else:
+        route = envelope.decision.decider_route or envelope.decision.intent or ROUTE_DECISION
+        status = envelope.decision_status
+        informational = route == ROUTE_INFORMATIONAL
+        response_type = (
+            "not_evaluated"
+            if status == NOT_EVALUATED
+            else "informational"
+            if informational
+            else "decision"
+        )
+        information_status = (
+            status
+            if informational and status in {"answered", "no_rule_bears", "declined", "failed"}
+            else NOT_EVALUATED
+            if status == NOT_EVALUATED
+            else NOT_REQUESTED
+        )
+        verdict_status = (
+            NOT_REQUESTED
+            if informational
+            else NOT_EVALUATED
+            if status == NOT_EVALUATED
+            else status
+        )
+        information = (
+            LightInformationRef(
+                status=status,
+                answer=envelope.decision.explanation if status == STATUS_WITH_VERDICT else "",
+                explanation=(
+                    None
+                    if status == STATUS_WITH_VERDICT
+                    else envelope.decision.explanation or None
+                ),
+                note=envelope.decision.note,
+            )
+            if informational and status != NOT_EVALUATED
+            else None
+        )
+        verdict = (
+            LightVerdictRef(
+                status=status,
+                reached=status == STATUS_WITH_VERDICT and bool(envelope.decision.verdict),
+                decision=envelope.decision.verdict,
+                explanation=envelope.decision.explanation,
+                missing_information=[
+                    MissingInformationItem(fact=fact, label=fact)
+                    for fact in envelope.decision.missing_required_facts
+                ],
+                note=envelope.decision.note,
+            )
+            if not informational and status != NOT_EVALUATED
+            else None
+        )
+        serves = ["information"] if informational else ["verdict"]
+        citations = [
+            LightCitationRef(
+                rule_id=citation.rule_id,
+                policy=_light_policy(citation.policy),
+                source=citation.source,
+                serves=serves,
+            )
+            for citation in envelope.citations
+        ]
+        grounding = {}
+        asked = LightAskedRef(
+            information_requested=informational and status != NOT_EVALUATED,
+            verdict_requested=not informational and status != NOT_EVALUATED,
+            classifier_version=None,
+        )
+        outcome = LightOutcomeRef(
+            information=information_status,
+            verdict=verdict_status,
+        )
+
+    policies: list[LightPolicyRef] = []
+    seen_policies: set[tuple[str | None, str | None]] = set()
+    for citation in citations:
+        if citation.policy is None:
+            continue
+        identity = (citation.policy.provision_id, citation.policy.provision_key)
+        if identity in seen_policies:
+            continue
+        seen_policies.add(identity)
+        policies.append(citation.policy)
+
+    return CaseDecisionLightEnvelope(
+        response_type=response_type,
+        decision_id=envelope.decision_id,
+        correlation_id=envelope.correlation_id,
+        idempotency_key=envelope.idempotency_key,
+        policy_set=envelope.policy_set,
+        active_version=envelope.active_version,
+        request=LightRequestRef(
+            scenario=envelope.request.scenario,
+            scenario_hash=envelope.request.scenario_hash,
+        ),
+        asked=asked,
+        outcome=outcome,
+        information=information,
+        verdict=verdict,
+        retrieval=LightRetrievalRef(
+            status=envelope.retrieval.status,
+            method=envelope.retrieval.method,
+            policies_retained=envelope.retrieval.policies_retained,
+            rule_rescued_policies=envelope.retrieval.rule_rescued_policies,
+            reason=envelope.retrieval.reason,
+        ),
+        policies=policies,
+        citations=citations,
+        trace=LightTraceRef(
+            classifier_version=asked.classifier_version,
+            prompt_version=envelope.trace.prompt_version,
+            plan_profile=grounding.get("plan_profile"),
+            selector_catalogue_version=grounding.get("selector_catalogue_version"),
+            model_deployment=envelope.trace.model_deployment,
+            stage_latency_ms=envelope.trace.stage_latency_ms,
+            token_usage=envelope.trace.token_usage,
+        ),
+        decision_hash=envelope.decision_hash,
+        hash_basis=envelope.hash_basis,
+        receipt_url=envelope.receipt_url,
+        latency_ms=envelope.latency_ms,
+    )
+
+
+def _light_policy(policy: PolicyRef | None) -> LightPolicyRef | None:
+    if policy is None:
+        return None
+    return LightPolicyRef(
+        provision_id=policy.provision_id,
+        provision_key=policy.provision_key,
+        heading_path=list(policy.heading_path),
+    )
+
+
 def _projection_profile(response: dict) -> str | None:
     """The corpus projection the retrieval that actually ran matched against.
 
@@ -699,7 +1051,7 @@ def _projection_profile(response: dict) -> str | None:
 # ── the audited path ─────────────────────────────────────────────────
 
 
-async def decide_project_case(
+async def _decide_project_case(
     session: AsyncSession,
     *,
     policy_set,
@@ -711,6 +1063,7 @@ async def decide_project_case(
     caller: Caller,
     additional_instructions: str = "",
     request_metadata: dict | None = None,
+    usage_scope: UsageScope,
 ) -> CaseDecisionOutcome:
     """Decide a project case and answer with a persisted receipt.
 
@@ -835,6 +1188,7 @@ async def decide_project_case(
 
     received_at = datetime.now(timezone.utc)
     started = time.perf_counter()
+    timings_ms: dict[str, int] = {}
 
     try:
         row = await repo.reserve(
@@ -854,6 +1208,9 @@ async def decide_project_case(
             reasoning_effort_requested=reasoning_effort,
             request_metadata=reservation_metadata,
             received_at=received_at,
+        )
+        timings_ms["reservation"] = max(
+            0, int((time.perf_counter() - started) * 1000)
         )
     except IntegrityError:
         # Two calls with one key raced. The loser rolls back and reads what the
@@ -899,6 +1256,7 @@ async def decide_project_case(
     # local to this path is what a failure costs: the reservation is already
     # written, so it is closed as failed and the caller gets a 503 naming which
     # half of the boundary could not be crossed.
+    language_in_started = time.perf_counter()
     try:
         crossing = await cross_into_processing_language(scenario, guidance)
     except ai_case_language.LanguageBoundaryError as exc:
@@ -932,8 +1290,12 @@ async def decide_project_case(
             correlation_id=correlation_id,
             started=started,
         ) from exc
+    timings_ms["language_in"] = max(
+        0, int((time.perf_counter() - language_in_started) * 1000)
+    )
 
     # ── decide, with no transaction held ──────────────────────────────
+    decider_started = time.perf_counter()
     try:
         answer = await _invoke_decider(
             session,
@@ -1014,6 +1376,11 @@ async def decide_project_case(
             started=started,
         ) from exc
 
+    timings_ms["decider_wall"] = max(
+        0, int((time.perf_counter() - decider_started) * 1000)
+    )
+    answer.context.setdefault("timings_ms", {}).update(timings_ms)
+
     decided_at = datetime.now(timezone.utc)
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
 
@@ -1023,6 +1390,7 @@ async def decide_project_case(
     # costs. A rendering that cannot be completed leaves a decision that was
     # made and will not be served: half in one language and half in another is
     # worse evidence than none.
+    language_out_started = time.perf_counter()
     try:
         response, language = await cross_out_to_the_reader(
             answer.response, crossing, projection_profile=_projection_profile(answer.response)
@@ -1060,7 +1428,21 @@ async def decide_project_case(
             correlation_id=correlation_id,
             started=started,
         ) from exc
+    answer.context["timings_ms"]["language_out"] = max(
+        0, int((time.perf_counter() - language_out_started) * 1000)
+    )
 
+    links_started = time.perf_counter()
+    provision_ids = await _provision_ids_by_key(
+        session, policy_set_id=project_id, response=response
+    )
+    answer.context["timings_ms"]["policy_link_lookup"] = max(
+        0, int((time.perf_counter() - links_started) * 1000)
+    )
+    answer.context["timings_ms"]["to_envelope"] = max(
+        0, int((time.perf_counter() - started) * 1000)
+    )
+    answer.context["token_usage"] = _token_usage_ref(usage_scope).model_dump(mode="json")
     envelope = build_envelope(
         decision_id=decision_id,
         correlation_id=correlation_id,
@@ -1077,11 +1459,10 @@ async def decide_project_case(
         latency_ms=latency_ms,
         response=response,
         context=answer.context,
-        provision_ids=await _provision_ids_by_key(
-            session, policy_set_id=project_id, response=response
-        ),
+        provision_ids=provision_ids,
     )
 
+    finalize_started = time.perf_counter()
     try:
         await repo.finalize_completed(
             row,
@@ -1105,6 +1486,13 @@ async def decide_project_case(
             hash_basis=envelope.hash_basis,
             decided_at=decided_at,
             latency_ms=latency_ms,
+        )
+        logger.info(
+            "case decision %s stage timings ms=%s finalize=%s total=%s",
+            decision_id,
+            answer.context.get("timings_ms"),
+            max(0, int((time.perf_counter() - finalize_started) * 1000)),
+            max(0, int((time.perf_counter() - started) * 1000)),
         )
     except Exception as exc:  # noqa: BLE001 - an unstored verdict is not a verdict
         await _safe_rollback(session)
@@ -1139,6 +1527,37 @@ async def decide_project_case(
         ) from exc
 
     return CaseDecisionOutcome(envelope=envelope, replayed=False)
+
+
+async def decide_project_case(
+    session: AsyncSession,
+    *,
+    policy_set,
+    scenario: str,
+    provision_id: str | None,
+    reasoning_effort: str,
+    correlation_id: str,
+    idempotency_key: str | None,
+    caller: Caller,
+    additional_instructions: str = "",
+    request_metadata: dict | None = None,
+) -> CaseDecisionOutcome:
+    """Decide and persist one case while collecting every model call's usage."""
+
+    with collect_token_usage() as usage_scope:
+        return await _decide_project_case(
+            session,
+            policy_set=policy_set,
+            scenario=scenario,
+            provision_id=provision_id,
+            reasoning_effort=reasoning_effort,
+            correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
+            caller=caller,
+            additional_instructions=additional_instructions,
+            request_metadata=request_metadata,
+            usage_scope=usage_scope,
+        )
 
 
 # ── replay and refusal ───────────────────────────────────────────────
@@ -1453,7 +1872,11 @@ def build_envelope(
         size=SizeRef(**(response.get("size") or {})) if response.get("size") else None,
         trace=_trace_ref(response, context, evaluated=evaluation is not None),
         decision_hash="",
-        hash_basis=HASH_BASIS_V2_LANG if language is not None else HASH_BASIS_V2,
+        hash_basis=(
+            HASH_BASIS_V2_LANG_WITH_VERIFICATION
+            if language is not None
+            else HASH_BASIS_V2_WITH_VERIFICATION
+        ),
         receipt_url=RECEIPT_PATH.format(decision_id=decision_id),
         decided_at=decided_at,
         latency_ms=latency_ms,
@@ -1621,6 +2044,11 @@ def _verdict_section(
     already does that; re-asserting it means the receipt's invariant — a refusal
     is a *reached* verdict, and an undecided case carries no decision at all —
     holds even if a future gather forgets.
+
+    Verification requirements are carried only for a verdict that was reached,
+    for the mirror-image reason: a condition on *acting* on a determination is
+    meaningless where there is no determination, and admitting one on a blocked
+    case would blur the single distinction this section exists to keep sharp.
     """
 
     branch = (evaluation or {}).get("decision")
@@ -1651,6 +2079,7 @@ def _verdict_section(
         explanation=str(branch.get("answer") or ""),
         missing_information=_missing_information_refs(branch, flat=missing_flat) if blocked else [],
         missing_required_facts=missing_flat,
+        verification_requirements=_verification_requirement_refs(branch) if reached else [],
         route=ROUTE_DECISION,
         citations=_citation_refs(branch, provision_ids=provision_ids),
         note=str(branch.get("note") or ""),
@@ -1695,6 +2124,40 @@ def _missing_information_refs(branch: dict, *, flat: list[str]) -> list[MissingI
         MissingInformationItem(fact=fact, label=fact, why_needed="", required_by_rule_ids=[])
         for fact in flat
     ]
+
+
+def _verification_requirement_refs(branch: dict) -> list[VerificationRequirementItem]:
+    """The structured conditions to confirm before acting on a reached verdict.
+
+    Read exactly as the missing facts are read, with one deliberate omission:
+    there is no flat-list fallback, because there is no older flat field to fall
+    back to. An entry with neither a key nor a label is dropped rather than
+    guessed at, and nothing here composes a reason the gather did not give.
+    """
+
+    structured = branch.get("verification_requirements")
+    if not isinstance(structured, list):
+        return []
+
+    items: list[VerificationRequirementItem] = []
+    for entry in structured:
+        if not isinstance(entry, dict):
+            continue
+        fact = str(entry.get("fact") or "").strip()
+        label = str(entry.get("label") or "").strip()
+        if not fact and not label:
+            continue
+        items.append(
+            VerificationRequirementItem(
+                fact=fact or label,
+                label=label or fact,
+                why_needed=str(entry.get("why_needed") or ""),
+                required_by_rule_ids=[
+                    str(rule_id) for rule_id in (entry.get("required_by_rule_ids") or [])
+                ],
+            )
+        )
+    return items
 
 
 def _merged_citations(
@@ -1744,6 +2207,21 @@ def _version_ref(context: dict) -> VersionRef | None:
 _RETRIEVAL_FIELDS = (
     "status",
     "method",
+    "precision_mode",
+    "semantic_candidates",
+    "semantic_selected",
+    "semantic_largest_gap",
+    "semantic_cutoff_score",
+    "semantic_elbow_applied",
+    "direct_policy_order",
+    "coverage_expanded_policies",
+    "coverage_semantic_floor",
+    "rule_rescue_candidates",
+    "rule_rescued_policies",
+    "rule_rescue_floor",
+    "rule_rescue_margin",
+    "rule_semantic_window",
+    "rule_semantic_candidates",
     "policy_budget",
     "policy_scan",
     "policies_retrieved",
@@ -1941,4 +2419,18 @@ def _trace_ref(response: dict, context: dict, *, evaluated: bool) -> TraceRef:
         retrieval_method=retrieval.get("method") or context.get("retrieval_method"),
         index_name=context.get("index_name"),
         index_version_id=context.get("index_version_id"),
+        stage_latency_ms=context.get("timings_ms") or None,
+        token_usage=context.get("token_usage") or None,
+    )
+
+
+def _token_usage_ref(scope: UsageScope) -> TokenUsageRef:
+    report = scope.report()
+    return TokenUsageRef(
+        calls=report.calls,
+        calls_without_usage=report.calls_without_usage,
+        prompt_tokens=report.prompt_tokens,
+        completion_tokens=report.completion_tokens,
+        total_tokens=report.total_tokens,
+        reasoning_tokens=report.reasoning_tokens,
     )

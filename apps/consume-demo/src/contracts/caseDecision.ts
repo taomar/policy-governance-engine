@@ -37,6 +37,9 @@
 export const SCHEMA_VERSION_V1 = 'case_decision_v1'
 /** The envelope every new decision is written as. */
 export const SCHEMA_VERSION_V2 = 'case_decision_v2'
+/** The retrieval-only response returned when no decision is requested. */
+export const POLICY_RETRIEVAL_SCHEMA_VERSION = 'policy_retrieval_v1'
+export const DECISION_LIGHT_SCHEMA_VERSION = 'case_decision_light_v1'
 
 /** @deprecated Use {@link SCHEMA_VERSION_V1}. Kept so older imports still read. */
 export const SCHEMA_VERSION = SCHEMA_VERSION_V1
@@ -325,6 +328,21 @@ export interface PolicyRef {
 export interface RetrievalRef {
   status: string
   method?: string | null
+  precision_mode?: string | null
+  semantic_candidates?: number | null
+  semantic_selected?: number | null
+  semantic_largest_gap?: number | null
+  semantic_cutoff_score?: number | null
+  semantic_elbow_applied?: boolean | null
+  direct_policy_order?: string | null
+  coverage_expanded_policies?: number | null
+  coverage_semantic_floor?: number | null
+  rule_rescue_candidates?: number | null
+  rule_rescued_policies?: number | null
+  rule_rescue_floor?: number | null
+  rule_rescue_margin?: number | null
+  rule_semantic_window?: number | null
+  rule_semantic_candidates?: number | null
   policy_budget?: number | null
   policy_scan?: number | null
   policies_retrieved?: number | null
@@ -385,9 +403,8 @@ export interface RetrievalRef {
   policy_documents_matched?: number | null
   rule_documents_matched?: number | null
   /**
-   * Policies whose ranking was raised by one of their own rules surfacing —
-   * including policies the policy-level search did not return at all. This is
-   * the count that says whether rule-level retrieval did anything here.
+   * Compatibility alias for policies admitted by independently strong
+   * rule-only evidence. Rule scores are never added to direct policy scores.
    */
   policies_elevated_by_rule?: number | null
   /** `matched`, `degraded`, or `unavailable`. See `RULE_INDEX_*`. */
@@ -428,10 +445,21 @@ export interface DecisionRef {
   decider_route?: string | null
 }
 
+export interface TokenUsageRef {
+  calls: number
+  calls_without_usage: number
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+  total_tokens?: number | null
+  reasoning_tokens?: number | null
+}
+
 export interface TraceRef {
   prompt_version?: string | null
   instruction_profile?: string | null
   model_deployment?: string | null
+  stage_latency_ms?: Record<string, number> | null
+  token_usage?: TokenUsageRef | null
   retrieval_method?: string | null
   index_name?: string | null
   index_version_id?: string | null
@@ -573,6 +601,30 @@ export interface MissingInformationItem {
 }
 
 /**
+ * One condition to confirm before acting on a verdict that *was* reached.
+ *
+ * The counterpart to `MissingInformationItem`, and the difference between them
+ * is the whole reason both exist. A missing fact is something the determination
+ * hangs on: until it arrives there is no verdict. A verification requirement
+ * hangs on nothing — the rules settled the question that was asked — but it must
+ * be confirmed before anyone acts on the answer. A balance to check, an approval
+ * to seek, a window to observe, a category held on a record elsewhere.
+ *
+ * So it is additive, and a client must not render it as a blocker: the verdict
+ * beside it is a real verdict, and downgrading it would undo the distinction.
+ */
+export interface VerificationRequirementItem {
+  /** The condition's key, as the policy record names the thing to confirm. */
+  fact: string
+  /** A short human label, in the language the question was asked in. */
+  label: string
+  /** One sentence saying what to confirm and why, before acting. May be empty. */
+  why_needed?: string
+  /** Restricted server-side to rules that were actually in front of the gather. */
+  required_by_rule_ids?: string[]
+}
+
+/**
  * The determination, or the honest account of why there is not one.
  *
  * `decision` is non-empty **iff** `reached` **iff** `status` is `answered`, and
@@ -590,6 +642,12 @@ export interface VerdictSection {
   missing_information?: MissingInformationItem[]
   /** The same facts as bare labels, preserved for older clients. */
   missing_required_facts?: string[]
+  /**
+   * Conditions to confirm before acting on a reached verdict. Populated only
+   * when `status` is `answered`; absent on a receipt written before the field
+   * existed, which is why it is optional rather than defaulted.
+   */
+  verification_requirements?: VerificationRequirementItem[]
   route?: string
   citations?: CitationRef[]
   note?: string
@@ -629,6 +687,119 @@ export interface CaseDecisionEnvelopeV2 extends EnvelopeCommon {
  * and narrows the type while it is at it.
  */
 export type CaseDecisionReceipt = CaseDecisionEnvelope | CaseDecisionEnvelopeV2
+
+export type PlaygroundResponseMode = 'decision' | 'decision-light' | 'policies'
+
+export type DecisionLightResponseType = 'informational' | 'decision' | 'mixed' | 'not_evaluated'
+
+export interface DecisionLightInformation {
+  status: InformationStatus
+  answer: string
+  explanation?: string | null
+  note: string
+}
+
+export interface DecisionLightVerdict {
+  status: VerdictStatus
+  reached: boolean
+  decision: string
+  explanation: string
+  missing_information: MissingInformationItem[]
+  verification_requirements: VerificationRequirementItem[]
+  note: string
+}
+
+export interface DecisionLightPolicy {
+  provision_id?: string | null
+  provision_key?: string | null
+  heading_path: string[]
+}
+
+export interface DecisionLightCitation {
+  rule_id: string
+  policy?: DecisionLightPolicy | null
+  source: CitationSourceRef
+  serves: CitationServes[]
+}
+
+export interface CaseDecisionLightEnvelope {
+  schema_version: typeof DECISION_LIGHT_SCHEMA_VERSION
+  response_type: DecisionLightResponseType
+  decision_id: string
+  correlation_id: string
+  idempotency_key?: string | null
+  policy_set: PolicySetRef
+  active_version?: VersionRef | null
+  request: { scenario: string; scenario_hash: string }
+  asked: {
+    information_requested: boolean
+    verdict_requested: boolean
+    classifier_version?: string | null
+  }
+  outcome: OutcomeRef
+  information?: DecisionLightInformation | null
+  verdict?: DecisionLightVerdict | null
+  retrieval: {
+    status: string
+    method?: string | null
+    policies_retained?: number | null
+    rule_rescued_policies?: number | null
+    reason?: string | null
+  }
+  policies: DecisionLightPolicy[]
+  citations: DecisionLightCitation[]
+  trace: {
+    classifier_version?: string | null
+    prompt_version?: string | null
+    plan_profile?: string | null
+    selector_catalogue_version?: string | null
+    model_deployment?: string | null
+    stage_latency_ms?: Record<string, number> | null
+    token_usage?: TokenUsageRef | null
+  }
+  decision_hash: string
+  hash_basis: string
+  receipt_url: string
+  latency_ms: number
+}
+
+export interface PolicyRetrievalQueryRef {
+  scenario: string
+  scenario_hash: string
+}
+
+export interface RetrievedPolicyIdentity {
+  provision_id?: string | null
+  provision_key: string
+  heading_path: string[]
+}
+
+export interface PolicyMatchRef {
+  best_rank?: number | null
+  best_score?: number | null
+  rule_selection?: RuleSelectionRef | null
+}
+
+export interface RetrievedPolicyRecord {
+  policy: RetrievedPolicyIdentity
+  match: PolicyMatchRef
+  payload: Record<string, unknown>
+}
+
+/** Filtered published policy records, with no decision-shaped fields. */
+export interface PolicyRetrievalEnvelope {
+  schema_version: typeof POLICY_RETRIEVAL_SCHEMA_VERSION
+  correlation_id: string
+  policy_set: PolicySetRef
+  active_version?: VersionRef | null
+  query: PolicyRetrievalQueryRef
+  retrieval: RetrievalRef
+  policies: RetrievedPolicyRecord[]
+  size: SizeRef
+  language: LanguageRef
+  token_usage: TokenUsageRef
+  latency_ms: number
+}
 
 export type ReceiptKind = 'v1' | 'v2' | 'unrecognised'
 
@@ -702,6 +873,10 @@ export interface CaseDecisionRequestBody {
   reasoning_effort: ReasoningEffort
   calling_system_identity: string
   additional_instructions?: string
+}
+
+export interface PolicyRetrievalRequestBody {
+  scenario: string
 }
 
 export type ReasoningEffort = 'low' | 'medium' | 'high'

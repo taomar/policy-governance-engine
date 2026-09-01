@@ -133,6 +133,17 @@ describe('mapDecisionError', () => {
     expect(error.recovery).toBe('retry-lookup')
   })
 
+  it('offers only retry when Policy JSON times out because no receipt exists', () => {
+    const error = mapDecisionError({
+      status: 'timeout',
+      projectKey,
+      operation: 'retrieval',
+    })
+    expect(error.heading).toBe('The policy retrieval timed out after 60s.')
+    expect(error.body).toContain('creates no decision or receipt')
+    expect(error.recovery).toBe('retry')
+  })
+
   it('treats a persistence failure as an unusable result, not a caveated success', () => {
     const error = mapDecisionError({
       status: 500,

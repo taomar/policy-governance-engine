@@ -1,4 +1,8 @@
-import type { CaseDecisionRequestBody, ReasoningEffort } from '../contracts/caseDecision'
+import type {
+  CaseDecisionRequestBody,
+  PolicyRetrievalRequestBody,
+  ReasoningEffort,
+} from '../contracts/caseDecision'
 
 /**
  * Turning what is on screen into what goes on the wire.
@@ -46,6 +50,11 @@ export function buildRequestBody(values: DocketValues): CaseDecisionRequestBody 
   return body
 }
 
+/** The light endpoint receives only the query it uses to filter policies. */
+export function buildPolicyRequestBody(values: DocketValues): PolicyRetrievalRequestBody {
+  return { scenario: values.scenario.trim() }
+}
+
 /**
  * The body as JSON, in the key order the client sends them.
  *
@@ -60,6 +69,14 @@ export function requestBodyJson(values: DocketValues, indent = 2): string {
 /** The compact single-line form, as it appears on the Raw HTTP tab. */
 export function requestBodyWire(values: DocketValues): string {
   return JSON.stringify(buildRequestBody(values))
+}
+
+export function policyRequestBodyJson(values: DocketValues, indent = 2): string {
+  return JSON.stringify(buildPolicyRequestBody(values), null, indent)
+}
+
+export function policyRequestBodyWire(values: DocketValues): string {
+  return JSON.stringify(buildPolicyRequestBody(values))
 }
 
 /**
@@ -81,6 +98,19 @@ export function casePath(projectKey: string): string {
   // integrator is most likely to copy look like a bug in the API.
   if (!key) return '/api/policy-decisions/{project_key}/case'
   return `/api/policy-decisions/${encodeURIComponent(key)}/case`
+}
+
+export function lightCasePath(projectKey: string): string {
+  const key = projectKey.trim()
+  if (!key) return '/api/policy-decisions/{project_key}/case/light'
+  return `/api/policy-decisions/${encodeURIComponent(key)}/case/light`
+}
+
+/** The POST path that stops after policy retrieval and returns the selected records. */
+export function policiesPath(projectKey: string): string {
+  const key = projectKey.trim()
+  if (!key) return '/api/policy-decisions/{project_key}/policies'
+  return `/api/policy-decisions/${encodeURIComponent(key)}/policies`
 }
 
 /** The GET path for one stored receipt. */

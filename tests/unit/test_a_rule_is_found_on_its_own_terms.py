@@ -736,55 +736,10 @@ def _rule_hit(key: str, rule_id: str, *, ordinal: int = 0, version: str = _PV) -
         ),
         "document_version": version,
         "retrieval_text": f"projection of {rule_id}",
+        # The live rule query is semantic. A rule-only parent may be rescued only
+        # when this independently calibrated score clears the precision gate.
+        "@search.rerankerScore": 3.0,
     }
-
-
-def test_a_policy_the_document_ranking_never_returned_is_raised_by_one_of_its_rows():
-    """The recall repair, in one assertion.
-
-    The policy-level search returns one provision. A row of a *different*
-    provision — one whose own document said nothing relevant, or whose text was
-    past what one document can carry — ranks first among the rules. That
-    provision is now in the merged ranking, which it could not have been before.
-    """
-
-    merged, by_parent = ai_case_project.merge_policy_and_rule_hits(
-        [_policy_hit("visible", 0.9)],
-        [_rule_hit("late", "R-41", ordinal=41)],
-    )
-
-    ids = [hit["id"] for hit in merged]
-    late = policy_document_id(policy_version_id=_PV, provision_key="late")
-    assert late in ids
-    elevated = next(hit for hit in merged if hit["id"] == late)
-    assert elevated["elevated_by_rule"] is True
-    # It genuinely had no policy-document score, and none is invented for it.
-    assert "@search.score" not in elevated
-    assert by_parent[late][0]["rule_id"] == "R-41"
-
-
-def test_a_provision_found_by_both_rankings_outranks_one_found_by_either():
-    """Fusion, at the policy level, with ties broken on the document id."""
-
-    merged, _ = ai_case_project.merge_policy_and_rule_hits(
-        [_policy_hit("both", 0.5), _policy_hit("doc-only", 0.9)],
-        [_rule_hit("both", "R-0"), _rule_hit("rule-only", "R-9", ordinal=9)],
-    )
-
-    order = [hit["policy_id"] or hit["id"] for hit in merged]
-    both = policy_document_id(policy_version_id=_PV, provision_key="both")
-    assert merged[0]["id"] == both, order
-
-
-def test_the_merge_is_deterministic_whatever_order_the_service_answers_in():
-    """Two result sets always fuse to one order."""
-
-    policies = [_policy_hit("a", 0.5), _policy_hit("b", 0.5)]
-    rules = [_rule_hit("a", "R-0"), _rule_hit("b", "R-1", ordinal=1)]
-
-    first, _ = ai_case_project.merge_policy_and_rule_hits(policies, rules)
-    second, _ = ai_case_project.merge_policy_and_rule_hits(policies, rules)
-    assert [h["id"] for h in first] == [h["id"] for h in second]
 
 
 def test_a_hit_is_a_rule_hit_only_when_the_document_says_so():
@@ -975,6 +930,7 @@ async def test_a_provision_reached_only_by_a_late_row_is_retained_and_read(
 
     # One question, one embedding, and every query carried the question itself.
     assert {call["query_text"] for call in seen} == {corpus.distinctive}
+    assert all(call["vector"] == [0.1, 0.2, 0.3] for call in seen)
 
 
 def _project_candidate(provision_key: str, payload: dict) -> dict:

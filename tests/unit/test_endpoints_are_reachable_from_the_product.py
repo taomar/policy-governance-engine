@@ -72,6 +72,15 @@ KNOWN_UNREACHABLE = {
         "it, and when it does `test_known_unreachable_register_has_not_rotted` "
         "requires this line to be deleted."
     ),
+    "POST /api/policy-decisions/*/case/light": (
+        "The compact audited decision contract. Its shipped caller is the separate "
+        "consume demo app, while apps/web only displays integration snippets."
+    ),
+    "POST /api/policy-decisions/*/policies": (
+        "The external retrieval-only contract. Its shipped caller is the separate "
+        "consume demo app, which this scan deliberately does not read; apps/web "
+        "only displays integration snippets and never sends this request."
+    ),
     "GET /api/policy-decisions/*": (
         "Receipt read-back for the audited external decision contract. Same "
         "reason as the POST above: the caller is an external consumer today, "

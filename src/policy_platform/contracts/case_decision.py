@@ -134,6 +134,7 @@ SCHEMA_VERSION: Final[str] = SCHEMA_VERSION_V1
 #: what an already-written hash claims — which is exactly what v2 does.
 HASH_BASIS_V1: Final[str] = "case_decision_v1"
 HASH_BASIS_V2: Final[str] = "case_decision_v2"
+HASH_BASIS_V2_WITH_VERIFICATION: Final[str] = "case_decision_v2_verification"
 
 #: The basis every decision made under the language boundary is sealed with.
 #: A receipt that adjudicated a rendering of the question must seal that
@@ -149,6 +150,9 @@ HASH_BASIS_V2: Final[str] = "case_decision_v2"
 #: additive optional one, `validate_receipt` is untouched, and bumping to a
 #: third envelope for additive fields would strand readers for no gain.
 HASH_BASIS_V2_LANG: Final[str] = "case_decision_v2_lang"
+HASH_BASIS_V2_LANG_WITH_VERIFICATION: Final[str] = (
+    "case_decision_v2_lang_verification"
+)
 HASH_BASIS: Final[str] = HASH_BASIS_V1
 
 #: The lifecycle of the stored receipt row, distinct from the decision's own
@@ -719,6 +723,68 @@ class RetrievalRef(BaseModel):
 
     status: str
     method: str | None = None
+    precision_mode: str | None = Field(
+        default=None,
+        description=(
+            "Versioned policy-selection strategy used before records are exposed or evaluated."
+        ),
+    )
+    semantic_candidates: int | None = None
+    semantic_selected: int | None = None
+    semantic_largest_gap: float | None = None
+    semantic_cutoff_score: float | None = None
+    semantic_elbow_applied: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a meaningful semantic score drop narrowed the direct policy pool. False means "
+            "semantic scores were too flat to justify a cut, so hybrid direct-policy order remained "
+            "available to the final duplicate/diversity budget."
+        ),
+    )
+    direct_policy_order: str | None = Field(
+        default=None,
+        description=(
+            "How direct policy identities were ordered after semantic cardinality was assessed."
+        ),
+    )
+    coverage_expanded_policies: int | None = Field(
+        default=None,
+        description=(
+            "Direct policies added because an English indexed heading covered explicit query "
+            "terms not represented by the precision-selected records."
+        ),
+    )
+    coverage_semantic_floor: float | None = Field(
+        default=None,
+        description=(
+            "Minimum direct semantic reranker score a policy must carry before heading coverage "
+            "can expand a precision-selected decision context."
+        ),
+    )
+    rule_rescue_candidates: int | None = Field(
+        default=None,
+        description=(
+            "Omitted policy parents whose strongest rule independently cleared the configured "
+            "rescue threshold before the final policy budget was applied."
+        ),
+    )
+    rule_rescued_policies: int | None = Field(
+        default=None,
+        description="Strong rule-only matches admitted without adding rule scores to direct policy scores.",
+    )
+    rule_rescue_floor: float | None = None
+    rule_rescue_margin: float | None = None
+    rule_semantic_window: int | None = Field(
+        default=None,
+        description=(
+            "Maximum initial rule results Azure AI Search can pass through semantic reranking. "
+            "Only candidates with an observed reranker score can satisfy rule rescue."
+        ),
+    )
+    rule_semantic_candidates: int | None = Field(
+        default=None,
+        description="Returned rule documents that actually carried a semantic reranker score.",
+    )
     policy_budget: int | None = None
     policy_scan: int | None = None
     policies_retrieved: int | None = None
@@ -822,17 +888,16 @@ class RetrievalRef(BaseModel):
     policies_elevated_by_rule: int | None = Field(
         default=None,
         description=(
-            "Policies whose ranking was raised by one of their own rules surfacing — including "
-            "policies the policy-level search did not return at all. This is the count that says "
-            "whether rule-level retrieval did anything on this question: a rule beyond what its "
-            "policy's own document could carry is reachable only this way."
+            "Compatibility alias for policies admitted by independently strong rule-only evidence. "
+            "Rule scores are never added to direct policy scores."
         ),
     )
     rule_index_state: str | None = Field(
         default=None,
         description=(
             "Whether the rule index took part. `matched` — it was queried and its ranking was "
-            "fused with the others. `degraded` — rule documents exist under the expected "
+            "available for rule-only rescue and within-policy slicing. `degraded` — rule documents "
+            "exist under the expected "
             "projection and the query against them failed recoverably, so the selection ran "
             "without that ranking and each policy's `rule_selection.method` says "
             "`scenario_relevance_v3`. `unavailable` — it was not consulted."
@@ -889,6 +954,17 @@ class DecisionRef(BaseModel):
     )
 
 
+class TokenUsageRef(BaseModel):
+    """Service-reported model usage for one complete API operation."""
+
+    calls: int = 0
+    calls_without_usage: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+
+
 class TraceRef(BaseModel):
     """What produced the answer, to the extent it is honestly knowable.
 
@@ -919,6 +995,20 @@ class TraceRef(BaseModel):
     index_version_id: str | None = Field(
         default=None,
         description="The published version the retrieval index was filtered to, when retrieval ran.",
+    )
+    stage_latency_ms: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Observed wall-clock stage timings in milliseconds. Diagnostic only and excluded from "
+            "the decision hash; they describe this execution, not policy meaning."
+        ),
+    )
+    token_usage: TokenUsageRef | None = Field(
+        default=None,
+        description=(
+            "Token counts reported by model and embedding calls in this execution. Null on "
+            "historical receipts; missing figures remain null rather than being estimated."
+        ),
     )
 
 
@@ -1254,6 +1344,56 @@ class MissingInformationItem(BaseModel):
     )
 
 
+class VerificationRequirementItem(BaseModel):
+    """One condition to confirm before acting on a verdict that *was* reached.
+
+    The counterpart to :class:`MissingInformationItem`, and the difference
+    between them is the whole reason both exist. A missing fact is something the
+    determination hangs on: until it arrives there is no verdict. A verification
+    requirement hangs on nothing — the rules settled the question that was
+    asked — but it must be confirmed before anyone acts on the answer. A balance
+    that has to be checked, an approval that has to be sought, a window that has
+    to be observed, a category somebody who holds the record has to confirm.
+
+    Before this field existed those conditions had one place to go, and it was
+    `missing_information`, which meant naming any of them converted an answered
+    case into a blocked one. A caller who asked whether something was conferred
+    received an audit of their position in place of the answer.
+
+    The safeguards are those of a missing fact, unchanged, because a caller acts
+    on both: `fact` is resolved against the vocabulary the retained records
+    themselves declare, and `required_by_rule_ids` is filtered to rules that were
+    actually in front of the gather. What differs is only the consequence of
+    failing them — a check that cannot be expressed in the records' vocabulary is
+    dropped and reported, and the verdict it qualified, grounded separately,
+    stands.
+    """
+
+    fact: str = Field(
+        description="The condition's key, as the policy record names the thing to be confirmed."
+    )
+    label: str = Field(
+        description=(
+            "A short human label for the condition. Falls back to `fact` when the gather offered "
+            "no separate label."
+        )
+    )
+    why_needed: str = Field(
+        default="",
+        description=(
+            "One sentence saying what has to be confirmed and why, before the verdict is acted "
+            "on. Empty when the gather composed none — never filled in here."
+        ),
+    )
+    required_by_rule_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `rule_id`s that impose this condition, restricted to rules that were actually in "
+            "front of the gather. Empty when the gather named none."
+        ),
+    )
+
+
 class VerdictSection(BaseModel):
     """The determination, or the honest account of why there is not one.
 
@@ -1268,6 +1408,11 @@ class VerdictSection(BaseModel):
     "denied" is a *reached* verdict and belongs in `decision`; a case that could
     not be decided has an empty `decision`, and no client can read the second as
     the first.
+
+    `verification_requirements` is deliberately outside that invariant. It
+    qualifies a verdict without unmaking it, so a reached verdict may carry any
+    number of them and remain a reached verdict. `missing_information` remains
+    exclusive to a blocked one, and nothing may be in both.
     """
 
     status: VerdictStatus
@@ -1303,6 +1448,16 @@ class VerdictSection(BaseModel):
             "working. `missing_information` is the field to build against."
         ),
     )
+    verification_requirements: list[VerificationRequirementItem] = Field(
+        default_factory=list,
+        description=(
+            "Conditions to confirm before acting on a verdict that was reached — a balance, an "
+            "approval, a window, a category held elsewhere. Additive: they qualify the verdict "
+            "and never negate it, so they appear only when `status` is `answered`, and they are "
+            "not missing facts. Defaults to empty, so a receipt stored before this field existed "
+            "reads and replays unchanged."
+        ),
+    )
     route: str = Field(
         default=ROUTE_DECISION,
         description="Which gather composed this. `decision` for this section.",
@@ -1334,6 +1489,16 @@ class VerdictSection(BaseModel):
         ):
             raise ValueError(
                 "missing information belongs only to a verdict blocked on missing_required_facts"
+            )
+        if self.verification_requirements and not self.reached:
+            # Which, with the two rules above, is what makes the two lists
+            # mutually exclusive as a matter of shape rather than of discipline:
+            # missing information belongs only to `missing_required_facts`, which
+            # is never `reached`, and these belong only to a verdict that is. So
+            # no value can appear in both, and there is nothing further to check.
+            raise ValueError(
+                "verification requirements qualify a verdict that was reached; a case with no "
+                "verdict has nothing to verify before acting on"
             )
         return self
 
@@ -1582,7 +1747,17 @@ def compute_decision_hash(envelope: CaseDecisionEnvelope) -> str:
 #: question and of the caller's presentation guidance, the scope, the retrieval
 #: status, which policies were retained or discarded, **the two asked booleans**,
 #: both outcomes, both semantic sections in full (including the structured
-#: missing information), and every merged citation with the tracks it served.
+#: missing information *and* the verification requirements), and every merged
+#: citation with the tracks it served.
+#:
+#: The verification requirements are sealed for the same reason the missing facts
+#: are: they qualify what the determination permits. A receipt that could gain or
+#: lose a condition on acting without moving its hash would be weaker evidence
+#: than one that could not. They live inside the `verdict` entry, so the sealed
+#: top-level field set below is unchanged, and the entry itself is written only
+#: when there are checks to seal — so a receipt written before the field existed,
+#: which reads back with an empty list, still produces the preimage it was sealed
+#: under and verifies against its stored hash.
 #:
 #: The booleans are sealed because they decide what the receipt answers: a
 #: receipt that could be re-labelled "you only asked for information" after the
@@ -1694,6 +1869,26 @@ def decision_hash_preimage_v2(envelope: CaseDecisionEnvelopeV2) -> dict[str, Any
             "citations": _sealed_citations(envelope.verdict.citations),
         }
     )
+    if verdict is not None and envelope.verdict.verification_requirements:
+        # Sealed because they materially qualify what the verdict permits. A
+        # receipt whose determination could gain or lose "confirm the balance
+        # first" without moving its hash would let the conditions on acting be
+        # rewritten after the fact, which is exactly the class of silent change
+        # the seal exists to catch.
+        #
+        # The key is written only when there is something to seal, so a receipt
+        # stored before the field existed — and any receipt that carries no
+        # checks, which is the same decision — produces the identical preimage it
+        # always did and still verifies against the hash it was written with.
+        verdict["verification_requirements"] = [
+            {
+                "fact": item.fact,
+                "label": item.label,
+                "why_needed": item.why_needed,
+                "required_by_rule_ids": list(item.required_by_rule_ids),
+            }
+            for item in envelope.verdict.verification_requirements
+        ]
 
     citations = [
         {
@@ -1742,9 +1937,17 @@ def compute_decision_hash_v2(envelope: CaseDecisionEnvelopeV2) -> str:
     an already-written hash claims.
     """
 
-    if envelope.hash_basis == HASH_BASIS_V2_LANG:
+    if envelope.hash_basis in {
+        HASH_BASIS_V2_LANG,
+        HASH_BASIS_V2_LANG_WITH_VERIFICATION,
+    }:
         return canonical_hash(decision_hash_preimage_v2_lang(envelope))
-    return canonical_hash(decision_hash_preimage_v2(envelope))
+    if envelope.hash_basis in {
+        HASH_BASIS_V2,
+        HASH_BASIS_V2_WITH_VERIFICATION,
+    }:
+        return canonical_hash(decision_hash_preimage_v2(envelope))
+    raise ValueError(f"unsupported case-decision hash basis {envelope.hash_basis!r}")
 
 
 # ── the v2 seal, under the language boundary ─────────────────────────
@@ -1788,7 +1991,7 @@ def decision_hash_preimage_v2_lang(envelope: CaseDecisionEnvelopeV2) -> dict[str
 
     if envelope.language is None:
         raise ValueError(
-            f"a receipt sealed under {HASH_BASIS_V2_LANG} must carry its language block"
+            f"a receipt sealed under {envelope.hash_basis} must carry its language block"
         )
 
     language = envelope.language

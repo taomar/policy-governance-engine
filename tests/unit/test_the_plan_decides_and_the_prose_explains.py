@@ -255,6 +255,7 @@ def test_no_field_on_the_plan_can_hold_a_sentence() -> None:
         "declined",
         "cited_rule_ids",
         "named_facts",
+        "named_verifications",
         "unsettled_reason",
         "states_answer",
         "states_verdict",
@@ -265,6 +266,16 @@ def test_no_field_on_the_plan_can_hold_a_sentence() -> None:
     # under a name that sounds structural.
     assert fields["states_answer"] == "bool"
     assert fields["states_verdict"] == "bool"
+
+    # The verification claim is held to the same standard as the plan that holds
+    # it: a key and rule ids, and nowhere for a sentence to live.
+    claim_fields = {
+        field.name: field.type for field in dataclasses.fields(ai_case_plan.VerificationClaim)
+    }
+    assert set(claim_fields) == {"fact", "rule_ids", "outcome_determinative"}
+    assert claim_fields["outcome_determinative"] == "bool | None"
+    for key in ai_case_plan.PROSE_KEYS:
+        assert key not in claim_fields
 
 
 def test_the_two_halves_are_disjoint_and_together_cover_the_reply() -> None:
@@ -277,6 +288,33 @@ def test_the_two_halves_are_disjoint_and_together_cover_the_reply() -> None:
     full_reply = {key: "" for key in ai_case_plan.PLAN_KEYS | ai_case_plan.PROSE_KEYS}
     assert unclassified_keys(full_reply) == ()
     assert unclassified_keys({**full_reply, "confidence_score": 0.9}) == ("confidence_score",)
+
+
+def test_duplicate_verification_claims_keep_the_blocking_interpretation() -> None:
+    plan = ai_case_plan.plan_from_reply(
+        {
+            "verification_requirements": [
+                {
+                    "fact": "service clock",
+                    "required_by_rule_ids": ["R-ONE"],
+                    "outcome_determinative": False,
+                },
+                {
+                    "fact": "service clock",
+                    "required_by_rule_ids": ["R-TWO"],
+                    "outcome_determinative": True,
+                },
+            ]
+        }
+    )
+
+    assert plan.named_verifications == (
+        ai_case_plan.VerificationClaim(
+            fact="service clock",
+            rule_ids=("R-ONE", "R-TWO"),
+            outcome_determinative=True,
+        ),
+    )
 
 
 def test_an_unclassified_field_is_reported_and_never_read(caplog) -> None:

@@ -450,6 +450,8 @@ OPERATION_BANDS: Final[dict[tuple[str, str], str]] = {
     # the GET is READ at the band, with record-level ownership enforced in the
     # handler so one caller cannot read another's receipt.
     ("POST", "/api/policy-decisions/{project_key}/case"): USE,
+    ("POST", "/api/policy-decisions/{project_key}/case/light"): USE,
+    ("POST", "/api/policy-decisions/{project_key}/policies"): USE,
     ("GET", "/api/policy-decisions/{decision_id}"): READ,
     # ── policy exceptions ────────────────────────────────────────────
     ("GET", "/api/policy-exceptions/policy-sets/{key}"): READ,

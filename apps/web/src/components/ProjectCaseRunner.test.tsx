@@ -350,6 +350,109 @@ describe("project-wide case runner", () => {
     expect(screen.getByText("Show raw response")).toBeTruthy();
   });
 
+  it("shows the checks before acting apart from the facts that block a verdict", async () => {
+    mockPublishedPolicyList();
+    vi.spyOn(api, "answerProjectCase").mockResolvedValue({
+      scope: "project",
+      policy_set_key: "a-set",
+      retrieval: { status: "narrowed", policies_considered: 1, policies_retained: 1, policies_discarded: 0 },
+      considered: [
+        {
+          provision_id: "provision-kept",
+          provision_key: "kept-policy",
+          heading_path: ["Published", "Kept"],
+          rules: 1,
+          retained: true,
+        },
+      ],
+      excluded: [],
+      evaluation: {
+        intent: "decision",
+        decision: {
+          status: "answered",
+          verdict: "entitled",
+          answer: "The retained rule confers the entitlement. [rule-kept]",
+          missing_required_facts: [],
+          missing_information: [],
+          verification_requirements: [
+            {
+              fact: "accrued_balance_on_the_day",
+              label: "The balance standing on the day",
+              why_needed: "The days come out of a balance that has accrued by then.",
+              required_by_rule_ids: ["rule-kept"],
+            },
+          ],
+          citations: [
+            {
+              rule_id: "rule-kept",
+              policy: { provision_key: "kept-policy", heading_path: ["Published", "Kept"] },
+              source: { state: "quoted", text: "Employees are entitled to that.", page: 4, section: "Conduct" },
+            },
+          ],
+          grounding: { rules_available: 1, rules_cited: 1, policies_grounded: 1, fabricated_citations: [] },
+        },
+      },
+      size: { combined_chars: 100, budget_chars: 200000, oversize: false },
+    });
+
+    render(<ProjectCaseRunner policySetKey="a-set" open onClose={() => {}} />);
+    fireEvent.change(screen.getByTestId("project-case-scenario"), { target: { value: "Am I entitled?" } });
+    fireEvent.click(screen.getByTestId("project-case-run"));
+
+    // The determination stands, and the conditions on acting sit beside it.
+    expect((await screen.findByTestId("project-case-verdict")).textContent).toContain("entitled");
+    const checks = screen.getByTestId("project-case-verification-requirements");
+    expect(checks.textContent).toContain("The balance standing on the day");
+    expect(checks.textContent).toContain("balance that has accrued");
+    expect(checks.textContent).toContain("rule-kept");
+
+    // And they are never presented as the reason a case could not be decided.
+    expect(screen.queryByTestId("project-case-missing-facts")).toBeNull();
+  });
+
+  it("shows no checks before acting on a verdict that was not reached", async () => {
+    mockPublishedPolicyList();
+    vi.spyOn(api, "answerProjectCase").mockResolvedValue({
+      scope: "project",
+      policy_set_key: "a-set",
+      retrieval: { status: "narrowed", policies_considered: 1, policies_retained: 1, policies_discarded: 0 },
+      considered: [
+        {
+          provision_id: "provision-kept",
+          provision_key: "kept-policy",
+          heading_path: ["Published", "Kept"],
+          rules: 1,
+          retained: true,
+        },
+      ],
+      excluded: [],
+      evaluation: {
+        intent: "decision",
+        decision: {
+          status: "missing_required_facts",
+          verdict: "",
+          answer: "The case cannot be decided until the category is supplied.",
+          missing_required_facts: ["employee category"],
+          verification_requirements: [
+            { fact: "accrued_balance_on_the_day", label: "The balance standing on the day" },
+          ],
+          citations: [],
+          grounding: { rules_available: 1, rules_cited: 0, policies_grounded: 0, fabricated_citations: [] },
+        },
+      },
+      size: { combined_chars: 100, budget_chars: 200000, oversize: false },
+    });
+
+    render(<ProjectCaseRunner policySetKey="a-set" open onClose={() => {}} />);
+    fireEvent.change(screen.getByTestId("project-case-scenario"), { target: { value: "Is this allowed?" } });
+    fireEvent.click(screen.getByTestId("project-case-run"));
+
+    expect((await screen.findByTestId("project-case-missing-facts")).textContent).toContain(
+      "employee category",
+    );
+    expect(screen.queryByTestId("project-case-verification-requirements")).toBeNull();
+  });
+
   it("keeps no published version distinct from no match", async () => {
     mockPublishedPolicyList();
     vi.spyOn(api, "answerProjectCase").mockResolvedValue({

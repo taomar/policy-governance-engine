@@ -22,7 +22,7 @@ rather than inferred from a log line or a docstring:
     byte-identical before and after it;
   * `request_hash` and `scenario_hash` are over the caller's own bytes, so an
     idempotency replay is still a replay — and replays cross nothing;
-  * a receipt written under `case_decision_v2_lang` verifies under that basis
+  * a receipt written under `case_decision_v2_lang_verification` verifies under that basis
     while a stored `case_decision_v2` receipt still verifies under its own;
   * no language, script or domain vocabulary is hardcoded anywhere in the
     boundary — held structurally, over the module's own syntax tree.
@@ -75,6 +75,8 @@ from policy_platform.application import policy_case_decision  # noqa: E402
 from policy_platform.contracts.case_decision import (  # noqa: E402
     HASH_BASIS_V2,
     HASH_BASIS_V2_LANG,
+    HASH_BASIS_V2_LANG_WITH_VERIFICATION,
+    HASH_BASIS_V2_WITH_VERIFICATION,
     CaseDecisionEnvelopeV2,
     LanguageRef,
     compute_decision_hash_v2,
@@ -238,6 +240,7 @@ class _StubSearchClient:
         top: int,
         filter_expr: str | None = None,
         select: str | None = None,
+        semantic_configuration: str | None = None,
     ) -> list[dict]:
         # Only the policy-document query is answered. The rule-document query
         # gets nothing, which is what a project of ordinary provisions really
@@ -1837,7 +1840,7 @@ async def test_nothing_about_a_failed_crossing_is_remembered(harness) -> None:
 
 
 async def test_a_new_receipt_verifies_under_its_own_basis(harness) -> None:
-    """`case_decision_v2_lang`, recomputed from the served body.
+    """The current language-and-verification basis, recomputed from the served body.
 
     The seal is only a seal if a caller can reproduce it from what they were
     given, so this recomputes over the parsed response rather than trusting the
@@ -1847,7 +1850,7 @@ async def test_a_new_receipt_verifies_under_its_own_basis(harness) -> None:
     harness.boundary(source_language=_FOREIGN_TAG, english=_ENGLISH_SCENARIO)
     body = (await harness.post(scenario=_FOREIGN_SCENARIO)).json()
 
-    assert body["hash_basis"] == HASH_BASIS_V2_LANG
+    assert body["hash_basis"] == HASH_BASIS_V2_LANG_WITH_VERIFICATION
     envelope = validate_receipt(body)
     assert isinstance(envelope, CaseDecisionEnvelopeV2)
     assert compute_decision_hash_v2(envelope) == body["decision_hash"]
@@ -1922,6 +1925,9 @@ def test_a_receipt_written_under_the_older_basis_still_verifies_under_it() -> No
     )
 
     legacy = policy_case_decision.build_envelope(**common)
+    assert legacy.hash_basis == HASH_BASIS_V2_WITH_VERIFICATION
+    legacy.hash_basis = HASH_BASIS_V2
+    legacy.decision_hash = compute_decision_hash_v2(legacy)
     assert legacy.hash_basis == HASH_BASIS_V2
     assert legacy.language is None
     assert compute_decision_hash_v2(legacy) == legacy.decision_hash
@@ -1942,8 +1948,12 @@ def test_a_receipt_written_under_the_older_basis_still_verifies_under_it() -> No
             processing_scenario_hash=scenario_hash(_ENGLISH_SCENARIO),
         ),
     )
-    assert sealed.hash_basis == HASH_BASIS_V2_LANG
+    assert sealed.hash_basis == HASH_BASIS_V2_LANG_WITH_VERIFICATION
     assert compute_decision_hash_v2(sealed) == sealed.decision_hash
+    old_language = sealed.model_copy(deep=True)
+    old_language.hash_basis = HASH_BASIS_V2_LANG
+    old_language.decision_hash = compute_decision_hash_v2(old_language)
+    assert compute_decision_hash_v2(old_language) == old_language.decision_hash
     # Two bases over one decision are two different seals, which is the whole
     # reason `hash_basis` is stored beside the hash rather than assumed.
     assert sealed.decision_hash != legacy.decision_hash
@@ -1969,7 +1979,7 @@ def test_a_receipt_claiming_the_new_basis_without_a_language_block_is_refused() 
         response={"scope": "project", "evaluation": None, "retrieval": {"status": "no_match"}},
         context={},
     )
-    envelope.hash_basis = HASH_BASIS_V2_LANG
+    envelope.hash_basis = HASH_BASIS_V2_LANG_WITH_VERIFICATION
 
     with pytest.raises(ValueError):
         decision_hash_preimage_v2_lang(envelope)
@@ -2161,10 +2171,11 @@ async def test_the_reviewer_route_refuses_a_rendering_it_cannot_complete(harness
 async def test_the_boundary_is_crossed_through_one_shared_pair_of_helpers() -> None:
     """Two routes, one boundary — held on the source, not on behaviour alone.
 
-    Both suites above could pass while the two paths each carried their own copy
+    The suites above could pass while the three paths each carried their own copy
     of the orchestration, and the copies would agree right up until one was
     edited. So the call sites are counted: each helper is defined once and
-    reached from exactly the two entry points that need it.
+    reached from exactly the three entry points that need it — the product case
+    route, the audited receipt route, and the retrieval-only integration route.
     """
 
     source = Path(policy_case_decision.__file__).read_text(encoding="utf-8")
@@ -2182,8 +2193,8 @@ async def test_the_boundary_is_crossed_through_one_shared_pair_of_helpers() -> N
     assert definitions == {"cross_into_processing_language": 1, "cross_out_to_the_reader": 1}, (
         "a boundary helper is defined more than once"
     )
-    assert calls == {"cross_into_processing_language": 2, "cross_out_to_the_reader": 2}, (
-        "the boundary is not crossed through exactly the two entry points that need it: "
+    assert calls == {"cross_into_processing_language": 3, "cross_out_to_the_reader": 3}, (
+        "the boundary is not crossed through exactly the three entry points that need it: "
         f"{calls}"
     )
 
@@ -2324,7 +2335,7 @@ async def test_a_prose_less_answer_and_a_rendered_one_seal_differently(harness) 
     # Both still verify under their own basis, recomputed from what was served.
     for body in (rendered, bare):
         envelope = validate_receipt(body)
-        assert envelope.hash_basis == HASH_BASIS_V2_LANG
+        assert envelope.hash_basis == HASH_BASIS_V2_LANG_WITH_VERIFICATION
         assert compute_decision_hash_v2(envelope) == body["decision_hash"]
 
     # The state is sealed, so it cannot be edited on a stored receipt.
@@ -2555,7 +2566,7 @@ def test_the_case_decision_prompts_name_no_readers_language() -> None:
 
     # And the identifier moved with the contract, so an answer composed under
     # the older one stays distinguishable on a stored receipt.
-    assert ai_case_intent.PROMPT_VERSION == "ai-case-intent-v7"
+    assert ai_case_intent.PROMPT_VERSION == "ai-case-intent-v12"
 
 
 def test_the_projection_names_the_next_milestone_will_build_are_declared_here() -> None:

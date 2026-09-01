@@ -167,6 +167,7 @@ _MAX_RULE_TEXT_CHARS = 8_000
 _VECTOR_PROFILE = "policy-cases-vector-profile"
 _VECTOR_ALGORITHM = "policy-cases-hnsw"
 _SEMANTIC_CONFIG = "policy-cases-semantic"
+POLICY_SEMANTIC_CONFIG = _SEMANTIC_CONFIG
 
 #: What a document in this index is. Filterable, so a query asks for one kind
 #: and never has to tell them apart after the fact.

@@ -257,6 +257,22 @@ async def test_the_classifier_is_anchored_to_what_the_rules_test(stubbed) -> Non
     assert "weekly-hours (number, in hours)" in user
 
 
+def test_personal_entitlement_is_an_applied_outcome_not_an_abstract_policy_question() -> None:
+    """Both classifier contracts carry one domain-neutral application boundary."""
+
+    assert ai_case_intent.NEEDS_CLASSIFIER_VERSION == "ai-case-needs-v2"
+    for prompt in (
+        ai_case_intent._CLASSIFY_SYSTEM_PROMPT,
+        ai_case_intent._CLASSIFY_NEEDS_SYSTEM_PROMPT,
+    ):
+        assert "particular-case question" in prompt
+        assert "how much that person or case is entitled to" in prompt
+        assert "supplies facts about a person, object, transaction, or proposed action" in prompt
+        assert "stating a person's service duration and asking their allowance is an application" in prompt
+        assert "supplying a vessel class and asking its interval is an application" in prompt
+        assert "supplying an account tier and asking the applicable rate is an application" in prompt
+
+
 async def ai_case_classify(stub: type[_StubClient], *, tested: list[str]) -> dict:
     return await ai_case_intent.classify_case_needs(
         "how many hours may a part-timer work?", tested_quantities=tested

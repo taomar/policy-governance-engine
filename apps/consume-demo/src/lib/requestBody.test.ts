@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { buildRequestBody, casePath, hostFromBase, joinUrl, requestBodyJson } from './requestBody'
+import {
+  buildPolicyRequestBody,
+  buildRequestBody,
+  casePath,
+  hostFromBase,
+  joinUrl,
+  lightCasePath,
+  policiesPath,
+  requestBodyJson,
+} from './requestBody'
 import { MAX_ADDITIONAL_INSTRUCTIONS_CHARS } from '../contracts/caseDecision'
 
 const base = {
@@ -60,11 +69,24 @@ describe('buildRequestBody — what actually goes on the wire', () => {
     const body = buildRequestBody({ ...base, additionalInstructions: guidance })
     expect(body.additional_instructions).toHaveLength(MAX_ADDITIONAL_INSTRUCTIONS_CHARS)
   })
+
+  it('builds the light request from the scenario alone', () => {
+    const body = buildPolicyRequestBody({
+      ...base,
+      additionalInstructions: 'This must not reach retrieval.',
+    })
+    expect(body).toEqual({ scenario: base.scenario })
+    expect(body).not.toHaveProperty('reasoning_effort')
+    expect(body).not.toHaveProperty('calling_system_identity')
+    expect(body).not.toHaveProperty('additional_instructions')
+  })
 })
 
 describe('url construction', () => {
   it('routes on the project key, never on a UUID or a name', () => {
     expect(casePath('demo-project')).toBe('/api/policy-decisions/demo-project/case')
+    expect(lightCasePath('demo-project')).toBe('/api/policy-decisions/demo-project/case/light')
+    expect(policiesPath('demo-project')).toBe('/api/policy-decisions/demo-project/policies')
   })
 
   it('escapes a key so a stray slash cannot rewrite the path', () => {
