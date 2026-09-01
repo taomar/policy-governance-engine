@@ -43,14 +43,11 @@ import hashlib
 import re
 from pathlib import Path
 
+from tests.unit.published_docs import published_documents
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
-DOCS = ROOT / "docs"
-
-#: Documents whose purpose is recording the wording that was removed. The same
-#: exclusion the older guard makes, for the same reason.
-_FAILURE_RECORD = DOCS / "internal"
 
 #: The route whose test is decided by a person reading it. Word sequences, so
 #: the hyphenated, spaced and underscored spellings are all covered without any
@@ -376,9 +373,7 @@ class TestTheGuardWorks:
             for _, value in _string_literals(path):
                 note(value)
 
-        for path in sorted(DOCS.rglob("*.md")):
-            if _FAILURE_RECORD in path.parents:
-                continue
+        for path in published_documents():
             note(path.read_text(encoding="utf-8"))
 
         unearned = set(_QUOTED_TO_FORBID_IT) - seen
@@ -414,9 +409,7 @@ class TestTheCopyIsClean:
     def test_no_document_frames_a_route_that_way(self) -> None:
         scanned = 0
         offenders: list[str] = []
-        for path in sorted(DOCS.rglob("*.md")):
-            if _FAILURE_RECORD in path.parents:
-                continue
+        for path in published_documents():
             scanned += 1
             for sentence in frames_a_route_as_a_shortfall(path.read_text(encoding="utf-8")):
                 offenders.append(f"{path.relative_to(ROOT)}: {sentence}")

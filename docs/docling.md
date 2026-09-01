@@ -18,12 +18,13 @@ Both are **exactly pinned**, not ranged. Conversion output is an input to every 
 There is a second, harder reason to keep it separate: `docling-graph` pulls `litellm`, which requires `httpx>=0.28`, while the API pins `httpx>=0.27,<0.28`. Installing the extra **resolves httpx above the API's own pin**. `pip check` reports nothing, because the constraint lives in an extra rather than in the installed distribution's metadata — so the divergence is silent.
 
 ```powershell
-# Runs the API. Does not run the full test suite — 13 modules import
-# Docling directly and fail at collection here.
+# Runs the API, and the whole test suite. Tests that need Docling skip
+# themselves and say so; nothing fails at collection.
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# Conversion work and the full test suite, at the cost of httpx 0.28
+# Conversion work, and the Docling-dependent tests actually executing
+# rather than skipping — at the cost of httpx 0.28
 python -m venv .venv-graph
 .\.venv-graph\Scripts\python.exe -m pip install -e ".[dev,graph]"
 ```

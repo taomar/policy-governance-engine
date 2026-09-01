@@ -140,6 +140,8 @@ Classification is deterministic: a temperature-0 read on the fast deployment, ke
 
 A determination a reviewer confirms can be **kept as a guard** from the dialog. That write lands in this policy's tests (`policy_tests`) and runs first on the next publish, flagging the case under Quality if the outcome ever moves. It is never written to the evaluation audit trail, which records what calling systems asked of a published policy; a reviewer keeping a guard must not read as production traffic. An informational answer reports the value a determination would otherwise be handed, so there is nothing separate to keep, and the dialog says as much rather than offering a guard with nothing to test.
 
+This is the **single-policy** reviewer surface, and it is not the external contract. A case put to a *whole project* — by a reviewer, or over REST by another system — reads the question as two independent tracks and retrieves across the project's policy index. The surfaces differ at the audit boundary: the reviewer route is unrecorded and writes nothing, while an external REST decision writes an audited receipt. See [Architecture → one decider, two surfaces](architecture.md#one-decider-two-surfaces) for how they relate, and [External consumption](external-consumption.md) for the REST contract.
+
 ## Quality and correlation
 
 Quality findings are labeled by source:

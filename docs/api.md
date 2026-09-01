@@ -104,7 +104,9 @@ For the integration-shaped view of this — what an agent, a Copilot extension o
 
 It returns `policy_retrieval_v1`: `policy_set`, the exact `active_version`, the original query and language-boundary provenance, retrieval disclosure, `policies`, service-reported `token_usage`, and end-to-end `latency_ms`. Policy documents are semantically reranked and cut at the largest meaningful adjacent score gap; when there is no such gap, at most three remain. Each entry contains its stable identity, semantic rank/score and optional `rule_selection`, plus the selected `grounding_projection_v1` payload. Large policies contain only the rules named by `rule_selection`; the 15-rule ceiling remains unchanged. `precision_mode`, `semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, and `semantic_cutoff_score` disclose the cut.
 
-No classifier, plan, verdict gather, explanation renderer, decision hash, or receipt write runs on this route. `Idempotency-Key`, `reasoning_effort`, `calling_system_identity`, and `additional_instructions` therefore do not belong in this request.
+No classifier, plan, verdict gather, explanation renderer, decision hash, or receipt write runs on this route. `Idempotency-Key`, `reasoning_effort`, `calling_system_identity`, and `additional_instructions` therefore do not belong in this request. It also skips the decision path's own embedding call and the rule-document query.
+
+It is **not**, however, a model-free route: the question still crosses the inbound language boundary before retrieval, even when it is already English. The returned policy records do not pass through the outbound prose renderer; they are served as selected, and their evidence text remains exactly as stored. Retrieval is cheaper than a decision, but it is not free, and `token_usage` reflects the inbound boundary call.
 
 ### Decision Light response
 
@@ -183,6 +185,8 @@ The fixed light schema contains:
 }
 ```
 
+That example uses the repository's own contract helpers. A client that does not depend on this package must reproduce the documented preimage for the receipt's `hash_basis`; merely comparing the stored `decision_hash` with a previously kept hash checks identity, not whether the current fields still recompute to that seal.
+
 Fields intentionally omitted from Decision Light: caller details, full retrieval counters, considered/excluded candidates, payload size, language-transport internals, grounding counters, duplicate section-level citations, and timestamps. It retains total `latency_ms`, per-stage `stage_latency_ms`, and service-reported `token_usage` for operational diagnosis. Usage figures remain `null` rather than estimated when no call reported them; when `calls_without_usage` is nonzero beside a numeric total, that total is a lower bound over the calls that did report usage. These fields are execution metadata, are not part of `decision_hash`, and may be absent on historical receipts. The full receipt remains authoritative and available at `receipt_url`.
 
 ### `project_key` is the public identifier
@@ -222,9 +226,11 @@ Receipt reads are additionally narrowed at the record: a receipt may be read by 
 | `scenario` | yes | The case in natural language. Stored on the receipt so it shows the question it answered. |
 | `provision_id` | no | Naming one policy bypasses retrieval and decides against that policy alone. Omitted, the case is put to the project and the policies bearing on it are retrieved. A `provision_id` naming a policy in another project is a `404`. |
 | `reasoning_effort` | no (`medium`) | What the caller asked for. A deployment may reject it and the call is retried without it, so only the *request* is recorded — as `request.reasoning_effort_requested`. |
-| `additional_instructions` | no (`""`) | Presentation guidance only. See [below](#additional_instructions-what-a-caller-may-steer). |
+| `additional_instructions` | no (`""`) | Presentation guidance only. See [below](#additional_instructions--what-a-caller-may-steer). |
 | `correlation_id` | no | May also travel as the `X-Correlation-Id` header. Sending both with different values is a `422`. |
 | `calling_system_identity` | no | An unverified free-text label for the calling system. Recorded **beside**, never instead of, the authenticated principal. |
+
+**`reasoning_effort` is the one request field that materially affects how long a decision takes.** A decision's wall-clock time is dominated by how much the model *reasons*, not by how much policy text was retrieved — a request with a small retrieved corpus and deep reasoning is slower than one with a large corpus and shallow reasoning. Lowering the effort trades adjudication depth for speed, and is a real trade rather than a free win: validate it against your own scenarios before adopting it. Everything else a caller can send — a shorter scenario, narrower guidance, a named `provision_id` — changes what is read and what it costs in tokens, not how long the reasoning takes.
 
 ### Correlation and idempotency headers
 
@@ -237,12 +243,14 @@ The key is bound to the authenticated principal, the project, and a canonical ha
 
 - same key, same request, completed → the original receipt is replayed, same `decision_hash`, no second model call;
 - same key, a different request → `409 idempotency_key_reused`;
-- same key, first call still running → `409 decision_in_progress`;
+- same key, a `pending` receipt exists → `409 decision_in_progress`; this normally means the first call is running, but the state is not a heartbeat and can be orphaned by a process failure;
 - same key, first call failed → `409 decision_previously_failed`; a key is spent, and a retry needs a new one.
 
 Without a key every call is a new decision. Two identical questions are two decisions, and this endpoint will not pretend otherwise: deduplicating by scenario alone would be wrong, because asking the same question twice is something people legitimately do.
 
-A case takes on the order of ten seconds of model time. Allow for it in your client timeout, and use an idempotency key rather than a retry loop.
+A case is a multi-call model operation and takes **tens of seconds**, not a few. Across the evaluation matrices run against the current release, observed end-to-end times sat around **p50 22–32 s and p95 39–45 s**, with individual calls above that. The spread between matrices reflects the scenarios in them, not which operation was called: `/case/light` runs the same adjudication as `/case` and is not faster. Size a client timeout from the p95 end of that range with headroom — 120 s is a reasonable default — and use an `Idempotency-Key` rather than a retry loop. See [Timing and token telemetry](#timing-and-token-telemetry) for what the response reports about its own execution, and [Timeouts and recovery](external-consumption.md#timeouts-and-recovery) for what to do when a call does not return.
+
+These figures are observations from a fixed set of evaluation scenarios, not a service level objective. No latency guarantee is made.
 
 ### A case asks for information, a verdict, or both
 
@@ -325,6 +333,8 @@ Every stage of a decision — retrieval, rule classification and both gathers �
 
 The caller is not required to write English. A question in another language is rendered into English on the way in, the decision is made in English, and the whitelisted **prose** is rendered back on the way out. Everything else is left exactly as it arrived.
 
+The original `request.scenario` is preserved, but the text used internally is still model-mediated. Every question, including English input, passes through the normaliser so transport encoding can be decoded and the source language can be reported. Its prompt requires already-English text to come back unchanged, but the service does not independently enforce byte equality. `language.processing_scenario` is the text retrieval and adjudication actually read, and `processing_scenario_hash` seals it; inspect those fields instead of assuming the two texts are identical.
+
 **What is never translated**, in either direction:
 
 - `request.scenario` and `request.additional_instructions` — the caller's own bytes, and their `scenario_hash` / `additional_instructions_hash` digests, which is also what the idempotency binding is taken over;
@@ -341,7 +351,7 @@ The corpus is crossed once, at index-build time rather than per query: the retri
 
 They version independently: the projection contract did not move when the transport contract went to v4. A query and the text it is scored against must be rendered under one contract or the two are not comparable, which is what `retrieval.projection_profile` exists to state.
 
-> **Projection quality is not yet validated.** Indexes under `policy-english-projection-v1` are live and retrieval against them works. Each rendering passes a structural **preservation check** as it is produced — rejected if empty, implausibly larger or smaller than its source, or if any number or identifier failed to survive — and a failed check rejects the whole batch, so nothing is indexed from a rendering that failed it. But the projection-quality gate that assesses whether a rendering is a *faithful reading* of the passage is still being implemented. Until it validates them, treat retrieval quality on these projections as unvalidated: structurally checked, not quality-assured. See [known limitations](known-limitations.md).
+> **Projection quality is fail-closed.** Each rendering first passes a structural preservation check during the build. The completed `policy-projection-quality-v1` gate then compares the built projection with the authoritative records and records `passed`, `failed`, or `unavailable`; readiness requires `passed` under the expected profile as well as a `ready` manifest. Carried indexes built before this gate need one validation run. The live AIS and HW projections passed 138/138 and 115/115 documents respectively, with zero findings. This gate detects gross substitution but cannot reliably distinguish a faithful rendering from a near-identical sibling record; see [known limitations](known-limitations.md).
 
 #### The `language` block
 
@@ -481,7 +491,7 @@ The response is `case_decision_v2`, named in `schema_version` so a consumer can 
 | `receipt_status` | `completed`. Only a completed receipt is served as a body; `pending` and `failed` are answered as errors. |
 | `decision_id`, `correlation_id`, `idempotency_key` | Identity of this call. `decision_id` is what `GET /api/policy-decisions/{decision_id}` takes. |
 | `policy_set` | `{id, key, name}` — trace identity, routing key, display name. |
-| `active_version` | `{version_id, version_number, effective_from, effective_to}`, or `null` when the project has published nothing. This is the version the decider itself loaded, not a re-read of "current" around a ten-second call. |
+| `active_version` | `{version_id, version_number, effective_from, effective_to}`, or `null` when the project has published nothing. This is the version the decider itself loaded, not a re-read of "current" taken after a call that runs for tens of seconds. |
 | `caller` | `principal_identity`, `principal_role`, `authentication_source`, the caller-declared `calling_system_identity`, and `channel`. The proved identity and the declared label are two fields on purpose. |
 | `request` | `scenario`, `scenario_hash`, `additional_instructions`, `additional_instructions_hash`, `scope` (`project` or `single`), `requested_provision_id`, `reasoning_effort_requested`, `received_at`. |
 | `asked` | `information_requested`, `verdict_requested`, `classification_reasoning`, `classifier_version`. What the classifier read the question as asking for. |
@@ -550,6 +560,65 @@ The caller's own `scenario_hash` remains sealed beside it, so both the words the
 
 To verify a stored receipt, `GET /api/policy-decisions/{decision_id}` and compare the `decision_hash` you kept against the one served. The envelope is replayed from storage rather than rebuilt, so the comparison is a real check. Compare the **hash**, not the response bytes: the replay is content-equivalent rather than byte-identical, and JSON key order may differ between the original response and the replay.
 
+### Timing and token telemetry
+
+Every decision response reports telemetry from its internal execution. These fields describe *how the answer was produced*, never *what was decided*, so they are excluded from `decision_hash` and may be `null` on receipts written before they existed. The decision envelope's `latency_ms` is not client-observed end-to-end latency; outbound rendering and final receipt persistence continue after its measurement point.
+
+| Field | Where | What it is |
+|---|---|---|
+| `latency_ms` | `/case`, `/case/light` top level | Wall-clock from request execution start through internal adjudication, captured before outbound response rendering, policy-link lookup, envelope construction and final receipt persistence. |
+| `trace.stage_latency_ms` | `/case` | Wall-clock milliseconds per named stage. Sparse: a stage that did not run has no key. |
+| `trace.stage_latency_ms` | `/case/light` | The same map, carried through the projection unchanged. |
+| `trace.token_usage` | `/case`, `/case/light` | Service-reported token counts for this request; Light carries the same report through its projection. |
+| `token_usage`, `latency_ms` | `/policies` | The usage report and full retrieval-operation time at the top level — retrieval has no decision trace to hang them from. |
+
+#### `stage_latency_ms` is wall-clock, and only wall-clock
+
+Every value is a duration in milliseconds. No counter, score or size is ever expressed in this map, so a client may treat every entry as a time without inspecting the key. The keys that can appear:
+
+| Key | Stage |
+|---|---|
+| `reservation` | **Cumulative from the start of the request** to the moment the `pending` receipt row is written and committed, before any model call. |
+| `language_in` | Normalising the caller's question into the processing language, including transport decoding and already-English input. Recorded on every successful decision path. |
+| `scope_load` | Loading the project's published scope. |
+| `projection_readiness` | Checking the index manifest is `ready` under the expected projection. |
+| `policy_search` | The policy-document query. |
+| `embedding` | Embedding the query for semantic ranking. Not run on `/policies`. |
+| `rule_discovery` | The rule-document query. Runs concurrently with `policy_search`. |
+| `retrieval_discovery_wall` | Wall time for the concurrent discovery phase as a whole — close to `max(policy_search, rule_discovery)`, **not** their sum. |
+| `policy_selection` | Fusion, elbow cut, rule rescue, duplicate collapse and diversity ordering. |
+| `retained_rule_ranking` | Ranking rules within retained policies. |
+| `rule_slice_and_fit` | Slicing large policies to the rule budget and fitting the payload. |
+| `classifier` | The single classification step that reads the question for both tracks. It completes **before** the gathers begin. |
+| `information_gather` | The informational gather. Present only when that track was requested. |
+| `verdict_gather` | The verdict gather. Present only when that track was requested. |
+| `gather_wall` | Wall time for both gathers together. Because they run concurrently, this is close to `max(information_gather, verdict_gather)` rather than their sum. |
+| `gather_total` | The classification and gather phase together — approximately `classifier + gather_wall`. **It already contains `classifier` and `gather_wall`.** |
+| `decider_wall` | Wall time for the whole decider call: retrieval, classification and gathers. **It already contains every retrieval and gather stage above.** |
+| `language_out` | Checking and, where needed, rendering composed prose into the caller's language. Recorded on every successful decision path; it may round to `0` when no model rendering was needed. |
+| `policy_link_lookup` | Resolving `payload_url` links for the policies in the receipt. |
+| `to_envelope` | **Cumulative from the start of the request** through outbound rendering and policy-link lookup to the point immediately before the envelope is built. Final receipt persistence still follows it. |
+
+Three consequences worth building against:
+
+- **Do not sum the stages and expect `latency_ms`.** The map deliberately mixes three kinds of value: leaf spans (`policy_search`, `classifier`), *overlapping wall measures* of phases that ran concurrently (`retrieval_discovery_wall`, `gather_wall`), and *cumulative* measures taken from the start of the request (`reservation`, `to_envelope`). `decider_wall` and `gather_total` are containers over other keys. Summing them double- and triple-counts.
+- **Presence says the stage ran.** An unrequested gather key is absent. A present value of `0` means the measured work completed in less than one millisecond after integer rounding; it does not mean the stage was skipped.
+- **The key set is not a contract to enumerate against.** Stages are added and renamed as the path changes. Read the map as a map, and treat an unrecognised key as a duration you do not yet have a label for.
+
+#### Token usage is a floor, not a total
+
+`token_usage` sums the counts the model service itself reported. It is never estimated and never inferred from text length.
+
+| Field | Meaning |
+|---|---|
+| `calls` | How many model calls ran under this request — chat and embedding both. A full decision is typically six or seven: one embedding, one language crossing, the classification step, and one or two gathers depending on whether the question asked for information, a verdict, or both. |
+| `calls_without_usage` | How many of those returned no readable usage. |
+| `prompt_tokens`, `completion_tokens`, `total_tokens`, `reasoning_tokens` | Sums over the calls that *did* report. `null` when no call reported at all. |
+
+**When `calls_without_usage` is greater than zero, every numeric total is a lower bound.** A client, a dashboard or a billing view must present it as *at least N*, never as an exact figure — the calls that reported nothing consumed tokens that no number here contains. Presenting a floor as a total understates real consumption, and the field exists precisely so that it does not have to be guessed at.
+
+`null` and `0` are different answers: `null` means nothing was reported, `0` means a report arrived and said zero.
+
 ### Rebuilding the policy index
 
 `POST /api/policy-sets/{key}/policy-index/rebuild` → `PolicyIndexBuildResponse`
@@ -595,57 +664,93 @@ Response: `state` (`validated`, `skipped` or `failed`), `policy_set_key`, `index
 
 ### Errors
 
-`POST /api/policy-decisions/{project_key}/case`:
+Error bodies follow this API's convention: FastAPI's `{"detail": ...}` with a structured object carrying `code`, `message` and, where one exists, `decision_id` and `correlation_id`. **Branch on `code`, never on the message** — messages are prose and are reworded; codes are the contract.
 
-| Status | `code` | When |
+Every failure below is also classified by who can actually resolve it, because that decides what your integration should do with it:
+
+| Class | Meaning | What your client should do |
 |---|---|---|
-| `401` | `authentication_required` | No authenticated caller. |
-| `404` | `project_not_found` | Unknown project key. |
-| `404` | `policy_not_in_project` | A `provision_id` naming a policy in another project. |
-| `422` | `correlation_id_conflict` | The header and body correlation ids differ. |
-| `422` | `correlation_id_too_long` | `X-Correlation-Id` or `correlation_id` longer than 200 characters. |
-| `422` | `idempotency_key_too_long` | `Idempotency-Key` longer than 200 characters. |
-| `422` | `calling_system_identity_too_long` | Longer than 200 characters. |
-| `422` | `provision_id_too_long` | Longer than 200 characters. |
-| `422` | `reasoning_effort_invalid` | Not one of `low`, `medium`, `high`. Refused rather than coerced, so the receipt cannot record an effort the call did not run at. |
-| `422` | `reasoning_effort_too_long` | Longer than 20 characters. |
-| `422` | `additional_instructions_too_long` | Guidance longer than 2000 characters after normalisation. |
-| `422` | `invalid_request` | A malformed id or other rejected input. |
-| `409` | `idempotency_key_reused` | The key was already used for a different request. |
-| `409` | `decision_in_progress` | A decision for this key is still running. |
-| `409` | `decision_previously_failed` | The decision for this key failed and carries no verdict. |
-| `409` | `decision_reservation_conflict` | The receipt could not be reserved because a conflicting record exists. |
-| `503` | `ai_unavailable` | Azure OpenAI is not configured, or the decider reported it unavailable. |
-| `503` | `scenario_translation_unavailable` | The question could not be rendered into the processing language. **No decision was attempted.** |
-| `503` | `scenario_translation_empty` | The inbound rendering returned, but with no usable text. Refused rather than adjudicating an empty question. |
-| `503` | `response_translation_unavailable` | A decision was made, but its prose could not be rendered back into the caller's language. Refused rather than returning English prose labelled as the caller's language. |
-| `503` | `index_projection_unavailable` | The project's index carries no `ready` manifest under the expected `policy-english-projection-v1` projection — it was never built, is mid-rebuild, or was built under a superseded contract. Retrieval is refused rather than run against a corpus that cannot be matched. [Rebuild it](#rebuilding-the-policy-index). |
-| `503` | `decision_receipt_unavailable` | The receipt could not be reserved — **no decision was attempted**. Retry. |
-| `500` | `decision_failed` | The decider faulted; the receipt records the failure. |
-| `500` | `decision_receipt_failed` | A decision was made and could **not** be stored. It carries the decision and correlation ids and deliberately carries no verdict — a verdict that cannot be cited later is exactly what this endpoint exists to stop shipping. Retry with a new `Idempotency-Key`. |
+| **Caller** | The request is wrong and will stay wrong. | Fix the request. Do not retry it unchanged; a retry loop here is an infinite loop. |
+| **Operator** | The deployment is not in a state that can answer. | Surface it to a human with the `code`. Retrying will not clear it. |
+| **Transient** | A dependency was briefly unavailable and the row below says the key remains reusable. | Retry with backoff under the same `Idempotency-Key` if you had one. |
+| **Transient dependency, spent key** | A dependency may recover, but this decision receipt was finalized as failed. | Back off, then start a new call with a new `Idempotency-Key`. |
+| **Terminal** | The call ran and cannot be repeated under this key. | Do not retry under the same key. Start a new call with a new key if you still need an answer. |
+
+`POST /api/policy-decisions/{project_key}/case` and `POST /api/policy-decisions/{project_key}/case/light` — the light route accepts the same request and headers and fails in exactly the same ways, because it runs the same decision:
+
+| Status | `code` | Class | When |
+|---|---|---|---|
+| `401` | `authentication_required` | Caller | No authenticated caller. |
+| `404` | `project_not_found` | Caller | Unknown project key. |
+| `404` | `policy_not_in_project` | Caller | A `provision_id` naming a policy in another project. |
+| `422` | `correlation_id_conflict` | Caller | The header and body correlation ids differ. |
+| `422` | `correlation_id_too_long` | Caller | `X-Correlation-Id` or `correlation_id` longer than 200 characters. |
+| `422` | `idempotency_key_too_long` | Caller | `Idempotency-Key` longer than 200 characters. |
+| `422` | `calling_system_identity_too_long` | Caller | Longer than 200 characters. |
+| `422` | `provision_id_too_long` | Caller | Longer than 200 characters. |
+| `422` | `reasoning_effort_invalid` | Caller | Not one of `low`, `medium`, `high`. Refused rather than coerced, so the receipt cannot record an effort the call did not run at. |
+| `422` | `reasoning_effort_too_long` | Caller | Longer than 20 characters. |
+| `422` | `additional_instructions_too_long` | Caller | Guidance longer than 2000 characters after normalisation. |
+| `422` | `scenario_too_long` | Caller | `scenario` longer than 20,000 characters. Refused before the receipt is reserved and before any model call, so a permanent input fault never returns as a retryable `503`. |
+| `422` | `invalid_request` | Caller | A malformed id or other rejected input. |
+| `409` | `idempotency_key_reused` | Caller | The key was already used for a different request. Send the original request, or use a new key. |
+| `409` | `decision_in_progress` | Transient or operator | A `pending` receipt exists for this key. During a live call, wait and retry the same key. The state has no lease or heartbeat; if it persists after the process is known to have stopped, operator repair is required. Starting a new key before liveness is known can duplicate the decision. |
+| `409` | `decision_previously_failed` | Terminal | The decision for this key failed and carries no verdict. A key is spent; a retry needs a new one. |
+| `409` | `decision_reservation_conflict` | Transient | The receipt could not be reserved because a conflicting record exists. |
+| `503` | `ai_unavailable` | Operator | Azure OpenAI is not configured, or the decider reported it unavailable. |
+| `503` | `scenario_translation_unavailable` | Transient dependency, spent key | The question could not be rendered into the processing language. **No decision was attempted**, but the failed receipt finalized the key. |
+| `503` | `scenario_translation_empty` | Transient dependency, spent key | The inbound rendering returned, but with no usable text. Refused rather than adjudicating an empty question; retry later with a new key. |
+| `503` | `response_translation_unavailable` | Transient dependency, spent key | A decision was made, but its prose could not be rendered back into the caller's language. Refused rather than returning English prose labelled as the caller's language; retry later with a new key. |
+| `503` | `index_projection_unavailable` | Operator | The project's index has no manifest that is `ready` under `policy-english-projection-v1` and quality-passed under `policy-projection-quality-v1`. Retrieval is refused rather than run against an unmatchable or unvalidated corpus. The operator must [rebuild](#rebuilding-the-policy-index) or [validate](#validating-the-policy-index) as the recorded state requires. This failure occurs after reservation, so the original key is spent; submit the repaired request under a new `Idempotency-Key`. |
+| `503` | `decision_receipt_unavailable` | Transient | The receipt could not be reserved — **no decision was attempted.** Retry. |
+| `500` | `decision_failed` | Terminal | The decider faulted; the receipt records the failure. |
+| `500` | `decision_receipt_failed` | Terminal | A decision was made and could **not** be stored. It carries the decision and correlation ids and deliberately carries no verdict — a verdict that cannot be cited later is exactly what this endpoint exists to stop shipping. Retry with a new `Idempotency-Key`. |
+
+For the decision operations, failures discovered after receipt reservation close that receipt as failed and spend its idempotency key. That includes `policy_not_in_project`, decider-side `invalid_request`, the three translation failures, `index_projection_unavailable`, a runtime `ai_unavailable`, `decision_failed`, and `decision_receipt_failed`. Errors rejected before reservation do not create a receipt. `ai_unavailable` can occur on either side of that boundary: a missing server configuration is rejected before reservation, while a dependency failure reported by the running decider carries a `decision_id` and spends the key.
+
+`POST /api/policy-decisions/{project_key}/policies` refuses far less, because it reserves nothing and decides nothing:
+
+| Status | `code` | Class | When |
+|---|---|---|---|
+| `401` | `authentication_required` | Caller | No authenticated caller. Retrieval exposes approved policy records, so it is authenticated like the decision routes. |
+| `404` | `project_not_found` | Caller | Unknown project key. |
+| `422` | *(FastAPI validation detail)* | Caller | The required `scenario` field was omitted or had the wrong JSON type; request-model validation rejects it before the route runs. |
+| `422` | `scenario_empty` | Caller | `scenario` was present but empty or only whitespace. |
+| `422` | `scenario_too_long` | Caller | `scenario` longer than 20,000 characters. |
+| `422` | `correlation_id_conflict`, `correlation_id_too_long` | Caller | As above. |
+| `503` | `ai_unavailable` | Operator | Azure OpenAI is not configured. |
+| `503` | `index_projection_unavailable` | Operator | As above. |
+| `503` | `scenario_translation_unavailable`, `scenario_translation_empty` | Transient | The question could not be rendered into the processing language. |
+
+There is no `409` here and no `decision_receipt_*`: this route holds no idempotency key and writes no receipt. A failed retrieval is simply safe to repeat.
 
 `GET /api/policy-decisions/{decision_id}`:
 
-| Status | `code` | When |
-|---|---|---|
-| `401` | `authentication_required` | No authenticated caller. |
-| `403` | `decision_not_readable` | Not the caller who made the decision, and not a policy author or administrator. |
-| `404` | `decision_not_found` | No decision with that id. |
-| `409` | `decision_in_progress` | The receipt is reserved but not yet completed. |
-| `410` | *(the recorded failure code)* | The decision failed and has no verdict to serve. |
+| Status | `code` | Class | When |
+|---|---|---|---|
+| `401` | `authentication_required` | Caller | No authenticated caller. |
+| `403` | `decision_not_readable` | Caller | Not the caller who made the decision, and not a policy author or administrator. |
+| `404` | `decision_not_found` | Caller | No decision with that id. |
+| `409` | `decision_in_progress` | Transient or operator | The receipt is reserved but not completed. Poll while the call may still be live; a persistent row after confirmed process loss is orphaned and has no automatic expiry or repair API. |
+| `410` | *(the recorded failure code)* | Terminal | The decision failed and has no verdict to serve. |
 
-Error bodies follow this API's convention: FastAPI's `{"detail": ...}` with a structured object carrying `code`, `message` and, where one exists, `decision_id` and `correlation_id`.
 
 ### Examples
 
-Both use `$POLICY_SUBSCRIPTION_KEY` from the environment. A bearer token works identically — send `Authorization: Bearer $POLICY_API_TOKEN` instead of the header below. Never put a live credential in a snippet, a URL, a log or a page.
+These examples use `$POLICY_SUBSCRIPTION_KEY` from the environment. A bearer token works identically — send `Authorization: Bearer $POLICY_API_TOKEN` instead of the header below. Never put a live credential in a snippet, a URL, a log or a page.
+
+#### Full Decision
 
 ```bash
+CORRELATION_ID="$(uuidgen)"
+IDEMPOTENCY_KEY="$(uuidgen)"
+
 curl -sS -X POST "$POLICY_API_BASE/api/policy-decisions/expense-policy/case" \
   -H "X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY" \
   -H "Content-Type: application/json" \
-  -H "X-Correlation-Id: $(uuidgen)" \
-  -H "Idempotency-Key: $(uuidgen)" \
+  -H "X-Correlation-Id: $CORRELATION_ID" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+  --max-time 120 \
   -d '{
     "scenario": "A contractor submits a 180 EUR client dinner without an itemised receipt.",
     "reasoning_effort": "medium",
@@ -675,7 +780,9 @@ response = requests.post(
         "reasoning_effort": "medium",
         "calling_system_identity": "expense-bot",
     },
-    timeout=60,
+    # A decision runs for tens of seconds. Size this from the p95 end of the
+    # observed range with headroom, not from an average.
+    timeout=120,
 )
 response.raise_for_status()
 decision = response.json()
@@ -727,12 +834,163 @@ assert stored.json()["decision_hash"] == decision["decision_hash"]
 
 Reading `decision["verdict"]["decision"]` without branching on `outcome` is the one mistake this envelope exists to prevent, so the example does not do it — and it cannot be made silently, because `verdict` is `null` rather than an empty string when no verdict was reached. That null is also why the example tests the section itself before any branch that reads a field out of it: `not_evaluated` has no `verdict` object, so reaching for `verdict["note"]` on that path would raise rather than report the one outcome that says the corpus had nothing to answer from.
 
+#### Decision Light
+
+The same request, projected to the compact envelope. Note that it is *not* a cheaper call — it runs and stores the identical decision — so the timeout is the same.
+
+```bash
+LIGHT_CORRELATION_ID="$(uuidgen)"
+LIGHT_IDEMPOTENCY_KEY="$(uuidgen)"
+
+curl -sS -X POST "$POLICY_API_BASE/api/policy-decisions/expense-policy/case/light" \
+  -H "X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-Correlation-Id: $LIGHT_CORRELATION_ID" \
+  -H "Idempotency-Key: $LIGHT_IDEMPOTENCY_KEY" \
+  --max-time 120 \
+  -d '{"scenario": "A contractor submits a 180 EUR client dinner without an itemised receipt."}'
+```
+
+Keep `LIGHT_IDEMPOTENCY_KEY` with the request. A timeout retry must reuse that value so it observes the original decision instead of starting another one.
+
+The response carries `decision_id`, `decision_hash`, `hash_basis` and `receipt_url` for the *full* receipt that was stored, so a client can render the compact answer now and fetch the complete audit record later from `receipt_url`.
+
+#### Policy JSON
+
+Retrieval only. No `Idempotency-Key`, no `reasoning_effort`, no `additional_instructions`, no `calling_system_identity` — none of them apply, because nothing is classified, adjudicated or stored.
+
+```bash
+curl -sS -X POST "$POLICY_API_BASE/api/policy-decisions/expense-policy/policies" \
+  -H "X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-Correlation-Id: $(uuidgen)" \
+  --max-time 60 \
+  -d '{"scenario": "Expense claims for client entertainment without an itemised receipt."}'
+```
+
+```python
+import os
+import uuid
+
+import requests
+
+BASE = os.environ["POLICY_API_BASE"]
+
+response = requests.post(
+    f"{BASE}/api/policy-decisions/expense-policy/policies",
+    headers={
+        "X-Policy-Subscription-Key": os.environ["POLICY_SUBSCRIPTION_KEY"],
+        "Content-Type": "application/json",
+        "X-Correlation-Id": str(uuid.uuid4()),
+    },
+    json={"scenario": "Expense claims for client entertainment without an itemised receipt."},
+    timeout=60,
+)
+response.raise_for_status()
+retrieval = response.json()
+
+# There is no verdict here and no receipt. Do not present this as a determination.
+assert retrieval["schema_version"] == "policy_retrieval_v1"
+
+for policy in retrieval["policies"]:
+    identity = policy["policy"]
+    slice_info = policy["match"].get("rule_selection")
+    if slice_info:
+        # The policy was read as a slice. Say so, with the numbers.
+        print(
+            f"{identity['provision_key']}: "
+            f"{slice_info['selected_rules']} of {slice_info['total_rules']} rules selected"
+        )
+    else:
+        print(f"{identity['provision_key']}: read whole")
+
+usage = retrieval.get("token_usage") or {}
+total = usage.get("total_tokens")
+if total is not None:
+    # A floor when any call reported no usage. Never render it as an exact total.
+    prefix = "at least " if usage.get("calls_without_usage", 0) else ""
+    print(f"tokens: {prefix}{total}")
+```
+
+#### Raw HTTP, behind a reverse proxy
+
+A deployment may be reached through a gateway that mounts this API under a path prefix. **The prefix is part of the request target.** With a base URL of `https://policy.example.com/gateway`, the request line is:
+
+```http
+POST /gateway/api/policy-decisions/expense-policy/case HTTP/1.1
+Host: policy.example.com
+X-Policy-Subscription-Key: ${POLICY_SUBSCRIPTION_KEY}
+Content-Type: application/json
+X-Correlation-Id: <uuid>
+Idempotency-Key: <uuid>
+
+{"scenario":"Describe the situation you want decided.","reasoning_effort":"medium","calling_system_identity":"my-agent"}
+```
+
+Dropping the prefix and sending `POST /api/policy-decisions/...` is the single most common integration mistake against a proxied deployment, and it fails as a `404` from the *gateway*, with no `code` from this API to explain it. Build the target by joining your configured base URL with the path, and keep the base URL's own path segment — do not take only the host.
+
+The same holds for the other three operations; only the path after the prefix changes:
+
+```http
+POST /gateway/api/policy-decisions/expense-policy/case/light HTTP/1.1
+POST /gateway/api/policy-decisions/expense-policy/policies HTTP/1.1
+GET  /gateway/api/policy-decisions/<decision-id> HTTP/1.1
+```
+
+`receipt_url` is returned **relative** for exactly this reason: an absolute URL built on the server would name the internal host rather than the gateway the caller used. Join it onto your own base URL the same way.
+
+#### Receipt replay and hash verification
+
+```bash
+curl -sS "$POLICY_API_BASE/api/policy-decisions/$DECISION_ID" \
+  -H "X-Policy-Subscription-Key: $POLICY_SUBSCRIPTION_KEY" \
+  --max-time 30
+```
+
+Compare `decision_hash`, not bytes, and branch on the `hash_basis` the receipt names rather than assuming one:
+
+```python
+from policy_platform.contracts.case_decision import (
+    CaseDecisionEnvelopeV2,
+    compute_decision_hash,
+    compute_decision_hash_v2,
+    validate_receipt,
+)
+
+response = requests.get(
+    f"{BASE}/api/policy-decisions/{decision_id}",
+    headers={"X-Policy-Subscription-Key": os.environ["POLICY_SUBSCRIPTION_KEY"]},
+    timeout=30,
+)
+response.raise_for_status()
+stored = response.json()
+
+receipt = validate_receipt(stored)
+recomputed = (
+    compute_decision_hash_v2(receipt)
+    if isinstance(receipt, CaseDecisionEnvelopeV2)
+    else compute_decision_hash(receipt)
+)
+assert recomputed == receipt.decision_hash, "stored content no longer matches its seal"
+assert receipt.decision_hash == kept_hash, "this is not the receipt hash the caller kept"
+
+# The basis names the preimage rule this hash was taken under. An independent
+# verifier must branch on it; the bases are not interchangeable.
+assert receipt.hash_basis in {
+    "case_decision_v2_lang_verification",  # current, decisions under the language boundary
+    "case_decision_v2_verification",       # current
+    "case_decision_v2_lang",               # historical
+    "case_decision_v2",                    # historical
+    "case_decision_v1",                    # historical, pre two-track envelope
+}
+```
+
 ## Conventions
 
 - **JSON in, JSON out**, except document upload (`multipart/form-data`) and export endpoints (which return JSON, JSONL or CSV as an attachment, selected with a `format` query parameter). See [Capabilities](../README.md#capabilities) for what each output is for.
 - **Policy sets are addressed by `key`** — a stable slug such as `expense-policy` — while most other resources use UUIDs. A project's UUID `id` is trace identity and its `name` is a display string; neither is ever a path segment.
 - **AI endpoints require configuration.** Azure OpenAI is a product requirement, not an option: if it is not configured, every AI route returns `503` before doing any work and the platform is in a degraded diagnostic mode. Retrieval- backed grounding additionally needs `AZURE_SEARCH_*`. Check `GET /api/ai/status` first — it reports both `ai_enabled` and `search_enabled`.
-- **Role-based access control, off by default.** All 105 operations are classified into a capability band — read, use, author, administer — and one dependency enforces the whole registry, so a route cannot be reachable without a classification. It is disabled unless `RBAC_ENABLED` is set; see [configuration](configuration.md) for what to set up first. When enabled, an insufficient role gets `403` with a structured `detail` carrying `code`, `required_role` and `band` rather than a sentence, so clients can render their own wording. Note that the bands do not follow HTTP verbs: many `POST /api/ai/*` routes change nothing and are readable by any role, while a few that write nothing — the ones that exist to compose an edit — require an author.
+- **Role-based access control, off by default.** All 108 operations are classified into a capability band — read, use, author, administer — and one dependency enforces the whole registry, so a route cannot be reachable without a classification. It is disabled unless `RBAC_ENABLED` is set; see [configuration](configuration.md) for what to set up first. When enabled, an insufficient role gets `403` with a structured `detail` carrying `code`, `required_role` and `band` rather than a sentence, so clients can render their own wording. Note that the bands do not follow HTTP verbs: many `POST /api/ai/*` routes change nothing and are readable by any role, while a few that write nothing — the ones that exist to compose an edit — require an author.
 - **Four operations require authentication regardless of that flag.** `POST /api/policy-decisions/{project_key}/policies`, both full and light case `POST`s, and `GET /api/policy-decisions/{decision_id}` refuse an unauthenticated caller with `401` even where global enforcement is off. The retrieval route exposes filtered policy JSON; the other three write, project, or serve an audited receipt that must name who asked. Nothing else bypasses the flag.
 - **Getting a token.** `POST /api/auth/login` with `{username, password}` returns `access_token`; send it as `Authorization: Bearer <token>`. `GET /api/auth/me` reports the principal the server resolved, which is the quickest way to see what a token is actually granting. Both are `read`-band, so a caller who has not signed in can reach them — an unauthenticated request resolves to the least privilege, which satisfies `read`. A wrong password and an unknown username both return `401`, deliberately indistinguishable.
 - **`401` and `403` mean different things.** `401` is "this session is not valid" — the token is missing, expired or not verifiable. `403` is "your role may not do this". A client should clear its session on the first and explain the refusal on the second; merging them logs people out for asking to do something they were never allowed to do.

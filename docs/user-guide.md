@@ -290,12 +290,14 @@ It opens a panel with five sections:
 | **Raw HTTP** | The request line, headers and body as they go on the wire, plus the `GET` that reads the receipt back. |
 | **API docs** | Links to Swagger UI, ReDoc and the OpenAPI document served by the API at the base you set. |
 
+The panel's snippets cover the **full decision** and its receipt read-back, because that is the operation a product reviewer is most likely to hand to an integrator. The other two response modes — Decision Light and Policy JSON — are demonstrated end to end in [the external playground](#the-external-playground), and specified in [External consumption](external-consumption.md).
+
 Two things about identity are worth stating plainly, because getting them wrong is the most common integration mistake:
 
 - **The key is the identifier.** Paths use it. It is stable, it is a slug, and it is what you send to an integrator.
 - **The display name is never an identifier.** It changes whenever someone renames the project, and it has no copy control in this panel on purpose. The UUID is trace identity — it comes back on every receipt so a decision can be traced to this project in a support or audit conversation, and it is never a path segment.
 
-**No snippet ever contains a credential.** Every example reads the subscription key from the environment variable `POLICY_SUBSCRIPTION_KEY` and sends it in `X-Policy-Subscription-Key`. Your signed-in session token is not read, not rendered and not copied, and the panel has no access to whatever key an operator configured on the server — there is nothing here to reveal. Editing the API base only re-renders the snippets; it changes nothing about your session.
+**No snippet in this product panel contains a credential.** Every example reads the subscription key from the environment variable `POLICY_SUBSCRIPTION_KEY` and sends it in `X-Policy-Subscription-Key`. Your signed-in session token is not read, not rendered and not copied, and the panel has no access to whatever key an operator configured on the server — there is nothing here to reveal. Editing the API base only re-renders the snippets; it changes nothing about your session.
 
 Changing the base URL is how you point the snippets at a real deployment. In Azure, the base an external caller uses is the **web** application's public address, whose gateway proxies `/api` through to the API — see [configuration](configuration.md#reaching-the-api-from-outside).
 
@@ -306,6 +308,7 @@ A separate demonstration client — not part of the product's signed-in surface 
 You provide, in one docket:
 
 - **API base**, **project key** and **API subscription key**. The credential is a plain text field, visible on purpose: the playground exists to show the exact request an integrator must reproduce, and a credential nobody can read is one nobody can check against the `401` they just got. It is held in memory for that tab only — never written to storage, the URL or a log — and can be prefilled on a developer machine from a git-ignored `.env.local`. The project's name and active version resolve from the API as you type the project key.
+- **The API response you want**, chosen from three: **Decision JSON**, **Decision Light** or **Policy JSON**. The choice changes which operation is called and therefore which fields the docket offers — Policy JSON has no idempotency key, no reasoning effort and no caller guidance, because it stores no receipt and runs no explanation stage.
 - **Scenario** — the case, in plain English.
 - **Reasoning effort**, a **calling system** label, and an optional **idempotency key**.
 - **Additional instructions** (optional, up to 2000 characters) — guidance about how you want the explanation presented. The field carries its constraint next to it: it shapes explanation focus or format, and cannot override published policy, retrieval, decision status or citation requirements.
@@ -314,18 +317,37 @@ Before anything is sent, the **Request Inspector** shows the exact request:
 
 - **Request JSON** — the body as it will be serialised, live as you type, with a client-side preview of the request hash. `additional_instructions` is omitted entirely when empty rather than sent as `""`.
 - **Caller guidance** — two registers that are deliberately never merged. *Caller guidance — editable* is your text. *Server instruction profile — read only* names the server's framing by identifier and has no edit affordance of any kind, because there is nothing to unlock. Between them, the precedence is stated: server instructions and published policy take precedence; caller guidance applies only where it does not conflict.
-- **Raw HTTP** — the request line, every header and the body. The `Authorization` line is a fixed-width mask, and copying or downloading this tab emits the masked form.
+- **Raw HTTP** — the request line, every header and the body. This local playground authenticates with `X-Policy-Subscription-Key`, not `Authorization`, and shows the live key in clear; copying or downloading this tab copies that key too. Treat the export as a credential and do not save or share it. The inspector takes the host from **API base** but builds a root-relative `/api/...` request target, so use an origin-only base such as `https://policy.example.com` here. For a gateway mounted below a path such as `/gateway`, use the separate Integration Guide examples, which preserve that prefix.
 
-After submitting, the page reads top to bottom:
+While the call is in flight and after it returns, a **run meter** stays visible with the elapsed time and the service-reported token usage. When any model call returned no usage, the token figure is shown as a floor — *at least N* — rather than as an exact total.
+
+### Reading a Decision JSON run
+
+The page reads top to bottom:
 
 1. **Verdict band** — the decision status first, then the verdict *only* when the status is `answered`, then the explanation and the citation count. There is no state in which you can read a verdict without first reading the status that qualifies it.
-2. **Decision receipt** — decision id, project (name, key, UUID, each labelled for what it is), policy version, correlation id, the authenticated principal beside the caller-declared label, timestamp, and the envelope name `case_decision_v1`.
+2. **Decision receipt** — decision id, project (name, key, UUID, each labelled for what it is), policy version, correlation id, the authenticated principal beside the caller-declared label, timestamp, and the envelope name — `case_decision_v2` for every new decision, and `case_decision_v1` where a receipt written before the two-track redesign is being replayed.
 3. **Request as sent** — the scenario and the caller guidance exactly as the *server* echoed them back, not as the page believes it sent them, with the scenario hash and the server instruction profile version.
 4. **Result grid** — status, verdict (or `Not reached — status is "…"`), the route that decided, explanation, actions or missing facts, and the decision hash.
 5. **Rule evidence** — each cited rule with its heading path, section or page, the verbatim quoted source, and a link to the policy payload. Where no verbatim text was returned, the page says so rather than substituting a paraphrase.
 6. **Retrieval disclosure** — how many policies were considered, retained and discarded, and why each was set aside.
 7. **Raw JSON** — the whole envelope, unmodified.
 8. **Verify stored receipt** — a `GET` of the stored receipt, compared field by field against what you were returned: decision hash, policy version id, timestamp, caller guidance and server instruction profile. All of them must match for the comparison to read as verified.
+
+### Reading a Decision Light run
+
+Decision Light renders the outcome visually first — the per-track statuses, the verdict where one was reached, the citations — and the exact JSON below it. The compact envelope is `case_decision_light_v1`.
+
+**It is not a faster or cheaper call.** It executes the same decision as Decision JSON and stores the same full `case_decision_v2` receipt; only the response is smaller. The identity fields it carries — `decision_id`, `decision_hash`, `hash_basis`, `receipt_url` — name that full receipt, so anything the compact view leaves out can still be fetched and verified.
+
+If a Decision Light call times out and the stored full receipt is recovered, the playground switches explicitly to Decision JSON and shows that receipt, rather than presenting a full envelope under a light heading. That is the behaviour an integrator should copy: the recovered artefact is the full receipt, because that is what was stored.
+
+### Reading a Policy JSON run
+
+Policy JSON returns `policy_retrieval_v1`: the precision-ranked policy records with their rule selection, the retrieval disclosure, token usage and end-to-end latency. There is no decision id, no verdict, no citations, no hash and no receipt, because nothing was decided and nothing was stored — and the page does not offer a verify step, because there is nothing to verify against.
+
+Use it when your own system will reason over the approved records. Do not present its output as a determination.
+
 
 **Project scope retrieves; it does not evaluate everything.** Putting a case to a project does not run it against every published policy. The policies bearing on the question are retrieved from the project's own policy index and the rest are discarded before anything is evaluated — and the retrieval disclosure shows you the shortlist and the reason each discarded policy was set aside. The phrase *all published policies were evaluated* appears only when narrowing genuinely set nothing aside.
 

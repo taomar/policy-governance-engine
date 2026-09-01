@@ -50,6 +50,7 @@ Policy work is not a place to invent a format. Three standards do the load beari
 | Assurance | Quality checks, blind tests, regression guards, and version comparison |
 | Evidence | Decision logs, test/quality history, citations, and exports |
 | Grounded assistance | Ask AI using approved rules and Azure AI Search clauses |
+| Audited external decisions | Put a case to a project's published policies over REST and get back a cited, hash-sealed receipt — or retrieve the governing policy records alone, with no determination |
 
 ## Trust model
 
@@ -163,7 +164,7 @@ Guarantees are also mutation-checked — each one is broken on purpose to confir
 .\.venv-graph\Scripts\python.exe scripts\mutation_check.py tests\mutations\core_guarantees.json
 ```
 
-The suite needs the `graph` extra: 13 modules import Docling directly, and in a `.venv` built from `.[dev]` alone they fail at collection. The torch footprint matters for the runtime image, not for a development machine — so install `.[dev,graph]` if you intend to run the tests.
+The suite runs under `.[dev]` alone — tests that need Docling carry a `skipif` guard and skip themselves rather than failing at collection. Install `.[dev,graph]` when you want those tests to actually execute; the torch footprint matters for the runtime image, not for a development machine.
 
 ## Important boundaries
 
@@ -190,6 +191,7 @@ See [Known limitations](docs/known-limitations.md).
 | [Workflows](docs/workflows.md) | Concise operational flows |
 | [Capability flows](docs/capability-flows.md) | Seven high-impact diagrams |
 | [API](docs/api.md) | Endpoint groups and common sequences |
+| [External consumption](docs/external-consumption.md) | Calling the audited decision API from another system |
 | [Configuration](docs/configuration.md) | Environment, local run guide, and troubleshooting |
 | [Testing](docs/testing.md) | Commands and coverage boundaries |
 | [Azure deployment](docs/azure-deployment.md) | Container Apps architecture, what gets deployed, and the `azd up` procedure |

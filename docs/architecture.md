@@ -178,7 +178,8 @@ flowchart TD
     External(["External system"])
 
     Legacy["POST /api/ai/policy-sets/{key}/case-answer<br/>in-product reviewer surface"]
-    Audited["POST /api/policy-decisions/{project_key}/case<br/>audited external contract"]
+    Audited["POST /api/policy-decisions/{project_key}/case<br/>POST /api/policy-decisions/{project_key}/case/light<br/>audited external contract"]
+    Retrieval["POST /api/policy-decisions/{project_key}/policies<br/>retrieval only — never reaches the decider"]
 
     App["application/policy_case_decision.py<br/>the only caller of the decider"]
     Decider["assistants/ai_case_project<br/>retrieval, then evaluation"]
@@ -186,15 +187,20 @@ flowchart TD
 
     Reviewer --> Legacy --> App
     External --> Audited --> App
+    External --> Retrieval
     App --> Decider
     Audited -. "reserve → decide → finalise" .-> Receipts
 ```
 
 Both routes go through one application module, and that module is the **only** place in the codebase that calls the project-case decider — a static test counts the call sites and fails when a second appears. Wiring the external route straight into the decider would have turned every reviewer click into an audited external call; wiring it into a copy would have produced two deciders that agree until one is edited.
 
+**`/case` and `/case/light` are one surface, not two.** They accept the same request, execute the same `_execute_case_decision` path, and store the same full `case_decision_v2` receipt. Only the immediate response differs: Light is projected down to a fixed compact schema that still carries the full receipt's `decision_id`, `correlation_id`, `decision_hash`, `hash_basis` and `receipt_url`. Light is **output-light, not processing-light** — it is not a cheaper adjudicator, and describing it as a faster one would be wrong in the one direction that matters, because a caller would choose it for latency it does not get.
+
+**`/policies` is deliberately outside all of this.** It runs retrieval and stops: no classifier, no plan, no gathers, no response rendering, no hash, no receipt, and not even the decision path's embedding stage. It is drawn separately above because a diagram that routed it through the decider would suggest its output is a determination, which is exactly the misreading the split exists to prevent.
+
 **The legacy reviewer route is unchanged in what it owes.** It persists nothing, returns no decision identity, and its response *keys* are the ones it always returned — `intent`, `informational` and `decision` all still mean what they meant, with the two-track booleans added beside them. A reviewer exercising a policy is not making an external commitment, and the audit trail should not fill with screen work.
 
-**The external route is reserve → decide → finalise.** A case costs on the order of ten seconds of model time, and that single fact shapes the order:
+**The external route is reserve → decide → finalise.** A case runs for tens of seconds of model time, and that single fact shapes the order:
 
 1. **Reserve, and commit.** A `pending` receipt row is written and committed *before* the model is called. If the process dies mid-call, the evidence that the call was made survives. If the reservation cannot be written, no model call is made and the caller gets a non-2xx.
 2. **Decide, holding no transaction.** The model call runs with nothing open.
@@ -240,7 +246,7 @@ The corpus is crossed **once per build, not once per query**: rendering per quer
 
 What does *not* cross, in either direction: the caller's own scenario and guidance bytes and their digests, every machine-readable value, and **every verbatim source sentence**. The original is never written into an English-labelled field, because that would manufacture exactly the cross-language match the boundary exists to prevent. A citation stays in the language the document was written in; only prose the decision composed itself is rendered back.
 
-The receipt carries the whole crossing in its `language` block, and `case_decision_v2_lang` seals it along with `processing_scenario_hash` — the digest of the English text that was actually adjudicated. Sealing the caller's words without sealing the words the decision read would leave the substituted text unverifiable.
+The receipt carries the whole crossing in its `language` block, and the language hash bases — `case_decision_v2_lang`, and the current `case_decision_v2_lang_verification` — seal it along with `processing_scenario_hash`, the digest of the English text that was actually adjudicated. Sealing the caller's words without sealing the words the decision read would leave the substituted text unverifiable.
 
 ### The policy index holds three kinds of document
 
@@ -250,7 +256,7 @@ The receipt carries the whole crossing in its `language` block, and `case_decisi
 | `rule` | one per rule, **only** above `LARGE_POLICY_RULE_THRESHOLD` (15) | Above the threshold a provision is a schedule, and a single document cannot represent seventy-four independent rows. Below it, per-rule documents would multiply the corpus for nothing. |
 | `manifest` | exactly one per project | The readiness gate. Carries `manifest_state`, the `projection_profile` and language the build ran under, and expected against uploaded counts. |
 
-Retrieval is `hybrid_policy_rule_rrf_v1`: the policy-level and rule-level rankings are fused by Reciprocal Rank Fusion (`1 / (60 + rank)`), with each rule's rank attributed to its parent policy and a policy taking its best rule's rank. A policy the policy-level search never returned can therefore be retrieved on one row — which is the whole reason rule documents exist. `policies_elevated_by_rule` counts when that actually happened, because a number that only ever said "the rule index was queried" would not distinguish a fusion that changed the answer from one that changed nothing.
+Retrieval is `direct_policy_rrf_elbow_rule_rescue_v1`. Direct policy documents own the primary ranking: a strong semantic lead selects by semantic identity, while moderate rankings use symmetric Reciprocal Rank Fusion over the hybrid and semantic ranks of those same policy documents. Rule documents never add a second score to a direct policy. A strong rule match can only rescue its parent when it independently clears the absolute floor and the margin above the direct cutoff; `rule_rescued_policies` reports when that changed the retained set, and `policies_elevated_by_rule` remains only as its compatibility alias. This preserves the reason rule documents exist — a large policy can still be found through one bearing row — without rewarding that policy twice merely because it was split into rule documents.
 
 Rule selection then fuses three rankings of its own — the rule index, lexical relevance over the English projection, and **quantity compatibility**, which matches a quantity the question states against the quantities and ranges the rules state, so a threshold row is reachable without shared vocabulary. `rule_selection.method` names which of those actually ran (`hybrid_rule_v1`, `scenario_relevance_v3`, `scenario_relevance_v2`), because claiming a ranking that did not run is the same class of untruth as claiming a rule was read.
 
@@ -262,7 +268,7 @@ The gate is read from the index itself rather than from that row — an OData fi
 
 The rebuild sequences its writes so no partial corpus is ever queryable — manifest to `incomplete` first (and if *that* write is not acknowledged, nothing is written at all), then documents with acknowledgements counted by key rather than by HTTP status, then the stale sweep, then `ready` last. There is no rollback because the build is a pure function of the database: re-running it is the recovery, producing the same ids and overwriting in place. A rendering failure for any one policy fails the whole build, since a corpus that is English in part is the one thing the profile must never mean.
 
-Two assurances sit at different strengths here, and only one of them is finished. Each rendering is checked **structurally** as it is produced — empty, implausibly grown or shrunk, or a lost number or identifier rejects the whole batch — which is why a build either indexes a policy from a rendering that passed or does not index it at all. The **projection-quality gate**, which assesses whether a rendering is a faithful reading rather than merely a structurally intact one, is still being implemented. Indexes already built under `policy-english-projection-v1` are live and serving; until the gate validates them their retrieval quality is unvalidated, and the profile stamp records *which contract* rendered a corpus, never that the rendering was judged good.
+Two assurances sit at different strengths. Each rendering is checked **structurally** as it is produced — empty, implausibly grown or shrunk, or a lost number or identifier rejects the whole batch. The completed **projection-quality gate** then compares every built document with the authoritative record under `policy-projection-quality-v1`; any structural finding, below-floor pair, or unavailable check fails the corpus. Readiness requires a `passed` quality state under that profile, so an older unvalidated manifest does not match. The live AIS and HW projections passed 138/138 and 115/115 documents with zero findings. The gate is decisive against gross substitution but cannot separate every faithful rendering from a near-identical sibling record, which is the narrower remaining limitation.
 
 ### The retained set is fitted before it is read
 
@@ -305,7 +311,7 @@ Every policy read as a slice carries `rule_selection` — `total_rules`, `select
 | Record | Written by | Holds |
 |---|---|---|
 | `evaluations` | `POST /api/evaluations` | A deterministic decision: structured facts in, per-rule determinations out, a `result_hash` that reproduces. The evaluator is a pure function — no database, no network, no model. |
-| `policy_case_decisions` | `POST /api/policy-decisions/{project_key}/case` | A model-mediated case decision: prose in, a receipt out, with retrieval disclosure, per-track citations and a `decision_hash` that seals content rather than promising reproduction. `schema_version` names which envelope the stored `response_json` holds, and the per-track columns beside it are an index over that envelope, not a second source of truth. |
+| `policy_case_decisions` | `POST /api/policy-decisions/{project_key}/case` and `.../case/light` | A model-mediated case decision: prose in, a receipt out, with retrieval disclosure, per-track citations and a `decision_hash` that seals content rather than promising reproduction. Both operations write the same full `case_decision_v2` row; only the response shape differs. `schema_version` names which envelope the stored `response_json` holds, and the per-track columns beside it are an index over that envelope, not a second source of truth. |
 
 They are separate tables because generalising one over the other would be a lie rather than an abstraction: `Evaluation` requires a non-null policy version (a case can legitimately answer with none published), requires structured facts (a case has prose), and carries the XACML status enum (a case has its own two-track vocabulary, with `not_requested` and `not_evaluated` on top of the gathers' own statuses). Keeping them apart is what lets each state exactly what it is.
 
@@ -313,7 +319,7 @@ They are separate tables because generalising one over the other would be a lie 
 
 External routing is on the project's stable `key`. The UUID `id` is returned on every receipt as trace identity and is never routed on; the `name` is a display string and changes. A URL built from a display name would break the first time someone renamed a project, so a name in the path is a `404`.
 
-Both decision operations additionally require a proved authenticated principal, resolved independently of the global `RBAC_ENABLED` flag — see [API](api.md#audited-external-decisions-policy-decisions) and [External consumption](external-consumption.md).
+All four `policy-decisions` operations — the full case, the light case, policy retrieval, and receipt replay — additionally require a proved authenticated principal, resolved independently of the global `RBAC_ENABLED` flag. The decision routes must name who asked for a receipt; the retrieval route exposes approved policy records. See [API](api.md#audited-external-decisions-policy-decisions) and [External consumption](external-consumption.md).
 
 ## Evaluation call, end to end
 

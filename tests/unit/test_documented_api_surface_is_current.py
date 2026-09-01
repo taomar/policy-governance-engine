@@ -20,6 +20,8 @@ from pathlib import Path
 
 from policy_platform.api.app import create_app
 
+from tests.unit.published_docs import published_documents
+
 ROOT = Path(__file__).resolve().parents[2]
 API_DOC = ROOT / "docs" / "api.md"
 
@@ -105,3 +107,68 @@ def test_the_patterns_reject_text_that_does_not_state_the_surface() -> None:
 
     assert _ROW_RE.findall("| `ai` | /api/ai | 22 | things |") == [("ai", "22")]
     assert not _ROW_RE.findall("| ai | /api/ai | many | things |")
+
+
+# ---------------------------------------------------------------------------
+# THE CLASSIFIED-OPERATION COUNT, WHEREVER IT IS CLAIMED
+# ---------------------------------------------------------------------------
+#
+# The headline above was guarded; the *capability* count was not, and it decayed
+# exactly the same way and for exactly the same reason -- nothing made it stay
+# true. Three published pages claimed the layer covered "all 105 API
+# operations" while the registry held 108, so a reader was told three operations
+# were unclassified when none were.
+#
+# That claim is load-bearing in a way the headline is not: it is the sentence a
+# reader relies on to believe no route escapes classification. It is asserted
+# against `OPERATION_BANDS` itself rather than against the OpenAPI document,
+# because the claim is about the registry -- and the separate assertion that the
+# registry covers the whole surface belongs to the RBAC tests, not here.
+
+#: "all 105 API operations", "all 108 operations". The number is what matters;
+#: the optional "API" is there because the pages word it both ways.
+_CLASSIFIED_RE = re.compile(r"all (?P<count>\d+)\s+(?:API\s+)?operations", re.IGNORECASE)
+
+
+def _pages_that_state_a_classified_count() -> list[tuple[Path, int, int]]:
+    found: list[tuple[Path, int, int]] = []
+    for doc in [*published_documents(), ROOT / "README.md"]:
+        if not doc.is_file():
+            continue
+        for lineno, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+            for match in _CLASSIFIED_RE.finditer(line):
+                found.append((doc, lineno, int(match.group("count"))))
+    return found
+
+
+def test_every_documented_classified_operation_count_matches_the_registry() -> None:
+    from policy_platform.api.authz import OPERATION_BANDS
+
+    actual = len(OPERATION_BANDS)
+    assert actual, "the capability registry is empty, so nothing was measured"
+
+    wrong = [
+        f"{doc.relative_to(ROOT)}:{lineno}: says {claimed}, the registry holds {actual}"
+        for doc, lineno, claimed in _pages_that_state_a_classified_count()
+        if claimed != actual
+    ]
+    assert not wrong, "documented capability counts disagree with the registry:\n  " + "\n  ".join(
+        wrong
+    )
+
+
+def test_the_classified_count_is_actually_claimed_somewhere() -> None:
+    """An assertion over an empty set passes while checking nothing."""
+
+    assert _pages_that_state_a_classified_count(), (
+        "no published page states the classified-operation count any more — either "
+        "the wording changed and this guard is checking nothing, or the claim was "
+        "dropped and this guard should be too"
+    )
+
+
+def test_the_classified_pattern_rejects_text_that_states_no_count() -> None:
+    assert _CLASSIFIED_RE.search("classifies all 108 API operations and enforces")
+    assert _CLASSIFIED_RE.search("All 108 operations are classified into a band")
+    assert not _CLASSIFIED_RE.search("all operations are classified into a band")
+    assert not _CLASSIFIED_RE.search("108 operations exist")

@@ -35,6 +35,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.published_docs import published_documents
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 
@@ -114,7 +116,7 @@ _EXPECTED_ABSENT: dict[str, str] = {
 }
 
 
-#: The local-only tree is excluded on purpose.
+#: The unpublished trees are excluded on purpose.
 #:
 #: `docs/internal/` holds audits, decision records and session handovers, and a
 #: large part of what they say is *history*: "the failure record in
@@ -125,13 +127,20 @@ _EXPECTED_ABSENT: dict[str, str] = {
 #: time to match the filesystem of today.
 #:
 #: The guard exists so that a reader following a path in the documentation
-#: finds something there. Nothing in this tree is published, so it has no such
-#: reader; the published pages, which do, are still checked in full.
+#: finds something there. Nothing in these trees is published, so they have no
+#: such reader; the published pages, which do, are still checked in full.
+#:
+#: Which pages those are is asked of git rather than named here -- see
+#: `published_docs`. Naming `docs/internal/` alone made this guard a property of
+#: whichever machine ran it: a checkout that had preserved `docs/adr/`,
+#: `docs/failures/` or `docs/handoff/` -- all git-ignored, all equally
+#: unpublished -- failed on identical published content, reporting private
+#: history as a defect in the product documentation.
 _LOCAL_ONLY = DOCS / "internal"
 
 
 def _documents() -> list[Path]:
-    found = sorted(doc for doc in DOCS.rglob("*.md") if _LOCAL_ONLY not in doc.parents)
+    found = [doc for doc in published_documents() if _LOCAL_ONLY not in doc.parents]
     readme = ROOT / "README.md"
     if readme.is_file():
         found.append(readme)

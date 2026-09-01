@@ -138,7 +138,7 @@ The trigger is the point. A step added to the running system and left off that p
 
 **This check is itself subject to [the rule two sections up](#safety-that-a-human-has-to-arm-is-off):** it needs a human to decide to run it, so by default it is off. That is a known and accepted weakness, chosen over a guard at this precision because an alarm that misfires gets disabled and takes the honest limitation down with it. Recorded plainly rather than dressed up.
 
-The suite needs the `graph` extra: 13 modules import Docling directly and fail at collection in a `.venv` built from `.[dev]` alone. The torch footprint is a constraint on the runtime image, not on a development machine.
+The suite runs under `.[dev]` alone: tests that need Docling carry a `skipif` guard and skip themselves rather than failing at collection. The `graph` extra is what makes them execute. The torch footprint is a constraint on the runtime image, not on a development machine.
 
 `pyproject.toml` sets `pythonpath = ["src"]`, so the suite runs without an editable install, and pins the approved Microsoft package feed proxy as the default index — resolving directly to `files.pythonhosted.org` fails the TLS handshake on managed networks and surfaces as an opaque retry error.
 

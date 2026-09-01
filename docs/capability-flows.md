@@ -175,26 +175,39 @@ sequenceDiagram
     else whole project
         API->>DB: published payloads for the active version
         API->>AOAI: embed scenario
-        API->>PIdx: search this project's policies
-        PIdx-->>API: ranked policies
-        API->>API: retain in-budget, discard the rest
+        par concurrent discovery
+            API->>PIdx: search policy documents
+        and
+            API->>PIdx: search rule documents
+        end
+        PIdx-->>API: ranked policy and rule documents
+        API->>API: fuse, cut at the semantic elbow, rescue by rule
+        API->>API: collapse duplicates, retain in-budget, discard the rest
+        API->>API: slice large policies to the rule budget
     end
-    API->>AOAI: one gather over the retained records
-    AOAI-->>API: informational answer or decision
+    API->>AOAI: classify what the question asks for
+    par requested tracks
+        API->>AOAI: informational gather over the retained records
+    and
+        API->>AOAI: verdict gather over the same retained records
+    end
+    AOAI-->>API: informational answer, verdict, or both
     API->>API: check every citation against the payload
-    API-->>UI: answer + retained/discarded + size vs budget
+    API-->>UI: outcome + retained/discarded + rule selection + size vs budget
 ```
 
-Three things this flow guarantees, each of which was a defect first:
+Rule documents take part in discovery but never inflate a policy's score: a strong rule match can only *rescue* its parent policy through an independent threshold. Both gathers read the one closed set of records retrieval settled, so the statement a reviewer is told and the verdict they are given can never rest on two different corpora.
 
-- **It never fans out.** The retained policies are evaluated in one gather, not one call per policy, and the combined size is reported against a budget. An oversize payload is refused rather than silently trimmed.
+Four things this flow guarantees, each of which was a defect first:
+
+- **It never fans out.** The retained policies are evaluated together — one gather per requested track over the whole retained set, never one call per policy — and the combined size is reported against a budget. An oversize payload is refused rather than silently trimmed.
 - **It never falls back to "evaluate everything".** When retrieval cannot be relied on, the reviewer is told which of the distinct states applies — no published version, index not built, index stale, index empty, search unavailable, search failed, or a genuine no-match — and no evaluation is made. Those are kept apart because collapsing any pair reports one situation as another.
 - **It only claims to have narrowed when it did.** A project with no more published policies than the retention budget has all of them evaluated, and that is reported as `not_narrowed` rather than as a selection. Saying "search kept the highest matching policies and discarded the rest" when nothing was discarded credits search with a choice it never made, and leaves a reviewer believing the listed policies matched their question when they are simply all the project has.
-- **It retrieves policies, not clauses.** The indexed unit is a policy at its published version, keyed on identity that survives re-parsing. An earlier design keyed retrieval on clause ids, which are regenerated whenever a document is re-read, and it failed silently on every project with history.
+- **It returns policies, not standalone clauses.** The index contains one policy document per published policy plus rule documents for large policies. Rule hits can only rescue their parent policy; the retained result remains a policy keyed on stable provision identity, and rule documents never surface as independent policies. An earlier design exposed retrieval through clause ids, which are regenerated whenever a document is re-read, and it failed silently on every project with history.
 
 Narrowing is a cost control and a scope control, not a relevance guarantee. A policy that is retained has not been judged to bear on the question — the gather decides that, and reports `no_rule_bears` when none of them does. Over-retention is the deliberate direction: a policy kept but not bearing costs a little context, while one dropped that did bear is the outcome the reviewer forbade.
 
-The index holds only published policies at the latest approved version, which is what makes it cheap to maintain: edits, approvals, rejections and re-extractions all act on candidates and cannot change it. Only two events can — publishing rebuilds a project's index, and deleting the project drops it.
+The index holds policy and rule projection documents only for published policies at the latest approved version, which is what makes it cheap to maintain: edits, approvals, rejections and re-extractions all act on candidates and cannot change it. Only two events can — publishing rebuilds a project's index, and deleting the project drops it.
 
 ## 7. Outputs and audit
 

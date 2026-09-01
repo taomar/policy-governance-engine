@@ -40,20 +40,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.published_docs import ignored_documents, published_documents
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "policy_platform"
 WEB = ROOT / "apps" / "web" / "src"
 DOCS = ROOT / "docs"
 
-#: Documents whose purpose is recording the wording that was removed.
-#:
-#: This is the whole local-only tree rather than the audit directory alone.
-#: Nothing under `docs/internal/` is published -- it is excluded by
-#: `.gitignore` and asserted so by `test_publication_excludes_private_material`
-#: -- so none of it is documentation a reader can reach, and a guard about what
-#: a reader is told has no business scanning it. Naming the one subdirectory
-#: that happened to hold these records is what broke when they moved.
-_FAILURE_RECORD = DOCS / "internal"
+def _scanned_documents() -> list[Path]:
+    """The published documents this guard is about."""
+
+    return published_documents()
 
 #: Prose that frames the AI Ready route as a shortfall.
 #:
@@ -545,9 +542,7 @@ def test_no_readiness_framing_in_the_documentation():
 
     offenders: list[str] = []
     examined = 0
-    for path in sorted(DOCS.rglob("*.md")):
-        if _FAILURE_RECORD in path.parents:
-            continue
+    for path in _scanned_documents():
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             examined += 1
             match = _FRAMING_RE.search(line)
@@ -563,26 +558,14 @@ def test_no_readiness_framing_in_the_documentation():
 def test_the_documentation_scan_reaches_files_and_honours_its_exclusion():
     """Guard the guard: an empty glob or a swallowed root would prove nothing."""
 
-    scanned = [p for p in DOCS.rglob("*.md") if _FAILURE_RECORD not in p.parents]
+    scanned = _scanned_documents()
     assert len(scanned) > 20, f"only {len(scanned)} documents scanned; the glob is wrong"
     assert (DOCS / "user-guide.md") in scanned
 
-    # The excluded tree is git-ignored (`.gitignore:93-95`), so it is absent from
-    # every clone and from CI. Asserting that it exists made this test a property
-    # of whichever machine ran it: it passed for whoever happened to hold the
-    # local records and failed everywhere else, on identical code.
-    #
-    # So the presence of the tree is not asserted -- but where it *is* present the
-    # check keeps its teeth, and is strictly the one that had them. What it was
-    # ever able to prove is that the exclusion is *necessary*: that the excluded
-    # documents really do carry the wording, so excluding them is a deliberate
-    # decision rather than a way to pass. An exclusion covering nothing relevant
-    # is the defect, and it is still caught here.
-    excluded = list(_FAILURE_RECORD.rglob("*.md"))
-    if excluded:
-        assert any(
-            _FRAMING_RE.search(path.read_text(encoding="utf-8")) for path in excluded
-        ), "no excluded document contains the framing, so the exclusion is unnecessary"
+    # Private records are optional local state. Their contents cannot be a
+    # precondition for a guard over published text, or identical commits pass on
+    # a clean clone and fail on whichever subset a developer happens to retain.
+    assert set(scanned).isdisjoint(ignored_documents())
 
 
 # ---------------------------------------------------------------------------
@@ -646,13 +629,11 @@ def test_the_retired_route_names_are_gone_from_the_service():
 
 
 def test_the_retired_route_names_are_gone_from_the_documentation():
-    """`docs/internal/` is excluded: recording retired wording is its purpose."""
+    """Only published documentation is held to the current route vocabulary."""
 
     offenders: list[str] = []
     examined = 0
-    for path in sorted(DOCS.rglob("*.md")):
-        if _FAILURE_RECORD in path.parents:
-            continue
+    for path in _scanned_documents():
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             examined += 1
             for found in _retired_names_in(line):
