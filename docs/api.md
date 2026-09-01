@@ -232,6 +232,23 @@ Receipt reads are additionally narrowed at the record: a receipt may be read by 
 
 **`reasoning_effort` is the one request field that materially affects how long a decision takes.** A decision's wall-clock time is dominated by how much the model *reasons*, not by how much policy text was retrieved — a request with a small retrieved corpus and deep reasoning is slower than one with a large corpus and shallow reasoning. Lowering the effort trades adjudication depth for speed, and is a real trade rather than a free win: validate it against your own scenarios before adopting it. Everything else a caller can send — a shorter scenario, narrower guidance, a named `provision_id` — changes what is read and what it costs in tokens, not how long the reasoning takes.
 
+#### What `low` measured, on one corpus
+
+One 20-scenario × 2-repetition matrix was run at `medium` and again at `low`, an hour apart against the same deployment, and compared per scenario rather than by pooling the two sets. This is evidence from that matrix, not a service level or a general claim about `low`:
+
+| | p50 | p75 | p95 |
+|---|---:|---:|---:|
+| reasoning tokens | −44% | −67% | −51% |
+| `verdict_gather` | −23% | **−55%** | −35% |
+
+End-to-end **p95 fell 22%** (35.4 s → 27.5 s). **p50 did not move.** That is the mechanism rather than a contradiction: the median request in that matrix reasoned only ~220 tokens, so there was almost nothing to cut, while the slow quartile reasoned ~840 and the gather more than halved.
+
+So `low` is worth reaching for when your **tail** hurts — a timeout you keep hitting, a p95 you cannot fit inside — and is close to pointless if your median is the problem. Total tokens barely moved (−1%): `low` buys time by reasoning less, not by reading less.
+
+Verdicts were unchanged across all 20 scenarios in that run, including the three that already failed at `medium`. Twenty scenarios on one corpus is not evidence that adjudication depth is free — it is evidence that this matrix did not detect a cost. Run your own before adopting it.
+
+One caution when measuring this yourself: the classifier cannot receive `reasoning_effort` at all, yet its p50 moved +15% between those two runs. That is drift in the shared service over an hour, and it was larger than the median effect being looked for. Compare paired, and treat any stage the setting cannot reach as your control.
+
 ### Correlation and idempotency headers
 
 | Header | Direction | Behaviour |
