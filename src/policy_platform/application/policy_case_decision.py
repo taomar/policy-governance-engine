@@ -123,6 +123,7 @@ discriminated union rather than one shape with optional halves.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import time
 import uuid
@@ -749,8 +750,22 @@ async def _retrieve_project_policies(
             correlation_id=correlation_id,
         )
 
+    # The stage map this route reports is assembled here rather than read off a
+    # single object, because the two halves are measured on opposite sides of
+    # the retrieval call: the inbound language crossing happens before there is
+    # a context to write into, and the retrieval stages are written into the
+    # context by the shared scope helper. Both are wall-clock durations of work
+    # this request actually did, so they belong in one map.
+    stage_latency_ms: dict[str, int] = {}
+
     try:
-        crossing = await cross_into_processing_language(scenario, "")
+        language_in_started = time.perf_counter()
+        try:
+            crossing = await cross_into_processing_language(scenario, "")
+        finally:
+            stage_latency_ms["language_in"] = max(
+                0, int((time.perf_counter() - language_in_started) * 1000)
+            )
         selected = await ai_case_project.retrieve_project_policies(
             session,
             policy_set=policy_set,
@@ -783,10 +798,24 @@ async def _retrieve_project_policies(
         ) from exc
 
     response = selected.response
+    # The retrieval stages were already being measured by the shared scope
+    # helper and then discarded at this boundary. They are the same keys, with
+    # the same meanings, as the ones the decision route reports; this route
+    # simply reports fewer of them, because it runs less.
+    stage_latency_ms.update(selected.context.get("timings_ms") or {})
+
+    language_out_started = time.perf_counter()
     _, language = await cross_out_to_the_reader(
         response,
         crossing,
         projection_profile=_projection_profile(response),
+    )
+    # Measured, and normally near zero: this route composes no prose, so the
+    # boundary helper resolves the reader's language without calling a model.
+    # A key reading 0 here is a real sub-millisecond duration, not a skipped
+    # stage — the stage that did not run is the one that is absent.
+    stage_latency_ms["language_out"] = max(
+        0, int((time.perf_counter() - language_out_started) * 1000)
     )
     project = PolicySetRef(
         id=str(policy_set.id),
@@ -807,6 +836,7 @@ async def _retrieve_project_policies(
         language=language,
         token_usage=_token_usage_ref(usage_scope),
         latency_ms=max(0, int((time.perf_counter() - started) * 1000)),
+        stage_latency_ms=stage_latency_ms or None,
     )
 
 
@@ -1443,6 +1473,29 @@ async def _decide_project_case(
         0, int((time.perf_counter() - started) * 1000)
     )
     answer.context["token_usage"] = _token_usage_ref(usage_scope).model_dump(mode="json")
+
+    # ── past the point where a duration can be inside the receipt ─────
+    #
+    # `to_envelope` above is the last timing this receipt can carry. Everything
+    # from here on — building the envelope, sealing it, writing it — finishes
+    # *after* the object that would have to report it, and the stored row is
+    # that object's own dump. There is no honest way to put these numbers in the
+    # response:
+    #
+    #   * mutating the returned envelope after the write would leave the caller
+    #     holding a receipt the database does not have, so the POST body and the
+    #     later GET replay would disagree;
+    #   * writing the row and then updating it would stop persistence being one
+    #     atomic act, and a crash between the two would store a receipt that was
+    #     never returned to anyone.
+    #
+    # So they are measured and emitted beside the receipt instead of inside it.
+    # They are operator telemetry, deliberately not caller telemetry, and
+    # `_finalisation_ms` below never touches `answer.context` — the map that
+    # became `trace.stage_latency_ms` is finished and is not written to again.
+    finalisation_ms: dict[str, int] = {}
+
+    envelope_build_started = time.perf_counter()
     envelope = build_envelope(
         decision_id=decision_id,
         correlation_id=correlation_id,
@@ -1461,39 +1514,46 @@ async def _decide_project_case(
         context=answer.context,
         provision_ids=provision_ids,
     )
+    finalisation_ms["envelope_build"] = max(
+        0, int((time.perf_counter() - envelope_build_started) * 1000)
+    )
 
     finalize_started = time.perf_counter()
     try:
-        await repo.finalize_completed(
-            row,
-            policy_version_id=_version_uuid(answer.context.get("policy_version_id")),
-            version_number=answer.context.get("version_number"),
-            schema_version=envelope.schema_version,
-            decision_status=legacy_decision_status(envelope),
-            information_requested=envelope.asked.information_requested,
-            verdict_requested=envelope.asked.verdict_requested,
-            information_status=(
-                envelope.information.status if envelope.information is not None else None
-            ),
-            verdict_status=envelope.verdict.status if envelope.verdict is not None else None,
-            scope=envelope.request.scope,
-            retrieval=envelope.retrieval.model_dump(mode="json"),
-            decision_summary=_decision_summary(envelope),
-            citation_ids=[citation.rule_id for citation in envelope.citations],
-            trace=envelope.trace.model_dump(mode="json"),
-            response=envelope.model_dump(mode="json"),
-            decision_hash=envelope.decision_hash,
-            hash_basis=envelope.hash_basis,
-            decided_at=decided_at,
-            latency_ms=latency_ms,
-        )
-        logger.info(
-            "case decision %s stage timings ms=%s finalize=%s total=%s",
-            decision_id,
-            answer.context.get("timings_ms"),
-            max(0, int((time.perf_counter() - finalize_started) * 1000)),
-            max(0, int((time.perf_counter() - started) * 1000)),
-        )
+        try:
+            await repo.finalize_completed(
+                row,
+                policy_version_id=_version_uuid(answer.context.get("policy_version_id")),
+                version_number=answer.context.get("version_number"),
+                schema_version=envelope.schema_version,
+                decision_status=legacy_decision_status(envelope),
+                information_requested=envelope.asked.information_requested,
+                verdict_requested=envelope.asked.verdict_requested,
+                information_status=(
+                    envelope.information.status if envelope.information is not None else None
+                ),
+                verdict_status=envelope.verdict.status if envelope.verdict is not None else None,
+                scope=envelope.request.scope,
+                retrieval=envelope.retrieval.model_dump(mode="json"),
+                decision_summary=_decision_summary(envelope),
+                citation_ids=[citation.rule_id for citation in envelope.citations],
+                trace=envelope.trace.model_dump(mode="json"),
+                response=envelope.model_dump(mode="json"),
+                decision_hash=envelope.decision_hash,
+                hash_basis=envelope.hash_basis,
+                decided_at=decided_at,
+                latency_ms=latency_ms,
+            )
+        finally:
+            # In `finally`, because a write that failed still consumed the time
+            # it took to fail, and a receipt that could not be stored is the
+            # case an operator most needs the number for.
+            finalisation_ms["receipt_finalize"] = max(
+                0, int((time.perf_counter() - finalize_started) * 1000)
+            )
+            finalisation_ms["request_total"] = max(
+                0, int((time.perf_counter() - started) * 1000)
+            )
     except Exception as exc:  # noqa: BLE001 - an unstored verdict is not a verdict
         await _safe_rollback(session)
         logger.error(
@@ -1515,6 +1575,18 @@ async def _decide_project_case(
             )
         except Exception:  # noqa: BLE001
             await _safe_rollback(session)
+        # Emitted last on this path, after the compensating write. Ahead of it,
+        # a fault while measuring would skip `finalize_failed` and strand the
+        # reservation at `pending` for good — the telemetry would have caused
+        # the exact orphan the line above exists to prevent, and would have
+        # replaced a mapped 500 with an unmapped exception.
+        _log_finalisation(
+            decision_id=decision_id,
+            correlation_id=correlation_id,
+            stage_latency_ms=answer.context.get("timings_ms"),
+            finalisation_ms=finalisation_ms,
+            stored=False,
+        )
         raise CaseDecisionError(
             status_code=500,
             code="decision_receipt_failed",
@@ -1526,6 +1598,18 @@ async def _decide_project_case(
             correlation_id=correlation_id,
         ) from exc
 
+    # Emitted here, outside the block that guards the write, and not inside it.
+    # Inside, a telemetry fault would be caught by the `except` above and a
+    # decision that *was* stored would be rolled back, re-marked failed and
+    # answered 500 — the receipt turned into a failure by the act of measuring
+    # it. Nothing about observing a request may change its outcome.
+    _log_finalisation(
+        decision_id=decision_id,
+        correlation_id=correlation_id,
+        stage_latency_ms=answer.context.get("timings_ms"),
+        finalisation_ms=finalisation_ms,
+        stored=True,
+    )
     return CaseDecisionOutcome(envelope=envelope, replayed=False)
 
 
@@ -1664,6 +1748,92 @@ async def _safe_rollback(session: AsyncSession) -> None:
         await session.rollback()
     except Exception:  # noqa: BLE001 - a session that cannot roll back is already lost
         logger.warning("rollback failed while handling a case decision fault")
+
+
+# ── telemetry that cannot live in the receipt ────────────────────────
+
+#: Durations reported only beside the receipt, never inside it. Each one ends
+#: after the envelope it would have to be reported in has already been built and
+#: sealed, so there is no version of this map that a caller could be handed
+#: without the stored receipt and the returned receipt ceasing to be the same
+#: object. Keys are wall-clock milliseconds, like every other timing this
+#: service reports.
+FINALISATION_TELEMETRY_KEYS: tuple[str, ...] = (
+    "envelope_build",
+    "receipt_finalize",
+    "request_total",
+)
+
+#: Stable prefix so an operator can select these lines out of a log stream. The
+#: body is JSON because the previous form interpolated a Python dict into a
+#: format string, which is readable by a person and not by anything else.
+FINALISATION_LOG_EVENT: str = "case_decision.finalisation"
+
+
+def _log_finalisation(
+    *,
+    decision_id: str,
+    correlation_id: str,
+    stage_latency_ms: Mapping[str, int] | None,
+    finalisation_ms: Mapping[str, int],
+    stored: bool,
+) -> None:
+    """Emit the timings that the receipt itself cannot carry.
+
+    Called on both outcomes on purpose. A store that failed spent real time
+    failing, and the run where the receipt could not be written is the one an
+    operator most needs the numbers for — so `stored` reports which case this
+    was rather than the line being absent for one of them.
+
+    This function is deliberately incapable of changing what was returned or
+    stored: it reads, formats and logs. Nothing here is written back into the
+    context that became `trace.stage_latency_ms`, which is finished by the time
+    this runs, and a fault in this function is contained rather than raised —
+    a decision that was made, sealed and stored must not be turned into a
+    failure by the act of measuring it.
+    """
+
+    # Only durations. Every value in these maps is documented as whole
+    # milliseconds, so a value that is not one is not a duration and has no
+    # meaning here — dropping it keeps the record readable as a timing record
+    # and keeps `json.dumps` total over its own input.
+    #
+    # The whole body is inside the guard, not just the emit: building the
+    # payload reads two caller-supplied mappings, and a fault while reading one
+    # would escape a function whose entire purpose is to observe without
+    # consequence.
+    try:
+        payload = {
+            "decision_id": decision_id,
+            "correlation_id": correlation_id,
+            "stored": stored,
+            "stage_latency_ms": _durations_only(stage_latency_ms),
+            "finalisation_ms": {
+                key: value
+                for key, value in _durations_only(finalisation_ms).items()
+                if key in FINALISATION_TELEMETRY_KEYS
+            },
+        }
+        logger.info("%s %s", FINALISATION_LOG_EVENT, json.dumps(payload, sort_keys=True))
+    except Exception:  # noqa: BLE001 - telemetry never decides a request's fate
+        logger.warning(
+            "case decision %s finalisation telemetry could not be emitted", decision_id
+        )
+
+
+def _durations_only(values: Mapping[str, int] | None) -> dict[str, int]:
+    """Keep the entries that are actually milliseconds.
+
+    `bool` is excluded explicitly: it is a subclass of `int` in Python, and a
+    flag reported as a duration is exactly the confusion the timing contract
+    exists to prevent.
+    """
+
+    return {
+        str(key): value
+        for key, value in (values or {}).items()
+        if isinstance(value, int) and not isinstance(value, bool)
+    }
 
 
 def _version_uuid(value: object) -> uuid.UUID | None:

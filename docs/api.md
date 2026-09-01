@@ -102,7 +102,7 @@ For the integration-shaped view of this — what an agent, a Copilot extension o
 { "scenario": "Describe the situation whose governing policies you need." }
 ```
 
-It returns `policy_retrieval_v1`: `policy_set`, the exact `active_version`, the original query and language-boundary provenance, retrieval disclosure, `policies`, service-reported `token_usage`, and end-to-end `latency_ms`. Policy documents are semantically reranked and cut at the largest meaningful adjacent score gap; when there is no such gap, at most three remain. Each entry contains its stable identity, semantic rank/score and optional `rule_selection`, plus the selected `grounding_projection_v1` payload. Large policies contain only the rules named by `rule_selection`; the 15-rule ceiling remains unchanged. `precision_mode`, `semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, and `semantic_cutoff_score` disclose the cut.
+It returns `policy_retrieval_v1`: `policy_set`, the exact `active_version`, the original query and language-boundary provenance, retrieval disclosure, `policies`, service-reported `token_usage`, end-to-end `latency_ms`, and an optional `stage_latency_ms` breakdown of that time. Policy documents are semantically reranked and cut at the largest meaningful adjacent score gap; when there is no such gap, at most three remain. Each entry contains its stable identity, semantic rank/score and optional `rule_selection`, plus the selected `grounding_projection_v1` payload. Large policies contain only the rules named by `rule_selection`; the 15-rule ceiling remains unchanged. `precision_mode`, `semantic_candidates`, `semantic_selected`, `semantic_largest_gap`, and `semantic_cutoff_score` disclose the cut.
 
 No classifier, plan, verdict gather, explanation renderer, decision hash, or receipt write runs on this route. `Idempotency-Key`, `reasoning_effort`, `calling_system_identity`, and `additional_instructions` therefore do not belong in this request. It also skips the decision path's own embedding call and the rule-document query.
 
@@ -571,6 +571,7 @@ Every decision response reports telemetry from its internal execution. These fie
 | `trace.stage_latency_ms` | `/case/light` | The same map, carried through the projection unchanged. |
 | `trace.token_usage` | `/case`, `/case/light` | Service-reported token counts for this request; Light carries the same report through its projection. |
 | `token_usage`, `latency_ms` | `/policies` | The usage report and full retrieval-operation time at the top level — retrieval has no decision trace to hang them from. |
+| `stage_latency_ms` | `/policies` | The same wall-clock map, at the top level beside `latency_ms` for the same reason. Additive and optional: it defaults to absent, and a client that has never read it is unaffected. This route reports far fewer keys than a decision does, because it runs far less. |
 
 #### `stage_latency_ms` is wall-clock, and only wall-clock
 
@@ -581,6 +582,8 @@ Every value is a duration in milliseconds. No counter, score or size is ever exp
 | `reservation` | **Cumulative from the start of the request** to the moment the `pending` receipt row is written and committed, before any model call. |
 | `language_in` | Normalising the caller's question into the processing language, including transport decoding and already-English input. Recorded on every successful decision path. |
 | `scope_load` | Loading the project's published scope. |
+| `index_probe` | Asking the search service whether this project's index exists. A live round trip on its own connection, not a local check. Recorded even when the probe fails, because the request still waited for it. |
+| `index_state_probe` | The follow-up round trips that tell "the index is empty", "the index is stale" and "nothing matched" apart. Present only when retrieval returned no hits at all. |
 | `projection_readiness` | Checking the index manifest is `ready` under the expected projection. |
 | `policy_search` | The policy-document query. |
 | `embedding` | Embedding the query for semantic ranking. Not run on `/policies`. |
@@ -604,6 +607,17 @@ Three consequences worth building against:
 - **Do not sum the stages and expect `latency_ms`.** The map deliberately mixes three kinds of value: leaf spans (`policy_search`, `classifier`), *overlapping wall measures* of phases that ran concurrently (`retrieval_discovery_wall`, `gather_wall`), and *cumulative* measures taken from the start of the request (`reservation`, `to_envelope`). `decider_wall` and `gather_total` are containers over other keys. Summing them double- and triple-counts.
 - **Presence says the stage ran.** An unrequested gather key is absent. A present value of `0` means the measured work completed in less than one millisecond after integer rounding; it does not mean the stage was skipped.
 - **The key set is not a contract to enumerate against.** Stages are added and renamed as the path changes. Read the map as a map, and treat an unrecognised key as a duration you do not yet have a label for.
+
+#### What the receipt can never time
+
+`to_envelope` is the last measurement a receipt can carry, and this is a property of what a receipt *is* rather than an omission. Building the envelope, computing its seal and writing it to storage all finish **after** the object that would have to report them, and the stored row is that object's own serialisation. There are only two ways to put those durations in the response, and both break the contract:
+
+- changing the returned envelope after the write leaves you holding a receipt the database does not have, so your `POST` body and a later `GET` replay disagree;
+- writing the row and then updating it stops persistence being one act, and a crash between the two stores a receipt that was never returned to anyone.
+
+So they are measured and emitted **beside** the receipt, in the server's logs, as a `case_decision.finalisation` record carrying `envelope_build`, `receipt_finalize` and `request_total` alongside the decision id and the same stage map. They are operator telemetry, deliberately not caller telemetry, and the record is written whether or not the receipt could be stored — a finalisation that fails still spent the time it took to fail.
+
+If you need end-to-end latency as a caller, measure it as a caller. `request_total` is the server's view of the same span and is not returned to you.
 
 #### Token usage is a floor, not a total
 

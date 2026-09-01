@@ -2037,8 +2037,26 @@ async def _answer_project_scope(
         context["retrieval_method"] = retrieval_method
     rule_index_state = RULE_INDEX_UNAVAILABLE
     try:
+        # Measured, because it is not a local check. `index_exists` opens its own
+        # connection and makes a live round trip to the search service, exactly
+        # like the readiness gate below it — and left unmeasured it was the
+        # single largest unattributed span in the request, sitting in the gap
+        # between `scope_load` and `projection_readiness` where nothing was
+        # timed. Recorded in `finally` so a probe that fails is still counted:
+        # the time was spent either way, and a stage that vanishes on the error
+        # path is exactly the blind spot this key exists to remove.
+        # Constructed before the clock starts. It only stores a settings
+        # reference — no I/O — so including it would add nothing to the span
+        # except the possibility of the key going missing when the constructor
+        # is what failed, which is precisely what this key promises not to do.
         search_client = AzureSearchClient(settings)
-        if not await search_client.index_exists(index_name):
+        index_probe_started = time.perf_counter()
+        try:
+            index_present = await search_client.index_exists(index_name)
+        finally:
+            if timings is not None:
+                timings["index_probe"] = elapsed_ms(index_probe_started)
+        if not index_present:
             return respond(
                 RETRIEVAL_INDEX_NOT_BUILT,
                 considered=_bare_considered(candidates),
@@ -2196,6 +2214,11 @@ async def _answer_project_scope(
         # gate above only let this code run because it was — so an unscoped probe
         # would answer "yes, something is indexed" for every project and
         # `index_empty` would become unreachable.
+        # Two more live round trips, on a path a real question reaches whenever
+        # nothing matched. Measured for the same reason as the probe above: this
+        # is where an "empty result" request spends its time, and an unmeasured
+        # diagnostic is one that cannot itself be diagnosed.
+        state_probe_started = time.perf_counter()
         try:
             current_indexed = await search_client.find_ids_by_filter(
                 index_name,
@@ -2226,6 +2249,9 @@ async def _answer_project_scope(
                     f"also failed, so which of the honest states this is cannot be established: {exc}"
                 ),
             )
+        finally:
+            if timings is not None:
+                timings["index_state_probe"] = elapsed_ms(state_probe_started)
         if current_indexed:
             return respond(
                 RETRIEVAL_NO_MATCH,

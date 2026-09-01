@@ -36,8 +36,11 @@ under test rather than of a mock's shape.
 from __future__ import annotations
 
 import copy
+import json
+import logging
 import os
 import uuid
+from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
@@ -1333,6 +1336,262 @@ async def test_the_trace_carries_service_reported_tokens_and_replays_them(harnes
     }
     replay = (await harness.get_receipt(body["decision_id"])).json()
     assert replay["trace"]["token_usage"] == body["trace"]["token_usage"]
+
+
+# ── what the receipt can time, and what it never can ─────────────────
+
+
+async def test_every_search_round_trip_the_request_made_is_a_measured_stage(harness) -> None:
+    """The probe that used to be free.
+
+    `index_exists` asks the search service a question over its own connection,
+    and nothing was timing it. It sat between `scope_load` and
+    `projection_readiness` — two stages that *were* measured — so the time it
+    took reappeared as an unattributed gap inside `decider_wall` that no key
+    could account for.
+    """
+
+    body = (await harness.post()).json()
+    stages = body["trace"]["stage_latency_ms"]
+
+    assert "index_probe" in stages, "the index-existence round trip is unmeasured again"
+    assert "projection_readiness" in stages, "the sibling gate stopped being measured"
+    assert all(isinstance(value, int) for value in stages.values()), stages
+    assert all(value >= 0 for value in stages.values()), stages
+
+    # The container still contains: a leaf that appeared outside the span it is
+    # supposed to sit in would be a key that reads as attribution and is not.
+    assert stages["index_probe"] <= stages["decider_wall"]
+    assert stages["decider_wall"] <= stages["to_envelope"]
+
+    # And it survives the round trip, because it is part of the stored receipt
+    # rather than something decorated onto the response afterwards.
+    replay = (await harness.get_receipt(body["decision_id"])).json()
+    assert replay["trace"]["stage_latency_ms"] == stages
+
+
+async def test_the_receipt_carries_no_duration_that_ends_after_it_was_stored(
+    harness,
+) -> None:
+    """The trap this milestone exists to walk past.
+
+    Building the envelope, sealing it and writing it all finish after the object
+    that would have to report them. The only way to get those numbers into the
+    response is to change the envelope after the row was written — at which
+    point the caller holds a receipt the database does not have, and the GET
+    replay contradicts the POST.
+
+    So the assertion is in three places at once: the returned body, the stored
+    row's own dump, and the two being equal.
+    """
+
+    body = (await harness.post()).json()
+    finalisation = set(policy_case_decision.FINALISATION_TELEMETRY_KEYS)
+
+    assert finalisation, "the guard would pass vacuously with an empty vocabulary"
+    assert finalisation.isdisjoint(body["trace"]["stage_latency_ms"])
+
+    stored = (await harness.rows())[0]
+    assert finalisation.isdisjoint(stored.trace_json["stage_latency_ms"])
+    assert stored.response_json == body, "the returned receipt is not the stored one"
+
+
+async def test_the_finalisation_timings_are_emitted_beside_the_receipt(
+    harness, caplog
+) -> None:
+    """They are measured — just not returned.
+
+    Refusing to put them in the response would be worth nothing if the answer
+    were to stop measuring them, so this asserts they exist, name real
+    durations, and arrive as something a machine can read.
+    """
+
+    with caplog.at_level(logging.INFO, logger=policy_case_decision.__name__):
+        body = (await harness.post()).json()
+
+    payload = _finalisation_payload(caplog)
+
+    assert payload["stored"] is True
+    assert payload["decision_id"] == body["decision_id"]
+    assert set(payload["finalisation_ms"]) == set(
+        policy_case_decision.FINALISATION_TELEMETRY_KEYS
+    )
+    assert all(isinstance(v, int) and v >= 0 for v in payload["finalisation_ms"].values())
+    # The whole request is at least as long as the part of it the receipt could
+    # describe, which is the relationship that makes the out-of-band number
+    # worth reading next to the in-band one.
+    assert payload["finalisation_ms"]["request_total"] >= body["trace"]["stage_latency_ms"]["to_envelope"]
+    # And the line repeats the map rather than replacing it, so one log record
+    # is a complete account of the request.
+    assert payload["stage_latency_ms"] == body["trace"]["stage_latency_ms"]
+
+
+async def test_a_receipt_that_could_not_be_stored_still_reports_what_it_cost(
+    harness, monkeypatch, caplog
+) -> None:
+    """The refusal path, which is the one the measurement is for.
+
+    A finalisation that fails has still spent the caller's time, and this is the
+    request an operator is most likely to come looking for. If the line were
+    emitted only after a successful write, the slow failure — the case worth
+    diagnosing — would be the one case with no numbers at all.
+    """
+
+    async def _explode(self, row, **kwargs):
+        raise RuntimeError("the write failed")
+
+    monkeypatch.setattr(PolicyCaseDecisionRepository, "finalize_completed", _explode)
+
+    with caplog.at_level(logging.INFO, logger=policy_case_decision.__name__):
+        response = await harness.post()
+
+    assert response.status_code == 500
+    payload = _finalisation_payload(caplog)
+
+    assert payload["stored"] is False
+    assert "receipt_finalize" in payload["finalisation_ms"]
+    assert "envelope_build" in payload["finalisation_ms"]
+    # No verdict escaped through the telemetry either.
+    assert "not compliant" not in json.dumps(payload)
+
+
+def _finalisation_payload(caplog) -> dict:
+    prefix = policy_case_decision.FINALISATION_LOG_EVENT
+    lines = [m for m in (r.getMessage() for r in caplog.records) if m.startswith(prefix)]
+    assert len(lines) == 1, lines
+    return json.loads(lines[0][len(prefix) + 1 :])
+
+
+async def test_a_decision_survives_telemetry_that_cannot_be_emitted(
+    harness, monkeypatch
+) -> None:
+    """The helper's internal containment, driven through the real request.
+
+    This proves the *containment*, not the placement — `_log_finalisation`
+    swallows the fault itself, so this test would still pass if the call were
+    moved inside the block that guards the write. The placement is asserted
+    separately below, by making the helper itself raise.
+    """
+
+    class _Json:
+        """Only this module's `json` name is replaced.
+
+        Mutating `json.dumps` itself would also break canonical hashing, which
+        uses the same module — and the test would then be proving that a broken
+        hash is survivable, which is not true and not the claim.
+        """
+
+        @staticmethod
+        def dumps(*args, **kwargs):
+            raise TypeError("nothing here is serialisable")
+
+    monkeypatch.setattr(policy_case_decision, "json", _Json)
+
+    response = await harness.post()
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["verdict"]["decision"] == "not compliant"
+
+    stored = await harness.rows()
+    assert len(stored) == 1
+    assert stored[0].status == "completed"
+    assert stored[0].response_json == body
+
+
+async def test_a_stored_decision_is_not_undone_by_a_telemetry_fault(
+    harness, monkeypatch
+) -> None:
+    """Where the success-path emit is called, asserted independently of what it does.
+
+    Two separate things protect this path: the helper contains its own faults,
+    and the call sits outside the block that guards the write. Either alone
+    satisfies every other test, so the placement was silently untested — and it
+    is the load-bearing one, because a helper is a thing someone can later edit.
+
+    Replacing the helper with one that raises removes the first protection and
+    leaves only the second. The request then fails — that is not the point and
+    is not what is asserted. What is asserted is the **stored row**: with the
+    call outside the guard, the decision that was written stays written. Move it
+    inside and the same fault is caught by the handler for a failed *write*,
+    which rolls the decision back and re-marks it `failed` — a stored decision
+    undone by the act of measuring it.
+    """
+
+    def _explode(**kwargs):
+        raise RuntimeError("the telemetry helper itself failed")
+
+    monkeypatch.setattr(policy_case_decision, "_log_finalisation", _explode)
+
+    with pytest.raises(RuntimeError):
+        await harness.post()
+
+    stored = await harness.rows()
+    assert len(stored) == 1
+    assert stored[0].status == "completed", "a stored decision was undone by its own telemetry"
+    assert stored[0].response_json is not None
+    assert stored[0].decision_hash
+
+
+async def test_a_failed_write_is_still_closed_out_when_telemetry_faults(
+    harness, monkeypatch
+) -> None:
+    """The same ordering question on the path where the receipt could not be stored.
+
+    On that path the service still has work to do after the failure: it marks
+    the reservation `failed` so the row does not sit `pending` forever. If the
+    telemetry ran before that write and faulted, the compensating write would be
+    skipped and the reservation orphaned — the telemetry causing exactly the
+    stuck `pending` row that the compensating write exists to prevent.
+
+    So the emit goes last on this path, and the assertion is on the row.
+    """
+
+    async def _explode_write(self, row, **kwargs):
+        raise RuntimeError("the write failed")
+
+    def _explode_telemetry(**kwargs):
+        raise RuntimeError("the telemetry helper itself failed")
+
+    monkeypatch.setattr(PolicyCaseDecisionRepository, "finalize_completed", _explode_write)
+    monkeypatch.setattr(policy_case_decision, "_log_finalisation", _explode_telemetry)
+
+    with pytest.raises(RuntimeError):
+        await harness.post()
+
+    stored = await harness.rows()
+    assert len(stored) == 1
+    assert stored[0].status == "failed", "the reservation was left pending by a telemetry fault"
+    assert stored[0].response_json is None
+
+
+async def test_the_telemetry_helper_does_not_raise_on_hostile_input() -> None:
+    """Why the two tests above describe an unreachable state, and must.
+
+    They force the helper to raise in order to assert what the call ordering
+    buys. That is a state production cannot reach, and this is the test that
+    makes that claim true rather than assumed: the helper's whole body is
+    guarded, not just its final emit, so reading a caller-supplied mapping
+    cannot throw out of it.
+    """
+
+    class _Hostile(Mapping):
+        def __iter__(self):
+            raise RuntimeError("iteration refused")
+
+        def __len__(self) -> int:
+            return 1  # non-empty, so `values or {}` cannot short-circuit past it
+
+        def __getitem__(self, key):
+            raise RuntimeError("lookup refused")
+
+    policy_case_decision._log_finalisation(
+        decision_id="decision-hostile",
+        correlation_id="corr-hostile",
+        stage_latency_ms=_Hostile(),
+        finalisation_ms=_Hostile(),
+        stored=True,
+    )
 
 
 # ── caller guidance, over the wire ───────────────────────────────────

@@ -799,6 +799,18 @@ export interface PolicyRetrievalEnvelope {
   language: LanguageRef
   token_usage: TokenUsageRef
   latency_ms: number
+  /**
+   * Wall-clock milliseconds per stage of this retrieval, beside `latency_ms`
+   * for the same reason `token_usage` is: this route has no decision trace to
+   * hang them from.
+   *
+   * Additive and optional — absent on servers that predate it, and absent for
+   * any stage that did not run. This route runs no embedding call, no rule
+   * query, no classifier and no gather, so it reports far fewer keys than a
+   * decision does. Read it as a map; an unrecognised key is a duration you do
+   * not yet have a label for.
+   */
+  stage_latency_ms?: Record<string, number> | null
 }
 
 export type ReceiptKind = 'v1' | 'v2' | 'unrecognised'

@@ -73,3 +73,14 @@ class PolicyRetrievalEnvelope(BaseModel):
     language: LanguageRef
     token_usage: TokenUsageRef
     latency_ms: int
+    stage_latency_ms: dict[str, int] | None = Field(
+        default=None,
+        description=(
+            "Observed wall-clock stage timings in milliseconds for this retrieval. Additive and "
+            "diagnostic only: a client that has never read it is unaffected, and no field beside "
+            "it changes meaning. A stage that did not run is absent rather than zero, so this "
+            "route reports fewer keys than a decision does — it runs no embedding call, no rule "
+            "query, no classifier and no gather. Counters are never reported here; every value is "
+            "a duration."
+        ),
+    )
