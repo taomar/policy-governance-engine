@@ -2037,25 +2037,71 @@ async def _answer_project_scope(
         context["retrieval_method"] = retrieval_method
     rule_index_state = RULE_INDEX_UNAVAILABLE
     try:
-        # Measured, because it is not a local check. `index_exists` opens its own
-        # connection and makes a live round trip to the search service, exactly
-        # like the readiness gate below it — and left unmeasured it was the
-        # single largest unattributed span in the request, sitting in the gap
-        # between `scope_load` and `projection_readiness` where nothing was
-        # timed. Recorded in `finally` so a probe that fails is still counted:
-        # the time was spent either way, and a stage that vanishes on the error
-        # path is exactly the blind spot this key exists to remove.
-        # Constructed before the clock starts. It only stores a settings
-        # reference — no I/O — so including it would add nothing to the span
-        # except the possibility of the key going missing when the constructor
-        # is what failed, which is precisely what this key promises not to do.
+        # THE GATE, BEFORE THE QUERY — asked as two questions at once.
+        #
+        # Both are live round trips to the search service on their own
+        # connections, and both were serial, which measured at roughly a second
+        # each: together they were over half of all the time this request spent
+        # on search, and neither had asked the index anything useful yet.
+        #
+        # They are independent questions — "does this index exist" and "does it
+        # carry a usable projection" — so they are asked concurrently and read in
+        # the same order as before. The order of the *answers* is what carries
+        # the meaning, and it is unchanged: an index that does not exist is
+        # reported as not built, whatever the second probe said or failed to say.
+        #
+        # What this does change: on the not-built path a readiness probe is now
+        # issued and discarded, where before it was never made. That is one extra
+        # search query on a path that returns no evaluation — no model call, no
+        # tokens — and it buys back the wall-clock on every path that succeeds.
+        #
+        # The client is constructed before the clock starts. It only stores a
+        # settings reference — no I/O — so including it would add nothing to
+        # either span except the possibility of a key going missing when the
+        # constructor is what failed.
         search_client = AzureSearchClient(settings)
-        index_probe_started = time.perf_counter()
-        try:
-            index_present = await search_client.index_exists(index_name)
-        finally:
-            if timings is not None:
-                timings["index_probe"] = elapsed_ms(index_probe_started)
+
+        async def index_probe() -> bool:
+            started = time.perf_counter()
+            try:
+                return await search_client.index_exists(index_name)
+            finally:
+                # Recorded in `finally` so a probe that fails is still counted:
+                # the time was spent either way, and a stage that vanishes on the
+                # error path is the blind spot these keys exist to remove.
+                if timings is not None:
+                    timings["index_probe"] = elapsed_ms(started)
+
+        async def readiness_probe():
+            started = time.perf_counter()
+            try:
+                return await read_projection_readiness(
+                    search_client,
+                    index_name,
+                    policy_set_key=policy_set.key,
+                    expected_profile=ENGLISH_PROJECTION_PROFILE,
+                )
+            finally:
+                if timings is not None:
+                    timings["projection_readiness"] = elapsed_ms(started)
+
+        gate_started = time.perf_counter()
+        index_task = asyncio.create_task(index_probe())
+        readiness_task = asyncio.create_task(readiness_probe())
+        # `return_exceptions` so the *existence* answer is always read first. A
+        # readiness probe against an index that is not there fails by definition,
+        # and that failure is a consequence of the state the other probe already
+        # named — reporting it as a failed search would turn "not built yet",
+        # which an operator can act on, into "something went wrong", which they
+        # cannot.
+        index_present, readiness = await asyncio.gather(
+            index_task, readiness_task, return_exceptions=True
+        )
+        if timings is not None:
+            timings["index_gate_wall"] = elapsed_ms(gate_started)
+
+        if isinstance(index_present, BaseException):
+            raise index_present
         if not index_present:
             return respond(
                 RETRIEVAL_INDEX_NOT_BUILT,
@@ -2070,25 +2116,17 @@ async def _answer_project_scope(
                     "relied on for it; no evaluation was made. Republish or rebuild the policy index."
                 ),
             )
+        # The index is there, so a readiness probe that failed failed on its own
+        # account and is reported as the search fault it is.
+        if isinstance(readiness, BaseException):
+            raise readiness
 
-        # THE GATE, BEFORE THE QUERY.
-        #
-        # Asked first and answered from the index itself, because the failure it
-        # catches is invisible afterwards: a question rendered into the
+        # The gate the projection check exists for: a question rendered into the
         # processing language, matched against a corpus that was never rendered
         # into it, comes back with a low score on every policy — which is exactly
         # what "no policy bears on this question" looks like. There is no point
         # downstream at which that can still be told apart, so it is told apart
         # here or not at all.
-        readiness_started = time.perf_counter()
-        readiness = await read_projection_readiness(
-            search_client,
-            index_name,
-            policy_set_key=policy_set.key,
-            expected_profile=ENGLISH_PROJECTION_PROFILE,
-        )
-        if timings is not None:
-            timings["projection_readiness"] = elapsed_ms(readiness_started)
         if context is not None:
             context["projection_profile"] = (
                 readiness.profile if readiness.ready else None
