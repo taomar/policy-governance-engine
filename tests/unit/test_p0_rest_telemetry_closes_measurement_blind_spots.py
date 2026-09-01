@@ -216,7 +216,12 @@ async def test_the_probe_key_is_absent_when_there_was_no_probe_to_make() -> None
     assert "index_probe" not in timings
 
 
-async def _run_scope_until_index_probe(context: dict | None, client_cls) -> dict:
+async def _run_scope_until_index_probe(
+    context: dict | None,
+    client_cls,
+    *,
+    policies_only: bool = False,
+) -> dict:
     """Drive `_answer_project_scope` far enough to reach the probe.
 
     The scope load is replaced so the test needs no database; everything from
@@ -261,6 +266,7 @@ async def _run_scope_until_index_probe(context: dict | None, client_cls) -> dict
             scenario="a question",
             reasoning_effort="medium",
             context=context,
+            policies_only=policies_only,
         )
     finally:
         module.load_project_scope = original_scope

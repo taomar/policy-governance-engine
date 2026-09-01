@@ -41,6 +41,15 @@ pytestmark = pytest.mark.anyio
 _PROBE_DELAY = 0.08
 _PROBE_MS = int(_PROBE_DELAY * 1000)
 
+#: Deliberately *longer* than a probe, and that is load-bearing rather than
+#: incidental. With three equal durations, a wall of `max(a, b, c)` and a wall of
+#: `max(a, b)` are the same number, so a ratio test against their sum passes
+#: whether the embedding is inside the concurrent group or behind it. Making the
+#: embedding the slowest member means the wall can only reach it by containing
+#: it.
+_EMBED_DELAY = _PROBE_DELAY * 2
+_EMBED_MS = int(_EMBED_DELAY * 1000)
+
 
 class _Client:
     """A search service that answers both probes, each taking real time."""
@@ -65,32 +74,66 @@ class _Client:
             raise type(self).ready_ids
         return list(type(self).ready_ids)
 
+    async def vector_search(self, index: str, **kwargs: Any) -> list[dict]:
+        """Matches nothing, so a run that gets this far ends in `no_match`.
+
+        These tests are about what happens *before* the query. Returning no hits
+        gives the successful path a clean, named terminal state instead of an
+        exception standing in for one.
+        """
+
+        return []
+
+
+class _Embedder:
+    """The embedding client, taking the same known time as the probes."""
+
+    calls: list[list[str]] = []
+    error: BaseException | None = None
+
+    def __init__(self, settings: Any) -> None:
+        self._settings = settings
+
+    async def embed(self, inputs: list[str]) -> list[list[float]]:
+        type(self).calls.append(list(inputs))
+        await asyncio.sleep(_EMBED_DELAY)
+        if type(self).error is not None:
+            raise type(self).error
+        return [[0.1, 0.2, 0.3] for _ in inputs]
+
 
 @pytest.fixture(autouse=True)
-def _reset_client() -> None:
+def _reset_client(monkeypatch) -> None:
     _Client.exists = True
     _Client.ready_ids = ["manifest-1"]
+    _Embedder.calls = []
+    _Embedder.error = None
+    monkeypatch.setattr(ai_case_project, "AzureOpenAIClient", _Embedder)
 
 
 async def test_the_two_probes_run_at_the_same_time() -> None:
     """The measurement that makes the change worth making.
 
-    Both probes sleep the same known duration. Serial, the pair costs two of
-    them; concurrent, it costs one. The wall key is asserted against the *sum*
-    rather than against a hoped-for number, so this cannot pass by the probes
-    simply being fast.
+    Driven through the retrieval-only route on purpose: that route runs no
+    embedding, so the preflight wall contains exactly these two probes and
+    nothing else. Serial, the pair costs two of them; concurrent, it costs one.
+    The wall is asserted against the *sum* rather than a hoped-for number, so
+    this cannot pass by the probes simply being fast.
     """
 
     timings: dict[str, int] = {}
-    await _run_scope_until_index_probe({"timings_ms": timings}, _Client)
+    await _run_scope_until_index_probe(
+        {"timings_ms": timings}, _Client, policies_only=True
+    )
 
     assert timings["index_probe"] >= _PROBE_MS * 0.8
     assert timings["projection_readiness"] >= _PROBE_MS * 0.8
-    assert "index_gate_wall" in timings
+    assert "retrieval_preflight_wall" in timings
+    assert "embedding" not in timings, "this route should have run no embedding"
 
     serial = timings["index_probe"] + timings["projection_readiness"]
-    assert timings["index_gate_wall"] < serial * 0.75, (
-        f"the gate took {timings['index_gate_wall']}ms against a serial cost of "
+    assert timings["retrieval_preflight_wall"] < serial * 0.75, (
+        f"the gate took {timings['retrieval_preflight_wall']}ms against a serial cost of "
         f"{serial}ms — the probes are not overlapping"
     )
 
@@ -185,37 +228,181 @@ async def test_a_failing_existence_probe_is_reported_rather_than_swallowed() -> 
 
 
 async def test_the_gate_reports_nothing_when_no_one_asked_for_timings() -> None:
-    """The `None`-guard, on the new wall key as well as the two it sits beside.
+    """The `None`-guard, on the wall key as well as the leaves beside it.
 
-    This is the one case where the gate *passes*, so all three writes are
-    attempted with no map to write into. Execution then continues past the gate
-    and stops later on this stub's deliberately incomplete settings — which is
-    fine and is the point: what matters is that it got that far, rather than
-    failing at the gate with a `NoneType` that could not be subscripted.
+    This is the case where the whole preflight *passes*, so all four writes are
+    attempted with no map to write into. The run then continues to a normal
+    `no_match`, which is what proves the preflight ran through every recording
+    without a `NoneType` that could not be subscripted.
     """
 
     response = await _run_scope_until_index_probe(None, _Client)
 
-    reason = response["retrieval"].get("reason") or ""
-    assert "NoneType" not in reason, reason
-    assert "timings" not in reason, reason
-    # It reached the stage after the gate, which is what proves the gate ran
-    # through all three recordings without one.
-    assert "embedding" in reason, reason
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_NO_MATCH
 
 
 async def test_the_gate_wall_is_not_a_container_over_unrelated_stages() -> None:
     """A wall key measures the phase it names, and nothing after it.
 
-    `index_gate_wall` sits beside `retrieval_discovery_wall` in the map and must
-    read the same way: the wall of one concurrent pair, not a container that has
+    `retrieval_preflight_wall` sits beside `retrieval_discovery_wall` in the map and must
+    read the same way: the wall of one concurrent group, not a container that has
     quietly grown to include the query that follows it. If it ever exceeded the
-    two probes by a meaningful margin it would be double-counting.
+    group by a meaningful margin it would be double-counting.
     """
 
     timings: dict[str, int] = {}
     await _run_scope_until_index_probe({"timings_ms": timings}, _Client)
 
-    slowest = max(timings["index_probe"], timings["projection_readiness"])
-    assert timings["index_gate_wall"] >= slowest
-    assert timings["index_gate_wall"] <= slowest + 40, timings
+    # Every member of the group, not just the two probes: if the embedding is
+    # the slowest — as it is here by design — a `slowest` that ignored it would
+    # fail this test against correct code.
+    slowest = max(
+        timings["index_probe"],
+        timings["projection_readiness"],
+        timings.get("embedding", 0),
+    )
+    assert timings["retrieval_preflight_wall"] >= slowest
+    assert timings["retrieval_preflight_wall"] <= slowest + 40, timings
+
+
+# ── the embedding joins the group ────────────────────────────────────
+
+
+async def test_the_embedding_runs_beside_the_probes_rather_than_behind_them() -> None:
+    """The embedding needed nothing the gate produces, and was waiting anyway.
+
+    It takes only the scenario, which has been in hand since the request
+    arrived. It was serial behind the gate because it was written after it, not
+    because it depended on it.
+
+    The assertion that matters is the second one, and the reason is subtle: a
+    ratio against the serial sum is satisfied by *either* arrangement when all
+    three calls take the same time, because `max(a, b, c)` and `max(a, b)` are
+    then the same number. The embedding is therefore made the slowest of the
+    three, so a wall that reaches its duration can only have contained it.
+    """
+
+    timings: dict[str, int] = {}
+    await _run_scope_until_index_probe({"timings_ms": timings}, _Client)
+
+    assert _Embedder.calls, "the embedding never ran"
+    assert timings["embedding"] >= _EMBED_MS * 0.8
+
+    # The wall reaches the slowest member, which is the embedding. Behind the
+    # gate it would stop at the probes and fall short of this.
+    assert timings["retrieval_preflight_wall"] >= _EMBED_MS * 0.8, (
+        f"preflight wall {timings['retrieval_preflight_wall']}ms does not reach the "
+        f"{timings['embedding']}ms embedding — it ran outside the group, not inside it"
+    )
+    serial = (
+        timings["index_probe"] + timings["projection_readiness"] + timings["embedding"]
+    )
+    assert timings["retrieval_preflight_wall"] < serial * 0.75, (
+        f"preflight took {timings['retrieval_preflight_wall']}ms against a serial cost "
+        f"of {serial}ms"
+    )
+
+
+async def test_a_refused_index_discloses_the_embedding_it_paid_for() -> None:
+    """The cost of this concurrency, made visible rather than hidden.
+
+    Starting the embedding before the gate has answered means a project whose
+    index is missing now pays for a call it never used to make. That is the
+    trade, and it is a real one — so it is disclosed in the same telemetry as
+    everything else, rather than being a cost nobody can see.
+    """
+
+    _Client.exists = False
+
+    timings: dict[str, int] = {}
+    response = await _run_scope_until_index_probe(
+        {"timings_ms": timings}, _Client
+    )
+
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_INDEX_NOT_BUILT
+    assert _Embedder.calls, "the embedding should have been started before the answer"
+    assert "embedding" in timings, "a call was paid for and not reported"
+
+
+async def test_a_failed_embedding_does_not_disguise_a_missing_index() -> None:
+    """Answer order again, with a third answer in the race.
+
+    An embedding fault says nothing about the index. If it were read first, a
+    project whose index simply has not been built would be told its search
+    failed — sending an operator to look at the wrong system entirely.
+    """
+
+    _Client.exists = False
+    _Embedder.error = RuntimeError("the embedding deployment refused the call")
+
+    response = await _run_scope_until_index_probe({"timings_ms": {}}, _Client)
+
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_INDEX_NOT_BUILT
+
+
+async def test_a_failed_embedding_on_a_live_index_is_still_reported() -> None:
+    """And it must not be swallowed either.
+
+    When the gate passes, the embedding's fault is the only thing that went
+    wrong, and there is no vector to search with. It is re-raised for the same
+    reason the other two are: `return_exceptions` returns it as a value, and a
+    value is not an error until something checks.
+    """
+
+    _Embedder.error = RuntimeError("the embedding deployment refused the call")
+
+    response = await _run_scope_until_index_probe({"timings_ms": {}}, _Client)
+
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_FAILED
+    reason = response["retrieval"]["reason"]
+    assert "the embedding deployment refused the call" in reason, reason
+
+
+async def test_an_embedding_client_that_cannot_be_built_reports_no_duration() -> None:
+    """Absent, not zero — the same rule the search client beside it follows.
+
+    The embedding client is constructed before its clock starts. If it were
+    constructed inside the timed region, a constructor that failed would emit
+    `embedding: 0` — a present duration for a call that was never made, on a
+    map whose readers are told that a `0` means "under a millisecond" and never
+    "did not happen".
+    """
+
+    class _BrokenEmbedder:
+        def __init__(self, settings: Any) -> None:
+            raise RuntimeError("the embedding client could not be constructed")
+
+    import policy_platform.infrastructure.assistants.ai_case_project as module
+
+    original = module.AzureOpenAIClient
+    module.AzureOpenAIClient = _BrokenEmbedder
+    try:
+        timings: dict[str, int] = {}
+        response = await _run_scope_until_index_probe({"timings_ms": timings}, _Client)
+    finally:
+        module.AzureOpenAIClient = original
+
+    assert response["retrieval"]["status"] == ai_case_project.RETRIEVAL_FAILED
+    assert "embedding" not in timings, (
+        f"a call that was never made reported a duration: {timings.get('embedding')!r}"
+    )
+
+
+
+async def test_the_retrieval_only_route_starts_no_embedding_at_all() -> None:
+    """`/policies` runs no embedding, and absent is not zero.
+
+    The concurrency must not have quietly given the retrieval-only route a model
+    call it does not need — that would be the route doing *more* work than it
+    did before, to save time it was not spending.
+    """
+
+    timings: dict[str, int] = {}
+    await _run_scope_until_index_probe(
+        {"timings_ms": timings}, _Client, policies_only=True
+    )
+
+    assert _Embedder.calls == [], "the retrieval-only route made an embedding call"
+    assert "embedding" not in timings
+    assert "retrieval_preflight_wall" in timings
+

@@ -584,10 +584,10 @@ Every value is a duration in milliseconds. No counter, score or size is ever exp
 | `scope_load` | Loading the project's published scope. |
 | `index_probe` | Asking the search service whether this project's index exists. A live round trip on its own connection, not a local check. Recorded even when the probe fails, because the request still waited for it. |
 | `projection_readiness` | Checking the index manifest is `ready` under the expected projection. Runs **concurrently with `index_probe`** — the two are independent questions. |
-| `index_gate_wall` | Wall time for that concurrent pair as a whole — close to `max(index_probe, projection_readiness)`, **not** their sum. |
+| `embedding` | Embedding the query for semantic ranking. Runs **concurrently with the two probes above** — it needs only the scenario. Not run on `/policies`. |
+| `retrieval_preflight_wall` | Wall time for that whole concurrent group — close to `max(index_probe, projection_readiness, embedding)`, **not** their sum. |
 | `index_state_probe` | The follow-up round trips that tell "the index is empty", "the index is stale" and "nothing matched" apart. Present only when retrieval returned no hits at all. |
 | `policy_search` | The policy-document query. |
-| `embedding` | Embedding the query for semantic ranking. Not run on `/policies`. |
 | `rule_discovery` | The rule-document query. Runs concurrently with `policy_search`. |
 | `retrieval_discovery_wall` | Wall time for the concurrent discovery phase as a whole — close to `max(policy_search, rule_discovery)`, **not** their sum. |
 | `policy_selection` | Fusion, elbow cut, rule rescue, duplicate collapse and diversity ordering. |
@@ -605,7 +605,7 @@ Every value is a duration in milliseconds. No counter, score or size is ever exp
 
 Three consequences worth building against:
 
-- **Do not sum the stages and expect `latency_ms`.** The map deliberately mixes three kinds of value: leaf spans (`policy_search`, `classifier`), *overlapping wall measures* of phases that ran concurrently (`index_gate_wall`, `retrieval_discovery_wall`, `gather_wall`), and *cumulative* measures taken from the start of the request (`reservation`, `to_envelope`). `decider_wall` and `gather_total` are containers over other keys. Summing them double- and triple-counts.
+- **Do not sum the stages and expect `latency_ms`.** The map deliberately mixes three kinds of value: leaf spans (`policy_search`, `classifier`), *overlapping wall measures* of phases that ran concurrently (`retrieval_preflight_wall`, `retrieval_discovery_wall`, `gather_wall`), and *cumulative* measures taken from the start of the request (`reservation`, `to_envelope`). `decider_wall` and `gather_total` are containers over other keys. Summing them double- and triple-counts.
 - **Presence says the stage ran.** An unrequested gather key is absent. A present value of `0` means the measured work completed in less than one millisecond after integer rounding; it does not mean the stage was skipped.
 - **The key set is not a contract to enumerate against.** Stages are added and renamed as the path changes. Read the map as a map, and treat an unrecognised key as a duration you do not yet have a label for.
 

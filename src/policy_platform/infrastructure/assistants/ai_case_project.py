@@ -2085,21 +2085,68 @@ async def _answer_project_scope(
                 if timings is not None:
                     timings["projection_readiness"] = elapsed_ms(started)
 
-        gate_started = time.perf_counter()
+        async def embed_query() -> list[float]:
+            # Constructed before the clock starts, for the same reason the search
+            # client is: it does no I/O, and including it would mean a key of `0`
+            # on a run where no embedding was ever made — a present duration for
+            # a stage that did not happen, which is the one thing this map's
+            # readers are told they can rely on not seeing.
+            #
+            # It stays inside this coroutine, though. Hoisting it onto the main
+            # path would let a constructor failure escape before the gather and
+            # leave the two probe tasks in flight.
+            ai_client = AzureOpenAIClient(settings)
+            started = time.perf_counter()
+            try:
+                [embedded] = await ai_client.embed([scenario])
+                return embedded
+            finally:
+                if timings is not None:
+                    timings["embedding"] = elapsed_ms(started)
+
+        preflight_started = time.perf_counter()
         index_task = asyncio.create_task(index_probe())
         readiness_task = asyncio.create_task(readiness_probe())
-        # `return_exceptions` so the *existence* answer is always read first. A
-        # readiness probe against an index that is not there fails by definition,
-        # and that failure is a consequence of the state the other probe already
-        # named — reporting it as a failed search would turn "not built yet",
-        # which an operator can act on, into "something went wrong", which they
-        # cannot.
-        index_present, readiness = await asyncio.gather(
-            index_task, readiness_task, return_exceptions=True
+        # The embedding joins them because it needs nothing they produce — only
+        # the scenario, which has been in hand since the request arrived. It was
+        # serial behind the gate purely because it was written after it.
+        #
+        # The trade is real and is on the refusal path: a project whose index is
+        # missing or unprojected now pays for an embedding call it never used to
+        # make. That is one embedding — the cheapest call this service makes, and
+        # orders of magnitude below a gather — bought against roughly a second on
+        # every request that succeeds. It is disclosed rather than hidden: the
+        # `embedding` key is present on those refusals, so the cost is visible in
+        # the same telemetry as everything else.
+        #
+        # `/policies` runs no embedding at all, so it starts two tasks, not three,
+        # and its key is absent rather than zero.
+        embedding_task = (
+            None if policies_only else asyncio.create_task(embed_query())
         )
+        preflight = [index_task, readiness_task]
+        if embedding_task is not None:
+            preflight.append(embedding_task)
+        # One gather over all of them, so every task is always settled and none
+        # can be left in flight by an early exit below.
+        settled = await asyncio.gather(*preflight, return_exceptions=True)
+        index_present, readiness = settled[0], settled[1]
+        embedded = settled[2] if embedding_task is not None else None
         if timings is not None:
-            timings["index_gate_wall"] = elapsed_ms(gate_started)
+            timings["retrieval_preflight_wall"] = elapsed_ms(preflight_started)
 
+        # `return_exceptions` above is what lets these answers be read in a fixed
+        # order rather than whichever failed first. The existence answer goes
+        # first: a readiness probe fired at an index that is not there fails by
+        # definition, and reporting *that* would turn "not built yet", which an
+        # operator can act on, into "something went wrong", which they cannot.
+        #
+        # It is also why each result is tested with `isinstance` before it is
+        # used as a value. `return_exceptions` hands back a raised error as a
+        # returned object, and an exception object is truthy — so a failed
+        # existence probe read through `if not index_present` would say "the
+        # index is there", and this would go on to query an index whose
+        # existence was never established.
         if isinstance(index_present, BaseException):
             raise index_present
         if not index_present:
@@ -2140,6 +2187,16 @@ async def _answer_project_scope(
                 "index, then retry.",
             )
 
+        # Last of the three, because it is the only one whose failure says
+        # nothing about the index. Read after the gate has passed so a refusal
+        # still reports the index state that caused it rather than an embedding
+        # fault that was incidental to it.
+        vector: list[float] | None = None
+        if embedding_task is not None:
+            if isinstance(embedded, BaseException):
+                raise embedded
+            vector = embedded
+
         async def policy_search() -> list[dict]:
             started = time.perf_counter()
             try:
@@ -2159,7 +2216,6 @@ async def _answer_project_scope(
                 if timings is not None:
                     timings["policy_search"] = elapsed_ms(started)
 
-        vector: list[float] | None = None
         if policies_only:
             policy_task = asyncio.create_task(policy_search())
             policy_scan = await policy_task
@@ -2168,11 +2224,6 @@ async def _answer_project_scope(
             hits = policy_scan
             rule_hits_by_document = {}
         else:
-            embedding_started = time.perf_counter()
-            ai_client = AzureOpenAIClient(settings)
-            [vector] = await ai_client.embed([scenario])
-            if timings is not None:
-                timings["embedding"] = elapsed_ms(embedding_started)
 
             async def rule_search() -> tuple[list[dict], str]:
                 started = time.perf_counter()
