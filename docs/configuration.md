@@ -29,15 +29,36 @@ Copy-Item .env.example .env
 | `CORS_DEV_PORT_RANGE` | `5173-5180` | The ports probed on both `localhost` and `127.0.0.1` when `CORS_ALLOWED_ORIGINS` is blank. |
 | `VITE_API_BASE_URL` | `http://localhost:8010` | Read by the frontend at build/dev time. |
 | `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | Optional for a first local run. Blank leaves AI features disabled (routes return `503`), but the app boots and all deterministic features work. |
-| `AZURE_OPENAI_DEPLOYMENT` | blank | Reasoning deployment: extraction, quality, correlation, rewrite, compare. Required for AI features, not for booting the app. |
-| `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | blank | The second reasoning deployment. Used on the document-loading path only, for extraction's policy-formulation stage. Not part of the `ai_enabled` gate; falls back to `AZURE_OPENAI_DEPLOYMENT` when unset. The decision routes never use it. |
-| `AZURE_OPENAI_LUNA_DEPLOYMENT` | blank | Optional named Luna deployment for explicit evaluation. It reuses the configured endpoint/key and is not selected by current routing. |
-| `AZURE_OPENAI_TERRA_DEPLOYMENT` | blank | Optional named Terra deployment for explicit evaluation. It reuses the configured endpoint/key and is not selected by current routing. |
+| `AZURE_OPENAI_DEPLOYMENT` | blank | The primary reasoning deployment, and the only one the decision routes use: intent classification, the language boundary, adjudication, Ask AI, summaries, rewrite, compare, quality, and extraction's passage stage. Required for AI features, not for booting the app. |
+| `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | blank | A second reasoning deployment, used on the document-loading path only, for extraction's policy-formulation stage. Not part of the `ai_enabled` gate; falls back to `AZURE_OPENAI_DEPLOYMENT` when unset. The decision routes never use it. |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | blank / blank / `3072` | Embeddings for clause indexing and query vectors. `_DEPLOYMENT` is part of the `ai_enabled` gate. Required for AI features. |
 | `AZURE_SEARCH_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2025-09-01` | Blank disables clause indexing and all retrieval-backed grounding. Required for grounding features. |
 | `AZURE_SEARCH_AUTHORING_INDEX` / `_EVIDENCE_INDEX` | `policy-authoring` / `policy-evidence` | Index names. Runtime reads/writes the authoring index; the Azure deployment bootstrap initializes both schemas, while the runtime client never alters schema. |
 
 **Azure OpenAI and Azure AI Search are optional for getting started.** The app boots and all deterministic features work with these blank — document upload, rule editing, evaluation, policy tests, the decision log, and the audit trail all function. AI-powered features (extraction, quality checks, Ask AI, grounded answers) require Azure OpenAI and, for retrieval grounding, Azure AI Search. See [AI assistance](ai-assistance.md) and [How the AI is grounded](ai-assistance.md#how-the-ai-is-grounded).
+
+### Why there are two chat deployments
+
+Both are `gpt-5.6` reasoning deployments and both run at `medium` reasoning effort. Neither is a cheaper or faster tier of the other — the split is which model suits the work.
+
+| | Deployment | Used by |
+|---|---|---|
+| **Primary** | `AZURE_OPENAI_DEPLOYMENT` | Everything on the decision and decision-light routes, plus Ask AI, summaries, rewrite, quality, and extraction's passage stage |
+| **Secondary** | `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | Extraction's policy-formulation stage only |
+
+The recommended values are in `.env.example`. The decision route is deliberately single-model: a slow stage on the document-loading path costs an ingestion job, while the same stage on the decision route costs a caller their request.
+
+**No `temperature` is sent anywhere, and the product does not claim run-to-run determinism from the model.** An earlier configuration ran the intent classifier and the language boundary on a non-reasoning deployment at `temperature=0`, on the reasoning that this bought stability. Measured against the live service, it did not: the same question classified two different ways across three identical runs. `seed` is accepted by every deployment here and was separately measured to change nothing, and the service returns a null `system_fingerprint`. The deterministic *evaluator* is unaffected — that is a different path with no model in it. See [Measured performance](measured-performance.md#why-there-is-no-temperature0-deployment-any-more).
+
+**Unknown `AZURE_OPENAI_*` variables are ignored, not rejected.** Settings are loaded with `extra="ignore"`, so a misspelled or retired variable is accepted silently and does nothing. Two per-model variables (`_LUNA_DEPLOYMENT`, `_TERRA_DEPLOYMENT`) were removed for exactly this reason — they were declared, never read, and an operator who set them saw no effect. If a deployment setting appears to have no effect, check it against the table above rather than assuming the value is wrong.
+
+### Token budgets, and why the loading path asks for so much
+
+A reasoning deployment spends part of its token budget on a hidden reasoning pass *before* producing any visible content. If the budget is too small the whole of it can be consumed by reasoning, and the call returns **empty content rather than an error** — a silent failure. That is why the document-loading stages carry budgets far larger than their output: policy formulation asks for 96,000, passage extraction 64,000, and the English projection 64,000 with a 16,000 floor.
+
+There is a cost to that, and it is worth understanding before sizing an Azure deployment. **Azure meters the tokens-per-minute rate limit on the prompt plus `max_tokens` at the moment a request is received, not on what the reply actually used.** A call that asks for 96,000 and returns 500 still reserves 96,000 against the limit. So peak demand is the sum of *concurrent requested budgets*, not of expected outputs, and two simultaneous formulation calls reserve 192,000.
+
+This is a deliberate trade rather than an oversight. Loading is offline, and the two failure modes are not comparable: a batch truncated for want of budget loses rules that no later stage can recover, whereas a throttled call is retried. The client treats HTTP 429 as retryable, honours the service's `Retry-After` header, and backs off exponentially with jitter over four attempts — so throttling degrades to latency rather than to failure. A throttled deployment therefore presents as a very slow one, not a broken one, which is worth knowing when an ingestion run seems to hang.
 
 `ai_enabled` is true only when the OpenAI endpoint, key, chat deployment *and* embedding deployment are all set. `search_enabled` is gated separately on its own endpoint and key. Check the effective state at `GET /api/ai/status`, or via the AI pill in the app header.
 

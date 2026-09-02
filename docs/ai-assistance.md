@@ -22,7 +22,7 @@ AI-assisted features require Azure OpenAI. Retrieval-grounded features also requ
 
 | Setting | Use |
 |---|---|
-| `AZURE_OPENAI_DEPLOYMENT` | Extraction, quality, correlation, rewrite, compare |
+| `AZURE_OPENAI_DEPLOYMENT` | The decision routes, Ask AI, extraction's passage stage, quality, correlation, rewrite, compare |
 | `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | Policy formulation, on the document-loading path |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Clause and query embeddings |
 | `AZURE_SEARCH_*` | Hybrid retrieval over indexed clauses |
