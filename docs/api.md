@@ -234,7 +234,7 @@ Receipt reads are additionally narrowed at the record: a receipt may be read by 
 
 #### What `low` measured, on one corpus
 
-One 20-scenario × 2-repetition matrix was run at `medium` and again at `low`, an hour apart against the same deployment, and compared per scenario rather than by pooling the two sets. This is evidence from that matrix, not a service level or a general claim about `low`:
+One 20-scenario × 2-repetition matrix was run at `medium` and again at `low`, an hour apart against the same deployment, and compared per scenario rather than by pooling the two sets. This is evidence from that matrix, not a service level or a general claim about `low`. The method, and the model comparison it sits beside, are in [Measured performance](measured-performance.md).
 
 | | p50 | p75 | p95 |
 |---|---:|---:|---:|
@@ -265,11 +265,11 @@ The key is bound to the authenticated principal, the project, and a canonical ha
 
 Without a key every call is a new decision. Two identical questions are two decisions, and this endpoint will not pretend otherwise: deduplicating by scenario alone would be wrong, because asking the same question twice is something people legitimately do.
 
-A case is a multi-call model operation and takes **tens of seconds**, not a few. Across the evaluation matrices run against this release, observed end-to-end times sat around **p50 19–32 s and p95 35–45 s**, with individual calls above that. The spread between matrices reflects the scenarios in them, not which operation was called: `/case/light` runs the same adjudication as `/case` and is not faster. Size a client timeout from the p95 end of that range with headroom — 120 s is a reasonable default — and use an `Idempotency-Key` rather than a retry loop. See [Timing and token telemetry](#timing-and-token-telemetry) for what the response reports about its own execution, and [Timeouts and recovery](external-consumption.md#timeouts-and-recovery) for what to do when a call does not return.
+A case is a multi-call model operation and takes **tens of seconds**, not a few. Across the evaluation matrices run against this release, observed end-to-end times sat around **p50 19–26 s and p95 33–47 s**, with individual calls above that. The spread between matrices reflects the scenarios in them and the deep deployment they ran on, not which operation was called: `/case/light` runs the same adjudication as `/case` and is not faster. Size a client timeout from the p95 end of that range with headroom — 120 s is a reasonable default — and use an `Idempotency-Key` rather than a retry loop. See [Timing and token telemetry](#timing-and-token-telemetry) for what the response reports about its own execution, and [Timeouts and recovery](external-consumption.md#timeouts-and-recovery) for what to do when a call does not return.
 
-The low end of that range is the one matrix re-measured after retrieval's index checks and query embedding were made concurrent; the upper figures come from matrices last measured before that change and are now upper bounds rather than current readings. The timeout guidance is unaffected either way — it is sized from the tail, and the tail is set by how much the model reasons, not by retrieval.
+The band's ends are observations, not round numbers: p50 19.3 s and 25.7 s came from two sequential matrices, and p95 33.5 s and 46.2 s from the interleaved deployment comparison. The configured deployment sits at the fast end — `gpt-5.6-terra` returned p50 20.8 s and p95 33.5 s, slowest call 38.8 s — and the upper figures are what the alternatives cost. The timeout guidance is sized from the tail either way, and the tail is set by how much the model reasons, not by retrieval.
 
-These figures are observations from a fixed set of evaluation scenarios, not a service level objective. No latency guarantee is made.
+These figures are observations from a fixed set of evaluation scenarios, not a service level objective. No latency guarantee is made. [Measured performance](measured-performance.md) has the full set, the method that produced them, and the client and region they were taken from.
 
 ### A case asks for information, a verdict, or both
 

@@ -23,6 +23,7 @@ This index is for public readers, reviewers, operators and contributors finding 
 | [External consumption](external-consumption.md) | Calling the audited decision API from another system |
 | [Configuration](configuration.md) | Local setup and troubleshooting |
 | [Testing](testing.md) | Commands, fixtures, and coverage |
+| [Measured performance](measured-performance.md) | Observed latency and tokens, the method that produced them, and which deployment to use |
 | [Data model](data-model.md) | Tables and invariants |
 | [Known limitations](known-limitations.md) | Current product gaps |
 
