@@ -21,6 +21,7 @@ This index is for public readers, reviewers, operators and contributors finding 
 | [Capability flows](capability-flows.md) | High-impact diagrams |
 | [API](api.md) | Endpoints and common sequences |
 | [External consumption](external-consumption.md) | Calling the audited decision API from another system |
+| [Integration guide](integration-guide.md) | Endpoints, request and response shapes, and how to verify an integration |
 | [Configuration](configuration.md) | Local setup and troubleshooting |
 | [Testing](testing.md) | Commands, fixtures, and coverage |
 | [Measured performance](measured-performance.md) | Observed latency and tokens, the method that produced them, and which deployment to use |
