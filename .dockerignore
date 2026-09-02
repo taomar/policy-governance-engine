@@ -5,7 +5,16 @@
 __pycache__
 *.pyc
 *.log
-.env
+# `.env*`, not `.env`. Docker does not read `.gitignore`, so a file git ignores
+# is still in the build context — and the bare rule this used to carry would
+# have let `.env.local` or `.env.production` through. This image is not actually
+# exposed by that, because the COPY lines below name their paths explicitly and
+# never take the context wholesale; the pattern is widened anyway so the
+# protection does not depend on nobody ever writing `COPY . .`. `apps/web`
+# already carries `.env*` for the same reason, and the demo app had no
+# `.dockerignore` at all until one was added — Docker resolves it from the build
+# context root, so a rule here does not cover a context set to a subdirectory.
+.env*
 apps/web/node_modules
 apps/web/dist
 data/documents
