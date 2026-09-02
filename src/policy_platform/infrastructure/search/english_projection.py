@@ -113,8 +113,8 @@ PROJECTION_BATCH_ITEMS: Final[int] = 6
 #: split into more batches, because splitting costs a call and asking for more
 #: costs the whole rendering.
 #:
-#: RAISED FOR THE REASONING PASS, THEN SIZED BACK. This was 4,096, chosen when
-#: a non-reasoning deployment served this call and described as "the
+#: RAISED FOR THE REASONING PASS, AND GENEROUS ON PURPOSE. This was 4,096,
+#: chosen when a non-reasoning deployment served this call and described as "the
 #: conservative figure every deployment this platform targets honours" — a
 #: figure that was never actually probed. It now runs on a reasoning deployment,
 #: which spends part of the budget on a hidden pass *before* any visible
@@ -122,17 +122,18 @@ PROJECTION_BATCH_ITEMS: Final[int] = 6
 #: 4,000 reasoning tokens and zero content. At 4,096 this call was one
 #: reasoning-heavy batch away from rendering nothing.
 #:
-#: It was then briefly 64,000, which over-corrected in the opposite direction.
-#: Azure computes the TPM rate limit from prompt + `max_tokens` **at request
-#: time**, not from what the reply used: "a request with a high max_tokens value
-#: can consume rate limit budget even if the actual response is small". Indexing
-#: runs many of these calls, so an oversized ceiling reserves quota that is never
-#: spent and throttles the batch behind it. A larger budget stops buying anything
-#: the moment truncation is no longer the binding constraint.
+#: THE RATE-LIMIT COST IS UNDERSTOOD AND ACCEPTED. Azure computes the TPM limit
+#: from prompt + `max_tokens` at request time, not from what the reply used, so
+#: a ceiling this size reserves quota that will not be spent and can throttle
+#: the batch behind it. Indexing is offline and `_post_with_retry` treats 429 as
+#: retryable with exponential back-off, so throttling degrades to latency. A
+#: rendering lost to truncation is different in kind: it is a policy that
+#: retrieves badly for the life of the index.
 #:
-#: 32,000 covers a full batch of six items plus a heavy reasoning pass, with the
-#: batch splitting below as the real answer to more text.
-PROJECTION_COMPLETION_TOKENS: Final[int] = 32_000
+#: Probed live: `gpt-5.6-terra` and `gpt-5.6-sol` both accept
+#: `max_completion_tokens` at every step from 4,096 to 128,000, so this is well
+#: inside what the deployment allows.
+PROJECTION_COMPLETION_TOKENS: Final[int] = 64_000
 
 #: The floor, so a one-line item still gets a workable budget — and, since the
 #: reasoning pass is charged whatever the input size, so that a *small* batch is
@@ -145,7 +146,7 @@ PROJECTION_COMPLETION_TOKENS: Final[int] = 32_000
 #: from input size gets *smaller* on each retry — the recovery drives toward the
 #: floor rather than away from the failure. Keeping the floor above the
 #: reasoning pass's needs is what stops that loop converging on a refusal.
-_MIN_TOKEN_BUDGET: Final[int] = 12_000
+_MIN_TOKEN_BUDGET: Final[int] = 16_000
 
 #: The same plausibility bounds the request side applies, in the same units and
 #: for the same reason: a reply far larger or far smaller than what it was given

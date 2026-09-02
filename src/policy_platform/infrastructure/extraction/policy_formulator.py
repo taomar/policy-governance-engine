@@ -498,25 +498,21 @@ class PolicyFormulatorAgent:
                 # observed need of 16,000-20,000+ for multi-rule extraction once the
                 # hidden reasoning pass is included.
                 #
-                # WHY THIS IS NOT SIMPLY AS LARGE AS THE DEPLOYMENT ALLOWS. Both
-                # deployments accept 128,000, and this was briefly set to 96,000 on
-                # the reasoning that formulation is accuracy-critical and runs
-                # offline. That is wrong, and Azure's own guidance says so: the TPM
-                # rate limit is computed from the *estimated* tokens for a request —
-                # prompt plus `max_tokens` — not from what the reply actually used.
-                # "A request with a high max_tokens value can consume rate limit
-                # budget even if the actual response is small." So an oversized
-                # budget does not buy accuracy once truncation is no longer the
-                # binding constraint; it buys throttling, which is the failure this
-                # branch is trying to avoid, and it competes with every concurrent
-                # call on the same deployment.
+                # DELIBERATELY GENEROUS, AND THE COST IS UNDERSTOOD. Azure computes
+                # the TPM rate limit from prompt + `max_tokens` at request time
+                # rather than from what the reply used, so a budget this size
+                # reserves quota the reply will not spend and can throttle a
+                # concurrent call. That trade was considered and accepted: this is
+                # the most complex judgement in the pipeline, it runs offline, and a
+                # batch truncated for want of budget costs a whole batch of rules
+                # while a throttled one costs a retry. `_post_with_retry` treats 429
+                # as retryable with exponential back-off, so throttling degrades to
+                # latency rather than to failure.
                 #
-                # 48,000 is ~2.5x the top of the observed need, which covers a batch
-                # that reasons unusually hard without reserving quota nothing will
-                # spend. The client raises on truncated JSON rather than letting a
-                # half-object reach the parser, so an under-estimate costs a retry
-                # rather than a silent bad record.
-                max_tokens=48000,
+                # The consequence to size for is that peak TPM demand is the sum of
+                # concurrent *requested* budgets, not of expected outputs — see the
+                # capacity note in `infra/main.bicep`.
+                max_tokens=96000,
                 timeout=1800.0,
                 reasoning_effort=FORMULATOR_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see

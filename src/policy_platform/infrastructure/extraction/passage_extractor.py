@@ -467,16 +467,16 @@ class PassageExtractorAgent:
                 # by the size of the input: at worst it returns the whole batch
                 # plus per-passage metadata.
                 #
-                # RAISED FOR THE REASONING PASS, THEN SIZED BACK. This was 16,000,
-                # set for a non-reasoning model; a reasoning deployment spends part
-                # of the budget before emitting anything, and an exhausted budget
-                # returns empty content rather than an error. It was briefly 64,000,
-                # which over-corrected: Azure computes the TPM rate limit from
-                # prompt + `max_tokens` at request time, so an oversized budget
-                # consumes quota the reply never uses and throttles concurrent
-                # calls. 32,000 clears a bounded stage-1 reply plus a heavy
-                # reasoning pass without reserving what will not be spent.
-                max_tokens=32000,
+                # RAISED FOR THE REASONING PASS, AND GENEROUS ON PURPOSE. This was
+                # 16,000, set for a non-reasoning model; a reasoning deployment
+                # spends part of the budget before emitting anything, and an
+                # exhausted budget returns empty content rather than an error. Azure
+                # meters TPM on prompt + `max_tokens` at request time, so a budget
+                # this size can throttle a concurrent call — accepted, because a
+                # passage lost to truncation is one no later stage can recover,
+                # while a throttled call is retried with back-off by
+                # `_post_with_retry`.
+                max_tokens=64000,
                 timeout=1200.0,
                 reasoning_effort=PASSAGE_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see
