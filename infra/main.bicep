@@ -81,17 +81,36 @@ param entraClientId string = ''
 @secure()
 param entraClientSecret string = ''
 
+// BOTH CHAT SLOTS ARE REASONING DEPLOYMENTS, AND CAPACITY IS SIZED FOR THAT.
+//
+// Capacity here is thousands of tokens per minute on GlobalStandard. Both
+// defaults were '10' (~10K TPM), set when the second slot held a cheap
+// non-reasoning model. That slot now holds a reasoning deployment, and a
+// reasoning model spends hidden tokens before it emits anything — this
+// repository records a single extraction call consuming a 4,000-token budget
+// entirely on reasoning and returning empty content, with an observed need of
+// 16,000-20,000+ for multi-rule extraction, and the loading path now asks for
+// up to 96,000. Two such deployments at 10K TPM each will throttle under any
+// real ingestion run, and a throttled call presents as a very slow one rather
+// than as an error: one measured classification took 261 seconds.
+//
+// 60 is a starting point that clears a single large extraction call, NOT a
+// sized figure. Regional quota is finite and shared across deployments, so
+// before provisioning read the real numbers with
+// `az cognitiveservices usage list --location <region>` and size from
+// `docs/measured-performance.md`. Region choice depends on having quota for two
+// reasoning models, not one.
 param openAiReasoningDeploymentName string = 'policy-reasoning'
 param openAiReasoningModelName string
 param openAiReasoningModelVersion string
 param openAiReasoningDeploymentSku string = 'GlobalStandard'
-param openAiReasoningCapacity string = '10'
+param openAiReasoningCapacity string = '60'
 
 param openAiSecondaryDeploymentName string = 'policy-secondary'
 param openAiSecondaryModelName string
 param openAiSecondaryModelVersion string
 param openAiSecondaryDeploymentSku string = 'GlobalStandard'
-param openAiSecondaryCapacity string = '10'
+param openAiSecondaryCapacity string = '60'
 
 param openAiEmbeddingDeploymentName string = 'policy-embedding'
 param openAiEmbeddingModelName string = 'text-embedding-3-large'

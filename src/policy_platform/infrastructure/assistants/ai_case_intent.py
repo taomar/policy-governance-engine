@@ -816,6 +816,16 @@ def _classifier_deployment(settings) -> str | None:
     throttling and this client's back-off retrying it. The same matrix showed a
     306 s end-to-end request against a documented 120 s client timeout.
 
+    WHAT THAT MEASUREMENT DOES NOT SETTLE. It says nothing about `gpt-5.6-sol`
+    as a model. The development resource it ran against is in a different
+    subscription from this workstation's, so its provisioned capacity could not
+    be read, and a throttled call is exactly what an under-provisioned
+    deployment looks like. A deployment sized for reasoning traffic might not
+    reproduce it at all. So this is a routing decision made on observed
+    behaviour of one resource, not a finding about the model — if you provision
+    the secondary properly and want it back on this path, re-measure rather than
+    trusting either this comment or the earlier offline comparison.
+
     The decision and decision-light routes are what external callers consume, so
     they run entirely on the primary deployment. The secondary is used on the
     policy-loading path, where a slow stage costs an ingestion job rather than a
