@@ -467,13 +467,16 @@ class PassageExtractorAgent:
                 # by the size of the input: at worst it returns the whole batch
                 # plus per-passage metadata.
                 #
-                # RAISED FOR ACCURACY. This was 16,000. Stage 1's output is bounded
-                # but its *reasoning* is not, and a passage lost to truncation is a
-                # passage no later stage can recover — everything downstream is
-                # anchored to what this stage copied. Loading is offline, so the
-                # cost of headroom here is time rather than a caller's request.
-                # Probed live: both deployments accept up to 128,000.
-                max_tokens=64000,
+                # RAISED FOR THE REASONING PASS, THEN SIZED BACK. This was 16,000,
+                # set for a non-reasoning model; a reasoning deployment spends part
+                # of the budget before emitting anything, and an exhausted budget
+                # returns empty content rather than an error. It was briefly 64,000,
+                # which over-corrected: Azure computes the TPM rate limit from
+                # prompt + `max_tokens` at request time, so an oversized budget
+                # consumes quota the reply never uses and throttles concurrent
+                # calls. 32,000 clears a bounded stage-1 reply plus a heavy
+                # reasoning pass without reserving what will not be spent.
+                max_tokens=32000,
                 timeout=1200.0,
                 reasoning_effort=PASSAGE_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see

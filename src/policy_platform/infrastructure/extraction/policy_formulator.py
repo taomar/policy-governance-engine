@@ -494,19 +494,29 @@ class PolicyFormulatorAgent:
                 # Sized against observed density: a 1,525-char batch of a definitions
                 # section produced 13 canonical policies + 13 DMN decisions. Dense
                 # legal text scales roughly linearly, so a 4,000-char batch can emit
-                # ~35 records across both blocks.
+                # ~35 records across both blocks. `AzureOpenAIClient.chat` records an
+                # observed need of 16,000-20,000+ for multi-rule extraction once the
+                # hidden reasoning pass is included.
                 #
-                # RAISED FOR ACCURACY, DELIBERATELY. This was 32,000, sized to fit
-                # the expected output plus the hidden reasoning pass. Formulation is
-                # the most complex judgement in the pipeline and it runs offline, so
-                # a budget that merely *fits* is the wrong trade: a batch that
-                # reasons hard is exactly the batch whose output matters most, and
-                # truncation there costs a whole batch of rules. Probed live before
-                # raising — `gpt-5.6-terra` and `gpt-5.6-sol` both accept
-                # `max_completion_tokens` up to 128,000, so this is well inside what
-                # the deployment allows. The client still raises on truncated JSON
-                # rather than letting a half-object reach the parser.
-                max_tokens=96000,
+                # WHY THIS IS NOT SIMPLY AS LARGE AS THE DEPLOYMENT ALLOWS. Both
+                # deployments accept 128,000, and this was briefly set to 96,000 on
+                # the reasoning that formulation is accuracy-critical and runs
+                # offline. That is wrong, and Azure's own guidance says so: the TPM
+                # rate limit is computed from the *estimated* tokens for a request —
+                # prompt plus `max_tokens` — not from what the reply actually used.
+                # "A request with a high max_tokens value can consume rate limit
+                # budget even if the actual response is small." So an oversized
+                # budget does not buy accuracy once truncation is no longer the
+                # binding constraint; it buys throttling, which is the failure this
+                # branch is trying to avoid, and it competes with every concurrent
+                # call on the same deployment.
+                #
+                # 48,000 is ~2.5x the top of the observed need, which covers a batch
+                # that reasons unusually hard without reserving quota nothing will
+                # spend. The client raises on truncated JSON rather than letting a
+                # half-object reach the parser, so an under-estimate costs a retry
+                # rather than a silent bad record.
+                max_tokens=48000,
                 timeout=1800.0,
                 reasoning_effort=FORMULATOR_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see
