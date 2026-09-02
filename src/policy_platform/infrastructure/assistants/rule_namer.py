@@ -514,7 +514,7 @@ async def generate_names(
     """
 
     settings = get_settings()
-    deployment = settings.azure_openai_fast_deployment
+    deployment = settings.azure_openai_deployment
     already = taken if taken is not None else set()
 
     if source.is_empty:
@@ -562,8 +562,8 @@ async def generate_names(
                 # several times what the same phrase costs in another, and a
                 # budget that fits one language and not another would be this
                 # module preferring a language.
-                max_tokens=min(6000, 400 + 120 * len(source.rules)),
-                timeout=90.0,
+                max_tokens=min(12000, 4000 + 120 * len(source.rules)),
+                timeout=180.0,
             )
             replies = _replies_by_ordinal(raw)
             for index, rule in enumerate(source.rules):

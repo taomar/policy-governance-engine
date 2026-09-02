@@ -125,7 +125,9 @@ async def ai_status() -> dict:
         "ai_enabled": settings.ai_enabled,
         "search_enabled": settings.search_enabled,
         "chat_deployment": settings.azure_openai_deployment if settings.ai_enabled else None,
-        "fast_deployment": settings.azure_openai_fast_deployment if settings.ai_enabled else None,
+        "secondary_deployment": (
+            settings.azure_openai_secondary_deployment if settings.ai_enabled else None
+        ),
     }
 
 

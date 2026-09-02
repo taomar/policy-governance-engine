@@ -75,7 +75,9 @@ CARRIED = "Kestrel mooring turns"
 
 class _Settings:
     ai_enabled = True
-    azure_openai_fast_deployment = "a-deployment"
+    # rule_namer now runs on the primary deployment, so the stub must offer it.
+    azure_openai_deployment = "a-deployment"
+    azure_openai_secondary_deployment = "a-secondary-deployment"
 
 
 class _Replies:

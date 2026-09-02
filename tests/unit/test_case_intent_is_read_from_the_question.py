@@ -87,8 +87,10 @@ _DOC_VERSION_ID = "11111111-1111-1111-1111-111111111111"
 
 class _Settings:
     ai_enabled = True
-    azure_openai_deployment = "slow"
-    azure_openai_fast_deployment = "fast"
+    # Named for their roles, not for speed. Both are reasoning deployments now;
+    # the old "slow"/"fast" names described a split that no longer exists.
+    azure_openai_deployment = "primary"
+    azure_openai_secondary_deployment = "secondary"
 
 
 class _StubClient:
@@ -309,20 +311,70 @@ async def test_the_classifier_is_anchored_to_what_the_rules_test(stubbed):
         assert leaked not in user["content"]
 
 
-async def test_the_classification_call_is_deterministic(stubbed):
-    """A reviewer asking the same question twice must get the same kind of answer.
-    Stability is the fast deployment's to give, so the classifier calls it at
-    temperature=0 — the one determinism control it honours — and spends no
-    reasoning budget. The reasoning deployment, which rejects temperature and does
-    not honour seed, is never the classifier's."""
+async def test_the_classifier_sends_no_sampling_control_and_stays_on_the_primary(stubbed):
+    """The classifier asks the primary deployment, at medium reasoning, with no
+    sampling control at all.
+
+    THIS TEST USED TO ASSERT DETERMINISM, AND THE PREMISE WAS FALSE. It read
+    "stability is the fast deployment's to give, so the classifier calls it at
+    temperature=0 — the one determinism control it honours". Measured against the
+    live resource with the real classifier prompt, that deployment answered
+    `hw-contractor-15-days` as informational, informational, then decision across
+    three identical runs. The parameter was not buying the stability it was there
+    for.
+
+    WHY THE PRIMARY AND NOT THE SECONDARY. The classifier briefly ran on the
+    secondary deployment, which agreed with itself more often in a small offline
+    comparison. On the live decision route that stage reached 261,761 ms on a
+    call spending 125 reasoning tokens — service-side throttling rather than
+    compute — so the decision route is single-model and the secondary is
+    confined to the policy-loading path.
+
+    What is asserted is what is true and enforceable: no `temperature` is sent
+    (a reasoning deployment rejects it with a 400), the call carries a `medium`
+    reasoning effort, and it targets the primary. Determinism is not asserted
+    anywhere, because nothing measured on this resource delivers it.
+    """
 
     await ai_case_intent.classify_case_intent("How many days of leave may I take?")
 
     assert len(stubbed.calls) == 1
     kwargs = stubbed.calls[0]["kwargs"]
-    assert kwargs["deployment"] == "fast"
-    assert kwargs["temperature"] == 0.0
-    assert kwargs.get("reasoning_effort") is None
+    assert kwargs["deployment"] == "primary"
+    assert "temperature" not in kwargs or kwargs["temperature"] is None, (
+        "a temperature was sent to a reasoning deployment, which rejects it with a 400"
+    )
+    assert kwargs.get("reasoning_effort") == "medium"
+
+
+async def test_the_classifier_does_not_reach_for_the_secondary_deployment(
+    stubbed, monkeypatch
+):
+    """Configuring a secondary deployment must make no difference here.
+
+    THE FIRST VERSION OF THIS CONTROL WAS A NO-OP. It set
+    `azure_openai_secondary_deployment` to `"secondary"` — the value the fixture
+    at the top of this file already holds — so it exercised nothing the test
+    above did not, while its docstring claimed to close a gap in that test which
+    did not exist. A control that cannot fail for its own reason is not a
+    control.
+
+    It now writes a value the fixture never uses, so if `_classifier_deployment`
+    ever consults the secondary this assertion names exactly that, and it is the
+    only test that would.
+    """
+
+    settings = ai_case_intent.get_settings()
+    monkeypatch.setattr(
+        type(settings), "azure_openai_secondary_deployment", "a-secondary-nothing-should-pick"
+    )
+
+    await ai_case_intent.classify_case_intent("How many days of leave may I take?")
+
+    assert stubbed.calls[0]["kwargs"]["deployment"] == "primary", (
+        "the classifier reached for the secondary deployment; the decision route is "
+        "single-model because that deployment was measured throttling to 261 s"
+    )
 
 
 async def test_an_unreadable_verdict_falls_back_to_a_determination(stubbed):

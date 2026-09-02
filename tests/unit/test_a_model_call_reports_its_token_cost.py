@@ -49,7 +49,7 @@ class _Settings:
     azure_openai_endpoint = "https://example.invalid"
     azure_openai_api_key = "key"
     azure_openai_deployment = "quality"
-    azure_openai_fast_deployment = "fast"
+    azure_openai_secondary_deployment = "fast"
     azure_openai_embedding_deployment = "embed"
     azure_openai_api_version = "2024-10-21"
     azure_search_authoring_index = "index"

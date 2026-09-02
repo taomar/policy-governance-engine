@@ -28,7 +28,7 @@ pytestmark = pytest.mark.anyio
 class _Settings:
     ai_enabled = True
     search_enabled = False
-    azure_openai_fast_deployment = "fast"
+    azure_openai_secondary_deployment = "fast"
     azure_openai_deployment = "slow"
     azure_search_authoring_index = "index"
 

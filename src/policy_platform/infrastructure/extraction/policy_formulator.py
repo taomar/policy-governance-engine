@@ -66,6 +66,27 @@ FORMULATOR_PROMPT_VERSION = "dmn-formulator-v2"
 #: left to callers because it is part of the standard, not a tuning knob.
 FORMULATOR_REASONING_EFFORT = "medium"
 
+#: WHY THIS STAGE TARGETS THE SECONDARY DEPLOYMENT AND THE PASSAGE STAGE DOES
+#: NOT. Both stages of extraction run at medium reasoning, but they are not
+#: equally hard. Stage 1 copies rather than restructures, so its output is
+#: bounded by its input and the primary deployment serves it. This stage turns
+#: legal prose into canonical policies and DMN decisions, which is the most
+#: complex judgement in the pipeline and the one whose errors survive furthest
+#: downstream — it goes to the secondary deployment (`gpt-5.6-sol`).
+#:
+#: That mix is confined to the policy-loading path on purpose. The secondary
+#: deployment was measured throttling hard under load — 261,761 ms on one
+#: trivial classification — so the decision and decision-light routes, which
+#: external callers consume, stay entirely on the primary. Here a slow stage
+#: costs an ingestion job rather than a caller's request, which is why this
+#: call carries a 900 s timeout.
+#:
+#: This is a reasoned assignment, not a measured superiority claim: the two
+#: deployments have been compared on adjudication, where they reached identical
+#: verdicts, and on classification, where the secondary agreed with itself more
+#: often. Neither comparison was on extraction. Falls back to the primary when
+#: no secondary is configured.
+
 _PROMPT_NAME = "policy_formulator_v1.md"
 
 _TRANSPORT_ADDENDUM = """
@@ -465,16 +486,28 @@ class PolicyFormulatorAgent:
                     {"role": "system", "content": load_formulator_prompt()},
                     {"role": "user", "content": self._build_user_message(source_text)},
                 ],
-                deployment=self._settings.azure_openai_deployment,
+                deployment=(
+                    self._settings.azure_openai_secondary_deployment
+                    or self._settings.azure_openai_deployment
+                ),
                 json_mode=True,
                 # Sized against observed density: a 1,525-char batch of a definitions
                 # section produced 13 canonical policies + 13 DMN decisions. Dense
                 # legal text scales roughly linearly, so a 4,000-char batch can emit
-                # ~35 records across both blocks. 32k leaves room for that plus the
-                # hidden reasoning pass; the client now raises on truncated JSON
+                # ~35 records across both blocks.
+                #
+                # RAISED FOR ACCURACY, DELIBERATELY. This was 32,000, sized to fit
+                # the expected output plus the hidden reasoning pass. Formulation is
+                # the most complex judgement in the pipeline and it runs offline, so
+                # a budget that merely *fits* is the wrong trade: a batch that
+                # reasons hard is exactly the batch whose output matters most, and
+                # truncation there costs a whole batch of rules. Probed live before
+                # raising — `gpt-5.6-terra` and `gpt-5.6-sol` both accept
+                # `max_completion_tokens` up to 128,000, so this is well inside what
+                # the deployment allows. The client still raises on truncated JSON
                 # rather than letting a half-object reach the parser.
-                max_tokens=32000,
-                timeout=420.0,
+                max_tokens=96000,
+                timeout=1800.0,
                 reasoning_effort=FORMULATOR_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see
                 # EXTRACTION_SEED. Sent so that the determinism controls this

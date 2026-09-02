@@ -121,13 +121,50 @@ class Settings(BaseSettings):
     # Azure OpenAI (chat/extraction/rewrite/quality + embeddings). All
     # optional so the app still boots with AI features disabled if unset.
     #
-    # Two chat roles, and they are not interchangeable. The deep deployment does
-    # the reasoning-heavy work and is chosen for answer quality; the fast one
-    # runs the intent classifier and the language boundary and is chosen because
-    # it accepts `temperature=0`, which is the determinism control those two
-    # stages depend on. A reasoning model in the fast slot is a configuration
-    # error rather than a preference: measured on this resource, `gpt-5.6-sol`,
-    # `gpt-5.6-terra` and `gpt-5.6-luna` all reject `temperature=0` outright.
+    # TWO REASONING DEPLOYMENTS, ASSIGNED PER STAGE BY COMPLEXITY.
+    #
+    # Both roles below are now `gpt-5.6-*` reasoning deployments and both run at
+    # `medium` reasoning effort. Neither is a "fast" or "cheap" tier: the split
+    # is which model suits the work, measured rather than assumed.
+    #
+    #   `azure_openai_deployment` — the primary. `gpt-5.6-terra`. Everything on
+    #   the decision and decision-light routes, which external callers consume:
+    #   the intent classifier, the language boundary, the adjudication gathers,
+    #   interactive chat, summaries, rewrite and quality. Measured over one
+    #   interleaved 20x2 matrix it reached the same verdicts as `gpt-5.6-sol`
+    #   while spending ~45% fewer reasoning tokens and holding a tighter tail.
+    #
+    #   `azure_openai_secondary_deployment` — `gpt-5.6-sol`. Used only on the
+    #   policy-loading path, where extraction mixes the two: the passage stage
+    #   copies rather than restructures and runs on the primary, while policy
+    #   formulation is the most complex judgement in the pipeline and runs here.
+    #
+    # WHY THE DECISION ROUTE IS SINGLE-MODEL. The classifier and the language
+    # boundary were briefly moved to the secondary deployment, which classified
+    # more consistently in a small offline comparison. On the live route that
+    # was not viable: in one 20x2 matrix the classifier stage reached 261,761 ms
+    # on a call that spent 125 reasoning tokens. Work that cheap cannot take
+    # four minutes of compute, so the cost is service-side — the deployment
+    # throttling and this client's back-off retrying it — and it produced a
+    # 306 s request against a documented 120 s client timeout. A slow stage on
+    # the policy-loading path costs an ingestion job; the same stage on the
+    # decision route costs a caller their request.
+    #
+    # WHY THERE IS NO LONGER A `temperature=0` DEPLOYMENT.
+    #
+    # This previously read: the fast deployment exists because it accepts
+    # `temperature=0`, "the determinism control those two stages depend on".
+    # That rationale did not survive being measured. Asked the same question
+    # three times at `temperature=0`, `gpt-5.4-mini` classified
+    # `hw-contractor-15-days` as informational, informational, then decision —
+    # so the stability the parameter was there to buy was not being delivered.
+    # On the same scenario both reasoning deployments answered `decision` every
+    # time, which is also the classification that scenario needs.
+    #
+    # `seed` is accepted by every deployment here and was separately measured to
+    # change nothing (see `AzureOpenAIClient.chat`), and this resource returns a
+    # null `system_fingerprint`. So no sampling control on offer delivers
+    # run-to-run determinism, and the product does not claim one.
     #
     # Named deployments per model were declared here once and never read by
     # anything, so an operator setting them saw no effect. Routing is the two
@@ -136,7 +173,7 @@ class Settings(BaseSettings):
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str = "2024-12-01-preview"
     azure_openai_deployment: str | None = None
-    azure_openai_fast_deployment: str | None = None
+    azure_openai_secondary_deployment: str | None = None
     azure_openai_embedding_deployment: str | None = None
     azure_openai_embedding_model: str | None = None
     azure_openai_embedding_dimensions: int = 3072

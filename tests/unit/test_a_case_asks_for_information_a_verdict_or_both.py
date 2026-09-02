@@ -49,8 +49,9 @@ def anyio_backend() -> str:
 
 class _Settings:
     ai_enabled = True
-    azure_openai_deployment = "slow"
-    azure_openai_fast_deployment = "fast"
+    # Named for their roles, not for speed: both are reasoning deployments now.
+    azure_openai_deployment = "primary"
+    azure_openai_secondary_deployment = "secondary"
 
 
 #: The one phrase that tells the needs classifier's prompt apart from a gather's.
@@ -279,18 +280,33 @@ async def ai_case_classify(stub: type[_StubClient], *, tested: list[str]) -> dic
     )
 
 
-async def test_the_classification_call_is_deterministic(stubbed) -> None:
-    """The same question must read the same way on every run, or nothing above it
-    can be trusted. `temperature=0` on the fast deployment is the one determinism
-    control that deployment honours."""
+async def test_the_classification_call_sends_no_sampling_control(stubbed) -> None:
+    """The needs classifier targets the primary deployment at medium reasoning,
+    with no sampling control.
+
+    THIS TEST USED TO ASSERT DETERMINISM ON A FALSE PREMISE. It read "the same
+    question must read the same way on every run ... `temperature=0` on the fast
+    deployment is the one determinism control that deployment honours". Measured
+    live with the real classifier prompt, that deployment answered one scenario
+    two different ways across three identical runs, so the parameter was not
+    delivering the property it was there for. `seed` was separately measured to
+    change nothing, and this resource returns a null `system_fingerprint`.
+
+    The decision route is single-model: the secondary deployment was measured
+    reaching 261,761 ms on one trivial classification, which is throttling
+    rather than compute, so it is confined to the policy-loading path.
+
+    What is asserted instead is what is true and enforceable: no `temperature`
+    reaches a reasoning deployment (it would 400), the call carries the medium
+    reasoning effort the stage is specified at, and it stays on the primary.
+    """
 
     await ai_case_intent.classify_case_needs("a question")
 
     call = _the_classification(stubbed)
-    assert call["kwargs"]["temperature"] == 0.0
-    assert call["kwargs"]["deployment"] == "fast"
-    # A temperature call carries no reasoning effort; the two are never mixed.
-    assert call["kwargs"].get("reasoning_effort") is None
+    assert "temperature" not in call["kwargs"] or call["kwargs"]["temperature"] is None
+    assert call["kwargs"]["deployment"] == "primary"
+    assert call["kwargs"].get("reasoning_effort") == "medium"
 
 
 @pytest.mark.parametrize(
@@ -1138,7 +1154,8 @@ async def test_every_sample_reads_the_same_question(stubbed) -> None:
 
     call = _the_classification(stubbed)
     assert "weekly-hours (number)" in call["messages"][1]["content"]
-    assert call["kwargs"]["temperature"] == 0.0
+    assert call["kwargs"].get("reasoning_effort") == "medium"
+    assert call["kwargs"]["deployment"] == "primary"
 
 
 async def test_the_consensus_reaches_the_evaluation_so_a_rate_can_be_measured(stubbed) -> None:

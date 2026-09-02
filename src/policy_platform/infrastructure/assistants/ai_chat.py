@@ -600,19 +600,33 @@ async def ask(
     with collect_token_usage() as usage_scope:
         raw = await ai_client.chat(
             messages,
-            deployment=settings.azure_openai_fast_deployment,
+            deployment=settings.azure_openai_deployment,
             json_mode=True,
-            # Deterministic per the "AI should never change any words" requirement:
-            # temperature=0 minimizes run-to-run drift in both wording choice and
-            # which verbatim excerpts get selected.
-            temperature=0,
-            # Fast (non-reasoning) deployment; budget covers several fact groups
-            # plus a reflection paragraph without the reasoning-model emptiness
-            # quirk documented on AzureOpenAIClient.chat(). A policy-wide question
-            # has more to quote from and gets more room: a reply cut off mid-JSON
-            # parses as reflection-only, which looks like a thin answer rather than
-            # a truncated one.
-            max_tokens=2400 if grounding is not None else 1600,
+            # No sampling control. This ran at temperature=0 on the retired fast
+            # deployment for the "AI should never change any words" requirement,
+            # on the belief that it minimised run-to-run drift. Measured, it did
+            # not deliver that, and the reasoning deployments reject the
+            # parameter outright — see AzureOpenAIClient.chat.
+            #
+            # BE CLEAR ABOUT WHAT NOW ENFORCES THAT REQUIREMENT: only the
+            # prompt. This comment previously also claimed "the citation
+            # integrity check refuses a quote that is not in the source", which
+            # is false on this path — `verify_verbatim` exists only in the
+            # extraction pipeline, and `_parse_structured_answer` never compares
+            # a returned excerpt against the context it was given. A fabricated
+            # fact injected into that function passes the entire suite. So the
+            # verbatim requirement here is instructed, not enforced, and no
+            # control was removed by dropping `temperature` — there was never
+            # one downstream to lean on.
+            reasoning_effort="medium",
+            # A reasoning deployment spends part of the budget on a hidden pass
+            # before any visible content, so these budgets are raised from the
+            # non-reasoning ones they replace. A reply cut off mid-JSON parses as
+            # reflection-only, which looks like a thin answer rather than a
+            # truncated one. A policy-wide question has more to quote and gets
+            # more room.
+            max_tokens=12000 if grounding is not None else 8000,
+            timeout=180.0,
         )
     groups, reflection = _parse_structured_answer(raw)
     reply: dict = {"groups": groups, "reflection": reflection, "sources": sources}

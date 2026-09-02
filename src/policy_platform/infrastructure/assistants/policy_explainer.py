@@ -629,7 +629,7 @@ async def generate_explanation(
     """
 
     settings = get_settings()
-    deployment = settings.azure_openai_fast_deployment
+    deployment = settings.azure_openai_deployment
 
     if source.is_empty:
         return _attempt(
@@ -668,8 +668,8 @@ async def generate_explanation(
                     {"role": "user", "content": source.request_body},
                 ],
                 deployment=deployment,
-                max_tokens=700,
-                timeout=90.0,
+                max_tokens=6000,
+                timeout=150.0,
             )
             explanation, code = validate_explanation(reply, source)
             if explanation is not None:

@@ -102,8 +102,9 @@ async def compare_versions(
                     {"role": "system", "content": _NARRATIVE_SYSTEM_PROMPT},
                     {"role": "user", "content": json.dumps(diff_summary, indent=2, default=str)},
                 ],
-                deployment=settings.azure_openai_fast_deployment,
-                max_tokens=600,
+                deployment=settings.azure_openai_deployment,
+                max_tokens=6000,
+                timeout=150.0,
             )
             result["narrative"] = narrative
         except Exception as exc:  # noqa: BLE001 - the deterministic diff is still valid without a narrative

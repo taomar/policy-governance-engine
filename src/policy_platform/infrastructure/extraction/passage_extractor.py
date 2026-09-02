@@ -465,10 +465,16 @@ class PassageExtractorAgent:
                 json_mode=True,
                 # Stage 1 copies rather than restructures, so its output is bounded
                 # by the size of the input: at worst it returns the whole batch
-                # plus per-passage metadata. Still generous, because the client
-                # raises on truncated JSON and losing a batch costs a retry.
-                max_tokens=16000,
-                timeout=300.0,
+                # plus per-passage metadata.
+                #
+                # RAISED FOR ACCURACY. This was 16,000. Stage 1's output is bounded
+                # but its *reasoning* is not, and a passage lost to truncation is a
+                # passage no later stage can recover — everything downstream is
+                # anchored to what this stage copied. Loading is offline, so the
+                # cost of headroom here is time rather than a caller's request.
+                # Probed live: both deployments accept up to 128,000.
+                max_tokens=64000,
+                timeout=1200.0,
                 reasoning_effort=PASSAGE_REASONING_EFFORT,
                 # Measured as making no difference on this deployment; see
                 # EXTRACTION_SEED. Sent so that the determinism controls this

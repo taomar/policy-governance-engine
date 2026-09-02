@@ -185,7 +185,7 @@ def _settings(tmp_path, **overrides: Any) -> Settings:
         "azure_openai_endpoint": "https://example.invalid/",
         "azure_openai_api_key": "unused-in-tests",
         "azure_openai_deployment": "test-reasoning-deployment",
-        "azure_openai_fast_deployment": "test-fast-deployment",
+        "azure_openai_secondary_deployment": "test-secondary-deployment",
         "azure_openai_embedding_deployment": "test-embedding-deployment",
         "azure_search_endpoint": "https://search.invalid/",
         "azure_search_api_key": "unused-in-tests",
@@ -660,8 +660,8 @@ async def test_the_question_is_carried_as_data_not_as_an_instruction(monkeypatch
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -702,9 +702,13 @@ async def test_the_question_is_carried_as_data_not_as_an_instruction(monkeypatch
     )
     assert second and second.group(1) != nonce, "the nonce is reused between calls"
 
-    # Determinism control and deployment are the ones the design names.
-    assert sent[0]["kwargs"]["temperature"] == 0.0
-    assert sent[0]["kwargs"]["deployment"] == "fast"
+    # The deployment and call options the design names. No sampling control is
+    # sent: the language boundary now runs on a reasoning deployment, which
+    # rejects `temperature` outright, and the `temperature=0` it used to send was
+    # measured not to deliver the run-to-run stability it was there for.
+    assert "temperature" not in sent[0]["kwargs"] or sent[0]["kwargs"]["temperature"] is None
+    assert sent[0]["kwargs"]["deployment"] == "primary"
+    assert sent[0]["kwargs"]["reasoning_effort"] == "medium"
     assert sent[0]["kwargs"]["json_mode"] is True
 
 
@@ -742,8 +746,8 @@ async def test_an_unusable_crossing_is_refused_with_the_code_that_names_it(
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -784,8 +788,8 @@ async def test_a_rendering_returned_as_its_own_json_encoding_is_decoded_once(
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -830,8 +834,8 @@ async def test_decoding_restores_escapes_newlines_and_non_latin_text(
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -860,8 +864,8 @@ async def test_a_caller_who_really_wrote_quotes_keeps_them(monkeypatch) -> None:
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -891,8 +895,8 @@ async def test_a_doubly_encoded_reply_is_decoded_exactly_once(monkeypatch) -> No
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -928,8 +932,8 @@ async def test_a_reply_that_is_not_a_json_string_is_left_exactly_as_it_came(
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -957,8 +961,8 @@ async def test_a_wrapper_around_nothing_is_still_nothing(monkeypatch) -> None:
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -995,8 +999,8 @@ async def test_legitimate_quoting_and_delimiter_shapes_pass_untouched(
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -1024,8 +1028,8 @@ async def test_guidance_is_decoded_the_same_way(monkeypatch) -> None:
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -1064,8 +1068,8 @@ async def test_rendered_prose_is_decoded_the_same_way(monkeypatch) -> None:
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -1127,8 +1131,8 @@ async def test_an_oversize_rendering_is_a_malfunction_not_a_rendering(monkeypatc
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -1163,8 +1167,8 @@ async def test_an_unreadable_language_tag_costs_the_answers_language_only(monkey
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())
@@ -1507,8 +1511,8 @@ async def test_the_renderer_returns_the_exact_key_set_it_was_given(monkeypatch) 
 
     class _Settings:
         ai_enabled = True
-        azure_openai_fast_deployment = "fast"
-        azure_openai_deployment = "reasoning"
+        azure_openai_secondary_deployment = "secondary"
+        azure_openai_deployment = "primary"
 
     monkeypatch.setattr(ai_case_language, "AzureOpenAIClient", _Client)
     monkeypatch.setattr(ai_case_language, "get_settings", lambda: _Settings())

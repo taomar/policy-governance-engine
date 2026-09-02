@@ -208,8 +208,9 @@ async def explain_candidate_change(
                         ),
                     },
                 ],
-                deployment=settings.azure_openai_fast_deployment,
-                max_tokens=500,
+                deployment=settings.azure_openai_deployment,
+                max_tokens=6000,
+                timeout=150.0,
             )
         except Exception as exc:  # noqa: BLE001 - the deterministic diff stands on its own
             logger.warning("AI change narrative failed for candidate %s: %s", candidate_id, exc)

@@ -23,7 +23,7 @@ AI-assisted features require Azure OpenAI. Retrieval-grounded features also requ
 | Setting | Use |
 |---|---|
 | `AZURE_OPENAI_DEPLOYMENT` | Extraction, quality, correlation, rewrite, compare |
-| `AZURE_OPENAI_FAST_DEPLOYMENT` | Ask AI |
+| `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | Policy formulation, on the document-loading path |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Clause and query embeddings |
 | `AZURE_SEARCH_*` | Hybrid retrieval over indexed clauses |
 
@@ -136,7 +136,7 @@ The endpoint sorts the question before it answers, and the two kinds are answere
 - an **informational** question asks after a quantity the rules themselves state — a limit, a rate, an eligibility line — and is answered from what the policy holds, quoting each rule the answer rests on by ID and source sentence;
 - a **determination** supplies the facts and asks for the outcome, and is settled one rule at a time by the same deterministic engine or judge a live evaluation would use — the endpoint classifies and answers at the policy level; it does not stand up a second decider of its own.
 
-Classification is deterministic: a temperature-0 read on the fast deployment, keyed on the shape of the question rather than trigger words, in English or Arabic.
+Classification is keyed on the shape of the question rather than on trigger words, in English or Arabic, and it runs on the primary deployment at medium reasoning — the same one that answers the case. It is **not** deterministic and is not described as such: this previously read "a temperature-0 read on the fast deployment", and measurement showed that deployment classifying the same question two different ways across three identical runs. No sampling control available on this resource was measured to deliver run-to-run stability. See [Measured performance](measured-performance.md#why-there-is-no-temperature0-deployment-any-more).
 
 A determination a reviewer confirms can be **kept as a guard** from the dialog. That write lands in this policy's tests (`policy_tests`) and runs first on the next publish, flagging the case under Quality if the outcome ever moves. It is never written to the evaluation audit trail, which records what calling systems asked of a published policy; a reviewer keeping a guard must not read as production traffic. An informational answer reports the value a determination would otherwise be handed, so there is nothing separate to keep, and the dialog says as much rather than offering a guard with nothing to test.
 

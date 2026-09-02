@@ -721,7 +721,7 @@ def test_duplicate_rescues_do_not_consume_the_coverage_budget() -> None:
 class _Settings:
     ai_enabled = True
     azure_openai_deployment = "slow"
-    azure_openai_fast_deployment = "fast"
+    azure_openai_secondary_deployment = "fast"
     search_enabled = True
     azure_search_authoring_index = "policy-authoring"
 

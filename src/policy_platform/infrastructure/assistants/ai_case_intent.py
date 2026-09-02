@@ -804,26 +804,65 @@ def _grounding(
     }
 
 
+def _classifier_deployment(settings) -> str | None:
+    """The primary deployment. The decision path is single-model on purpose.
+
+    WHY NOT THE SECONDARY. This briefly ran on the secondary deployment
+    (`gpt-5.6-sol`), which classified more consistently in a small offline
+    comparison. Measured end to end on the live decision route it was not
+    viable: in one 20x2 matrix the classifier stage reached **261,761 ms** on a
+    call that spent 125 reasoning tokens. A classification that cheap cannot
+    take four minutes of compute, so the cost is service-side — the deployment
+    throttling and this client's back-off retrying it. The same matrix showed a
+    306 s end-to-end request against a documented 120 s client timeout.
+
+    The decision and decision-light routes are what external callers consume, so
+    they run entirely on the primary deployment. The secondary is used on the
+    policy-loading path, where a slow stage costs an ingestion job rather than a
+    caller's request.
+    """
+
+    return settings.azure_openai_deployment
+
+
+def _rejects_reasoning_effort(exc: BaseException) -> bool:
+    """Is this the deployment refusing `reasoning_effort`, or something else?
+
+    The client raises one exception type for every HTTP failure, with the status
+    and body in the message, so the shape has to be read from the text. A
+    rejection of an unsupported parameter is a 400 that names the field; a
+    timeout, a 429 that outlived its retries, or a 500 is not, and retrying
+    those without the parameter would change what the stage runs at rather than
+    make it work.
+
+    Deliberately conservative: unrecognised failures return False and propagate.
+    A stage that is specified to reason at a given effort should fail loudly
+    rather than quietly run at a different one.
+    """
+
+    text = str(exc).lower()
+    if "reasoning_effort" not in text:
+        return False
+    return "400" in text or "unsupported" in text or "unrecognized" in text or "invalid" in text
+
+
 async def _chat_json(
     system_prompt: str,
     user_content: str,
     *,
     reasoning_effort: str | None = None,
     deployment: str | None = None,
-    temperature: float | None = None,
 ) -> dict:
     """One JSON-mode model call with the same resilience the sibling scenario
     paths use: retry once on a bad parse, and drop `reasoning_effort` if the
     deployment rejects it rather than failing the whole feature.
 
-    Two shapes of call share this body and are never mixed. The gather runs on
-    the reasoning deployment with a `reasoning_effort` and no temperature — depth
-    for a synthesis. The classifier runs on the fast deployment with
-    `temperature=0` and no reasoning_effort — the one determinism control that
-    deployment honours (the reasoning deployment rejects `temperature` and does
-    not honour `seed`; see `AzureOpenAIClient.chat`). A temperature call therefore
-    sends no reasoning_effort, and the reasoning-effort fallback below never fires
-    for it.
+    Every call through here now targets a reasoning deployment and carries a
+    `reasoning_effort`. There is no second shape any more: this used to also
+    serve a `temperature=0` classifier call, which existed to buy run-to-run
+    stability and was measured not to deliver it (see `AzureOpenAIClient.chat`).
+    `temperature` is not sent anywhere, and a reasoning deployment would reject
+    it with a 400 if it were.
     """
 
     settings = get_settings()
@@ -832,11 +871,7 @@ async def _chat_json(
 
     ai_client = AzureOpenAIClient(settings)
     target_deployment = deployment or settings.azure_openai_deployment
-    #: A deterministic (temperature) call carries no reasoning_effort; only the
-    #: reasoning-deployment gather does.
-    effort_to_send: str | None = (
-        None if temperature is not None else _normalise_effort(reasoning_effort or "medium")
-    )
+    effort_to_send: str | None = _normalise_effort(reasoning_effort or "medium")
     last_error: str | None = None
 
     for attempt in range(2):
@@ -854,13 +889,24 @@ async def _chat_json(
                 json_mode=True,
                 max_tokens=4000,
                 timeout=180.0,
-                temperature=temperature,
                 reasoning_effort=effort_to_send,
             )
-        except Exception as exc:  # noqa: BLE001
-            if effort_to_send is not None:
+        except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+            # NARROWED ON PURPOSE. This fallback exists for one thing: a
+            # deployment that does not accept `reasoning_effort` at all, which
+            # arrives as a 400 naming the field. It used to catch everything,
+            # which was survivable while only the gather reached it — the
+            # classifier passed a temperature and therefore had
+            # `effort_to_send is None`, so it skipped this branch entirely.
+            # Removing `temperature` made every call eligible, and a bare
+            # `except Exception` would then silently re-issue a timeout, a 429
+            # or an exhausted budget at the deployment's DEFAULT effort. A stage
+            # documented and tested as "medium" would be running at something
+            # else with no signal. A transient failure must propagate; only a
+            # rejection of the parameter is retried without it.
+            if effort_to_send is not None and _rejects_reasoning_effort(exc):
                 logger.warning(
-                    "chat call with reasoning_effort=%s failed (%s); retrying without it",
+                    "chat call with reasoning_effort=%s was rejected (%s); retrying without it",
                     effort_to_send,
                     exc,
                 )
@@ -871,7 +917,6 @@ async def _chat_json(
                     json_mode=True,
                     max_tokens=4000,
                     timeout=180.0,
-                    temperature=temperature,
                 )
             else:
                 raise
@@ -950,11 +995,18 @@ async def classify_case_intent(
     Arabic; passing no quantities (the direct-call shape) leaves the model the
     question alone, and it sorts on the same supplied-vs-asked structure.
 
-    The call runs on the fast deployment at ``temperature=0`` — the only
-    determinism control that deployment honours — so the same question classifies
-    the same way on every run. Where no fast deployment is configured it degrades
-    to the reasoning deployment, which cannot promise that stability; the feature
-    keeps working, but the guarantee is the fast deployment's to give.
+    The call runs on the **primary** deployment at `medium` reasoning, with no
+    sampling control. It briefly ran on the secondary (`gpt-5.6-sol`), which
+    agreed with itself more often in a small offline comparison — but on the
+    live decision route that stage reached 261,761 ms on a call spending 125
+    reasoning tokens, which is service-side throttling rather than compute, and
+    produced a 306 s request against a documented 120 s client timeout. The
+    decision and decision-light routes are single-model for that reason; see
+    :func:`_classifier_deployment`. There is no fallback branch here, because
+    there is nothing to fall back from.
+
+    No sampling control is sent because none of the ones on offer was measured
+    to deliver run-to-run stability — see `AzureOpenAIClient.chat`.
     """
 
     settings = get_settings()
@@ -972,20 +1024,12 @@ async def classify_case_intent(
         f"{tested_block}"
     )
 
-    fast_deployment = settings.azure_openai_fast_deployment
-    if fast_deployment:
-        parsed = await _chat_json(
-            _CLASSIFY_SYSTEM_PROMPT,
-            user_content,
-            deployment=fast_deployment,
-            temperature=0.0,
-        )
-    else:
-        logger.warning(
-            "no fast deployment configured; classifying on the reasoning deployment, "
-            "which does not guarantee run-to-run stability",
-        )
-        parsed = await _chat_json(_CLASSIFY_SYSTEM_PROMPT, user_content, reasoning_effort="low")
+    parsed = await _chat_json(
+        _CLASSIFY_SYSTEM_PROMPT,
+        user_content,
+        deployment=_classifier_deployment(settings),
+        reasoning_effort="medium",
+    )
 
     intent = str(parsed.get("intent") or "").strip().lower()
     if intent not in _INTENTS:
@@ -1175,22 +1219,12 @@ async def _classify_case_needs_once(
     settings = get_settings()
     user_content = _classifier_user_content(scenario, tested_quantities)
 
-    fast_deployment = settings.azure_openai_fast_deployment
-    if fast_deployment:
-        parsed = await _chat_json(
-            _CLASSIFY_NEEDS_SYSTEM_PROMPT,
-            user_content,
-            deployment=fast_deployment,
-            temperature=0.0,
-        )
-    else:
-        logger.warning(
-            "no fast deployment configured; classifying on the reasoning deployment, "
-            "which does not guarantee run-to-run stability",
-        )
-        parsed = await _chat_json(
-            _CLASSIFY_NEEDS_SYSTEM_PROMPT, user_content, reasoning_effort="low"
-        )
+    parsed = await _chat_json(
+        _CLASSIFY_NEEDS_SYSTEM_PROMPT,
+        user_content,
+        deployment=_classifier_deployment(settings),
+        reasoning_effort="medium",
+    )
 
     return (
         _strict_bool(parsed.get("information_requested")),

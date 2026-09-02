@@ -87,11 +87,11 @@ param openAiReasoningModelVersion string
 param openAiReasoningDeploymentSku string = 'GlobalStandard'
 param openAiReasoningCapacity string = '10'
 
-param openAiFastDeploymentName string = 'policy-fast'
-param openAiFastModelName string
-param openAiFastModelVersion string
-param openAiFastDeploymentSku string = 'GlobalStandard'
-param openAiFastCapacity string = '10'
+param openAiSecondaryDeploymentName string = 'policy-secondary'
+param openAiSecondaryModelName string
+param openAiSecondaryModelVersion string
+param openAiSecondaryDeploymentSku string = 'GlobalStandard'
+param openAiSecondaryCapacity string = '10'
 
 param openAiEmbeddingDeploymentName string = 'policy-embedding'
 param openAiEmbeddingModelName string = 'text-embedding-3-large'
@@ -161,11 +161,11 @@ module platform './modules/platform.bicep' = {
     openAiReasoningModelVersion: openAiReasoningModelVersion
     openAiReasoningDeploymentSku: openAiReasoningDeploymentSku
     openAiReasoningCapacity: int(openAiReasoningCapacity)
-    openAiFastDeploymentName: openAiFastDeploymentName
-    openAiFastModelName: openAiFastModelName
-    openAiFastModelVersion: openAiFastModelVersion
-    openAiFastDeploymentSku: openAiFastDeploymentSku
-    openAiFastCapacity: int(openAiFastCapacity)
+    openAiSecondaryDeploymentName: openAiSecondaryDeploymentName
+    openAiSecondaryModelName: openAiSecondaryModelName
+    openAiSecondaryModelVersion: openAiSecondaryModelVersion
+    openAiSecondaryDeploymentSku: openAiSecondaryDeploymentSku
+    openAiSecondaryCapacity: int(openAiSecondaryCapacity)
     openAiEmbeddingDeploymentName: openAiEmbeddingDeploymentName
     openAiEmbeddingModelName: openAiEmbeddingModelName
     openAiEmbeddingModelVersion: openAiEmbeddingModelVersion

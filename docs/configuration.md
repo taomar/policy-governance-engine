@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 | `VITE_API_BASE_URL` | `http://localhost:8010` | Read by the frontend at build/dev time. |
 | `AZURE_OPENAI_ENDPOINT` / `_API_KEY` / `_API_VERSION` | blank / blank / `2024-12-01-preview` | Optional for a first local run. Blank leaves AI features disabled (routes return `503`), but the app boots and all deterministic features work. |
 | `AZURE_OPENAI_DEPLOYMENT` | blank | Reasoning deployment: extraction, quality, correlation, rewrite, compare. Required for AI features, not for booting the app. |
-| `AZURE_OPENAI_FAST_DEPLOYMENT` | blank | Low-latency deployment for Ask AI chat. Not part of the `ai_enabled` gate, but Ask AI targets it. |
+| `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | blank | The second reasoning deployment. Used on the document-loading path only, for extraction's policy-formulation stage. Not part of the `ai_enabled` gate; falls back to `AZURE_OPENAI_DEPLOYMENT` when unset. The decision routes never use it. |
 | `AZURE_OPENAI_LUNA_DEPLOYMENT` | blank | Optional named Luna deployment for explicit evaluation. It reuses the configured endpoint/key and is not selected by current routing. |
 | `AZURE_OPENAI_TERRA_DEPLOYMENT` | blank | Optional named Terra deployment for explicit evaluation. It reuses the configured endpoint/key and is not selected by current routing. |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | blank / blank / `3072` | Embeddings for clause indexing and query vectors. `_DEPLOYMENT` is part of the `ai_enabled` gate. Required for AI features. |
@@ -360,7 +360,7 @@ That makes the index build depend on Azure OpenAI, not only on Azure AI Search:
 
 | Setting | Used for |
 |---|---|
-| `AZURE_OPENAI_FAST_DEPLOYMENT`, falling back to `AZURE_OPENAI_DEPLOYMENT` | Rendering each policy's retrieval text into English at build time. |
+| `AZURE_OPENAI_DEPLOYMENT`, falling back to `AZURE_OPENAI_SECONDARY_DEPLOYMENT` | Rendering each policy's retrieval text into English at build time. |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` / `_MODEL` / `_DIMENSIONS` | Embedding the rendered text. |
 | `AZURE_SEARCH_*` | Holding the resulting documents. |
 
@@ -391,7 +391,7 @@ Places designed to be extended, with the seam already in place:
 | Point | How |
 |---|---|
 | **Prompts** | `src/policy_platform/infrastructure/prompts/*.md` are loaded from disk. Editing one is a reviewable file change. Note prompts are cached per process — restart the API to pick up an edit. |
-| **Models** | Deployments are configuration, not code. Point `AZURE_OPENAI_DEPLOYMENT` / `_FAST_DEPLOYMENT` at different models. |
+| **Models** | Deployments are configuration, not code. Point `AZURE_OPENAI_DEPLOYMENT` / `_SECONDARY_DEPLOYMENT` at different models. |
 | **Condition operators** | Add to the allowlisted enum in `contracts/conditions.py` and implement it in `evaluator/conditions.py`. The allowlist is deliberate. |
 | **Deterministic quality checks** | Add a `_*_findings()` function in `infrastructure/quality/ai_quality.py` and include it in the deterministic pass. |
 | **Export formats** | `infrastructure/projection/export.py` is format-dispatched (`json`, `jsonl`, `csv`). |

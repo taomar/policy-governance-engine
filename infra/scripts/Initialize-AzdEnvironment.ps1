@@ -118,9 +118,9 @@ if ($entraSetting.ToLowerInvariant() -eq 'true') {
 Set-AzdValueIfMissing -Name 'AZURE_OPENAI_DEPLOYMENT' -Prompt 'Reasoning deployment name' -Default 'policy-reasoning' -Required | Out-Null
 Set-AzdValueIfMissing -Name 'AZURE_OPENAI_REASONING_MODEL' -Prompt 'Reasoning model name available in the selected region' -Required | Out-Null
 Set-AzdValueIfMissing -Name 'AZURE_OPENAI_REASONING_MODEL_VERSION' -Prompt 'Reasoning model version' -Required | Out-Null
-Set-AzdValueIfMissing -Name 'AZURE_OPENAI_FAST_DEPLOYMENT' -Prompt 'Fast deployment name' -Default 'policy-fast' -Required | Out-Null
-Set-AzdValueIfMissing -Name 'AZURE_OPENAI_FAST_MODEL' -Prompt 'Fast model name available in the selected region' -Required | Out-Null
-Set-AzdValueIfMissing -Name 'AZURE_OPENAI_FAST_MODEL_VERSION' -Prompt 'Fast model version' -Required | Out-Null
+Set-AzdValueIfMissing -Name 'AZURE_OPENAI_SECONDARY_DEPLOYMENT' -Prompt 'Secondary reasoning deployment name' -Default 'policy-secondary' -Required | Out-Null
+Set-AzdValueIfMissing -Name 'AZURE_OPENAI_SECONDARY_MODEL' -Prompt 'Secondary reasoning model name available in the selected region' -Required | Out-Null
+Set-AzdValueIfMissing -Name 'AZURE_OPENAI_SECONDARY_MODEL_VERSION' -Prompt 'Secondary reasoning model version' -Required | Out-Null
 Set-AzdValueIfMissing -Name 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT' -Prompt 'Embedding deployment name' -Default 'policy-embedding' -Required | Out-Null
 
 Write-Host 'azd environment values are complete. No Azure resources were created.'

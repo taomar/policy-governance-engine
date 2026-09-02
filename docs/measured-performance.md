@@ -117,17 +117,25 @@ the classifier row would count the classifier twice. The field-level reference
 for every key, and which ones nest, is in
 [API → timing and token telemetry](api.md#timing-and-token-telemetry).
 
-Two stages are worth separate attention. The **classifier** is ~4.4 s, strictly
-serial ahead of everything it gates, and runs on the fast deployment where no
-reasoning-effort lever applies. **Finalisation is not a latency problem** —
-policy link lookup medians 4 ms and the reservation write 8 ms, tens of
-milliseconds against a ~21 s request.
+Two stages are worth separate attention. The **classifier** is ~4.4 s and
+strictly serial ahead of everything it gates; at the time of measurement it ran
+on the retired `gpt-5.4-mini` deployment, and it now runs on the primary
+reasoning deployment at medium reasoning, which is expected to cost more time
+rather than less. **Finalisation is not a latency problem** — policy link lookup
+medians 4 ms and the reservation write 8 ms, tens of milliseconds against a
+~21 s request.
 
 ## Choosing a deployment
 
-Three chat deployments were compared as the **deep** role. The fast role was
-held at `gpt-5.4-mini` throughout, so any difference is attributable to the deep
-model and not to two changes made at once.
+Three chat deployments were compared as the **deep** role. At the time of that
+comparison a separate `gpt-5.4-mini` deployment ran the classifier and the
+language boundary, and it was held constant across every arm, so any difference
+is attributable to the deep model and not to two changes made at once. That
+`gpt-5.4-mini` slot has since been retired — see
+[why there is no `temperature=0` deployment any more](#why-there-is-no-temperature0-deployment-any-more)
+— so the absolute figures below predate the current configuration. The
+comparison between the three deep deployments is unaffected, because the change
+applied equally to all of them.
 
 ### Method, and why the first attempt was thrown away
 
@@ -241,20 +249,56 @@ does not rest on the total: it rests on *which* faults they are. Sol's single
 slow call was 83.1 s and would have returned inside the documented timeout;
 Luna's two were 202.6 s and 216.2 s and would not.
 
-### The fast deployment is not a cheaper deep deployment
+### Why there is no `temperature=0` deployment any more
 
-`gpt-5.4-mini` runs the intent classifier and the language boundary. That is not
-a cost decision — it is because those two stages depend on `temperature=0`, and
-**every `gpt-5.6-*` reasoning deployment rejects that parameter outright**:
+Until this change the intent classifier and the language boundary ran on
+`gpt-5.4-mini` at `temperature=0`, on the stated reasoning that this was "the one
+determinism control that deployment honours". Both stages now run on the
+**primary** reasoning deployment at `medium` reasoning, with no sampling control
+at all, and the `gpt-5.4-mini` deployment is no longer used anywhere.
+
+They were briefly moved to `gpt-5.6-sol` instead, which agreed with itself more
+often in the offline comparison below. That did not survive contact with the
+live decision route: the classifier stage reached **261,761 ms** on a call that
+spent 125 reasoning tokens — throttling and client retry rather than compute —
+and produced a 306 s request against this API's own 120 s timeout guidance. The
+decision and decision-light routes are single-model for that reason, and
+`gpt-5.6-sol` is used only on the document-loading path.
+
+**The reason is that the determinism was not real.** Asked eight scenarios three
+times each through the real classifier prompt, the `temperature=0` deployment
+contradicted itself:
+
+| Scenario | `gpt-5.4-mini` at `temperature=0` | `gpt-5.6-sol` | `gpt-5.6-terra` |
+|---|---|---|---|
+| `hw-contractor-15-days` | informational, informational, **decision** | decision ×3 | decision ×3 |
+| `hw-stolen-trip` | informational ×3 | decision ×3 | decision, decision, informational |
+
+The parameter was not buying the stability it was there for. It is also the case
+that `hw-contractor-15-days` is one of the three scenarios that persistently fail
+their gate, and that the retired deployment classified it differently from both
+reasoning models.
+
+`seed` is accepted by every deployment on this resource and was separately
+measured to change nothing — six identical quality reviews varied as much seeded
+as unseeded — and the service returns a null `system_fingerprint`. So no sampling
+control on offer delivers run-to-run determinism, and **the product no longer
+claims one anywhere**.
+
+Note what this comparison is not. Twenty-four classifications is a small sample,
+`gpt-5.6-sol` agreeing with itself on 8 of 8 scenarios against Terra's 7 of 8 is
+not a significant difference, and neither was compared on extraction at all.
+
+The reasoning deployments do still reject the parameter outright:
 
 ```
 400 Unsupported value: 'temperature' does not support 0.0 with this model.
+    Only the default (1) value is supported.
 ```
 
-Probed live on this resource: `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`
-all reject `temperature=0` and `top_p=0`, and all accept `seed`. Configuring a
-reasoning model into the fast slot does not degrade gracefully — every request
-fails.
+Probed live: `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` all reject
+`temperature=0` and `top_p=0`, and all accept `seed`. So sending a temperature to
+either configured deployment is not a degraded call, it is a failed one.
 
 ## Reasoning effort
 

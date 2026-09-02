@@ -75,7 +75,7 @@ def anyio_backend() -> str:
 class _Settings:
     ai_enabled = True
     azure_openai_deployment = "slow"
-    azure_openai_fast_deployment = "fast"
+    azure_openai_secondary_deployment = "fast"
 
 
 #: The decision prompt's own distinguishing clause, shared by the single-policy

@@ -173,7 +173,7 @@ def _settings(*, search_enabled=True, ai_enabled=True):
         search_enabled=search_enabled,
         ai_enabled=ai_enabled,
         azure_openai_embedding_dimensions=3,
-        azure_openai_fast_deployment="fast",
+        azure_openai_secondary_deployment="fast",
         azure_openai_deployment="slow",
     )
 
@@ -1263,14 +1263,44 @@ def test_a_projection_never_asks_a_deployment_for_more_than_it_accepts():
     A budget larger than a deployment allows is a `400`; a budget the reply
     exhausts is truncated JSON, which the client refuses outright. Both end the
     rendering, so the way to carry more text is more calls — never a larger ask.
+
+    THE CEILING MOVED, AND IT MOVED ON EVIDENCE. It was pinned at 4,096, chosen
+    when a non-reasoning deployment served this call and described as "the
+    conservative figure every deployment this platform targets honours". That
+    figure was never probed. This call now runs on a reasoning deployment, which
+    spends part of the budget on a hidden pass before any visible content —
+    `AzureOpenAIClient.chat` records a 4,000-token budget returning 4,000
+    reasoning tokens and zero content — so 4,096 was one reasoning-heavy batch
+    away from rendering nothing.
+
+    Probed live before this bound was changed: `gpt-5.6-terra` and `gpt-5.6-sol`
+    both accepted `max_completion_tokens` at every step from 4,096 up to
+    128,000. 128,000 is therefore the highest value actually demonstrated to be
+    accepted, and the assertion is written against that rather than against the
+    value the code happens to hold — so raising the constant to something
+    unprobed still fails here.
     """
 
-    assert english_projection.PROJECTION_COMPLETION_TOKENS <= 4096
+    # The demonstrated ceiling, not the current value: this must fail if someone
+    # raises the constant past what was probed.
+    assert english_projection.PROJECTION_COMPLETION_TOKENS <= 128_000
+
+    # The property the original guard existed for, unchanged: the budget is a
+    # ceiling and no input size can push the ask above it.
     for source_chars in (1, 500, 6_000, 12_000, 200_000):
         assert (
             english_projection._token_budget(source_chars)
             <= english_projection.PROJECTION_COMPLETION_TOKENS
         )
+
+    # And the floor clears the hidden reasoning pass, so a *small* batch is not
+    # the one that starves. This is the direction the retry path pushes toward:
+    # an over-budget batch is halved, which lowers `source_chars`, which lowers
+    # the derived budget — so the floor is what stops that loop converging on a
+    # refusal.
+    assert english_projection._MIN_TOKEN_BUDGET >= 16_000
+    assert english_projection._token_budget(1) >= 16_000
+
     # And the batch bounds are set from the ceiling rather than left to chance:
     # one full call's source has to be small enough that its rendering fits.
     assert english_projection.PROJECTION_BATCH_CHARS <= english_projection.PROJECTION_ITEM_CHARS

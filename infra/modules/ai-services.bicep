@@ -12,11 +12,11 @@ param reasoningModelName string
 param reasoningModelVersion string
 param reasoningDeploymentSku string
 param reasoningCapacity int
-param fastDeploymentName string
-param fastModelName string
-param fastModelVersion string
-param fastDeploymentSku string
-param fastCapacity int
+param secondaryDeploymentName string
+param secondaryModelName string
+param secondaryModelVersion string
+param secondaryDeploymentSku string
+param secondaryCapacity int
 param embeddingDeploymentName string
 param embeddingModelName string
 param embeddingModelVersion string
@@ -89,18 +89,18 @@ resource reasoningDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   }
 }
 
-resource fastDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+resource secondaryDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: openAi
-  name: fastDeploymentName
+  name: secondaryDeploymentName
   sku: {
-    name: fastDeploymentSku
-    capacity: fastCapacity
+    name: secondaryDeploymentSku
+    capacity: secondaryCapacity
   }
   properties: {
     model: {
       format: 'OpenAI'
-      name: fastModelName
-      version: fastModelVersion
+      name: secondaryModelName
+      version: secondaryModelVersion
     }
     versionUpgradeOption: 'OnceCurrentVersionExpired'
   }

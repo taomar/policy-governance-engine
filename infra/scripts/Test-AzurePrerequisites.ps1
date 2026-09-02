@@ -129,7 +129,7 @@ if ($LASTEXITCODE -ne 0 -or -not $models) {
 $modelObjects = $models | ConvertFrom-Json
 $deployments = @(
     @{ Label = 'reasoning'; Model = 'AZURE_OPENAI_REASONING_MODEL'; Version = 'AZURE_OPENAI_REASONING_MODEL_VERSION'; Sku = 'AZURE_OPENAI_REASONING_SKU' },
-    @{ Label = 'fast'; Model = 'AZURE_OPENAI_FAST_MODEL'; Version = 'AZURE_OPENAI_FAST_MODEL_VERSION'; Sku = 'AZURE_OPENAI_FAST_SKU' },
+    @{ Label = 'secondary'; Model = 'AZURE_OPENAI_SECONDARY_MODEL'; Version = 'AZURE_OPENAI_SECONDARY_MODEL_VERSION'; Sku = 'AZURE_OPENAI_SECONDARY_SKU' },
     @{ Label = 'embedding'; Model = 'AZURE_OPENAI_EMBEDDING_MODEL'; Version = 'AZURE_OPENAI_EMBEDDING_MODEL_VERSION'; Sku = 'AZURE_OPENAI_EMBEDDING_SKU' }
 )
 foreach ($deployment in $deployments) {

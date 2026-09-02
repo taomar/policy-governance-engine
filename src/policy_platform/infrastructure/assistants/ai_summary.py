@@ -156,8 +156,9 @@ async def summarize_policy_set(
                     {"role": "system", "content": _NARRATIVE_SYSTEM_PROMPT},
                     {"role": "user", "content": json.dumps(payload, indent=2, default=str)},
                 ],
-                deployment=settings.azure_openai_fast_deployment,
-                max_tokens=900,
+                deployment=settings.azure_openai_deployment,
+                max_tokens=8000,
+                timeout=180.0,
             )
             result["narrative"] = narrative
         except Exception as exc:  # noqa: BLE001 - the deterministic stats block is still valid without a narrative

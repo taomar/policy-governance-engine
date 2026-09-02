@@ -37,11 +37,11 @@ param openAiReasoningModelName string
 param openAiReasoningModelVersion string
 param openAiReasoningDeploymentSku string
 param openAiReasoningCapacity int
-param openAiFastDeploymentName string
-param openAiFastModelName string
-param openAiFastModelVersion string
-param openAiFastDeploymentSku string
-param openAiFastCapacity int
+param openAiSecondaryDeploymentName string
+param openAiSecondaryModelName string
+param openAiSecondaryModelVersion string
+param openAiSecondaryDeploymentSku string
+param openAiSecondaryCapacity int
 param openAiEmbeddingDeploymentName string
 param openAiEmbeddingModelName string
 param openAiEmbeddingModelVersion string
@@ -164,11 +164,11 @@ module aiServices './ai-services.bicep' = {
     reasoningModelVersion: openAiReasoningModelVersion
     reasoningDeploymentSku: openAiReasoningDeploymentSku
     reasoningCapacity: openAiReasoningCapacity
-    fastDeploymentName: openAiFastDeploymentName
-    fastModelName: openAiFastModelName
-    fastModelVersion: openAiFastModelVersion
-    fastDeploymentSku: openAiFastDeploymentSku
-    fastCapacity: openAiFastCapacity
+    secondaryDeploymentName: openAiSecondaryDeploymentName
+    secondaryModelName: openAiSecondaryModelName
+    secondaryModelVersion: openAiSecondaryModelVersion
+    secondaryDeploymentSku: openAiSecondaryDeploymentSku
+    secondaryCapacity: openAiSecondaryCapacity
     embeddingDeploymentName: openAiEmbeddingDeploymentName
     embeddingModelName: openAiEmbeddingModelName
     embeddingModelVersion: openAiEmbeddingModelVersion
@@ -270,7 +270,7 @@ module containerApps './container-apps.bicep' = {
     openAiEndpoint: aiServices.outputs.openAiEndpoint
     openAiApiVersion: openAiApiVersion
     openAiReasoningDeploymentName: openAiReasoningDeploymentName
-    openAiFastDeploymentName: openAiFastDeploymentName
+    openAiSecondaryDeploymentName: openAiSecondaryDeploymentName
     openAiEmbeddingDeploymentName: openAiEmbeddingDeploymentName
     openAiEmbeddingModelName: openAiEmbeddingModelName
     openAiEmbeddingDimensions: openAiEmbeddingDimensions

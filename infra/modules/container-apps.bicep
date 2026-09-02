@@ -25,7 +25,7 @@ param entraClientId string
 param openAiEndpoint string
 param openAiApiVersion string
 param openAiReasoningDeploymentName string
-param openAiFastDeploymentName string
+param openAiSecondaryDeploymentName string
 param openAiEmbeddingDeploymentName string
 param openAiEmbeddingModelName string
 param openAiEmbeddingDimensions int
@@ -154,8 +154,8 @@ var commonApiEnv = [
     value: openAiReasoningDeploymentName
   }
   {
-    name: 'AZURE_OPENAI_FAST_DEPLOYMENT'
-    value: openAiFastDeploymentName
+    name: 'AZURE_OPENAI_SECONDARY_DEPLOYMENT'
+    value: openAiSecondaryDeploymentName
   }
   {
     name: 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT'

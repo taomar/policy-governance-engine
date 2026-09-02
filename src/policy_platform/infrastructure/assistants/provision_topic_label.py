@@ -473,7 +473,7 @@ async def generate_label(
     """
 
     settings = get_settings()
-    deployment = settings.azure_openai_fast_deployment
+    deployment = settings.azure_openai_deployment
 
     if source.is_empty:
         return LabelAttempt(
@@ -494,8 +494,8 @@ async def generate_label(
                     {"role": "user", "content": source.combined},
                 ],
                 deployment=deployment,
-                max_tokens=200,
-                timeout=60.0,
+                max_tokens=4000,
+                timeout=120.0,
             )
             label, code = validate_label(reply, source)
             if label is not None:

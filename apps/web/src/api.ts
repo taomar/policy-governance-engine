@@ -2139,7 +2139,7 @@ export interface AiStatus {
   ai_enabled: boolean;
   search_enabled: boolean;
   chat_deployment: string | null;
-  fast_deployment: string | null;
+  secondary_deployment: string | null;
 }
 
 export interface ChatTurn {

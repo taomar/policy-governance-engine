@@ -5,17 +5,24 @@ resource during setup (chat/completions on `gpt-5.6-sol`, `gpt-5.6-terra` and
 `gpt-5.4-mini`, embeddings on `text-embedding-3-large`, all returned HTTP
 200) — nothing here is a guessed/fabricated API shape.
 
-Two deployments are used deliberately for different jobs, and the second is not
-a cheaper version of the first:
+Two deployments are used deliberately for different jobs, and neither is a
+cheaper or faster tier of the other. Both are `gpt-5.6-*` reasoning deployments
+and both run at `medium` reasoning effort; the split is which model suits the
+work:
 
-- `azure_openai_deployment` — the deep role. Reasoning work where correctness
-  matters most: adjudication gathers, extraction, rewrite, quality evaluation.
-  Any of the `gpt-5.6-*` reasoning deployments serve here; `gpt-5.6-terra` is
-  the measured recommendation (see `.env.example`).
-- `azure_openai_fast_deployment` (`gpt-5.4-mini`) — the determinism role. The
-  intent classifier, the language boundary, and interactive Ask-AI chat. It is
-  chosen because it accepts `temperature=0`, which the reasoning deployments do
-  not, and the first two of those stages depend on that control.
+- `azure_openai_deployment` — the primary, `gpt-5.6-terra`. Everything on the
+  decision and decision-light routes that external callers consume: the intent
+  classifier, the language boundary, the adjudication gathers, interactive chat,
+  summaries, rewrite, quality — and extraction's passage stage.
+- `azure_openai_secondary_deployment` — `gpt-5.6-sol`. Used only on the
+  policy-loading path, for the policy-formulation stage: the most complex
+  judgement in extraction, and the one whose errors survive furthest downstream.
+
+The decision route is deliberately single-model. Both stages that briefly ran on
+the secondary were moved back after one matrix showed the classifier reaching
+261,761 ms on a call that spent 125 reasoning tokens — service-side throttling
+and retry, not compute, and enough to breach the documented 120 s client
+timeout.
 
 The model name is configuration, so behaviour below is described by role rather
 than by deployment name wherever the behaviour is a property of the class of
@@ -188,36 +195,39 @@ class AzureOpenAIClient:
     ) -> str:
         """Single chat-completion call; returns the assistant message content.
 
-        NOTE on determinism: which sampling controls a deployment accepts differs
-        per model, and an unsupported one is a hard 400 rather than a warning.
-        Probed live against this resource on `gpt-5.6-sol` and re-probed on
-        `gpt-5.6-terra`: both reject `temperature=0` ("Only the default (1) value
-        is supported") and `top_p=0` ("not supported with this model"), while
-        both accept `seed`. `gpt-5.6-luna` rejects `temperature=0` the same way.
-        So for any reasoning deployment `seed` is the only determinism control
-        available, and callers that pass `temperature` to one will lose the call
-        entirely. Accepting `seed` is not the same as honouring it: measured over
-        six identical quality reviews it made no difference at all. The fast
-        deployment (`gpt-5.4-mini`) does accept `temperature=0`, which is why the
-        classifier and the language boundary run there.
+        NOTE on determinism: there isn't any, and the product does not claim it.
+        Which sampling controls a deployment accepts differs per model, and an
+        unsupported one is a hard 400 rather than a warning. Probed live against
+        this resource: `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` all
+        reject `temperature=0` ("Only the default (1) value is supported") and
+        `top_p=0`, while all three accept `seed`. Accepting `seed` is not the
+        same as honouring it — measured over six identical quality reviews it
+        made no difference at all, and this resource returns a null
+        `system_fingerprint`, the field that exists to tell a caller the backend
+        moved underneath a seed.
 
-        NOTE on reasoning models: the deep deployment is a reasoning model — it
-        silently spends part of `max_completion_tokens` on a hidden reasoning
-        pass *before* any visible content is produced. If the budget is too
-        small, the entire budget can be consumed by reasoning and the call
+        `temperature=0` was previously relied on for run-to-run stability at the
+        classifier and the language boundary, on a deployment that accepts it.
+        That did not survive measurement either: asked one question three times
+        at `temperature=0`, `gpt-5.4-mini` answered informational, informational,
+        decision. So `temperature` bought no stability, and it is no longer sent
+        anywhere. Do not add it back for a determinism reason without measuring
+        first.
+
+        NOTE on reasoning models: both configured deployments are reasoning
+        models — they silently spend part of `max_completion_tokens` on a hidden
+        reasoning pass *before* any visible content is produced. If the budget is
+        too small, the entire budget can be consumed by reasoning and the call
         returns `finish_reason="length"` with an EMPTY `content` string
         (confirmed live against this resource: a 4000-token budget on a 45-clause
         extraction batch returned 4000 reasoning tokens and 0 content). Callers
-        targeting it must pass a generous `max_tokens` (observed need: ~1
-        reasoning-heavy pass + full JSON output, so 16000-20000+ for multi-rule
-        extraction) and a matching `timeout` (large-budget calls observed taking
-        60-90s+). How much a deployment reasons varies between them — measured
-        over one 20x2 decision matrix, `gpt-5.6-terra` spent about 45% fewer
-        reasoning tokens than `gpt-5.6-sol` for the same verdicts, and
-        `gpt-5.6-luna` about 30% more with two calls exceeding 200 seconds. The
-        fast deployment (`gpt-5.4-mini`) is NOT a reasoning model
-        (`reasoning_tokens=0` in every observed call) and works fine with the
-        smaller defaults.
+        must pass a generous `max_tokens` (observed need: ~1 reasoning-heavy pass
+        + full JSON output, so 16000-20000+ for multi-rule extraction) and a
+        matching `timeout` (large-budget calls observed taking 60-90s+). How much
+        a deployment reasons varies between them — measured over one interleaved
+        20x2 decision matrix, `gpt-5.6-terra` spent about 45% fewer reasoning
+        tokens than `gpt-5.6-sol` for the same verdicts, and `gpt-5.6-luna` about
+        30% more with two calls exceeding 200 seconds.
         """
 
         settings = self._require_enabled()

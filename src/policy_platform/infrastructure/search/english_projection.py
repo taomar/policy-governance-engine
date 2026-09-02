@@ -109,14 +109,39 @@ PROJECTION_BATCH_ITEMS: Final[int] = 6
 
 #: The completion budget, and it is a **ceiling** rather than a function of the
 #: input. Deployments differ in what they accept and a budget larger than one
-#: allows is a 400; 4,096 is the conservative figure every deployment this
-#: platform targets honours. Nothing scales past it — a batch that would need
-#: more is split into more batches, because splitting costs a call and asking
-#: for more costs the whole rendering.
-PROJECTION_COMPLETION_TOKENS: Final[int] = 4_096
+#: allows is a 400; nothing scales past this — a batch that would need more is
+#: split into more batches, because splitting costs a call and asking for more
+#: costs the whole rendering.
+#:
+#: RAISED FOR THE REASONING PASS, AND THEN FOR ACCURACY. This was 4,096, chosen
+#: when a non-reasoning deployment served this call and described as "the
+#: conservative figure every deployment this platform targets honours" — a
+#: figure that was never actually probed. It now runs on a reasoning deployment,
+#: which spends part of the budget on a hidden pass *before* any visible
+#: content, and `AzureOpenAIClient.chat` records a 4,000-token budget returning
+#: 4,000 reasoning tokens and zero content. At 4,096 this call was one
+#: reasoning-heavy batch away from rendering nothing.
+#:
+#: Probed live before raising: `gpt-5.6-terra` and `gpt-5.6-sol` both accept
+#: `max_completion_tokens` up to 128,000, so this sits well inside what the
+#: deployment allows. This is the text that reaches the search index, so a
+#: rendering lost to truncation is a policy that retrieves badly for the life of
+#: the index — and indexing is offline, so headroom costs time rather than a
+#: caller's request.
+PROJECTION_COMPLETION_TOKENS: Final[int] = 64_000
 
-#: The floor, so a one-line item still gets a workable budget.
-_MIN_TOKEN_BUDGET: Final[int] = 1_500
+#: The floor, so a one-line item still gets a workable budget — and, since the
+#: reasoning pass is charged whatever the input size, so that a *small* batch is
+#: not the one that starves. This was 1,500, which is below the hidden pass's
+#: own observed appetite.
+#:
+#: THIS FLOOR IS LOAD-BEARING ON THE RETRY PATH. An exhausted budget raises,
+#: `_BatchOverBudget` catches, and `_render_group` responds by halving the
+#: batch. A halved batch has fewer `source_chars`, so a budget derived purely
+#: from input size gets *smaller* on each retry — the recovery drives toward the
+#: floor rather than away from the failure. Keeping the floor above the
+#: reasoning pass's needs is what stops that loop converging on a refusal.
+_MIN_TOKEN_BUDGET: Final[int] = 16_000
 
 #: The same plausibility bounds the request side applies, in the same units and
 #: for the same reason: a reply far larger or far smaller than what it was given
@@ -695,8 +720,8 @@ async def _render_batch(
                 deployment=deployment,
                 json_mode=True,
                 max_tokens=_token_budget(len(encoded)),
-                timeout=180.0,
-                temperature=0.0,
+                timeout=600.0,
+                reasoning_effort="medium",
             )
             parsed = json.loads(raw)
             if not isinstance(parsed, dict):
@@ -839,8 +864,8 @@ async def project_texts_to_english(
         openai_client = AzureOpenAIClient(settings)
 
     deployment = (
-        getattr(settings, "azure_openai_fast_deployment", None)
-        or getattr(settings, "azure_openai_deployment", None)
+        getattr(settings, "azure_openai_deployment", None)
+        or getattr(settings, "azure_openai_secondary_deployment", None)
         or ""
     )
 

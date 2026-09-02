@@ -83,7 +83,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Final, Mapping
 
-from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient
+from policy_platform.infrastructure.ai.openai_client import AzureOpenAIClient, AzureOpenAIError
 from policy_platform.infrastructure.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -229,8 +229,16 @@ _MIN_OUTPUT_CEILING: Final[int] = 4_000
 #: outright rather than returning half an object, so an over-long payload ends
 #: as an explicit refusal either way rather than as a silently shortened
 #: question.
-_MIN_TOKEN_BUDGET: Final[int] = 1_500
-_MAX_TOKEN_BUDGET: Final[int] = 16_000
+#: RAISED FOR THE REASONING PASS. The floor was 1,500, set when this call ran on
+#: a non-reasoning deployment. It now runs on the primary reasoning deployment at
+#: medium effort, which spends part of the budget on a hidden pass before any
+#: visible content — `AzureOpenAIClient.chat` records a 4,000-token budget
+#: returning 4,000 reasoning tokens and zero content. A short question is exactly
+#: the case that hit the floor, and this crossing is not optional: it runs on
+#: every decision request, and a caller must refuse when it fails. Exhaustion
+#: here removes the answer rather than shortening it.
+_MIN_TOKEN_BUDGET: Final[int] = 8_000
+_MAX_TOKEN_BUDGET: Final[int] = 24_000
 
 #: A validated language tag, and nothing else, may be written into a prompt.
 #:
@@ -539,13 +547,19 @@ def _decoded_transport(source: str, rendered: str) -> str:
 async def _chat_json(
     system_prompt: str, user_content: str, *, max_tokens: int, failure_code: str
 ) -> dict:
-    """One JSON-mode call on the fast deployment at `temperature=0`.
+    """One JSON-mode call on the primary deployment at `medium` reasoning.
 
-    The fast deployment because this is a mechanical transformation rather than
-    a synthesis, and `temperature=0` because it is the one determinism control
-    that deployment honours — the same and only control the classifier already
-    relies on. The reasoning deployment rejects `temperature` outright with a
-    400, so this deliberately does not target it and sends no reasoning effort.
+    The primary deployment because this sits on the decision route, which
+    external callers consume and which is single-model on purpose — see
+    `ai_case_intent._classifier_deployment` for the measurement that decided
+    it. The secondary deployment is reserved for the policy-loading path.
+
+    No sampling control is sent. This used to run at `temperature=0` on a
+    non-reasoning deployment, on the reasoning that it was "the one determinism
+    control that deployment honours". That did not survive measurement — the
+    same question at `temperature=0` classified two ways across three runs — so
+    the control bought nothing and the reasoning deployments reject it outright
+    with a 400 anyway. See `AzureOpenAIClient.chat`.
 
     Retried once on an unreadable reply, exactly as the case-intent calls are,
     and with the previous error quoted back — a reply that missed the shape is
@@ -568,7 +582,7 @@ async def _chat_json(
         raise LanguageBoundaryError(failure_code, "Azure OpenAI is not configured")
 
     client = AzureOpenAIClient(settings)
-    deployment = settings.azure_openai_fast_deployment or settings.azure_openai_deployment
+    deployment = settings.azure_openai_deployment
     last_error: str | None = None
 
     for attempt in range(2):
@@ -578,17 +592,31 @@ async def _chat_json(
                 f"\n\nYour previous response was invalid: {last_error}\n"
                 "Return only the JSON object described above."
             )
-        raw = await client.chat(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            deployment=deployment,
-            json_mode=True,
-            max_tokens=max_tokens,
-            timeout=120.0,
-            temperature=0.0,
-        )
+        # The call is INSIDE the try on purpose. It used to sit outside it, so an
+        # `AzureOpenAIError` — a timeout, a 429 that outlived its retries, or a
+        # budget exhausted by the reasoning pass — escaped as itself. It is
+        # caught upstream only because it happens to derive from `RuntimeError`,
+        # which produces a bare-string 503 instead of the structured
+        # `{code, message}` this module's contract promises. That is the one
+        # failure a caller most needs to tell apart arriving in the one shape
+        # that cannot be told apart.
+        try:
+            raw = await client.chat(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                deployment=deployment,
+                json_mode=True,
+                max_tokens=max_tokens,
+                timeout=180.0,
+                reasoning_effort="medium",
+            )
+        except AzureOpenAIError as exc:
+            raise LanguageBoundaryError(
+                failure_code,
+                f"the language boundary could not reach the model: {exc}",
+            ) from exc
         try:
             parsed = json.loads(raw)
             if not isinstance(parsed, dict):
